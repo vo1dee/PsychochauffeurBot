@@ -47,6 +47,7 @@ Create a `.env` file in the root directory of the project with the following con
 ```
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 DISCORD_WEBHOOK_URL=your_discord_webhook_url
+SCREENSHOT_DIR=PsychochauffeurBot/python-web-screenshots
 ```
 
 Replace `your_telegram_bot_token` and `your_discord_webhook_url` with your actual credentials.
