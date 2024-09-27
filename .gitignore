@@ -1,0 +1,19 @@
+# Virtual Environment
+newenv/
+
+# Configuration files
+*.env
+
+# Logs and system files
+*.log
+*.sqlite3
+*.DS_Store
+
+# VS Code settings
+.vscode/
+
+# MacOS files
+.DS_Store
+
+# Screenshot directory (if it contains only generated screenshots)
+python-web-screenshots/*
