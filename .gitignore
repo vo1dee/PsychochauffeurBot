@@ -17,3 +17,7 @@ newenv/
 
 # Screenshot directory (if it contains only generated screenshots)
 python-web-screenshots/*
+
+# Allow .gitkeep or .gitignore to be tracked
+!python-web-screenshots/.gitkeep
+!python-web-screenshots/.gitignore
