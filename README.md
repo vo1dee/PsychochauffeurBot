@@ -14,7 +14,7 @@ This bot can modify and handle various types of messages, including TikTok, Twit
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/Psychochauffeur.git
+git clone https://github.com/vo1dee/PsychochauffeurBot.git
 cd Psychochauffeur
 ```
 
