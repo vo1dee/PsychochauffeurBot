@@ -23,7 +23,7 @@ nest_asyncio.apply()
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
 
 # Set the base directory for screenshots
-SCREENSHOT_DIR = '/home/vo1dee/bot/Psychochauffeur/python-web-screenshots'
+SCREENSHOT_DIR = os.getenv('SCREENSHOT_DIR')
 
 # Telegram Bot Token from environment variables
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
