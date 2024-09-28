@@ -55,7 +55,7 @@ async def handle_message(update: Update, context: CallbackContext):
         logging.debug(f"Processing message: {message_text}")
 
         # Check for trigger words in the message
-        if any(trigger in message_text for trigger in ["5€", "€5", "5 євро"]):
+        if any(trigger in message_text for trigger in ["5€", "€5", "5 євро", "5 €"):
             await restrict_user(update, context)
             return  # Exit after handling this specific case
 
