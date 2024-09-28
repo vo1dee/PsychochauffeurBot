@@ -160,7 +160,7 @@ async def screenshot_command(update: Update, context: CallbackContext):
 
 def take_screenshot():
     # Add 3 hours to current time to match the update at 0 UTC
-    adjusted_time = datetime.datetime.now() + datetime.timedelta(hours=3)
+    adjusted_time = datetime.datetime.now() + datetime.timedelta(hours=-3)
     date_str = adjusted_time.strftime('%Y-%m-%d')
     screenshot_path = os.path.join(SCREENSHOT_DIR, f'flares_{date_str}.png')
 
