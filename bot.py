@@ -48,8 +48,18 @@ def is_url(string: str) -> bool:
     url_pattern = re.compile(r'http[s]?://\S+')
     return bool(url_pattern.match(string))
 
+# Dictionary to map Ukrainian city names to English names (used by OpenWeatherMap)
+city_translations = {
+    "Кортгене": "Kortgene",
+    # Add other cities as needed
+}
+
 # Function to fetch weather data from OpenWeatherMap
 async def get_weather(city: str) -> str:
+
+    # Check if the Ukrainian city name exists in the translation dictionary
+    city = city_translations.get(city, city)  # If no translation is found, use the original input
+
     base_url = "http://api.openweathermap.org/data/2.5/weather"
     params = {
         "q": city,
