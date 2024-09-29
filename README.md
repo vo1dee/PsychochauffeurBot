@@ -47,9 +47,10 @@ Create a `.env` file in the root directory of the project with the following con
 ```
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 DISCORD_WEBHOOK_URL=your_discord_webhook_url
+OPENWEATHER_API_KEY=your_openweather_api_key
 ```
 
-Replace `your_telegram_bot_token` and `your_discord_webhook_url` with your actual credentials.
+Replace `your_telegram_bot_token`, `your_openweather_api_key` and `your_discord_webhook_url` with your actual credentials.
 
 ### 5. Run the Bot
 
