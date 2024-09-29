@@ -51,6 +51,11 @@ def is_url(string: str) -> bool:
 # Dictionary to map Ukrainian city names to English names (used by OpenWeatherMap)
 city_translations = {
     "Кортгене": "Kortgene",
+    "кортгене": "Kortgene",
+    "Тель Авів": "Tel Aviv",
+    "тель Авів": "Tel Aviv",
+    "Тель авів": "Tel Aviv",
+    "тель авів": "Tel Aviv",
     # Add other cities as needed
 }
 
@@ -58,7 +63,7 @@ city_translations = {
 async def get_weather(city: str) -> str:
 
     # Check if the Ukrainian city name exists in the translation dictionary
-    city = city_translations.get(city, city)  # If no translation is found, use the original input
+    city = city_translations.get(city, city).lower()  # If no translation is found, use the original input
 
     base_url = "http://api.openweathermap.org/data/2.5/weather"
     params = {
@@ -186,7 +191,8 @@ async def weather(update: Update, context: CallbackContext):
     if context.args:
         city = " ".join(context.args)
         weather_info = await get_weather(city)
-        await update.message.reply_text(weather_info)
+        if update.message:
+            await update.message.reply_text(weather_info)
     else:
         await update.message.reply_text("Будь ласка, вкажіть назву міста.")
 
