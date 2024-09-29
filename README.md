@@ -65,6 +65,8 @@ python bot.py
 - **Link Modification:** Send TikTok, Twitter, or Instagram links, and the bot will respond with modified links.
 - **User Restriction:** If a user sends a message containing "5€", they will be restricted for a random period.
 - **Screenshot Command:** `/flares` - Takes and sends a screenshot of a solar storms widget.
+- **Weather Command:** `/weather <city>` - Sends a current weather report based on city provided
+
 
 ## TODO
 
