@@ -8,6 +8,7 @@ import datetime
 import random
 import imgkit  # Ensure imgkit is configured correctly on your server
 import pytz
+import requests
 
 from telegram import Update, ChatPermissions
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext
@@ -18,6 +19,9 @@ load_dotenv()
 
 # Apply nest_asyncio to handle nested event loops
 nest_asyncio.apply()
+
+# Your OpenWeatherMap API key
+OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 
 # Discord Webhook URL from environment variables
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
@@ -44,6 +48,37 @@ def is_url(string: str) -> bool:
     url_pattern = re.compile(r'http[s]?://\S+')
     return bool(url_pattern.match(string))
 
+# Function to fetch weather data from OpenWeatherMap
+async def get_weather(city: str) -> str:
+    base_url = "http://api.openweathermap.org/data/2.5/weather"
+    params = {
+        "q": city,
+        "appid": OPENWEATHER_API_KEY,
+        "units": "metric",  # You can change to 'imperial' if needed
+        "lang": "uk"  # Setting language to Ukrainian
+    }
+    
+    try:
+        response = requests.get(base_url, params=params)
+        data = response.json()
+        
+        if data["cod"] != 200:
+            return f"Error: {data['message']}"
+
+        # Parse the weather data
+        city_name = data["name"]
+        weather_description = data["weather"][0]["description"]
+        temp = data["main"]["temp"]
+        feels_like = data["main"]["feels_like"]
+        
+        return (f"Погода у {city_name}:\n"
+                f"{weather_description.capitalize()}\n"
+                f"Температура: {temp}°C\n"
+                f"Відчувається як: {feels_like}°C")
+    except Exception as e:
+        return f"Не вдалося отримати дані про погоду: {str(e)}"
+
+
 # Main message handler function
 async def handle_message(update: Update, context: CallbackContext):
     if update.message and update.message.text:
@@ -55,7 +90,7 @@ async def handle_message(update: Update, context: CallbackContext):
         logging.debug(f"Processing message: {message_text}")
 
         # Check for trigger words in the message
-        if any(trigger in message_text for trigger in ["5€", "€5", "5 євро", "5 €"):
+        if any(trigger in message_text for trigger in ["5€", "€5", "5 євро", "5 €"]):
             await restrict_user(update, context)
             return  # Exit after handling this specific case
 
@@ -135,6 +170,17 @@ async def check_message_for_links(update: Update, context: CallbackContext):
         for link in youtube_links:
             await send_to_discord(link)
 
+
+# Command handler for /weather <city>
+async def weather(update: Update, context: CallbackContext):
+    if context.args:
+        city = " ".join(context.args)
+        weather_info = await get_weather(city)
+        await update.message.reply_text(weather_info)
+    else:
+        await update.message.reply_text("Будь ласка, вкажіть назву міста.")
+
+
 # Function to send messages to Discord
 async def send_to_discord(message: str):
     payload = {"content": message}
@@ -193,6 +239,10 @@ async def main():
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_message_for_links))
         application.add_handler(CommandHandler('flares', screenshot_command))
+
+        weather_handler = CommandHandler("weather", weather)
+        application.add_handler(weather_handler)
+        
 
         # Start the bot
         await application.run_polling()
