@@ -73,7 +73,7 @@ python bot.py
 
 - **Fix Discord Integration:** Currently, the bot may not correctly forward YouTube links to the Discord channel.
 - **Improve Screenshot Handling:** Ensure that screenshots are taken at the appropriate time considering timezone differences. Done
-- **Export banwords to separate file
+- **Export banwords** to separate file
 
 
 ## License
