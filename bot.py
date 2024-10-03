@@ -140,10 +140,19 @@ async def handle_message(update: Update, context: CallbackContext):
             await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
             logging.debug("Deleted original message.")
 
-# Restricts user in the chat for a random duration
+
+
+
 async def restrict_user(update: Update, context: CallbackContext):
     chat = update.effective_chat
     user_id = update.message.from_user.id
+    username = update.message.from_user.username  # Get the username for the reply message
+
+    # Check if the user is the chat owner or an admin
+    chat_member = await context.bot.get_chat_member(chat.id, user_id)
+    if chat_member.status in ["administrator", "creator"]:
+        logging.info("You cannot restrict an admin or the chat owner.")
+        return
 
     if chat.type == "supergroup":
         try:
@@ -171,6 +180,22 @@ async def restrict_user(update: Update, context: CallbackContext):
             logging.error(f"Failed to restrict user: {e}")
     else:
         await update.message.reply_text("This command is only available in supergroups.")
+
+async def handle_sticker(update: Update, context: CallbackContext):
+    # Get unique ID of the sticker
+    sticker_id = update.message.sticker.file_unique_id
+    username = update.message.from_user.username  # Getting the sender's username
+
+    logging.debug(f"Received sticker with file_unique_id: {sticker_id}")
+
+    # Check if the sticker ID matches the specific stickers you want to react to
+    if sticker_id == "AgAD6BQAAh-z-FM":  # Replace with your actual unique sticker ID
+        logging.info(f"Matched specific sticker from {username}, restricting user.")
+        await restrict_user(update, context)
+    else:
+        logging.info(f"Sticker ID {sticker_id} does not match the trigger sticker.")
+
+
 
 # Handler to check messages for YouTube links and send them to Discord
 async def check_message_for_links(update: Update, context: CallbackContext):
@@ -255,6 +280,9 @@ async def main():
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_message_for_links))
         application.add_handler(CommandHandler('flares', screenshot_command))
+
+        # Add sticker handler to detect stickers
+        application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))  # Add this line for stickers
 
         weather_handler = CommandHandler("weather", weather)
         application.add_handler(weather_handler)
