@@ -2,38 +2,47 @@ import asyncio
 import os
 import re
 import logging
-import httpx  # Used for Discord integration, should be verified in case of issues
+import httpx  # Used for Discord integration
 import nest_asyncio
-import datetime
 import random
-import imgkit  # Ensure imgkit is configured correctly on your server
 import pytz
 import requests
+import json
+import imgkit
 
+
+
+from datetime import datetime, timedelta, date
 from telegram import Update, ChatPermissions
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext, ContextTypes
 from dotenv import load_dotenv
+
+
+# Set up logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Apply nest_asyncio to handle nested event loops
-nest_asyncio.apply()
-
-# Your OpenWeatherMap API key
+# Constants and Configuration
+NOW = datetime.now(pytz.timezone('Europe/Kyiv'))
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
-
-# Discord Webhook URL from environment variables
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
-
-# Set the base directory for screenshots
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 SCREENSHOT_DIR = 'python-web-screenshots'
 
-# Telegram Bot Token from environment variables
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-
-# Set up logging for debugging; consider using a file handler for persistent logs
+# Set up logging
 logging.basicConfig(level=logging.INFO)
+
+bot = ApplicationBuilder().token(TOKEN).build()
+
+# Set your timezone (UTC+3)
+LOCAL_TZ = pytz.timezone('Europe/Bucharest')    # Adjust to your local time zone
+
+
+# Apply nest_asyncio to handle nested event loops
+nest_asyncio.apply()
 
 async def start(update: Update, context: CallbackContext):
     logging.debug("Received /start command.")
@@ -91,7 +100,9 @@ async def get_weather(city: str) -> str:
                 f"Температура: {temp}°C\n"
                 f"Відчувається як: {feels_like}°C")
     except Exception as e:
+        logging.error(f"Error fetching weather data: {e}")
         return f"Не вдалося отримати дані про погоду: {str(e)}"
+
 
 
 # Main message handler function
@@ -112,21 +123,22 @@ async def handle_message(update: Update, context: CallbackContext):
         # Initialize modified_links list
         modified_links = []
 
+        domain_modifications = {
+        "tiktok.com": "tfxktok.com",
+        "twitter.com": "fxtwitter.com",
+        "x.com": "fixupx.com",
+        "instagram.com": "ddinstagram.com"
+        }
+
         # Check for specific domain links and modify them
         if any(domain in message_text for domain in ["tiktok.com", "twitter.com", "x.com", "instagram.com"]):
-            links = message_text.split()
+            links = message_text.split()  # This initializes 'links' only if the condition is true
             for link in links:
-                if is_url(link):
-                    if "vm.tiktok.com" in link or "tiktok.com" in link:
-                        modified_link = link.replace("tiktok.com", "tfxktok.com")
-                    elif "twitter.com" in link or "x.com" in link:
-                        modified_link = link.replace("twitter.com", "fxtwitter.com").replace("x.com", "fixupx.com")
-                    elif "instagram.com" in link:
-                        modified_link = link.replace("instagram.com", "ddinstagram.com")
-                    else:
-                        modified_link = link
-
-                    modified_links.append(modified_link)
+                for domain, modified_domain in domain_modifications.items():
+                    if domain in link:
+                        modified_link = link.replace(domain, modified_domain)
+                        modified_links.append(modified_link)
+                        break
 
         # If there are modified links, send the modified message
         if modified_links:
@@ -160,7 +172,7 @@ async def restrict_user(update: Update, context: CallbackContext):
             permissions = ChatPermissions(can_send_messages=False)
 
             # Get current time in EEST
-            eest_now = datetime.datetime.now(pytz.timezone('Europe/Helsinki'))
+            eest_now = datetime.datetime.now(pytz.timezone('Europe/Kyiv'))
             until_date = eest_now + datetime.timedelta(minutes=restrict_duration)
 
             # Restrict user in the chat
@@ -226,17 +238,27 @@ async def weather(update: Update, context: CallbackContext):
 async def send_to_discord(message: str):
     payload = {"content": message}
     try:
-        # Use an HTTP client to send the message to Discord
         async with httpx.AsyncClient() as client:
             response = await client.post(DISCORD_WEBHOOK_URL, json=payload)
-            response.raise_for_status()
-            logging.info(f"Message sent to Discord: {response.text}")
+            logging.info(f"Response status code from Discord: {response.status_code}")  # Log status code
+            response.raise_for_status()  # Raises an error for 4xx/5xx responses
+            
+            logging.info(f"Response from Discord: {response.text}")
+            
+            # Check if response is valid JSON
+            try:
+                json_response = response.json()  # Parse response as JSON
+                logging.info(f"Discord response JSON: {json_response}")
+            except ValueError:
+                logging.error("Received non-JSON response from Discord.")
+                
     except Exception as e:
         logging.error(f"Error sending to Discord: {e}")
 
+
 # Screenshot command to capture the current state of a webpage
 async def screenshot_command(update: Update, context: CallbackContext):
-    screenshot_path = take_screenshot()
+    screenshot_path = await asyncio.to_thread(take_screenshot)
 
     if screenshot_path:
         chat_id = update.effective_chat.id
@@ -246,8 +268,8 @@ async def screenshot_command(update: Update, context: CallbackContext):
         await update.message.reply_text("Failed to take screenshot. Please try again later.")
 
 def take_screenshot():
-    # Add 3 hours to current time to match the update at 0 UTC
-    adjusted_time = datetime.datetime.now() + datetime.timedelta(hours=-3)
+    # Get the current time in UTC or EEST as needed
+    adjusted_time = datetime.now(pytz.timezone('Europe/Kyiv'))
     date_str = adjusted_time.strftime('%Y-%m-%d')
     screenshot_path = os.path.join(SCREENSHOT_DIR, f'flares_{date_str}.png')
 
@@ -269,44 +291,32 @@ def take_screenshot():
 
 
 
+
 # Main function to initialize and run the bot
 async def main():
-    try:
-        application = ApplicationBuilder().token(TOKEN).build()
-        logging.debug("Application initialized.")
 
-        # Add handlers
-        application.add_handler(CommandHandler('start', start))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_message_for_links))
-        application.add_handler(CommandHandler('flares', screenshot_command))
 
-        # Add sticker handler to detect stickers
-        application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))  # Add this line for stickers
+    # Add handlers outside the reminders loop
+    bot.add_handler(CommandHandler('start', start))
+    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_message_for_links))
+    bot.add_handler(CommandHandler('flares', screenshot_command))
+    bot.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))  # Add sticker handler
 
-        weather_handler = CommandHandler("weather", weather)
-        application.add_handler(weather_handler)
-        
+    weather_handler = CommandHandler("weather", weather)
+    bot.add_handler(weather_handler)
 
-        # Start the bot
-        await application.run_polling()
-    finally:
-        await application.shutdown()
+    # Start the bot
+    await bot.run_polling()
 
 # Function to run the bot, handles event loop issues
-def run_bot():
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        task = loop.create_task(main())
-        return task
-    else:
-        asyncio.run(main())
+async def run_bot():
+    await main()
 
 if __name__ == '__main__':
     try:
-        run_bot()
+        asyncio.run(run_bot())  # Use asyncio.run to run the asynchronous function
     except RuntimeError as e:
         logging.error(f"RuntimeError occurred: {e}")
     except Exception as e:
         logging.error(f"An error occurred: {e}")
-
