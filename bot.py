@@ -168,7 +168,7 @@ async def restrict_user(update: Update, context: CallbackContext):
 
     if chat.type == "supergroup":
         try:
-            restrict_duration = random.randint(1, 5)  # Restriction duration in minutes
+            restrict_duration = random.randint(1, 15)  # Restriction duration in minutes
             permissions = ChatPermissions(can_send_messages=False)
 
             # Get current time in EEST
