@@ -35,6 +35,7 @@ SCREENSHOT_DIR = 'python-web-screenshots'
 # Define the sticker file ID
 ALIEXPRESS_STICKER_ID = 'CAACAgQAAxkBAAEuNplnAqatdmo-G7S_065k9AXXnqUn4QACwhQAAlKL8FNCof7bbA2jAjYE'
 
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
@@ -122,7 +123,7 @@ async def handle_message(update: Update, context: CallbackContext):
         if any(trigger in message_text for trigger in ["5€", "€5", "5 євро", "5 єуро", "5 €", "Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]):
             await restrict_user(update, context)
             return  # Exit after handling this specific case
-        if 'aliexpress.com' in message_text:
+        if 'aliexpress.com/item/' in message_text:
             # Reply to the message containing the link by sending a sticker
             await update.message.reply_sticker(sticker=ALIEXPRESS_STICKER_ID)
         # Initialize modified_links list
