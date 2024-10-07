@@ -26,7 +26,6 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 load_dotenv()
 
 # Constants and Configuration
-NOW = datetime.now(pytz.timezone('Europe/Kyiv'))
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -178,7 +177,7 @@ async def restrict_user(update: Update, context: CallbackContext):
             permissions = ChatPermissions(can_send_messages=False)
 
             # Get current time in EEST
-            eest_now = datetime.datetime.now(pytz.timezone('Europe/Kyiv'))
+            eest_now = datetime.now(pytz.timezone('Europe/Kyiv'))
             until_date = eest_now + datetime.timedelta(minutes=restrict_duration)
 
             # Restrict user in the chat
