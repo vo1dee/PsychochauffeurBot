@@ -178,7 +178,7 @@ async def restrict_user(update: Update, context: CallbackContext):
 
             # Get current time in EEST
             eest_now = datetime.now(pytz.timezone('Europe/Kyiv'))
-            until_date = eest_now + datetime.timedelta(minutes=restrict_duration)
+            until_date = eest_now + timedelta(minutes=restrict_duration)  # Corrected timedelta usage
 
             # Restrict user in the chat
             await context.bot.restrict_chat_member(
