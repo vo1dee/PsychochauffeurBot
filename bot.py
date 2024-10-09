@@ -151,12 +151,22 @@ async def handle_message(update: Update, context: CallbackContext):
             cleaned_message_text = remove_links(message_text)
             modified_message = "\n".join(modified_links)
             final_message = f"@{username}💬: {cleaned_message_text}\n\nModified links:\n{modified_message}"
-            await context.bot.send_message(chat_id=chat_id, text=final_message)
-            logging.debug(f"Sent message: {final_message}")
 
-            # Delete the original message
-            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-            logging.debug("Deleted original message.")
+            # Send the modified message
+            # If the message is a reply, get the original message ID
+            if update.message.reply_to_message:
+                original_message_id = update.message.reply_to_message.message_id
+            else:
+                original_message_id = update.message.message_id
+
+            # Send the modified message as a reply to the original message
+            await context.bot.send_message(chat_id=chat_id, text=final_message, reply_to_message_id=original_message_id)
+
+            logging.debug(f"Sent modified message: {final_message}")
+
+            # Delete the original message (your message containing the link)
+            await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
+            logging.debug("Deleted the original message containing the link.")
 
 
 
