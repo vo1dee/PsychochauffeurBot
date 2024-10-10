@@ -72,8 +72,9 @@ city_translations = {
 }
 
 # Function to fetch weather data from OpenWeatherMap
-async def get_weather(city: str) -> str:
+## TODO migrate the API 
 
+async def get_weather(city: str) -> str:
     # Check if the Ukrainian city name exists in the translation dictionary
     city = city_translations.get(city, city).lower()  # If no translation is found, use the original input
 
@@ -94,18 +95,50 @@ async def get_weather(city: str) -> str:
 
         # Parse the weather data
         city_name = data["name"]
+        country_code = data["sys"]["country"]  # Extract the country code
+        weather_id = data["weather"][0]["id"]  # Get weather condition ID
         weather_description = data["weather"][0]["description"]
         temp = data["main"]["temp"]
         feels_like = data["main"]["feels_like"]
         
-        return (f"Погода у {city_name}:\n"
-                f"{weather_description.capitalize()}\n"
-                f"Температура: {temp}°C\n"
-                f"Відчувається як: {feels_like}°C")
+        # Get the corresponding emoji for the weather condition
+        weather_emoji = get_weather_emoji(weather_id)
+        
+        # Convert country code to flag emoji
+        country_flag = country_code_to_emoji(country_code)
+        
+        # Return weather information with the emoji, country code, and flag
+        return (f"Погода у {city_name}, {country_code} {country_flag}:\n"
+                f"{weather_emoji} {weather_description.capitalize()}\n"
+                f"🌡️Температура: {temp}°C\n"
+                f"😎Відчувається як: {feels_like}°C")
     except Exception as e:
         logging.error(f"Error fetching weather data: {e}")
         return f"Не вдалося отримати дані про погоду: {str(e)}"
 
+# Function to convert country code to flag emoji
+def country_code_to_emoji(country_code):
+    return ''.join(chr(127397 + ord(c)) for c in country_code.upper())
+
+
+def get_weather_emoji(weather_id):
+    match weather_id:
+        case id if 200 <= id < 300:
+            return '⛈'  # Thunderstorm
+        case id if 300 <= id < 400:
+            return '🌧'  # Drizzle
+        case id if 500 <= id < 600:
+            return '🌧'  # Rain
+        case id if 600 <= id < 700:
+            return '❄️'  # Snow
+        case id if 700 <= id < 800:
+            return '🌫'  # Atmosphere
+        case 800:
+            return '☀️'  # Clear
+        case id if id > 800:
+            return '☁️'  # Clouds
+        case _:
+            return '🌈'  # Default
 
 
 # Main message handler function
