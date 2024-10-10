@@ -10,7 +10,9 @@ import requests
 import json
 import imgkit
 
-
+from utils import remove_links, country_code_to_emoji, get_weather_emoji, get_city_translation
+from const import city_translations, domain_modifications, OPENWEATHER_API_KEY, DISCORD_WEBHOOK_URL, TOKEN, \
+    SCREENSHOT_DIR, ALIEXPRESS_STICKER_ID
 
 from datetime import datetime, timedelta, date
 from telegram import Update, ChatPermissions
@@ -24,15 +26,6 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # Load environment variables from .env file
 load_dotenv()
-
-# Constants and Configuration
-OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
-DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-SCREENSHOT_DIR = 'python-web-screenshots'
-
-# Define the sticker file ID
-ALIEXPRESS_STICKER_ID = 'CAACAgQAAxkBAAEuNplnAqatdmo-G7S_065k9AXXnqUn4QACwhQAAlKL8FNCof7bbA2jAjYE'
 
 
 # Set up logging
@@ -51,32 +44,12 @@ async def start(update: Update, context: CallbackContext):
     logging.debug("Received /start command.")
     await update.message.reply_text("Hello! Send me TikTok, Twitter, or Instagram links, and I will modify them for you!")
 
-# Utility function to remove all URLs from a given text
-def remove_links(text):
-    return re.sub(r'http[s]?://\S+', '', text).strip()
-
-# Utility function to check if a given string is a URL
-def is_url(string: str) -> bool:
-    url_pattern = re.compile(r'http[s]?://\S+')
-    return bool(url_pattern.match(string))
-
-# Dictionary to map Ukrainian city names to English names (used by OpenWeatherMap)
-city_translations = {
-    "Кортгене": "Kortgene",
-    "кортгене": "Kortgene",
-    "Тель Авів": "Tel Aviv",
-    "тель Авів": "Tel Aviv",
-    "Тель авів": "Tel Aviv",
-    "тель авів": "Tel Aviv",
-    # Add other cities as needed
-}
 
 # Function to fetch weather data from OpenWeatherMap
-## TODO migrate the API 
-
+## TODO migrate the API
 async def get_weather(city: str) -> str:
     # Check if the Ukrainian city name exists in the translation dictionary
-    city = city_translations.get(city, city).lower()  # If no translation is found, use the original input
+    city = get_city_translation(city)
 
     base_url = "http://api.openweathermap.org/data/2.5/weather"
     params = {
@@ -116,30 +89,6 @@ async def get_weather(city: str) -> str:
         logging.error(f"Error fetching weather data: {e}")
         return f"Не вдалося отримати дані про погоду: {str(e)}"
 
-# Function to convert country code to flag emoji
-def country_code_to_emoji(country_code):
-    return ''.join(chr(127397 + ord(c)) for c in country_code.upper())
-
-
-def get_weather_emoji(weather_id):
-    match weather_id:
-        case id if 200 <= id < 300:
-            return '⛈'  # Thunderstorm
-        case id if 300 <= id < 400:
-            return '🌧'  # Drizzle
-        case id if 500 <= id < 600:
-            return '🌧'  # Rain
-        case id if 600 <= id < 700:
-            return '❄️'  # Snow
-        case id if 700 <= id < 800:
-            return '🌫'  # Atmosphere
-        case 800:
-            return '☀️'  # Clear
-        case id if id > 800:
-            return '☁️'  # Clouds
-        case _:
-            return '🌈'  # Default
-
 
 # Main message handler function
 async def handle_message(update: Update, context: CallbackContext):
@@ -161,13 +110,6 @@ async def handle_message(update: Update, context: CallbackContext):
             await update.message.reply_sticker(sticker=ALIEXPRESS_STICKER_ID)
         # Initialize modified_links list
         modified_links = []
-
-        domain_modifications = {
-        "tiktok.com": "tfxktok.com",
-        "twitter.com": "fxtwitter.com",
-        "x.com": "fixupx.com",
-        "instagram.com": "ddinstagram.com"
-        }
 
         # Check for specific domain links and modify them
         if any(domain in message_text for domain in ["tiktok.com", "twitter.com", "x.com", "instagram.com"]):
