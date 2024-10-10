@@ -3,7 +3,7 @@ import os
 # Dictionary to map Ukrainian city names to English names (used by OpenWeatherMap)
 city_translations = {
     "кортгене": "Kortgene",
-    "тельавів": "Tel Aviv",
+    "тель авів": "Tel Aviv",
     # Add other base translations as needed
 }
 
@@ -20,7 +20,7 @@ weather_emojis = {
     range(500, 600): '🌧',  # Rain
     range(600, 700): '❄️',  # Snow
     range(700, 800): '🌫',  # Atmosphere
-    800: '☀️',  # Clear
+    range(800, 800): '☀️',  # Clear
     range(801, 900): '☁️',  # Clouds
 }
 

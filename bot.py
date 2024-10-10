@@ -63,16 +63,21 @@ async def get_weather(city: str) -> str:
         response = requests.get(base_url, params=params)
         data = response.json()
         
-        if data["cod"] != 200:
-            return f"Error: {data['message']}"
+        if data.get("cod") != 200:
+            return f"Error: {data.get('message', 'Unknown error')}"
+
+        # Ensure the weather data structure is correct
+        weather = data.get("weather")
+        if not weather:
+            return "Не вдалося отримати дані про погоду: Weather data not available"
 
         # Parse the weather data
-        city_name = data["name"]
-        country_code = data["sys"]["country"]  # Extract the country code
-        weather_id = data["weather"][0]["id"]  # Get weather condition ID
-        weather_description = data["weather"][0]["description"]
-        temp = data["main"]["temp"]
-        feels_like = data["main"]["feels_like"]
+        city_name = data.get("name", "Unknown city")
+        country_code = data["sys"].get("country", "Unknown country")  # Extract the country code
+        weather_id = weather[0].get("id", 0)  # Get weather condition ID
+        weather_description = weather[0].get("description", "No description")
+        temp = data["main"].get("temp", "N/A")
+        feels_like = data["main"].get("feels_like", "N/A")
         
         # Get the corresponding emoji for the weather condition
         weather_emoji = get_weather_emoji(weather_id)
