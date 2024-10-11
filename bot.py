@@ -10,7 +10,7 @@ import requests
 import json
 import imgkit
 
-from utils import remove_links, country_code_to_emoji, get_weather_emoji, get_city_translation
+from utils import remove_links, country_code_to_emoji, get_weather_emoji, get_city_translation, get_feels_like_emoji
 from const import city_translations, domain_modifications, OPENWEATHER_API_KEY, DISCORD_WEBHOOK_URL, TOKEN, \
     SCREENSHOT_DIR, ALIEXPRESS_STICKER_ID
 
@@ -46,7 +46,6 @@ async def start(update: Update, context: CallbackContext):
 
 
 # Function to fetch weather data from OpenWeatherMap
-## TODO migrate the API
 async def get_weather(city: str) -> str:
     # Check if the Ukrainian city name exists in the translation dictionary
     city = get_city_translation(city)
@@ -69,30 +68,33 @@ async def get_weather(city: str) -> str:
         # Ensure the weather data structure is correct
         weather = data.get("weather")
         if not weather:
-            return "Не вдалося отримати дані про погоду: Weather data not available"
+            return "Failed to retrieve weather data: Weather data not available"
 
         # Parse the weather data
         city_name = data.get("name", "Unknown city")
         country_code = data["sys"].get("country", "Unknown country")  # Extract the country code
         weather_id = weather[0].get("id", 0)  # Get weather condition ID
         weather_description = weather[0].get("description", "No description")
-        temp = data["main"].get("temp", "N/A")
-        feels_like = data["main"].get("feels_like", "N/A")
+        temp = round(data["main"].get("temp", "N/A"))  # Round the temperature
+        feels_like = round(data["main"].get("feels_like", "N/A"))  # Round "feels like" temperature
         
         # Get the corresponding emoji for the weather condition
         weather_emoji = get_weather_emoji(weather_id)
         
         # Convert country code to flag emoji
         country_flag = country_code_to_emoji(country_code)
-        
+
+        # Get the appropriate emoji based on "feels like" temperature
+        feels_like_emoji = get_feels_like_emoji(feels_like)
+
         # Return weather information with the emoji, country code, and flag
-        return (f"Погода у {city_name}, {country_code} {country_flag}:\n"
+        return (f"Weather in {city_name}, {country_code} {country_flag}:\n"
                 f"{weather_emoji} {weather_description.capitalize()}\n"
-                f"🌡️ Температура: {temp}°C\n"
-                f"😎 Відчувається як: {feels_like}°C")
+                f"🌡️ Temperature: {temp}°C\n"
+                f"{feels_like_emoji} Feels like: {feels_like}°C")
     except Exception as e:
         logging.error(f"Error fetching weather data: {e}")
-        return f"Не вдалося отримати дані про погоду: {str(e)}"
+        return f"Failed to retrieve weather data: {str(e)}"
 
 
 # Main message handler function
@@ -101,7 +103,6 @@ async def handle_message(update: Update, context: CallbackContext):
         message_text = update.message.text
         chat_id = update.message.chat_id
         username = update.message.from_user.username
-        message_id = update.message.message_id
 
         logging.debug(f"Processing message: {message_text}")
 
@@ -113,6 +114,7 @@ async def handle_message(update: Update, context: CallbackContext):
         if any(domain in message_text for domain in ["aliexpress.com/item/", "a.aliexpress.com/"]):
             # Reply to the message containing the link by sending a sticker
             await update.message.reply_sticker(sticker=ALIEXPRESS_STICKER_ID)
+
         # Initialize modified_links list
         modified_links = []
 
@@ -132,21 +134,22 @@ async def handle_message(update: Update, context: CallbackContext):
             modified_message = "\n".join(modified_links)
             final_message = f"@{username}💬: {cleaned_message_text}\n\nModified links:\n{modified_message}"
 
-            # Send the modified message
-            # If the message is a reply, get the original message ID
+            # Check if the original message is a reply
             if update.message.reply_to_message:
                 original_message_id = update.message.reply_to_message.message_id
+                # Send the modified message as a reply to the original message
+                await context.bot.send_message(chat_id=chat_id, text=final_message, reply_to_message_id=original_message_id)
             else:
-                original_message_id = update.message.message_id
-
-            # Send the modified message as a reply to the original message
-            await context.bot.send_message(chat_id=chat_id, text=final_message, reply_to_message_id=original_message_id)
+                # If not a reply, send the modified message normally
+                await context.bot.send_message(chat_id=chat_id, text=final_message)
 
             logging.debug(f"Sent modified message: {final_message}")
 
             # Delete the original message (your message containing the link)
             await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
             logging.debug("Deleted the original message containing the link.")
+
+
 
 
 
@@ -298,8 +301,6 @@ async def main():
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_message_for_links))
     bot.add_handler(CommandHandler('flares', screenshot_command))
     bot.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))  # Add sticker handler
-#    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
     weather_handler = CommandHandler("weather", weather)
     bot.add_handler(weather_handler)
 
