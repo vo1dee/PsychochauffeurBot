@@ -92,10 +92,10 @@ async def get_weather(city: str) -> str:
         feels_like_emoji = get_feels_like_emoji(feels_like)
 
         # Return weather information with the emoji, country code, and flag
-        return (f"Weather in {city_name}, {country_code} {country_flag}:\n"
+        return (f"Погода в {city_name}, {country_code} {country_flag}:\n"
                 f"{weather_emoji} {weather_description.capitalize()}\n"
-                f"🌡️ Temperature: {temp}°C\n"
-                f"{feels_like_emoji} Feels like: {feels_like}°C")
+                f"🌡️ Температура: {temp}°C\n"
+                f"{feels_like_emoji} Відчувається як: {feels_like}°C")
     except Exception as e:
         logging.error(f"Error fetching weather data: {e}")
         return f"Failed to retrieve weather data: {str(e)}"
