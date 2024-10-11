@@ -31,6 +31,10 @@ load_dotenv()
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
+OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
+DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+
 bot = ApplicationBuilder().token(TOKEN).build()
 
 # Set your timezone (UTC+3)
