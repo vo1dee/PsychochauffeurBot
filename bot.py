@@ -101,6 +101,18 @@ async def get_weather(city: str) -> str:
         return f"Failed to retrieve weather data: {str(e)}"
 
 
+async def cat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Make a request to The Cat API
+    response = requests.get('https://api.thecatapi.com/v1/images/search')
+    
+    if response.status_code == 200:
+        cat_data = response.json()
+        cat_image_url = cat_data[0]['url']
+        await update.message.reply_photo(cat_image_url)
+    else:
+        await update.message.reply_text('Sorry, I could not fetch a cat image at the moment.')
+
+
 # Main message handler function
 async def handle_message(update: Update, context: CallbackContext):
     if update.message and update.message.text:
@@ -307,6 +319,7 @@ async def main():
     bot.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))  # Add sticker handler
     weather_handler = CommandHandler("weather", weather)
     bot.add_handler(weather_handler)
+    bot.add_handler(CommandHandler('cat', cat_command))
 
     # Start the bot
     await bot.run_polling()
@@ -317,9 +330,7 @@ async def run_bot():
     await main()
 
 if __name__ == '__main__':
-    try:
-        asyncio.run(run_bot())  # Use asyncio.run to run the asynchronous function
-    except RuntimeError as e:
-        logging.error(f"RuntimeError occurred: {e}")
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
+    # Create a new event loop
+    new_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(new_loop)
+    new_loop.run_until_complete(main())
