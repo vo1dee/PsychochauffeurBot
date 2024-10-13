@@ -23,4 +23,8 @@ python-web-screenshots/*
 !python-web-screenshots/.gitignore
 
 # Json files
+<<<<<<< HEAD
 reminders.json
+=======
+reminders.json
+>>>>>>> 9f3e9cc74cf32462e683d2250c91263143bb8376
