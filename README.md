@@ -78,5 +78,5 @@ python bot.py
 
 ## License
 
-This project is licensed under the pohuy License.
+This project is licensed under the MIT License.
 
