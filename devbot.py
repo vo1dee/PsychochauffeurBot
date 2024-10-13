@@ -1,23 +1,23 @@
-import asyncio
 import os
 import re
 import logging
-import httpx  # Used for Discord integration
-import nest_asyncio
+import httpx
 import random
 import pytz
 import requests
 import json
 import imgkit
+import asyncio
+import nest_asyncio
 
 from utils import remove_links, country_code_to_emoji, get_weather_emoji, get_city_translation, get_feels_like_emoji
-from const import city_translations, domain_modifications, OPENWEATHER_API_KEY, DISCORD_WEBHOOK_URL, TOKEN, \
-    SCREENSHOT_DIR, ALIEXPRESS_STICKER_ID
+from const import domain_modifications, ALIEXPRESS_STICKER_ID
 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from telegram import Update, ChatPermissions
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext
 from dotenv import load_dotenv
+
 
 # Apply the patch to allow nested event loops
 nest_asyncio.apply()
@@ -59,7 +59,7 @@ async def get_weather(city: str) -> str:
     try:
         response = requests.get(base_url, params=params)
         data = response.json()
-
+        
         if data.get("cod") != 200:
             return f"Error: {data.get('message', 'Unknown error')}"
 
@@ -106,7 +106,6 @@ async def cat_command(update: Update, context: CallbackContext):
     except Exception as e:
         logging.error(f"Error fetching cat image: {e}")
 
-
 async def handle_message(update: Update, context: CallbackContext):
     if update.message and update.message.text:
         message_text = update.message.text
@@ -115,21 +114,16 @@ async def handle_message(update: Update, context: CallbackContext):
 
         logging.info(f"Processing message: {message_text}")
 
-        # Check for trigger words in the message
-        if any(trigger in message_text for trigger in ["5€", "€5", "5 євро", "5 єуро", "5 €", "Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]):
+        if any(trigger in message_text for trigger in ["5€", "€5", "5 євро", "5 єуро", "5 €"]):
             await restrict_user(update, context)
-            return  # Exit after handling this specific case
+            return
 
         if any(domain in message_text for domain in ["aliexpress.com/item/", "a.aliexpress.com/"]):
-            # Reply to the message containing the link by sending a sticker
             await update.message.reply_sticker(sticker=ALIEXPRESS_STICKER_ID)
 
-        # Initialize modified_links list
         modified_links = []
-
-        # Check for specific domain links and modify them
         if any(domain in message_text for domain in ["tiktok.com", "twitter.com", "x.com", "instagram.com"]):
-            links = message_text.split()  # This initializes 'links' only if the condition is true
+            links = message_text.split()
             for link in links:
                 for domain, modified_domain in domain_modifications.items():
                     if domain in link:
@@ -137,33 +131,24 @@ async def handle_message(update: Update, context: CallbackContext):
                         modified_links.append(modified_link)
                         break
 
-        # If there are modified links, send the modified message
         if modified_links:
             cleaned_message_text = remove_links(message_text)
             modified_message = "\n".join(modified_links)
             final_message = f"@{username}💬: {cleaned_message_text}\n\nModified links:\n{modified_message}"
 
-            # Check if the original message is a reply
             if update.message.reply_to_message:
                 original_message_id = update.message.reply_to_message.message_id
-                # Send the modified message as a reply to the original message
                 await context.bot.send_message(chat_id=chat_id, text=final_message, reply_to_message_id=original_message_id)
             else:
-                # If not a reply, send the modified message normally
                 await context.bot.send_message(chat_id=chat_id, text=final_message)
 
             logging.info(f"Sent modified message: {final_message}")
-
-            # Delete the original message (your message containing the link)
             await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
-            logging.info("Deleted the original message containing the link.")
 
 async def restrict_user(update: Update, context: CallbackContext):
     chat = update.effective_chat
     user_id = update.message.from_user.id
-    username = update.message.from_user.username  # Get the username for the reply message
 
-    # Check if the user is the chat owner or an admin
     chat_member = await context.bot.get_chat_member(chat.id, user_id)
     if chat_member.status in ["administrator", "creator"]:
         logging.info("Cannot restrict an admin or chat owner.")
@@ -171,13 +156,10 @@ async def restrict_user(update: Update, context: CallbackContext):
 
     if chat.type == "supergroup":
         try:
-            restrict_duration = random.randint(1, 15)  # Restriction duration in minutes
+            restrict_duration = random.randint(1, 15)
             permissions = ChatPermissions(can_send_messages=False)
-
-            # Get current time in EEST
             until_date = datetime.now(LOCAL_TZ) + timedelta(minutes=restrict_duration)
 
-            # Restrict user in the chat
             await context.bot.restrict_chat_member(
                 chat_id=chat.id,
                 user_id=user_id,
@@ -185,57 +167,20 @@ async def restrict_user(update: Update, context: CallbackContext):
                 until_date=until_date
             )
 
-            # Notify user with a custom sticker
-            sticker_id = "CAACAgQAAxkBAAEt8tNm9Wc6jYEQdAgQzvC917u3e8EKPgAC9hQAAtMUCVP4rJSNEWepBzYE"
-            await update.message.reply_text(f"Вас запсихопаркували на {restrict_duration} хвилин. Ви не можете надсилати повідомлення.")
-            await context.bot.send_sticker(chat_id=chat.id, sticker=sticker_id)
+            await update.message.reply_text(f"Вас запсихопаркували на {restrict_duration} хвилин.")
             logging.info(f"Restricted user {user_id} for {restrict_duration} minutes.")
-
         except Exception as e:
             logging.error(f"Failed to restrict user: {e}")
     else:
         await update.message.reply_text("This command is only available in supergroups.")
 
-async def handle_sticker(update: Update, context: CallbackContext):
-    # Get unique ID of the sticker
-    sticker_id = update.message.sticker.file_unique_id
-    username = update.message.from_user.username  # Getting the sender's username
-
-    logging.debug(f"Received sticker with file_unique_id: {sticker_id}")
-
-    # Check if the sticker ID matches the specific stickers you want to react to
-    if sticker_id == "AgAD6BQAAh-z-FM":  # Replace with your actual unique sticker ID
-        logging.info(f"Matched specific sticker from {username}, restricting user.")
-        await restrict_user(update, context)
-    else:
-        logging.info(f"Sticker ID {sticker_id} does not match the trigger sticker.")
-
-
-
-# Handler to check messages for YouTube links and send them to Discord
-async def check_message_for_links(update: Update, context: CallbackContext):
-    message_text = update.message.text
-    youtube_regex = r'(https?://(?:www\.)?youtube\.com/[\w\-\?&=]+)'
-
-    logging.debug(f"Checking for YouTube links in message: {message_text}")
-
-    youtube_links = re.findall(youtube_regex, message_text)
-
-    if youtube_links:
-        for link in youtube_links:
-            await send_to_discord(link)
-
-
-# Command handler for /weather <city>
-async def weather(update: Update, context: CallbackContext):
+async def weather_command(update: Update, context: CallbackContext):
     if context.args:
         city = " ".join(context.args)
         weather_info = await get_weather(city)
-        if update.message:
-            await update.message.reply_text(weather_info)
+        await update.message.reply_text(weather_info)
     else:
-        await update.message.reply_text("Будь ласка, вкажіть назву міста.")
-
+        await update.message.reply_text("Please provide a city name. Usage: /weather <city>")
 
 
 # Screenshot command to capture the current state of a webpage
@@ -272,32 +217,16 @@ def take_screenshot():
         return None
 
 
-
-
-# Main function to initialize and run the bot
 async def main():
-
-
-    # Add handlers outside the reminders loop
     bot.add_handler(CommandHandler('start', start))
-    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_message_for_links))
-    bot.add_handler(CommandHandler('flares', screenshot_command))
-    bot.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))  # Add sticker handler
-    weather_handler = CommandHandler("weather", weather)
-    bot.add_handler(weather_handler)
+    bot.add_handler(CommandHandler('weather', weather_command))
     bot.add_handler(CommandHandler('cat', cat_command))
+    bot.add_handler(CommandHandler('flares', flares))  # Adding the flares command
+    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Start the bot
+    # Start polling
     await bot.run_polling()
-    await bot.idle()
-
-# Function to run the bot, handles event loop issues
-async def run_bot():
-    await main()
 
 if __name__ == '__main__':
-    # Create a new event loop
-    new_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(new_loop)
-    new_loop.run_until_complete(main())
+    # Use the current event loop and run the main function
+    asyncio.run(main())
