@@ -282,7 +282,7 @@ async def main():
     # Add handlers outside the reminders loop
     bot.add_handler(CommandHandler('start', start))
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_message_for_links))
+    # bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_message_for_links))
     bot.add_handler(CommandHandler('flares', screenshot_command))
     bot.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))  # Add sticker handler
     weather_handler = CommandHandler("weather", weather)
