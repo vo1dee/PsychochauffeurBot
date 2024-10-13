@@ -24,3 +24,6 @@ python-web-screenshots/*
 
 # Json files
 reminders.json
+
+# Cache files
+__pycache__
