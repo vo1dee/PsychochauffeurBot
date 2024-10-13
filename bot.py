@@ -19,17 +19,18 @@ from telegram import Update, ChatPermissions
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext, ContextTypes
 from dotenv import load_dotenv
 
+# Apply the patch to allow nested event loops
+nest_asyncio.apply()
 
-# Set up logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-
+# Configure logging to an external file
+logging.basicConfig(
+    filename='bot.log',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
 # Load environment variables from .env file
 load_dotenv()
-
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
 
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
@@ -37,23 +38,17 @@ TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
 bot = ApplicationBuilder().token(TOKEN).build()
 
-# Set your timezone (UTC+3)
-LOCAL_TZ = pytz.timezone('Europe/Bucharest')    # Adjust to your local time zone
-
-
-# Apply nest_asyncio to handle nested event loops
-nest_asyncio.apply()
+# Set local timezone
+LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 
 async def start(update: Update, context: CallbackContext):
-    logging.debug("Received /start command.")
+    logging.info("Received /start command.")
     await update.message.reply_text("Hello! Send me TikTok, Twitter, or Instagram links, and I will modify them for you!")
-
 
 # Function to fetch weather data from OpenWeatherMap
 async def get_weather(city: str) -> str:
     # Check if the Ukrainian city name exists in the translation dictionary
     city = get_city_translation(city)
-
     base_url = "http://api.openweathermap.org/data/2.5/weather"
     params = {
         "q": city,
@@ -61,11 +56,10 @@ async def get_weather(city: str) -> str:
         "units": "metric",  # You can change to 'imperial' if needed
         "lang": "uk"  # Setting language to Ukrainian
     }
-    
     try:
         response = requests.get(base_url, params=params)
         data = response.json()
-        
+
         if data.get("cod") != 200:
             return f"Error: {data.get('message', 'Unknown error')}"
 
@@ -100,27 +94,26 @@ async def get_weather(city: str) -> str:
         logging.error(f"Error fetching weather data: {e}")
         return f"Failed to retrieve weather data: {str(e)}"
 
+async def cat_command(update: Update, context: CallbackContext):
+    try:
+        response = requests.get('https://api.thecatapi.com/v1/images/search')
+        if response.status_code == 200:
+            cat_data = response.json()
+            cat_image_url = cat_data[0]['url']
+            await update.message.reply_photo(cat_image_url)
+        else:
+            await update.message.reply_text('Sorry, I could not fetch a cat image at the moment.')
+    except Exception as e:
+        logging.error(f"Error fetching cat image: {e}")
 
-async def cat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Make a request to The Cat API
-    response = requests.get('https://api.thecatapi.com/v1/images/search')
-    
-    if response.status_code == 200:
-        cat_data = response.json()
-        cat_image_url = cat_data[0]['url']
-        await update.message.reply_photo(cat_image_url)
-    else:
-        await update.message.reply_text('Sorry, I could not fetch a cat image at the moment.')
 
-
-# Main message handler function
 async def handle_message(update: Update, context: CallbackContext):
     if update.message and update.message.text:
         message_text = update.message.text
         chat_id = update.message.chat_id
         username = update.message.from_user.username
 
-        logging.debug(f"Processing message: {message_text}")
+        logging.info(f"Processing message: {message_text}")
 
         # Check for trigger words in the message
         if any(trigger in message_text for trigger in ["5€", "€5", "5 євро", "5 єуро", "5 €", "Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]):
@@ -159,16 +152,11 @@ async def handle_message(update: Update, context: CallbackContext):
                 # If not a reply, send the modified message normally
                 await context.bot.send_message(chat_id=chat_id, text=final_message)
 
-            logging.debug(f"Sent modified message: {final_message}")
+            logging.info(f"Sent modified message: {final_message}")
 
             # Delete the original message (your message containing the link)
             await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
-            logging.debug("Deleted the original message containing the link.")
-
-
-
-
-
+            logging.info("Deleted the original message containing the link.")
 
 async def restrict_user(update: Update, context: CallbackContext):
     chat = update.effective_chat
@@ -178,7 +166,7 @@ async def restrict_user(update: Update, context: CallbackContext):
     # Check if the user is the chat owner or an admin
     chat_member = await context.bot.get_chat_member(chat.id, user_id)
     if chat_member.status in ["administrator", "creator"]:
-        logging.info("You cannot restrict an admin or the chat owner.")
+        logging.info("Cannot restrict an admin or chat owner.")
         return
 
     if chat.type == "supergroup":
@@ -187,8 +175,7 @@ async def restrict_user(update: Update, context: CallbackContext):
             permissions = ChatPermissions(can_send_messages=False)
 
             # Get current time in EEST
-            eest_now = datetime.now(pytz.timezone('Europe/Kyiv'))
-            until_date = eest_now + timedelta(minutes=restrict_duration)  # Corrected timedelta usage
+            until_date = datetime.now(LOCAL_TZ) + timedelta(minutes=restrict_duration)
 
             # Restrict user in the chat
             await context.bot.restrict_chat_member(
@@ -202,6 +189,7 @@ async def restrict_user(update: Update, context: CallbackContext):
             sticker_id = "CAACAgQAAxkBAAEt8tNm9Wc6jYEQdAgQzvC917u3e8EKPgAC9hQAAtMUCVP4rJSNEWepBzYE"
             await update.message.reply_text(f"Вас запсихопаркували на {restrict_duration} хвилин. Ви не можете надсилати повідомлення.")
             await context.bot.send_sticker(chat_id=chat.id, sticker=sticker_id)
+            logging.info(f"Restricted user {user_id} for {restrict_duration} minutes.")
 
         except Exception as e:
             logging.error(f"Failed to restrict user: {e}")
@@ -248,27 +236,6 @@ async def weather(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text("Будь ласка, вкажіть назву міста.")
 
-
-# Function to send messages to Discord
-async def send_to_discord(message: str):
-    payload = {"content": message}
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(DISCORD_WEBHOOK_URL, json=payload)
-            logging.info(f"Response status code from Discord: {response.status_code}")  # Log status code
-            response.raise_for_status()  # Raises an error for 4xx/5xx responses
-            
-            logging.info(f"Response from Discord: {response.text}")
-            
-            # Check if response is valid JSON
-            try:
-                json_response = response.json()  # Parse response as JSON
-                logging.info(f"Discord response JSON: {json_response}")
-            except ValueError:
-                logging.error("Received non-JSON response from Discord.")
-                
-    except Exception as e:
-        logging.error(f"Error sending to Discord: {e}")
 
 
 # Screenshot command to capture the current state of a webpage
