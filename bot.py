@@ -211,19 +211,20 @@ async def handle_sticker(update: Update, context: CallbackContext):
         logging.info(f"Sticker ID {sticker_id} does not match the trigger sticker.")
 
 
+## TODO sometime
 
-# Handler to check messages for YouTube links and send them to Discord
-async def check_message_for_links(update: Update, context: CallbackContext):
-    message_text = update.message.text
-    youtube_regex = r'(https?://(?:www\.)?youtube\.com/[\w\-\?&=]+)'
+# # Handler to check messages for YouTube links and send them to Discord
+# async def check_message_for_links(update: Update, context: CallbackContext):
+#     message_text = update.message.text
+#     youtube_regex = r'(https?://(?:www\.)?youtube\.com/[\w\-\?&=]+)'
 
-    logging.debug(f"Checking for YouTube links in message: {message_text}")
+#     logging.debug(f"Checking for YouTube links in message: {message_text}")
 
-    youtube_links = re.findall(youtube_regex, message_text)
+#     youtube_links = re.findall(youtube_regex, message_text)
 
-    if youtube_links:
-        for link in youtube_links:
-            await send_to_discord(link)
+#     if youtube_links:
+#         for link in youtube_links:
+#             await send_to_discord(link)
 
 
 # Command handler for /weather <city>
