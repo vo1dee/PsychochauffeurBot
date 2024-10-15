@@ -22,12 +22,26 @@ from dotenv import load_dotenv
 # Apply the patch to allow nested event loops
 nest_asyncio.apply()
 
-# Configure logging to an external file
+# # Configure logging to an external file
+# logging.basicConfig(
+#     filename='bot.log',
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+#     level=logging.INFO
+# )
+
+
+# Enable logging
 logging.basicConfig(
-    filename='bot.log',
+    filename='/var/log/bot.log',
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+
+# set higher logging level for httpx to avoid all GET and POST requests being logged
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+logger = logging.getLogger(__name__)
+
 
 # Load environment variables from .env file
 load_dotenv()
