@@ -1,14 +1,14 @@
 import asyncio
 import os
-import re
 import logging
-import httpx  # Used for Discord integration
 import nest_asyncio
 import random
 import pytz
 import requests
-import json
 import imgkit
+import schedule
+import time
+import subprocess
 
 from utils import remove_links, country_code_to_emoji, get_weather_emoji, get_city_translation, get_feels_like_emoji
 from const import city_translations, domain_modifications, OPENWEATHER_API_KEY, DISCORD_WEBHOOK_URL, TOKEN, \
@@ -18,28 +18,27 @@ from datetime import datetime, timedelta, date
 from telegram import Update, ChatPermissions
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext, ContextTypes
 from dotenv import load_dotenv
+from logging.handlers import RotatingFileHandler
 
 # Apply the patch to allow nested event loops
 nest_asyncio.apply()
 
-# # Configure logging to an external file
-# logging.basicConfig(
-#     filename='bot.log',
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#     level=logging.INFO
-# )
 
 
-# Enable logging
+
+log_file_path = '/var/log/bot.log'
+
+# Set up a rotating file handler
+handler = RotatingFileHandler(log_file_path, maxBytes=5*1024*1024, backupCount=3)  # 5 MB per log file
+
 logging.basicConfig(
-    filename='/var/log/bot.log',
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    handlers=[handler],
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
 # set higher logging level for httpx to avoid all GET and POST requests being logged
 logging.getLogger("httpx").setLevel(logging.WARNING)
-
 logger = logging.getLogger(__name__)
 
 
@@ -54,6 +53,8 @@ bot = ApplicationBuilder().token(TOKEN).build()
 
 # Set local timezone
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
+
+
 
 async def start(update: Update, context: CallbackContext):
     logging.info("Received /start command.")
@@ -225,22 +226,6 @@ async def handle_sticker(update: Update, context: CallbackContext):
         logging.info(f"Sticker ID {sticker_id} does not match the trigger sticker.")
 
 
-## TODO sometime
-
-# # Handler to check messages for YouTube links and send them to Discord
-# async def check_message_for_links(update: Update, context: CallbackContext):
-#     message_text = update.message.text
-#     youtube_regex = r'(https?://(?:www\.)?youtube\.com/[\w\-\?&=]+)'
-
-#     logging.debug(f"Checking for YouTube links in message: {message_text}")
-
-#     youtube_links = re.findall(youtube_regex, message_text)
-
-#     if youtube_links:
-#         for link in youtube_links:
-#             await send_to_discord(link)
-
-
 # Command handler for /weather <city>
 async def weather(update: Update, context: CallbackContext):
     if context.args:
@@ -264,8 +249,8 @@ async def screenshot_command(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text("Failed to take screenshot. Please try again later.")
 
+# Define your screenshot function
 def take_screenshot():
-    # Get the current time in UTC or EEST as needed
     adjusted_time = datetime.now(pytz.timezone('Europe/Kyiv'))
     date_str = adjusted_time.strftime('%Y-%m-%d')
     screenshot_path = os.path.join(SCREENSHOT_DIR, f'flares_{date_str}.png')
@@ -278,19 +263,28 @@ def take_screenshot():
     config = imgkit.config(wkhtmltoimage='/usr/bin/wkhtmltoimage')
 
     try:
-        # Capture the screenshot of the desired webpage
         imgkit.from_url('https://api.meteoagent.com/widgets/v1/kindex', screenshot_path, config=config)
         logging.info(f"Screenshot taken and saved to: {screenshot_path}")
         return screenshot_path
     except Exception as e:
         logging.error(f"Error taking screenshot: {e}")
         return None
+    
+# Schedule the task for 01:00 Kyiv time every day
+async def schedule_task():
+    schedule.every().day.at("01:00").do(take_screenshot)
 
-
+    while True:
+        # Run all pending tasks
+        schedule.run_pending()
+        await asyncio.sleep(300)    # Wait a minute before checking again
 
 
 # Main function to initialize and run the bot
 async def main():
+
+
+
 
 
     # Add handlers outside the reminders loop
@@ -303,9 +297,11 @@ async def main():
     bot.add_handler(weather_handler)
     bot.add_handler(CommandHandler('cat', cat_command))
 
+
     # Start the bot
     await bot.run_polling()
     await bot.idle()
+    await schedule_task()  # Await the coroutine
 
 # Function to run the bot, handles event loop issues
 async def run_bot():
