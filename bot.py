@@ -6,15 +6,15 @@ import random
 import pytz
 import requests
 import imgkit
-import schedule
-import time
-import subprocess
+#import schedule
+#import time
+#import subprocess
 
 from utils import remove_links, country_code_to_emoji, get_weather_emoji, get_city_translation, get_feels_like_emoji
 from const import city_translations, domain_modifications, OPENWEATHER_API_KEY, DISCORD_WEBHOOK_URL, TOKEN, \
     SCREENSHOT_DIR, ALIEXPRESS_STICKER_ID
 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, time as dt_time
 from telegram import Update, ChatPermissions
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext, ContextTypes
 from dotenv import load_dotenv
@@ -239,18 +239,21 @@ async def weather(update: Update, context: CallbackContext):
 
 
 # Screenshot command to capture the current state of a webpage
-async def screenshot_command(update: Update, context: CallbackContext):
-    screenshot_path = await asyncio.to_thread(take_screenshot)
-
-    if screenshot_path:
-        chat_id = update.effective_chat.id
+async def screenshot_command(update, context):
+    try:
+        # Make sure to await the coroutine and get the file path
+        screenshot_path = await take_screenshot()
+        
+        # Open the file path correctly
         with open(screenshot_path, 'rb') as photo:
-            await context.bot.send_photo(chat_id=chat_id, photo=photo)
-    else:
-        await update.message.reply_text("Failed to take screenshot. Please try again later.")
+            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
+    except Exception as e:
+        # Log the error or send a message indicating the issue
+        print(f"Error in screenshot_command: {e}")
+
 
 # Define your screenshot function
-def take_screenshot():
+async def take_screenshot():
     adjusted_time = datetime.now(pytz.timezone('Europe/Kyiv'))
     date_str = adjusted_time.strftime('%Y-%m-%d')
     screenshot_path = os.path.join(SCREENSHOT_DIR, f'flares_{date_str}.png')
@@ -261,32 +264,41 @@ def take_screenshot():
         return screenshot_path
 
     config = imgkit.config(wkhtmltoimage='/usr/bin/wkhtmltoimage')
-
+    print(f"Screenshot taken at {datetime.now()}")
     try:
-        imgkit.from_url('https://api.meteoagent.com/widgets/v1/kindex', screenshot_path, config=config)
+        # Run from_url in a non-blocking way using asyncio.to_thread
+        await asyncio.to_thread(imgkit.from_url, 'https://api.meteoagent.com/widgets/v1/kindex', screenshot_path, config=config)
         logging.info(f"Screenshot taken and saved to: {screenshot_path}")
         return screenshot_path
     except Exception as e:
         logging.error(f"Error taking screenshot: {e}")
         return None
+
     
-# Schedule the task for 01:00 Kyiv time every day
+def schedule_screenshot():
+    # Schedule the coroutine using `asyncio.create_task`.
+    asyncio.create_task(take_screenshot())
+
 async def schedule_task():
-    schedule.every().day.at("01:00").do(take_screenshot)
+    # Set the time for 01:00 Kyiv time every day
+    kyiv_time = pytz.timezone('Europe/Kyiv')
+    schedule_time = dt_time(1, 0)  # 1 AM Kyiv time
+    last_run_date = None  # To keep track of the last run date
 
     while True:
-        # Run all pending tasks
-        schedule.run_pending()
-        await asyncio.sleep(300)    # Wait a minute before checking again
-
+        # Get the current time in Kyiv timezone
+        now = datetime.now(kyiv_time)
+        
+        # Check if it's past 1 AM and the task hasn't been run today
+        if now.time() >= schedule_time and last_run_date != now.date():
+            await take_screenshot()
+            last_run_date = now.date()  # Update the last run date to today
+            
+        # Sleep for an hour before checking again
+        await asyncio.sleep(3600)
 
 # Main function to initialize and run the bot
 async def main():
-
-
-
-
-
     # Add handlers outside the reminders loop
     bot.add_handler(CommandHandler('start', start))
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -298,10 +310,14 @@ async def main():
     bot.add_handler(CommandHandler('cat', cat_command))
 
 
+
+    asyncio.create_task(schedule_task())
+
+
     # Start the bot
     await bot.run_polling()
     await bot.idle()
-    await schedule_task()  # Await the coroutine
+    # await schedule_task()  # Await the coroutine
 
 # Function to run the bot, handles event loop issues
 async def run_bot():
