@@ -57,7 +57,7 @@ LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 
 
 async def start(update: Update, context: CallbackContext):
-    logging.info("Received /start command.")
+    logging.info(f"Processing /start command from user {update.message.from_user.id} in chat {update.effective_chat.id}")
     await update.message.reply_text("Hello! Send me TikTok, Twitter, or Instagram links, and I will modify them for you!")
 
 # Function to fetch weather data from OpenWeatherMap
@@ -76,7 +76,9 @@ async def get_weather(city: str) -> str:
         data = response.json()
 
         if data.get("cod") != 200:
+            logging.error(f"Weather API error response: {data}")
             return f"Error: {data.get('message', 'Unknown error')}"
+
 
         # Ensure the weather data structure is correct
         weather = data.get("weather")
@@ -122,6 +124,10 @@ async def cat_command(update: Update, context: CallbackContext):
         logging.error(f"Error fetching cat image: {e}")
 
 
+def contains_trigger_words(message_text):
+    triggers = ["5€", "€5", "5 євро", "5 єуро", "5 €", "Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]
+    return any(trigger in message_text for trigger in triggers)
+
 async def handle_message(update: Update, context: CallbackContext):
     if update.message and update.message.text:
         message_text = update.message.text
@@ -131,9 +137,9 @@ async def handle_message(update: Update, context: CallbackContext):
         logging.info(f"Processing message: {message_text}")
 
         # Check for trigger words in the message
-        if any(trigger in message_text for trigger in ["5€", "€5", "5 євро", "5 єуро", "5 €", "Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]):
+        if contains_trigger_words(message_text):
             await restrict_user(update, context)
-            return  # Exit after handling this specific case
+            return
 
         if any(domain in message_text for domain in ["aliexpress.com/item/", "a.aliexpress.com/"]):
             # Reply to the message containing the link by sending a sticker
@@ -146,6 +152,10 @@ async def handle_message(update: Update, context: CallbackContext):
         if any(domain in message_text for domain in ["tiktok.com", "twitter.com", "x.com", "instagram.com"]):
             links = message_text.split()  # This initializes 'links' only if the condition is true
             for link in links:
+                # Check if the link is already modified (exists in the modified domains)
+                if any(modified_domain in link for modified_domain in domain_modifications.values()):
+                    break
+                # Otherwise, proceed to modify the link
                 for domain, modified_domain in domain_modifications.items():
                     if domain in link:
                         modified_link = link.replace(domain, modified_domain)
@@ -249,7 +259,8 @@ async def screenshot_command(update, context):
             await context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
     except Exception as e:
         # Log the error or send a message indicating the issue
-        print(f"Error in screenshot_command: {e}")
+        logging.info(f"Screenshot taken at {datetime.now()}")
+
 
 
 # Define your screenshot function
