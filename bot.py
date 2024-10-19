@@ -6,6 +6,7 @@ import random
 import pytz
 import requests
 import imgkit
+import csv
 #import schedule
 #import time
 #import subprocess
@@ -23,6 +24,8 @@ from logging.handlers import RotatingFileHandler
 # Apply the patch to allow nested event loops
 nest_asyncio.apply()
 
+
+CSV_FILE = "user_locations.csv"
 
 
 
@@ -62,14 +65,14 @@ async def start(update: Update, context: CallbackContext):
 
 # Function to fetch weather data from OpenWeatherMap
 async def get_weather(city: str) -> str:
-    # Check if the Ukrainian city name exists in the translation dictionary
+    # Same as before, fetching weather data from OpenWeatherMap API
     city = get_city_translation(city)
     base_url = "http://api.openweathermap.org/data/2.5/weather"
     params = {
         "q": city,
         "appid": OPENWEATHER_API_KEY,
-        "units": "metric",  # You can change to 'imperial' if needed
-        "lang": "uk"  # Setting language to Ukrainian
+        "units": "metric",
+        "lang": "uk"
     }
     try:
         response = requests.get(base_url, params=params)
@@ -79,37 +82,73 @@ async def get_weather(city: str) -> str:
             logging.error(f"Weather API error response: {data}")
             return f"Error: {data.get('message', 'Unknown error')}"
 
-
-        # Ensure the weather data structure is correct
         weather = data.get("weather")
         if not weather:
             return "Failed to retrieve weather data: Weather data not available"
 
-        # Parse the weather data
         city_name = data.get("name", "Unknown city")
-        country_code = data["sys"].get("country", "Unknown country")  # Extract the country code
-        weather_id = weather[0].get("id", 0)  # Get weather condition ID
+        country_code = data["sys"].get("country", "Unknown country")
+        weather_id = weather[0].get("id", 0)
         weather_description = weather[0].get("description", "No description")
-        temp = round(data["main"].get("temp", "N/A"))  # Round the temperature
-        feels_like = round(data["main"].get("feels_like", "N/A"))  # Round "feels like" temperature
-        
-        # Get the corresponding emoji for the weather condition
-        weather_emoji = get_weather_emoji(weather_id)
-        
-        # Convert country code to flag emoji
-        country_flag = country_code_to_emoji(country_code)
+        temp = round(data["main"].get("temp", "N/A"))
+        feels_like = round(data["main"].get("feels_like", "N/A"))
 
-        # Get the appropriate emoji based on "feels like" temperature
+        weather_emoji = get_weather_emoji(weather_id)
+        country_flag = country_code_to_emoji(country_code)
         feels_like_emoji = get_feels_like_emoji(feels_like)
 
-        # Return weather information with the emoji, country code, and flag
         return (f"Погода в {city_name}, {country_code} {country_flag}:\n"
                 f"{weather_emoji} {weather_description.capitalize()}\n"
-                f"🌡️ Температура: {temp}°C\n"
+                f"🌡 Температура: {temp}°C\n"
                 f"{feels_like_emoji} Відчувається як: {feels_like}°C")
     except Exception as e:
         logging.error(f"Error fetching weather data: {e}")
         return f"Failed to retrieve weather data: {str(e)}"
+
+
+def save_user_location(user_id: int, city: str):
+    """Save the user's last used city to a CSV file."""
+    rows = []
+    updated = False
+    try:
+        # Read existing data
+        with open(CSV_FILE, mode='r', newline='', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            rows = list(reader)
+
+        # Update if user exists
+        for row in rows:
+            if int(row[0]) == user_id:
+                row[1] = city
+                row[2] = datetime.now().isoformat()
+                updated = True
+
+        # Add new entry if user doesn't exist
+        if not updated:
+            rows.append([user_id, city, datetime.now().isoformat()])
+
+        # Write back to CSV
+        with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            writer.writerows(rows)
+    except FileNotFoundError:
+        # If CSV doesn't exist, create it and add the user's data
+        with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            writer.writerow([user_id, city, datetime.now().isoformat()])
+
+def get_last_used_city(user_id: int) -> str:
+    """Retrieve the last used city for the user from the CSV file."""
+    try:
+        with open(CSV_FILE, mode='r', newline='', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            for row in reader:
+                if int(row[0]) == user_id:
+                    return row[1]
+    except FileNotFoundError:
+        # If the CSV file doesn't exist, return None
+        return None
+    return None
 
 async def cat_command(update: Update, context: CallbackContext):
     try:
@@ -238,13 +277,23 @@ async def handle_sticker(update: Update, context: CallbackContext):
 
 # Command handler for /weather <city>
 async def weather(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
     if context.args:
         city = " ".join(context.args)
+        # Save the user's location to the CSV file
+        save_user_location(user_id, city)
         weather_info = await get_weather(city)
         if update.message:
             await update.message.reply_text(weather_info)
     else:
-        await update.message.reply_text("Будь ласка, вкажіть назву міста.")
+        # Try to get the last saved city for the user
+        city = get_last_used_city(user_id)
+        if city:
+            weather_info = await get_weather(city)
+            if update.message:
+                await update.message.reply_text(weather_info)
+        else:
+            await update.message.reply_text("Будь ласка, вкажіть назву міста або задайте його спочатку.")
 
 
 
