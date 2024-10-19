@@ -13,9 +13,8 @@ domain_modifications = {
     "tiktok.com": "tfxktok.com",
     "twitter.com": "fxtwitter.com",
     "x.com": "fixupx.com",
-    "fixupx.com": "fixupx.com",
     "instagram.com": "ddinstagram.com"
-
+    
 }
 
 weather_emojis = {

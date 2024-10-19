@@ -5,6 +5,7 @@ newenv/
 *.env
 
 # Logs and system files
+*.csv
 *.log
 *.sqlite3
 *.DS_Store
