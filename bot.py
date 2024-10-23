@@ -7,6 +7,11 @@ import pytz
 import requests
 import imgkit
 import csv
+from openai import AsyncOpenAI
+
+
+
+
 #import schedule
 #import time
 #import subprocess
@@ -14,7 +19,7 @@ import csv
 from utils import remove_links, country_code_to_emoji, get_weather_emoji, get_city_translation, get_feels_like_emoji
 from const import city_translations, domain_modifications, OPENWEATHER_API_KEY, DISCORD_WEBHOOK_URL, TOKEN, \
     SCREENSHOT_DIR, ALIEXPRESS_STICKER_ID
-
+from openai import OpenAI, AsyncClient
 from datetime import datetime, timedelta, time as dt_time
 from telegram import Update, ChatPermissions
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext, ContextTypes
@@ -41,7 +46,7 @@ handler1.setFormatter(formatter1)
 # Set up a rotating file handler for chat logs
 handler2 = RotatingFileHandler(chatlog_file_path, maxBytes=5*1024*1024, backupCount=3)  # 5 MB per log file
 handler2.setLevel(logging.INFO)
-formatter2 = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(chattitle)s - %(username)s - %(message)s')
+formatter2 = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s -  %(chattitle)s - %(username)s - %(message)s')
 handler2.setFormatter(formatter2)
 
 # Configure the logger for general logs
@@ -54,6 +59,7 @@ chat_logger = logging.getLogger('bot_chat_logger')
 chat_logger.setLevel(logging.INFO)
 chat_logger.addHandler(handler2)
 
+
 # Set a higher logging level for the 'httpx' logger to avoid logging all requests
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
@@ -64,6 +70,13 @@ load_dotenv()
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+
+# Load the OpenAI API key from environment variables
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+
+
+# aclient = AsyncOpenAI(api_key=OPENAI_API_KEY)
+client = AsyncClient(api_key=OPENAI_API_KEY)
 
 bot = ApplicationBuilder().token(TOKEN).build()
 
@@ -189,7 +202,7 @@ async def handle_message(update: Update, context: CallbackContext):
         user_name = update.message.from_user.username if update.message.from_user.username else "Unknown User"
 
 
-        chat_logger.info(f"{message_text}", extra={'chattitle': chat_title, 'username': user_name} )
+        chat_logger.info(f"{message_text}", extra={'chattitle': chat_title, 'username': user_name, 'chat_id': chat_id} )
 
         # Check for trigger words in the message
         if contains_trigger_words(message_text):
@@ -311,14 +324,77 @@ async def weather(update: Update, context: CallbackContext):
         else:
             await update.message.reply_text("Будь ласка, вкажіть назву міста або задайте його спочатку.")
 
+# Define the log rotation function
+def rotate_words(message: str, num_words: int = 6) -> str:
+    """Rotate a specified number of words in the message."""
+    words = message.split()
+    if len(words) < num_words:
+        num_words = len(words)
 
+    # Select random indices to rotate
+    indices = random.sample(range(len(words)), num_words)
+    selected_words = [words[i] for i in indices]
+
+    # Shuffle the selected words
+    random.shuffle(selected_words)
+
+    # Update the original list with shuffled words
+    for idx, original_idx in enumerate(indices):
+        words[original_idx] = selected_words[idx]
+
+    return ' '.join(words)
+
+# Function to rotate chat logs daily
+def rotate_chat_logs():
+    """Rotate words in chat logs daily."""
+    try:
+        # Open the chat log file for reading
+        with open(chatlog_file_path, 'r') as file:
+            lines = file.readlines()
+
+        # Rotate words in each log entry
+        rotated_lines = []
+        for line in lines:
+            # Example: Extract the message from the log and rotate words
+            # Assume the format is: '2023-10-14 - chat_name - user_name - message'
+            parts = line.strip().split(' - ')
+            if len(parts) >= 4:
+                message = parts[-1]
+                rotated_message = rotate_words(message)
+                parts[-1] = rotated_message
+                rotated_lines.append(' - '.join(parts))
+
+        # Write the rotated entries back to the log file
+        with open(chatlog_file_path, 'w') as file:
+            file.writelines(rotated_lines)
+
+        general_logger.info("Chat logs rotated successfully.")
+    except Exception as e:
+        general_logger.error(f"Error rotating chat logs: {e}")
+
+# Function to schedule the daily log rotation
+async def schedule_log_rotation():
+    """Schedules the log rotation to occur at midnight each day."""
+    local_tz = pytz.timezone('Europe/Kyiv')
+    now = datetime.now(local_tz)
+    next_rotation = datetime.combine(now.date() + timedelta(days=1), dt_time.min, tzinfo=local_tz)
+
+    # Calculate the time until the next rotation
+    time_until_rotation = (next_rotation - now).total_seconds()
+
+    # Schedule the rotation task
+    await asyncio.sleep(time_until_rotation)
+    rotate_chat_logs()
+
+    # Reschedule the rotation for the next day
+    await schedule_log_rotation()
 
 # Screenshot command to capture the current state of a webpage
 async def screenshot_command(update, context):
     try:
         # Make sure to await the coroutine and get the file path
         screenshot_path = await take_screenshot()
-        
+
         # Open the file path correctly
         with open(screenshot_path, 'rb') as photo:
             await context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
@@ -327,6 +403,39 @@ async def screenshot_command(update, context):
         general_logger.info(f"Screenshot taken at {datetime.now()}")
 
 
+async def ask_gpt_command(update: Update, context: CallbackContext):
+    """Handles the /gpt command to query GPT with a question."""
+    if not context.args:
+        await update.message.reply_text("Please provide a question, e.g., /gpt What is the weather?")
+        return
+
+    question = " ".join(context.args)
+    try:
+        # Send the question to GPT
+        response = await client.chat.completions.create(  # Ensure you use await here
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": question}
+            ],
+            max_tokens=250,
+            temperature=0.7
+        )   
+
+        # Extract GPT's response
+        gpt_reply = response.choices[0].message.content
+        await update.message.reply_text(gpt_reply)
+
+        # Log the interaction
+        chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
+        user_name = update.message.from_user.username if update.message.from_user.username else "Unknown User"
+        chat_id = update.message.chat_id if update.message.chat_id else "Unknown chat"
+        chat_logger.info(f"User {update.message.from_user.username} asked GPT: {question}", extra={'chattitle': chat_title, 'username': user_name, 'chat_id': chat_id})
+        chat_logger.info(f"GPT's response: {gpt_reply}", extra={'chattitle': chat_title, 'username': user_name, 'chat_id': chat_id})
+
+    except Exception as e:
+        general_logger.error(f"Failed to communicate with GPT: {e}")
+        await update.message.reply_text("Sorry, I couldn't get an answer right now.")
 
 # Define your screenshot function
 async def take_screenshot():
@@ -350,7 +459,95 @@ async def take_screenshot():
         general_logger.error(f"Error taking screenshot: {e}")
         return None
 
-    
+
+
+# Function to read the last n lines of the chat log for a specific chat ID
+def read_last_n_lines(file_path, chat_id, n=100):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        lines = file.readlines()
+        
+        # Filter lines by chat_id (converting chat_id to str as it appears in the log)
+        filtered_lines = [line for line in lines if f' {chat_id} ' in line]
+
+        # Debugging output to verify filtering
+        print(f"Total lines read: {len(lines)}")  # Total lines in log
+        print(f"Filtered lines count for chat_id {chat_id}: {len(filtered_lines)}")  # Filtered lines
+
+        # Return the last n messages for the specific chat
+        return filtered_lines[-n:] if len(filtered_lines) >= n else filtered_lines
+
+
+
+# Function to summarize the messages using GPT
+async def summarize_messages(messages):
+    try:
+        summary = await gpt_summary_function(messages)
+        return summary
+    except Exception as e:
+        logging.error(f"Error summarizing messages: {e}")
+        return "Could not generate summary."
+
+
+
+async def gpt_summary_function(messages):
+    try:
+        # Join the messages into a single string
+        messages_text = "\n".join(messages)
+
+        # Create the prompt for GPT
+        prompt = f"Підсумуйте наступні повідомлення:\n\n{messages_text}\n\nПідсумок:"
+
+        # Call the OpenAI API to get the summary
+        response = await client.chat.completions.create(  # Ensure this matches your library's documentation
+            model="gpt-3.5-turbo",  # or any other model you prefer
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=150,  # Adjust the number of tokens for the summary as needed
+            temperature=0.7  # Adjust the creativity of the response
+        )
+
+        # Extract the summary from the response
+        summary = response.choices[0].message.content.strip()  # Adjust based on actual response structure
+        return summary
+    except Exception as e:
+        logging.error(f"Error in GPT summarization: {e}")
+        return "Не вдалося згенерувати підсумок."
+
+
+
+# Command handler for /analyze
+async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    n = 100  # Change this to 500 if you want to read 500 lines
+    log_file_path = '/var/log/psychochauffeurbot/bot_chat.log'  # Update this path
+
+    try:
+        # Read the last n lines specific to the chat ID
+        messages = read_last_n_lines(log_file_path, chat_id, n)
+
+        # Debugging output
+        print(f"Messages to summarize: {messages}")
+
+        if not messages:
+            await context.bot.send_message(chat_id, "Не знайдено повідомлень для аналізу.")
+            return
+        
+        # Extract just the message text from the log lines
+        messages_text = [line.split(" - ")[-1].strip() for line in messages]
+
+        # Summarize the messages in Ukrainian
+        summary = await gpt_summary_function(messages_text)
+
+        # Send the summary back to the chat
+        await context.bot.send_message(chat_id, f"Підсумок останніх {n} повідомлень:\n{summary}")
+    except Exception as e:
+        logging.error(f"Error in /analyze command: {e}")
+        await context.bot.send_message(chat_id, "Виникла помилка при аналізі повідомлень.")
+
+
+
+
 def schedule_screenshot():
     # Schedule the coroutine using `asyncio.create_task`.
     asyncio.create_task(take_screenshot())
@@ -364,12 +561,12 @@ async def schedule_task():
     while True:
         # Get the current time in Kyiv timezone
         now = datetime.now(kyiv_time)
-        
+
         # Check if it's past 1 AM and the task hasn't been run today
         if now.time() >= schedule_time and last_run_date != now.date():
             await take_screenshot()
             last_run_date = now.date()  # Update the last run date to today
-            
+
         # Sleep for an hour before checking again
         await asyncio.sleep(3600)
 
@@ -384,10 +581,12 @@ async def main():
     weather_handler = CommandHandler("weather", weather)
     bot.add_handler(weather_handler)
     bot.add_handler(CommandHandler('cat', cat_command))
-
+    bot.add_handler(CommandHandler("gpt", ask_gpt_command))
+    bot.add_handler(CommandHandler("analyze", analyze_command))
 
 
     asyncio.create_task(schedule_task())
+    asyncio.create_task(schedule_log_rotation())
 
 
     # Start the bot
