@@ -29,20 +29,33 @@ CSV_FILE = "user_locations.csv"
 
 
 
-log_file_path = '/var/log/bot.log'
+log_file_path = '/var/log/psychochauffeurbot/bot.log'
+chatlog_file_path = '/var/log/psychochauffeurbot/bot_chat.log'
 
-# Set up a rotating file handler
-handler = RotatingFileHandler(log_file_path, maxBytes=5*1024*1024, backupCount=3)  # 5 MB per log file
+# Set up a rotating file handler for general logs
+handler1 = RotatingFileHandler(log_file_path, maxBytes=5*1024*1024, backupCount=3)  # 5 MB per log file
+handler1.setLevel(logging.INFO)
+formatter1 = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler1.setFormatter(formatter1)
 
-logging.basicConfig(
-    handlers=[handler],
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Set up a rotating file handler for chat logs
+handler2 = RotatingFileHandler(chatlog_file_path, maxBytes=5*1024*1024, backupCount=3)  # 5 MB per log file
+handler2.setLevel(logging.INFO)
+formatter2 = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(chattitle)s - %(username)s - %(message)s')
+handler2.setFormatter(formatter2)
 
-# set higher logging level for httpx to avoid all GET and POST requests being logged
+# Configure the logger for general logs
+general_logger = logging.getLogger('bot_logger')
+general_logger.setLevel(logging.INFO)
+general_logger.addHandler(handler1)
+
+# Configure a separate logger for chat logs
+chat_logger = logging.getLogger('bot_chat_logger')
+chat_logger.setLevel(logging.INFO)
+chat_logger.addHandler(handler2)
+
+# Set a higher logging level for the 'httpx' logger to avoid logging all requests
 logging.getLogger("httpx").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
 
 
 # Load environment variables from .env file
@@ -60,7 +73,7 @@ LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 
 
 async def start(update: Update, context: CallbackContext):
-    logging.info(f"Processing /start command from user {update.message.from_user.id} in chat {update.effective_chat.id}")
+    general_logger.info(f"Processing /start command from user {update.message.from_user.id} in chat {update.effective_chat.id}")
     await update.message.reply_text("Hello! Send me TikTok, Twitter, or Instagram links, and I will modify them for you!")
 
 # Function to fetch weather data from OpenWeatherMap
@@ -79,7 +92,7 @@ async def get_weather(city: str) -> str:
         data = response.json()
 
         if data.get("cod") != 200:
-            logging.error(f"Weather API error response: {data}")
+            general_logger.error(f"Weather API error response: {data}")
             return f"Error: {data.get('message', 'Unknown error')}"
 
         weather = data.get("weather")
@@ -102,7 +115,7 @@ async def get_weather(city: str) -> str:
                 f"🌡 Температура: {temp}°C\n"
                 f"{feels_like_emoji} Відчувається як: {feels_like}°C")
     except Exception as e:
-        logging.error(f"Error fetching weather data: {e}")
+        general_logger.error(f"Error fetching weather data: {e}")
         return f"Failed to retrieve weather data: {str(e)}"
 
 
@@ -160,7 +173,7 @@ async def cat_command(update: Update, context: CallbackContext):
         else:
             await update.message.reply_text('Sorry, I could not fetch a cat image at the moment.')
     except Exception as e:
-        logging.error(f"Error fetching cat image: {e}")
+        general_logger.error(f"Error fetching cat image: {e}")
 
 
 def contains_trigger_words(message_text):
@@ -172,8 +185,11 @@ async def handle_message(update: Update, context: CallbackContext):
         message_text = update.message.text
         chat_id = update.message.chat_id
         username = update.message.from_user.username
+        chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
+        user_name = update.message.from_user.username if update.message.from_user.username else "Unknown User"
 
-        logging.info(f"Processing message: {message_text}")
+
+        chat_logger.info(f"{message_text}", extra={'chattitle': chat_title, 'username': user_name} )
 
         # Check for trigger words in the message
         if contains_trigger_words(message_text):
@@ -216,11 +232,11 @@ async def handle_message(update: Update, context: CallbackContext):
                 # If not a reply, send the modified message normally
                 await context.bot.send_message(chat_id=chat_id, text=final_message)
 
-            logging.info(f"Sent modified message: {final_message}")
+            general_logger.info(f"Sent modified message: {final_message}")
 
             # Delete the original message (your message containing the link)
             await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
-            logging.info("Deleted the original message containing the link.")
+            general_logger.info("Deleted the original message containing the link.")
 
 async def restrict_user(update: Update, context: CallbackContext):
     chat = update.effective_chat
@@ -230,7 +246,7 @@ async def restrict_user(update: Update, context: CallbackContext):
     # Check if the user is the chat owner or an admin
     chat_member = await context.bot.get_chat_member(chat.id, user_id)
     if chat_member.status in ["administrator", "creator"]:
-        logging.info("Cannot restrict an admin or chat owner.")
+        general_logger.info("Cannot restrict an admin or chat owner.")
         return
 
     if chat.type == "supergroup":
@@ -253,10 +269,10 @@ async def restrict_user(update: Update, context: CallbackContext):
             sticker_id = "CAACAgQAAxkBAAEt8tNm9Wc6jYEQdAgQzvC917u3e8EKPgAC9hQAAtMUCVP4rJSNEWepBzYE"
             await update.message.reply_text(f"Вас запсихопаркували на {restrict_duration} хвилин. Ви не можете надсилати повідомлення.")
             await context.bot.send_sticker(chat_id=chat.id, sticker=sticker_id)
-            logging.info(f"Restricted user {user_id} for {restrict_duration} minutes.")
+            general_logger.info(f"Restricted user {user_id} for {restrict_duration} minutes.")
 
         except Exception as e:
-            logging.error(f"Failed to restrict user: {e}")
+            general_logger.error(f"Failed to restrict user: {e}")
     else:
         await update.message.reply_text("This command is only available in supergroups.")
 
@@ -265,14 +281,14 @@ async def handle_sticker(update: Update, context: CallbackContext):
     sticker_id = update.message.sticker.file_unique_id
     username = update.message.from_user.username  # Getting the sender's username
 
-    logging.debug(f"Received sticker with file_unique_id: {sticker_id}")
+    general_logger.debug(f"Received sticker with file_unique_id: {sticker_id}")
 
     # Check if the sticker ID matches the specific stickers you want to react to
     if sticker_id == "AgAD6BQAAh-z-FM":  # Replace with your actual unique sticker ID
         logging.info(f"Matched specific sticker from {username}, restricting user.")
         await restrict_user(update, context)
     else:
-        logging.info(f"Sticker ID {sticker_id} does not match the trigger sticker.")
+        general_logger.info(f"Sticker ID {sticker_id} does not match the trigger sticker.")
 
 
 # Command handler for /weather <city>
@@ -308,7 +324,7 @@ async def screenshot_command(update, context):
             await context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo)
     except Exception as e:
         # Log the error or send a message indicating the issue
-        logging.info(f"Screenshot taken at {datetime.now()}")
+        general_logger.info(f"Screenshot taken at {datetime.now()}")
 
 
 
@@ -320,7 +336,7 @@ async def take_screenshot():
 
     # Check if the screenshot for the adjusted date already exists
     if os.path.exists(screenshot_path):
-        logging.info(f"Screenshot for today already exists: {screenshot_path}")
+        general_logger.info(f"Screenshot for today already exists: {screenshot_path}")
         return screenshot_path
 
     config = imgkit.config(wkhtmltoimage='/usr/bin/wkhtmltoimage')
@@ -328,10 +344,10 @@ async def take_screenshot():
     try:
         # Run from_url in a non-blocking way using asyncio.to_thread
         await asyncio.to_thread(imgkit.from_url, 'https://api.meteoagent.com/widgets/v1/kindex', screenshot_path, config=config)
-        logging.info(f"Screenshot taken and saved to: {screenshot_path}")
+        general_logger.info(f"Screenshot taken and saved to: {screenshot_path}")
         return screenshot_path
     except Exception as e:
-        logging.error(f"Error taking screenshot: {e}")
+        general_logger.error(f"Error taking screenshot: {e}")
         return None
 
     
