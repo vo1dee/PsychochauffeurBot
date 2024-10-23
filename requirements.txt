@@ -6,3 +6,4 @@ imgkit==1.2.3
 pytz==2023.3
 apscheduler==3.10.1
 schedule==1.2.2
+openai==1.52.1
