@@ -414,7 +414,7 @@ async def ask_gpt_command(update: Update, context: CallbackContext):
     try:
         # Send the question to GPT
         response = await client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "system", "content": (
@@ -504,7 +504,7 @@ async def gpt_summary_function(messages):
 
         # Call the OpenAI API to get the summary
         response = await client.chat.completions.create(  # Ensure this matches your library's documentation
-            model="gpt-3.5-turbo",  # or any other model you prefer
+            model="gpt-4o-mini",  # or any other model you prefer
             messages=[
                 {"role": "user", "content": prompt}
             ],
