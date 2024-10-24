@@ -28,3 +28,6 @@ reminders.json
 
 # Cache files
 __pycache__
+
+# Scripts
+start_bot.sh
