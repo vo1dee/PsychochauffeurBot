@@ -413,15 +413,19 @@ async def ask_gpt_command(update: Update, context: CallbackContext):
     question = " ".join(context.args)
     try:
         # Send the question to GPT
-        response = await client.chat.completions.create(  # Ensure you use await here
+        response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": (
+                    "If the user's request appears to be in Russian, respond in Ukrainian instead. "
+                    "Do not reply in Russian in any circumstance."
+                )},
                 {"role": "user", "content": question}
             ],
             max_tokens=700,
             temperature=0.7
-        )   
+        )
 
         # Extract GPT's response
         gpt_reply = response.choices[0].message.content
