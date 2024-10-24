@@ -7,7 +7,7 @@ import pytz
 import requests
 import imgkit
 import csv
-from openai import AsyncOpenAI
+import openai
 
 
 
