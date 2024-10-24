@@ -419,7 +419,7 @@ async def ask_gpt_command(update: Update, context: CallbackContext):
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": question}
             ],
-            max_tokens=250,
+            max_tokens=700,
             temperature=0.7
         )   
 
@@ -504,7 +504,7 @@ async def gpt_summary_function(messages):
             messages=[
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=250,  # Adjust the number of tokens for the summary as needed
+            max_tokens=700,  # Adjust the number of tokens for the summary as needed
             temperature=0.7  # Adjust the creativity of the response
         )
 
@@ -520,7 +520,7 @@ async def gpt_summary_function(messages):
 # Command handler for /analyze
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    n = 100  # Change this to 500 if you want to read 500 lines
+    n = 250  # Change this to 500 if you want to read 500 lines
     log_file_path = '/var/log/psychochauffeurbot/bot_chat.log'  # Update this path
 
     try:
