@@ -77,6 +77,7 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 # aclient = AsyncOpenAI(api_key=OPENAI_API_KEY)
 client = AsyncClient(api_key=OPENAI_API_KEY)
+openai.api_key = OPENAI_API_KEY
 
 bot = ApplicationBuilder().token(TOKEN).build()
 
