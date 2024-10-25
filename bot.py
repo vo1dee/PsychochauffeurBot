@@ -414,7 +414,7 @@ async def ask_gpt_command(update: Update, context: CallbackContext):
     try:
         # Send the question to GPT
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "system", "content": (
@@ -504,7 +504,7 @@ async def gpt_summary_function(messages):
 
         # Call the OpenAI API to get the summary
         response = await client.chat.completions.create(  # Ensure this matches your library's documentation
-            model="gpt-4o-mini",  # or any other model you prefer
+            model="gpt-4o",  # or any other model you prefer
             messages=[
                 {"role": "user", "content": prompt}
             ],
@@ -524,7 +524,7 @@ async def gpt_summary_function(messages):
 # Command handler for /analyze
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    n = 250  # Change this to 500 if you want to read 500 lines
+    n =500  # Change this to 500 if you want to read 500 lines
     log_file_path = '/var/log/psychochauffeurbot/bot_chat.log'  # Update this path
 
     try:
