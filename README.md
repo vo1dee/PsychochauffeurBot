@@ -1,82 +1,77 @@
-# Psychochauffeur Telegram Bot
+# PsychoChauffeurBot
 
-This bot can modify and handle various types of messages, including TikTok, Twitter, and Instagram links, and forward YouTube links to a Discord channel. It also has features to restrict users and take screenshots of a specific webpage.
+PsychoChauffeur is a Telegram bot designed to enhance chat functionality by modifying links, handling commands, and interacting with users through various tasks. The bot supports modifying domain-specific links, restricting users based on certain criteria, providing weather information, taking screenshots, generating responses with GPT, and managing conversation history.
 
 ## Features
 
-- **Link Modification:** Automatically modifies TikTok, Twitter, and Instagram links.
-- **User Restriction:** Restricts users for a random period when specific keywords like "5€" are detected.
-- **YouTube Link Forwarding:** Forwards YouTube links to a specified Discord channel.         #Doesn't work yet
-- **Screenshot Functionality:** Takes and saves screenshots of a specified webpage at request /flares.
+- **Link Modification**: Automatically modifies TikTok, Twitter and Instagram links based on predefined rules.
+- **Trigger Word Detection**: Restricts users if certain words or phrases appear in the message.
+- **GPT Integration (/gpt)**: Allows users to interact with GPT for various conversational tasks.
+- **Message Analysis (/analyze)**: Summarizes and analyzes recent chat messages.
+- **Weather Information (/weather <city>)**: Provides current weather conditions for a specified city.
+- **Screenshot Command (/flares)**: Takes a screenshot and processes it based on user input.
+- **Conversation History**: Maintains the context of conversations for a better user experience.
+
+## Prerequisites
+
+- Python 3.7+
+- A valid Telegram bot token
+- Additional Python libraries: asyncio, logging, nest_asyncio, pytz, python-telegram-bot
 
 ## Setup
 
-### 1. Clone the Repository
+1. Clone the repository:
 
-```bash
-git clone https://github.com/vo1dee/PsychochauffeurBot.git
-cd Psychochauffeur
-```
+   ```bash
+   git clone https://github.com/vo1dee/psychochauffeurbot.git
+   ```
 
-### 2. Create and Activate a Virtual Environment
+2. Install the required dependencies:
 
-#### Windows
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-```bash
-python -m venv newenv
-newenv\Scripts\activate
-```
+3. Configure environment variables for the bot token:
 
-#### macOS / Linux
+   Set your Telegram bot token in a `.env`.
 
-```bash
-python3 -m venv newenv
-source newenv/bin/activate
-```
+4. Adjust the file paths for logging:
 
-### 3. Install Dependencies
+   - General log: `/var/log/psychochauffeurbot/bot.log`
+   - Chat log: `/var/log/psychochauffeurbot/bot_chat.log`
 
-```bash
-pip install -r requirements.txt
-```
+5. Run the bot:
 
-### 4. Create a `.env` File
+   ```bash
+   python bot.py
+   ```
 
-Create a `.env` file in the root directory of the project with the following content:
+## File Structure
 
-```
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-DISCORD_WEBHOOK_URL=your_discord_webhook_url
-OPENWEATHER_API_KEY=your_openweather_api_key
-```
-
-Replace `your_telegram_bot_token`, `your_openweather_api_key` and `your_discord_webhook_url` with your actual credentials.
-
-### 5. Run the Bot
-
-Run the bot script:
-
-```bash
-python bot.py
-```
+- `bot.py`: Main script for running the bot.
+- `const.py`: Contains constants and configuration variables.
+- `utils.py`: Utility functions used throughout the bot.
+- `modules/`: Contains various modules for bot functionality.
+- `requirements.txt`: Lists the dependencies required for the bot.
 
 ## Usage
 
-- **Start Command:** `/start` - Sends a welcome message to the user.
-- **Link Modification:** Send TikTok, Twitter, or Instagram links, and the bot will respond with modified links.
-- **User Restriction:** If a user sends a message containing "5€", they will be restricted for a random period.
-- **Screenshot Command:** `/flares` - Takes and sends a screenshot of a solar storms widget.
-- **Weather Command:** `/weather <city>` - Sends a current weather report based on city provided
+- Start the bot using `/start` and follow the prompts.
+- Use `/gpt` to interact with GPT functionality.
+- Get the current weather with `/weather <city>`.
+- Analyze recent chat messages using `/analyze`.
+- Modify supported links in messages automatically.
 
+## Contributing
 
-## TODO
+Contributions are welcome! Please follow these steps:
 
-- **Fix Discord Integration:** Currently, the bot may not correctly forward YouTube links to the Discord channel.
-- **Improve Screenshot Handling:** Ensure that screenshots are taken at the appropriate time considering timezone differences. Done
-- **Export banwords** to separate file
-
+1. Fork the repository.
+2. Create a new branch.
+3. Make your changes.
+4. Submit a pull request.
 
 ## License
 
 This project is licensed under the MIT License.
-
