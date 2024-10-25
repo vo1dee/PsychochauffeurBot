@@ -1,8 +1,8 @@
 import os
-# from dotenv import load_dotenv
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
-# load_dotenv()
+load_dotenv()
 
 # Constants and Configuration
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
