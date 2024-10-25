@@ -19,15 +19,12 @@ client = AsyncClient(api_key=OPENAI_API_KEY)
 openai.api_key = OPENAI_API_KEY
 
 
-
-
-async def ask_gpt_command(update: Update, context: CallbackContext):
-    """Handles the /gpt command to query GPT with a question."""
-    if not context.args:
-        await update.message.reply_text("Please provide a question, e.g., /gpt What is the weather?")
+async def ask_gpt_command(context_text: str, update: Update, context: CallbackContext):
+    """Handles the GPT query with conversation context."""
+    if not context_text:
+        await update.message.reply_text("Please provide a question or reply to my message.")
         return
 
-    question = " ".join(context.args)
     try:
         # Send the question to GPT
         response = await client.chat.completions.create(
@@ -38,7 +35,7 @@ async def ask_gpt_command(update: Update, context: CallbackContext):
                     "If the user's request appears to be in Russian, respond in Ukrainian instead. "
                     "Do not reply in Russian in any circumstance."
                 )},
-                {"role": "user", "content": question}
+                {"role": "user", "content": context_text}
             ],
             max_tokens=750,
             temperature=0.7
@@ -52,12 +49,16 @@ async def ask_gpt_command(update: Update, context: CallbackContext):
         chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
         user_name = update.message.from_user.username if update.message.from_user.username else "Unknown User"
         chat_id = update.message.chat_id if update.message.chat_id else "Unknown chat"
-        chat_logger.info(f"User {update.message.from_user.username} asked GPT: {question}", extra={'chattitle': chat_title, 'username': user_name, 'chat_id': chat_id})
+        
+        # Improved logging for better clarity
+        chat_logger.info(f"User {user_name} asked GPT: {context_text}", extra={'chattitle': chat_title, 'username': user_name, 'chat_id': chat_id})
         chat_logger.info(f"GPT's response: {gpt_reply}", extra={'chattitle': chat_title, 'username': user_name, 'chat_id': chat_id})
 
     except Exception as e:
         general_logger.error(f"Failed to communicate with GPT: {e}")
         await update.message.reply_text("Sorry, I couldn't get an answer right now.")
+
+
 
 
 async def gpt_summary_function(messages):

@@ -86,7 +86,7 @@ def get_last_used_city(user_id: int) -> str:
 
 
 # Function to read the last n lines of the chat log for a specific chat ID
-def read_last_n_lines(file_path, chat_id, n=100):
+def read_last_n_lines(file_path, chat_id, n=10):
     with open(file_path, 'r', encoding='utf-8') as file:
         lines = file.readlines()
         
@@ -99,5 +99,4 @@ def read_last_n_lines(file_path, chat_id, n=100):
 
         # Return the last n messages for the specific chat
         return filtered_lines[-n:] if len(filtered_lines) >= n else filtered_lines
-
 

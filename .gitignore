@@ -31,3 +31,6 @@ __pycache__
 
 # Scripts
 start_bot.sh
+
+# Testing
+testbot.py
