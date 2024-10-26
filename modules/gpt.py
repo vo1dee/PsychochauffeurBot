@@ -99,7 +99,7 @@ async def summarize_messages(messages):
 # Command handler for /analyze
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    n = 500  # Change this to 500 if you want to read 500 lines
+    n = 300  # Change this to 500 if you want to read 500 lines
     log_file_path = '/var/log/psychochauffeurbot/bot_chat.log'  # Update this path
 
     try:
