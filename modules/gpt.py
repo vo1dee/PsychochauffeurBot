@@ -30,9 +30,10 @@ async def ask_gpt_command(context_text: str, update: Update, context: CallbackCo
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "system", "content": (
-                    "If the user's request appears to be in Russian, respond in Ukrainian instead. "
+                    "Do not hallucinate."
+                    "Do not made up information."
+                    "If the user's request appears to be in Russian, respond in Ukrainian instead."
                     "Do not reply in Russian in any circumstance."
                 )},
                 {"role": "user", "content": context_text}
@@ -73,6 +74,12 @@ async def gpt_summary_function(messages):
         response = await client.chat.completions.create(  # Ensure this matches your library's documentation
             model="gpt-4o",  # or any other model you prefer
             messages=[
+                {"role": "system", "content": (
+                    "Do not hallucinate."
+                    "Do not made up information."
+                    "If the user's request appears to be in Russian, respond in Ukrainian instead."
+                    "Do not reply in Russian in any circumstance."
+                )},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=750,  # Adjust the number of tokens for the summary as needed

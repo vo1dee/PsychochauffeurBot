@@ -92,13 +92,13 @@ def schedule_screenshot():
 
 async def schedule_task():
     # Set the time for 01:00 Kyiv time every day
-    kyiv_time = pytz.timezone('Europe/Kyiv')
+    kyiv_time = datetime.now(pytz.timezone('Europe/Kyiv'))
     schedule_time = dt_time(1, 0)  # 1 AM Kyiv time
     last_run_date = None  # To keep track of the last run date
 
     while True:
         # Get the current time in Kyiv timezone
-        now = datetime.now(kyiv_time)
+        now = kyiv_time
 
         # Check if it's past 1 AM and the task hasn't been run today
         if now.time() >= schedule_time and last_run_date != now.date():
