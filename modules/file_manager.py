@@ -1,7 +1,7 @@
 import logging
 import csv
 
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 
