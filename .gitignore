@@ -1,5 +1,6 @@
 # Virtual Environment
 newenv/
+venv/
 
 # Configuration files
 *.env
