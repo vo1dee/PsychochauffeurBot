@@ -1,22 +1,30 @@
 # PsychoChauffeurBot
 
-PsychoChauffeur is a Telegram bot designed to enhance chat functionality by modifying links, handling commands, and interacting with users through various tasks. The bot supports modifying domain-specific links, restricting users based on certain criteria, providing weather information, taking screenshots, generating responses with GPT, and managing conversation history.
+PsychoChauffeur is a Telegram bot that enhances chat experience by providing link modification, GPT integration, weather updates, and various utility functions. The bot is designed to be simple to use and efficient in handling various chat-related tasks.
 
-## Features
+## Core Features
 
-- **Link Modification**: Automatically modifies TikTok, Twitter and Instagram links based on predefined rules.
-- **Trigger Word Detection**: Restricts users if certain words or phrases appear in the message.
-- **GPT Integration (/gpt)**: Allows users to interact with GPT for various conversational tasks.
-- **Message Analysis (/analyze)**: Summarizes and analyzes recent chat messages.
-- **Weather Information (/weather <city>)**: Provides current weather conditions for a specified city.
-- **Screenshot Command (/flares)**: Takes a screenshot and processes it based on user input.
-- **Conversation History**: Maintains the context of conversations for a better user experience.
+- **Link Modification**
+  - Automatically modifies links from TikTok, Twitter, and Instagram
+  - Removes original message and reposts with modified links
+  - Preserves message context and user attribution
+  - Special handling for AliExpress links (responds with a sticker)
 
-## Prerequisites
+- **GPT Integration**
+  - Responds to direct mentions or private messages
+  - Processes queries and provides AI-generated responses
+  - Supports both command-based (`/gpt`) and mention-based interactions
 
-- Python 3.7+
-- A valid Telegram bot token
-- Additional Python libraries: asyncio, logging, nest_asyncio, pytz, python-telegram-bot
+- **Utility Commands**
+  - `/weather <city>`: Current weather information with emojis
+  - `/flares`: Daily screenshots of specified webpage (automated at 1 AM Kyiv time)
+  - `/analyze`: Analyzes today's chat messages
+  - `/cat`: Sends random cat pictures
+
+- **Moderation Features**
+  - Monitors messages for specific trigger words
+  - Automatic user restriction for violating content
+  - Sticker-based moderation triggers
 
 ## Setup
 
@@ -26,20 +34,26 @@ PsychoChauffeur is a Telegram bot designed to enhance chat functionality by modi
    git clone https://github.com/vo1dee/psychochauffeurbot.git
    ```
 
-2. Install the required dependencies:
+2. Install dependencies:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Configure environment variables for the bot token:
+3. Configure environment variables:
+   Create a `.env` file with:
+   ```
+   TOKEN=your_telegram_bot_token
+   OPENAI_API_KEY=your_openai_api_key
+   OPENWEATHER_API_KEY=your_openweather_api_key
+   ```
 
-   Set your Telegram bot token in a `.env`.
+4. Set up logging directory:
 
-4. Adjust the file paths for logging:
-
-   - General log: `/var/log/psychochauffeurbot/bot.log`
-   - Chat log: `/var/log/psychochauffeurbot/bot_chat.log`
+   ```bash
+   sudo mkdir -p /var/log/psychochauffeurbot
+   sudo chown your_user:your_group /var/log/psychochauffeurbot
+   ```
 
 5. Run the bot:
 
@@ -47,30 +61,51 @@ PsychoChauffeur is a Telegram bot designed to enhance chat functionality by modi
    python bot.py
    ```
 
+## Requirements
+
+- Python 3.10+
+- Required packages:
+  - python-telegram-bot==20.3
+  - openai==1.52.2
+  - imgkit==1.2.3
+  - pytz==2023.3
+  - Additional dependencies in requirements.txt
+
 ## File Structure
 
-- `bot.py`: Main script for running the bot.
-- `const.py`: Contains constants and configuration variables.
-- `utils.py`: Utility functions used throughout the bot.
-- `modules/`: Contains various modules for bot functionality.
-- `requirements.txt`: Lists the dependencies required for the bot.
+```
+├── bot.py              # Main bot logic
+├── const.py            # Constants and configurations
+├── utils.py            # Utility functions
+├── modules/
+│   ├── gpt.py         # GPT integration
+│   ├── weather.py     # Weather functionality
+│   ├── file_manager.py # Logging and file operations
+│   └── user_management.py # User moderation
+└── requirements.txt
+```
 
 ## Usage
 
-- Start the bot using `/start` and follow the prompts.
-- Use `/gpt` to interact with GPT functionality.
-- Get the current weather with `/weather <city>`.
-- Analyze recent chat messages using `/analyze`.
-- Modify supported links in messages automatically.
+1. **Link Modification**
+   - Simply send a supported link in the chat
+   - Bot will automatically modify and repost
+
+2. **GPT Queries**
+   - Mention bot: `@YourBot what is Python?`
+   - Or use command: `/gpt explain async programming`
+
+3. **Weather Updates**
+   - Command: `/weather London`
+   - Displays temperature, conditions, and relevant emojis
+
+4. **Daily Screenshots**
+   - Manual: `/flares`
+   - Automatic: Daily at 1 AM Kyiv time
 
 ## Contributing
 
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository.
-2. Create a new branch.
-3. Make your changes.
-4. Submit a pull request.
+Feel free to submit issues and pull requests for new features or improvements.
 
 ## License
 

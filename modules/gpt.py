@@ -1,13 +1,9 @@
 import openai
 import logging
-# import os
+import os
 
-from modules.file_manager import general_logger, chat_logger, read_last_n_lines
+from modules.file_manager import general_logger, chat_logger, read_last_n_lines, get_daily_log_path
 from const import OPENAI_API_KEY
-
-
-# Load the OpenAI API key from environment variables
-# OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
@@ -32,13 +28,13 @@ async def ask_gpt_command(context_text: str, update: Update, context: CallbackCo
             messages=[
                 {"role": "system", "content": (
                     "Do not hallucinate."
-                    "Do not made up information."
+                    "Do not make up fictional information."
                     "If the user's request appears to be in Russian, respond in Ukrainian instead."
                     "Do not reply in Russian in any circumstance."
                 )},
                 {"role": "user", "content": context_text}
             ],
-            max_tokens=750,
+            max_tokens=500,
             temperature=0.7
         )
 
@@ -106,29 +102,39 @@ async def summarize_messages(messages):
 # Command handler for /analyze
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    n = 300  # Change this to 500 if you want to read 500 lines
-    log_file_path = '/var/log/psychochauffeurbot/bot_chat.log'  # Update this path
+    today_log_path = get_daily_log_path()
 
     try:
-        # Read the last n lines specific to the chat ID
-        messages = read_last_n_lines(log_file_path, chat_id, n)
+        # Check if today's log file exists
+        if not os.path.exists(today_log_path):
+            await context.bot.send_message(chat_id, "Немає повідомлень для аналізу за сьогодні.")
+            return
 
-        # Debugging output
-        print(f"Messages to summarize: {messages}")
+        # Read today's messages for the specific chat
+        with open(today_log_path, 'r', encoding='utf-8') as f:
+            all_messages = f.readlines()
+        
+        # Filter messages for the specific chat_id
+        chat_messages = [
+            line for line in all_messages 
+            if f" - {chat_id} - " in line  # Adjust this based on your log format
+        ]
 
-        if not messages:
-            await context.bot.send_message(chat_id, "Не знайдено повідомлень для аналізу.")
+        if not chat_messages:
+            await context.bot.send_message(chat_id, "Не знайдено повідомлень для аналізу за сьогодні.")
             return
         
         # Extract just the message text from the log lines
-        messages_text = [line.split(" - ")[-1].strip() for line in messages]
+        messages_text = [line.split(" - ")[-1].strip() for line in chat_messages]
 
         # Summarize the messages in Ukrainian
         summary = await gpt_summary_function(messages_text)
 
         # Send the summary back to the chat
-        await context.bot.send_message(chat_id, f"Підсумок останніх {n} повідомлень:\n{summary}")
+        await context.bot.send_message(
+            chat_id, 
+            f"Підсумок повідомлень за сьогодні ({len(messages_text)} повідомлень):\n{summary}"
+        )
     except Exception as e:
         logging.error(f"Error in /analyze command: {e}")
         await context.bot.send_message(chat_id, "Виникла помилка при аналізі повідомлень.")
-
