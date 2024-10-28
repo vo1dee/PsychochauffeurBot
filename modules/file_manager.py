@@ -1,5 +1,6 @@
 import logging
 import csv
+import os
 
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
@@ -10,31 +11,44 @@ CSV_FILE = "user_locations.csv"
 
 
 
-log_file_path = '/var/log/psychochauffeurbot/bot.log'
-chatlog_file_path = '/var/log/psychochauffeurbot/bot_chat.log'
+LOG_DIR = '/var/log/psychochauffeurbot'
+
+def get_daily_log_path():
+    today = datetime.now().strftime('%Y-%m-%d')
+    return os.path.join(LOG_DIR, f'chat_{today}.log')
 
 # Set up a rotating file handler for general logs
-handler1 = RotatingFileHandler(log_file_path, maxBytes=5*1024*1024, backupCount=3)  # 5 MB per log file
+handler1 = RotatingFileHandler(os.path.join(LOG_DIR, 'bot.log'), maxBytes=5*1024*1024, backupCount=3)
 handler1.setLevel(logging.INFO)
 formatter1 = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler1.setFormatter(formatter1)
 
-# Set up a rotating file handler for chat logs
-handler2 = RotatingFileHandler(chatlog_file_path, maxBytes=5*1024*1024, backupCount=3)  # 5 MB per log file
+# Set up daily chat logs
+class DailyLogHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            daily_log_path = get_daily_log_path()
+            msg = self.format(record)
+            os.makedirs(os.path.dirname(daily_log_path), exist_ok=True)
+            with open(daily_log_path, 'a', encoding='utf-8') as f:
+                f.write(msg + '\n')
+        except Exception:
+            self.handleError(record)
+
+# Configure handlers
+handler2 = DailyLogHandler()
 handler2.setLevel(logging.INFO)
-formatter2 = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s -  %(chattitle)s - %(username)s - %(message)s')
+formatter2 = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s - %(chattitle)s - %(username)s - %(message)s')
 handler2.setFormatter(formatter2)
 
-# Configure the logger for general logs
+# Configure the loggers
 general_logger = logging.getLogger('bot_logger')
 general_logger.setLevel(logging.INFO)
 general_logger.addHandler(handler1)
 
-# Configure a separate logger for chat logs
 chat_logger = logging.getLogger('bot_chat_logger')
 chat_logger.setLevel(logging.INFO)
 chat_logger.addHandler(handler2)
-
 
 # Set a higher logging level for the 'httpx' logger to avoid logging all requests
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -99,4 +113,5 @@ def read_last_n_lines(file_path, chat_id, n=10):
 
         # Return the last n messages for the specific chat
         return filtered_lines[-n:] if len(filtered_lines) >= n else filtered_lines
+
 

@@ -1,37 +1,78 @@
-# Virtual Environment
-newenv/
+### Python ###
+# Virtual environments
 venv/
+newenv/
+env/
+.env/
+.venv/
 
-# Configuration files
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+### Environment Variables ###
 *.env
+.env.local
+.env.*.local
 
-# Logs and system files
-*.csv
+### Logs and Databases ###
+logs/
 *.log
+*.csv
 *.sqlite3
-*.DS_Store
+*.db
 
-# VS Code settings
-.vscode/
-
-# MacOS files
-.DS_Store
-
-# Screenshot directory (if it contains only generated screenshots)
+### Generated Content ###
+# Screenshots
 python-web-screenshots/*
-
-# Allow .gitkeep or .gitignore to be tracked
 !python-web-screenshots/.gitkeep
 !python-web-screenshots/.gitignore
 
-# Json files
+# Data files
+*.json
 reminders.json
 
-# Cache files
-__pycache__
+### IDE and Editor Files ###
+# VS Code
+.vscode/
+*.code-workspace
 
-# Scripts
+# PyCharm
+.idea/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+### OS Generated Files ###
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+### Development ###
+# Local development scripts
+*.sh
 start_bot.sh
 
 # Testing
+test/
+tests/
 testbot.py
+*_test.py
+test_*.py
+
+### Misc ###
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
