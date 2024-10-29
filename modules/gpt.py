@@ -2,7 +2,7 @@ import openai
 import logging
 import os
 
-from modules.file_manager import general_logger, chat_logger, read_last_n_lines, get_daily_log_path
+from modules.file_manager import general_logger, chat_logger, read_last_n_lines, get_daily_log_path, load_used_words, save_used_words
 from const import OPENAI_API_KEY
 
 from telegram import Update
@@ -13,6 +13,7 @@ from openai import AsyncClient
 # aclient = AsyncOpenAI(api_key=OPENAI_API_KEY)
 client = AsyncClient(api_key=OPENAI_API_KEY)
 openai.api_key = OPENAI_API_KEY
+
 
 
 async def ask_gpt_command(context_text: str, update: Update, context: CallbackContext):
@@ -138,3 +139,64 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"Error in /analyze command: {e}")
         await context.bot.send_message(chat_id, "Виникла помилка при аналізі повідомлень.")
+
+
+
+# Initialize used_words from file
+used_words = load_used_words()
+
+async def random_ukrainian_word_command():
+    """Fetches a random Ukrainian word from GPT that hasn't been used before."""
+    global used_words
+    
+    MAX_ATTEMPTS = 5  # Maximum attempts to get a new word
+    
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            prompt = "Give me one random Ukrainian word that is common and easy to guess."
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": (
+                        "Do not hallucinate."
+                        "Do not make up fictional information."
+                        "If the user's request appears to be in Russian, respond in Ukrainian instead."
+                        "Do not reply in Russian in any circumstance."
+                        "Respond with only one Ukrainian word, nothing else."
+                    )},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=3,
+                temperature=0.9
+            )
+            word = response.choices[0].message.content.strip().lower()
+            
+            # Check if word is valid and not used before
+            if word and word not in used_words:
+                used_words.add(word)
+                save_used_words(used_words)  # Save after adding new word
+                general_logger.debug(f"New word added: {word}. Total used: {len(used_words)}")
+                return word
+            
+            general_logger.debug(f"Word '{word}' already used or invalid, trying again. Attempt {attempt + 1}/{MAX_ATTEMPTS}")
+            
+        except Exception as e:
+            general_logger.error(f"Error fetching random Ukrainian word: {e}")
+    
+    # If we've exhausted attempts or have too many used words, clear history and try once more
+    if len(used_words) > 1000:  # Arbitrary limit
+        clear_used_words()
+        general_logger.info("Used words history cleared due to size limit")
+    
+    return None
+
+def clear_used_words():
+    """Clears the history of used words."""
+    global used_words
+    used_words.clear()
+    save_used_words(used_words)  # Save empty set to file
+    general_logger.info("Used words history cleared manually")
+
+def get_used_words_count() -> int:
+    """Returns the number of used words."""
+    return len(used_words)
