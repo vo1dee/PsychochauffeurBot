@@ -3,7 +3,7 @@ import logging
 import nest_asyncio
 import pytz
 
-from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command
+from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
 from modules.gpt import ask_gpt_command, analyze_command 
 from modules.weather import weather
@@ -117,7 +117,8 @@ async def main():
         'flares': screenshot_command,
         'weather': weather,
         'game': game_command,
-        'endgame': end_game_command
+        'endgame': end_game_command,
+        'clearwords': clear_words_command
     }
     
     for command, handler in commands.items():
