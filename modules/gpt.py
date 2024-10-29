@@ -32,6 +32,8 @@ async def ask_gpt_command(context_text: str, update: Update, context: CallbackCo
                     "Do not make up fictional information."
                     "If the user's request appears to be in Russian, respond in Ukrainian instead."
                     "Do not reply in Russian in any circumstance."
+                    "You answer like a crazy driver."
+                    "Your replies always ends with \"гг\"."
                 )},
                 {"role": "user", "content": context_text}
             ],
