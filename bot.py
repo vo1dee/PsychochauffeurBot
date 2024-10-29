@@ -3,7 +3,7 @@ import logging
 import nest_asyncio
 import pytz
 
-from utils import remove_links, screenshot_command, schedule_task, cat_command
+from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
 from modules.gpt import ask_gpt_command, analyze_command
 from modules.weather import weather
@@ -113,8 +113,9 @@ async def main():
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     bot.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
-    # Schedule tasks
-    asyncio.create_task(schedule_task())
+    # Start the screenshot scheduler
+    screenshot_manager = ScreenshotManager()  # Create instance first
+    asyncio.create_task(screenshot_manager.schedule_task())
 
     # Start bot
     await bot.run_polling()
