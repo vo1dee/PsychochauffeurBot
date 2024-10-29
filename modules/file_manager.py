@@ -1,6 +1,7 @@
 import logging
 import csv
 import os
+from typing import Set
 
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
@@ -12,6 +13,8 @@ CSV_FILE = "user_locations.csv"
 
 
 LOG_DIR = '/var/log/psychochauffeurbot'
+
+USED_WORDS_FILE = "data/used_words.csv"
 
 def get_daily_log_path():
     today = datetime.now().strftime('%Y-%m-%d')
@@ -113,5 +116,34 @@ def read_last_n_lines(file_path, chat_id, n=10):
 
         # Return the last n messages for the specific chat
         return filtered_lines[-n:] if len(filtered_lines) >= n else filtered_lines
+
+def ensure_data_directory():
+    """Ensure the data directory exists."""
+    os.makedirs(os.path.dirname(USED_WORDS_FILE), exist_ok=True)
+
+def load_used_words() -> Set[str]:
+    """Load used words from CSV file."""
+    ensure_data_directory()
+    used_words = set()
+    try:
+        if os.path.exists(USED_WORDS_FILE):
+            with open(USED_WORDS_FILE, mode='r', encoding='utf-8') as file:
+                reader = csv.reader(file)
+                used_words = set(word.strip().lower() for row in reader for word in row if word.strip())
+        general_logger.debug(f"Loaded {len(used_words)} used words from file")
+    except Exception as e:
+        general_logger.error(f"Error loading used words: {e}")
+    return used_words
+
+def save_used_words(words: Set[str]) -> None:
+    """Save used words to CSV file."""
+    ensure_data_directory()
+    try:
+        with open(USED_WORDS_FILE, mode='w', encoding='utf-8', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(sorted(words))  # Save as a single row
+        general_logger.debug(f"Saved {len(words)} words to file")
+    except Exception as e:
+        general_logger.error(f"Error saving used words: {e}")
 
 

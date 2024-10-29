@@ -8,9 +8,12 @@ from datetime import datetime, time as dt_time, timedelta
 import glob
 
 from telegram import Update
-from telegram.ext import CallbackContext
+from telegram.ext import CallbackContext, ContextTypes
 from modules.file_manager import general_logger
 from const import weather_emojis, city_translations, feels_like_emojis, SCREENSHOT_DIR
+from modules.gpt import random_ukrainian_word_command, clear_used_words, get_used_words_count
+
+game_state = {}
 
 # Text processing utilities
 def remove_links(text: str) -> str:
@@ -157,3 +160,43 @@ async def schedule_task(cls):
     manager = cls()
     await manager.schedule_task()
 
+
+async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Starts the word game by fetching a random Ukrainian word."""
+    chat_id = update.effective_chat.id
+    word = await random_ukrainian_word_command()
+    if word:
+        game_state[chat_id] = word
+        await update.message.reply_text(f"Гра почалася! Вгадайте українське слово.")
+        
+        # Log the game start and print the game state for debugging
+        general_logger.info(f"Game started for chat_id {chat_id} with word: {word}")
+        # print(f"Current game state: {game_state}")  # Debug print
+    else:
+        await update.message.reply_text("На жаль, я не змогла запустити гру в цьому чаті.")
+        general_logger.error(f"Failed to start game for chat_id {chat_id}")
+
+async def end_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ends the current word game in the chat."""
+    chat_id = update.effective_chat.id
+    
+    if chat_id in game_state:
+        word = game_state[chat_id]
+        del game_state[chat_id]
+        await update.message.reply_text(f"Гру завершено! Слово було: '{word}'")
+        general_logger.debug(f"Game manually ended in chat {chat_id}")
+    else:
+        await update.message.reply_text("В цьому чаті немає активної гри.")
+        general_logger.debug(f"Attempted to end non-existent game in chat {chat_id}")
+
+async def clear_words_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Clears the history of used words in the game."""
+    if not await is_admin(update, context):
+        await update.message.reply_text("Ця команда доступна тільки для адміністраторів.")
+        return
+    
+    current_count = get_used_words_count()
+    clear_used_words()
+    await update.message.reply_text(
+        f"Історію використаних слів очищено. Було видалено {current_count} слів."
+    )

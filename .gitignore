@@ -76,3 +76,8 @@ test_*.py
 *.bak
 *.swp
 *~
+
+# Data files
+data/*
+!data/.gitkeep
+!data/.gitignore

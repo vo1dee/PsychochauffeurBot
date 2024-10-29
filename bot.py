@@ -3,9 +3,9 @@ import logging
 import nest_asyncio
 import pytz
 
-from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager
+from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
-from modules.gpt import ask_gpt_command, analyze_command
+from modules.gpt import ask_gpt_command, analyze_command 
 from modules.weather import weather
 from modules.file_manager import general_logger, chat_logger
 from modules.user_management import restrict_user
@@ -40,6 +40,18 @@ async def handle_message(update: Update, context: CallbackContext):
     is_private_chat = update.effective_chat.type == 'private'
     is_mention = context.bot.username in message_text
     is_reply = update.message.reply_to_message is not None
+
+     # Check if a game is active in this chat
+    print(game_state)
+    if chat_id in game_state:
+        random_word = game_state[chat_id]
+        general_logger.info(f"Game active in chat {chat_id}. Random word: {random_word}")
+        # Check if the message contains the random word (case-insensitive)
+        if random_word.lower() in message_text.lower():
+            await update.message.reply_text(f"Вітаю, @{username}! ти вгадав слово! '{random_word}'!")
+            # End the game by removing the word from the game state
+            del game_state[chat_id]
+            general_logger.info(f"Game ended in chat {chat_id}")
 
     # Handle trigger words
     if contains_trigger_words(message_text):
@@ -103,7 +115,9 @@ async def main():
         'gpt': ask_gpt_command,
         'analyze': analyze_command,
         'flares': screenshot_command,
-        'weather': weather
+        'weather': weather,
+        'game': game_command,
+        'endgame': end_game_command
     }
     
     for command, handler in commands.items():
