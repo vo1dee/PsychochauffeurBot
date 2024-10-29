@@ -5,6 +5,7 @@ import pytz
 import os
 import asyncio
 from datetime import datetime, time as dt_time, timedelta
+import glob
 
 from telegram import Update
 from telegram.ext import CallbackContext
@@ -53,62 +54,93 @@ async def cat_command(update: Update, context: CallbackContext) -> None:
 
 # Screenshot functionality
 class ScreenshotManager:
+    _instance = None  # Singleton instance
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
     def __init__(self):
-        self.timezone = pytz.timezone('Europe/Kyiv')
-        self.schedule_time = dt_time(1, 0)  # 1 AM Kyiv time
-        self.config = imgkit.config(wkhtmltoimage='/usr/bin/wkhtmltoimage')
-        
+        if not hasattr(self, '_initialized'):
+            self.timezone = pytz.timezone('Europe/Kyiv')
+            self.schedule_time = dt_time(1, 0)  # 1 AM Kyiv time
+            config = imgkit.config(wkhtmltoimage='/usr/bin/wkhtmltoimage')
+            self.options = {
+                'quality': '100',
+                'format': 'png',
+                'width': '1920',  # Set a fixed width
+                'enable-javascript': None,
+                'javascript-delay': '1000',  # Wait 1 second for JavaScript
+                'custom-header': [
+                    ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+                ]
+            }
+            self._initialized = True
+
     def get_screenshot_path(self) -> str:
         """Generate screenshot path for current date."""
-        date_str = datetime.now(self.timezone).strftime('%Y-%m-%d')
-        return os.path.join(SCREENSHOT_DIR, f'flares_{date_str}.png')
+        # Get current time in Kyiv timezone
+        kyiv_time = datetime.now(self.timezone)
+        date_str = kyiv_time.strftime('%Y-%m-%d')
+        time_str = kyiv_time.strftime('%H-%M')
+        return os.path.join(SCREENSHOT_DIR, f'flares_{date_str}_{time_str}_kyiv.png')
 
-    async def take_screenshot(self) -> str | None:
-        """Take screenshot if it doesn't exist for today."""
-        screenshot_path = self.get_screenshot_path()
-
-        if os.path.exists(screenshot_path):
-            general_logger.info(f"Screenshot for today already exists: {screenshot_path}")
-            return screenshot_path
-
-        general_logger.info(f"Taking screenshot at {datetime.now()}")
+    async def take_screenshot(self, url, output_path):
         try:
-            await asyncio.to_thread(
-                imgkit.from_url, 
-                'https://api.meteoagent.com/widgets/v1/kindex', 
-                screenshot_path, 
-                config=self.config
-            )
-            general_logger.info(f"Screenshot taken and saved to: {screenshot_path}")
-            return screenshot_path
+            options = {
+                'quality': '100',
+                'format': 'png',
+                'width': '1024',  # Changed from 1920 to 1024 pixels
+                'enable-javascript': None,
+                'javascript-delay': '1000',
+                'custom-header': [
+                    ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+                ]
+            }
+            
+            config = imgkit.config(wkhtmltoimage='/usr/bin/wkhtmltoimage')
+            imgkit.from_url(url, output_path, options=options, config=config)
+            return output_path
         except Exception as e:
-            general_logger.error(f"Error taking screenshot: {e}")
-            return None
+            general_logger.error(f"Error taking screenshot: {str(e)}")
+            return False
 
     async def schedule_task(self) -> None:
         """Schedule daily screenshot task."""
         while True:
-            now = datetime.now(self.timezone)
+            # Get current time in Kyiv timezone
+            kyiv_now = datetime.now(self.timezone)
             
-            # Calculate next run time
-            tomorrow = now.date() + timedelta(days=1)
-            next_run = datetime.combine(tomorrow, self.schedule_time)
-            next_run = self.timezone.localize(next_run)
+            # Create target time for today at 1 AM Kyiv time
+            target_time = self.timezone.localize(
+                datetime.combine(kyiv_now.date(), self.schedule_time)
+            )
             
-            # Calculate and log sleep duration
-            sleep_seconds = (next_run - now).total_seconds()
-            general_logger.info(f"Next screenshot scheduled for: {next_run}")
+            # If it's already past 1 AM Kyiv time today, schedule for tomorrow
+            if kyiv_now > target_time:
+                target_time += timedelta(days=1)
+            
+            # Convert target time to server's local time for sleep calculation
+            server_now = datetime.now(pytz.UTC).astimezone()  # Get server's local time
+            target_time_local = target_time.astimezone(server_now.tzinfo)
+            
+            # Calculate sleep duration based on server time
+            sleep_seconds = (target_time_local - server_now).total_seconds()
+            general_logger.info(f"Current server time: {server_now}")
+            general_logger.info(f"Current Kyiv time: {kyiv_now}")
+            general_logger.info(f"Next screenshot scheduled for: {target_time} (Kyiv time)")
+            general_logger.info(f"Sleep duration: {sleep_seconds} seconds")
             
             # Sleep until next run
             await asyncio.sleep(sleep_seconds)
-            await self.take_screenshot()
+            await self.take_screenshot('https://api.meteoagent.com/widgets/v1/kindex', self.get_screenshot_path())
 
 # Command handlers
 async def screenshot_command(update: Update, context: CallbackContext) -> None:
     """Handle /screenshot command."""
     try:
-        screenshot_manager = ScreenshotManager()
-        screenshot_path = await screenshot_manager.take_screenshot()
+        screenshot_path = await ScreenshotManager().take_screenshot('https://api.meteoagent.com/widgets/v1/kindex', ScreenshotManager().get_screenshot_path())
         if screenshot_path:
             with open(screenshot_path, 'rb') as photo:
                 await context.bot.send_photo(
@@ -118,13 +150,10 @@ async def screenshot_command(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         general_logger.error(f"Error in screenshot command: {e}")
 
-# Initialize screenshot manager for scheduling
-screenshot_manager = ScreenshotManager()
-
-def schedule_screenshot():
-    """Schedule screenshot task."""
-    asyncio.create_task(screenshot_manager.take_screenshot())
-
-async def schedule_task():
+# Keep only one version of schedule_task as a classmethod
+@classmethod
+async def schedule_task(cls):
     """Main scheduling task."""
-    await screenshot_manager.schedule_task()
+    manager = cls()
+    await manager.schedule_task()
+
