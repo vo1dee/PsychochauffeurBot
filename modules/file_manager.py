@@ -5,6 +5,7 @@ from typing import Set
 
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+import pytz
 
 
 
@@ -16,15 +17,39 @@ LOG_DIR = '/var/log/psychochauffeurbot'
 
 USED_WORDS_FILE = "data/used_words.csv"
 
-def get_daily_log_path():
-    today = datetime.now().strftime('%Y-%m-%d')
-    return os.path.join(LOG_DIR, f'chat_{today}.log')
+# Add Kyiv timezone constant
+KYIV_TZ = pytz.timezone('Europe/Kiev')
+
+# Update the formatters to use Kyiv timezone
+class KyivTimezoneFormatter(logging.Formatter):
+    """Custom formatter that uses Kyiv timezone"""
+    def formatTime(self, record, datefmt=None):
+        # Convert to Kyiv timezone
+        dt = datetime.fromtimestamp(record.created).astimezone(KYIV_TZ)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.strftime("%Y-%m-%d %H:%M:%S %z")
+
+def get_daily_log_path(date=None):
+    """Get the path to the daily log file for the specified date."""
+    if date is None:
+        date = datetime.now(KYIV_TZ)
+    elif date.tzinfo is None:
+        # If date has no timezone, assume it's in Kyiv timezone
+        date = KYIV_TZ.localize(date)
+    
+    log_path = os.path.join(
+        LOG_DIR, 
+        f"chat_{date.strftime('%Y-%m-%d')}.log"
+    )
+    
+    general_logger.debug(f"get_daily_log_path: Input date={date}, Generated path={log_path}")
+    return log_path
 
 # Set up a rotating file handler for general logs
 handler1 = RotatingFileHandler(os.path.join(LOG_DIR, 'bot.log'), maxBytes=5*1024*1024, backupCount=3)
-handler1.setLevel(logging.INFO)
-formatter1 = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler1.setFormatter(formatter1)
+handler1.setLevel(logging.DEBUG)
+handler1.setFormatter(KyivTimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
 # Set up daily chat logs
 class DailyLogHandler(logging.Handler):
@@ -41,12 +66,11 @@ class DailyLogHandler(logging.Handler):
 # Configure handlers
 handler2 = DailyLogHandler()
 handler2.setLevel(logging.INFO)
-formatter2 = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s - %(chattitle)s - %(username)s - %(message)s')
-handler2.setFormatter(formatter2)
+handler2.setFormatter(KyivTimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s - %(chattitle)s - %(username)s - %(message)s'))
 
 # Configure the loggers
 general_logger = logging.getLogger('bot_logger')
-general_logger.setLevel(logging.INFO)
+general_logger.setLevel(logging.DEBUG)
 general_logger.addHandler(handler1)
 
 chat_logger = logging.getLogger('bot_chat_logger')
