@@ -171,6 +171,7 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Log the game start and print the game state for debugging
         general_logger.info(f"Game started for chat_id {chat_id} with word: {word}")
+        general_logger.info(f"Game active in chat {chat_id}. Random word: {random_word}")
         # print(f"Current game state: {game_state}")  # Debug print
     else:
         await update.message.reply_text("На жаль, я не змогла запустити гру в цьому чаті.")
@@ -193,7 +194,7 @@ async def clear_words_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Clears the history of used words in the game."""
     if not await is_admin(update, context):
         await update.message.reply_text("Ця команда доступна тільки для адміністраторів.")
-        return
+        return  
     
     current_count = get_used_words_count()
     clear_used_words()

@@ -42,10 +42,9 @@ async def handle_message(update: Update, context: CallbackContext):
     is_reply = update.message.reply_to_message is not None
 
      # Check if a game is active in this chat
-    print(game_state)
+    # print(game_state)
     if chat_id in game_state:
         random_word = game_state[chat_id]
-        general_logger.info(f"Game active in chat {chat_id}. Random word: {random_word}")
         # Check if the message contains the random word (case-insensitive)
         if random_word.lower() in message_text.lower():
             await update.message.reply_text(f"Вітаю, @{username}! ти вгадав слово! '{random_word}'!")

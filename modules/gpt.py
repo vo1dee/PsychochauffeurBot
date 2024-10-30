@@ -1,6 +1,8 @@
 import openai
 import logging
 import os
+from datetime import datetime, timedelta
+import pytz
 
 from modules.file_manager import general_logger, chat_logger, read_last_n_lines, get_daily_log_path, load_used_words, save_used_words
 from const import OPENAI_API_KEY
@@ -13,6 +15,8 @@ from openai import AsyncClient
 # aclient = AsyncOpenAI(api_key=OPENAI_API_KEY)
 client = AsyncClient(api_key=OPENAI_API_KEY)
 openai.api_key = OPENAI_API_KEY
+
+KYIV_TZ = pytz.timezone('Europe/Kiev')
 
 
 
@@ -90,7 +94,7 @@ async def gpt_summary_function(messages):
         return summary
     except Exception as e:
         logging.error(f"Error in GPT summarization: {e}")
-        return "Не вдалося згенерувати підсумок."
+        return "Не вдалос згенерувати підсумок."
     
 
 # Function to summarize the messages using GPT
@@ -104,43 +108,79 @@ async def summarize_messages(messages):
 
 # Command handler for /analyze
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Analyzes chat messages. By default analyzes today's messages."""
     chat_id = update.effective_chat.id
-    today_log_path = get_daily_log_path()
+    
+    # Default to today with Kyiv timezone
+    target_date = datetime.now(KYIV_TZ)
+    date_str = "сьогодні"
+
+    # Check for "yesterday" argument
+    if context.args and context.args[0].lower() == "yesterday":
+        target_date = datetime.now(KYIV_TZ) - timedelta(days=1)
+        date_str = "вчора"
+        general_logger.debug(f"Yesterday date with timezone: {target_date}")
+
+    log_path = get_daily_log_path(target_date)  # Pass the target_date parameter
+    general_logger.debug(f"Looking for log file at: {log_path}")
 
     try:
-        # Check if today's log file exists
-        if not os.path.exists(today_log_path):
-            await context.bot.send_message(chat_id, "Немає повідомлень для аналізу за сьогодні.")
+        # Check if log file exists
+        if not os.path.exists(log_path):
+            general_logger.debug(f"Log file not found at: {log_path}")
+            # List all files in logs directory for debugging
+            log_dir = os.path.dirname(log_path)
+            if os.path.exists(log_dir):
+                files = os.listdir(log_dir)
+                general_logger.debug(f"Files in log directory: {files}")
+            
+            await context.bot.send_message(
+                chat_id, 
+                f"Немає повідомлень для аналізу за {date_str}."
+            )
             return
 
-        # Read today's messages for the specific chat
-        with open(today_log_path, 'r', encoding='utf-8') as f:
+        # Read messages for the specified date
+        with open(log_path, 'r', encoding='utf-8') as f:
             all_messages = f.readlines()
+        general_logger.debug(f"Total messages in log: {len(all_messages)}")
         
         # Filter messages for the specific chat_id
         chat_messages = [
             line for line in all_messages 
-            if f" - {chat_id} - " in line  # Adjust this based on your log format
+            if f" - {chat_id} - " in line
         ]
+        general_logger.debug(f"Messages filtered for chat_id {chat_id}: {len(chat_messages)}")
 
         if not chat_messages:
-            await context.bot.send_message(chat_id, "Не знайдено повідомлень для аналізу за сьогодні.")
+            general_logger.debug(f"No messages found for chat_id {chat_id}")
+            await context.bot.send_message(
+                chat_id, 
+                f"Не знайдено повідомлень для аналізу за {date_str}."
+            )
             return
         
         # Extract just the message text from the log lines
         messages_text = [line.split(" - ")[-1].strip() for line in chat_messages]
+        general_logger.debug(f"Extracted {len(messages_text)} message texts")
+        general_logger.debug(f"First message sample: {messages_text[0] if messages_text else 'No messages'}")
 
         # Summarize the messages in Ukrainian
+        general_logger.debug("Calling GPT for summary")
         summary = await gpt_summary_function(messages_text)
+        general_logger.debug(f"Received summary of length: {len(summary) if summary else 0}")
 
         # Send the summary back to the chat
         await context.bot.send_message(
             chat_id, 
-            f"Підсумок повідомлень за сьогодні ({len(messages_text)} повідомлень):\n{summary}"
+            f"Підсумок повідомлень за {date_str} ({len(messages_text)} повідомлень):\n{summary}"
         )
     except Exception as e:
-        logging.error(f"Error in /analyze command: {e}")
-        await context.bot.send_message(chat_id, "Виникла помилка при аналізі повідомлень.")
+        general_logger.error(f"Error in /analyze command: {e}", exc_info=True)
+        await context.bot.send_message(
+            chat_id, 
+            "Виникла помилка при аналізі повідомлень."
+        )
 
 
 
