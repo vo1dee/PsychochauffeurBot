@@ -83,11 +83,17 @@ class ScreenshotManager:
 
     def get_screenshot_path(self) -> str:
         """Generate screenshot path for current date."""
-        # Get current time in Kyiv timezone
         kyiv_time = datetime.now(self.timezone)
         date_str = kyiv_time.strftime('%Y-%m-%d')
-        time_str = kyiv_time.strftime('%H-%M')
-        return os.path.join(SCREENSHOT_DIR, f'flares_{date_str}_{time_str}_kyiv.png')
+        return os.path.join(SCREENSHOT_DIR, f'flares_{date_str}_kyiv.png')
+
+    def get_latest_screenshot(self) -> str | None:
+        """Get the path of today's screenshot if it exists."""
+        kyiv_time = datetime.now(self.timezone)
+        screenshot_path = self.get_screenshot_path()
+        if os.path.exists(screenshot_path):
+            return screenshot_path
+        return None
 
     async def take_screenshot(self, url, output_path):
         try:
@@ -143,7 +149,17 @@ class ScreenshotManager:
 async def screenshot_command(update: Update, context: CallbackContext) -> None:
     """Handle /screenshot command."""
     try:
-        screenshot_path = await ScreenshotManager().take_screenshot('https://api.meteoagent.com/widgets/v1/kindex', ScreenshotManager().get_screenshot_path())
+        manager = ScreenshotManager()
+        # Try to get today's existing screenshot first
+        screenshot_path = manager.get_latest_screenshot()
+        
+        # If no screenshot exists for today, take a new one
+        if not screenshot_path:
+            screenshot_path = await manager.take_screenshot(
+                'https://api.meteoagent.com/widgets/v1/kindex', 
+                manager.get_screenshot_path()
+            )
+            
         if screenshot_path:
             with open(screenshot_path, 'rb') as photo:
                 await context.bot.send_photo(
