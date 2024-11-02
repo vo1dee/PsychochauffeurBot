@@ -187,7 +187,7 @@ async def get_word_from_gpt(prompt: str) -> Optional[str]:
         response = await openai.ChatCompletion.acreate(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that generates single Ukrainian words. Respond only with the word itself, without any additional text or punctuation."},
+                {"role": "system", "content": "You are a helpful assistant that generates single Ukrainian word. Respond only with the word itself, without any additional text or punctuation."},
                 {"role": "user", "content": prompt}
             ]
         )
@@ -209,7 +209,6 @@ async def random_ukrainian_word_command() -> Optional[str]:
     # Include used words in the prompt
     used_words_str = ', '.join(used_words)
     prompt = f"""Згенеруй одне випадкове українське іменник в однині. 
-    Слово має бути простим та зрозумілим. 
     Дай тільки саме слово, без пояснень чи додаткового тексту.
     Слово має бути від 3 до 8 букв.
     
