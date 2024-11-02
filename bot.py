@@ -3,7 +3,7 @@ import logging
 import nest_asyncio
 import pytz
 
-from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command
+from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
 from modules.gpt import ask_gpt_command, analyze_command 
 from modules.weather import weather
@@ -105,6 +105,9 @@ async def handle_sticker(update: Update, context: CallbackContext):
         await restrict_user(update, context)
 
 async def main():
+    # Load game state at startup
+    load_game_state()
+    
     bot = ApplicationBuilder().token(TOKEN).build()
     
     # Add command handlers
@@ -117,7 +120,8 @@ async def main():
         'weather': weather,
         'game': game_command,
         'endgame': end_game_command,
-        'clearwords': clear_words_command
+        'clearwords': clear_words_command,
+        'hint': hint_command  # Add hint command
     }
     
     for command, handler in commands.items():

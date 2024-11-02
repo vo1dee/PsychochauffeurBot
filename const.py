@@ -72,3 +72,8 @@ domain_modifications = LinkModification.DOMAINS
 city_translations = Weather.CITY_TRANSLATIONS
 weather_emojis = Weather.CONDITION_EMOJIS
 feels_like_emojis = Weather.FEELS_LIKE_EMOJIS
+
+# File paths
+DATA_DIR = 'data'
+GAME_STATE_FILE = os.path.join(DATA_DIR, 'game_state.json')
+USED_WORDS_FILE = os.path.join(DATA_DIR, 'used_words.csv')

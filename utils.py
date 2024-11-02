@@ -6,14 +6,18 @@ import os
 import asyncio
 from datetime import datetime, time as dt_time, timedelta
 import glob
+import json
+from typing import Optional
 
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
 from modules.file_manager import general_logger
-from const import weather_emojis, city_translations, feels_like_emojis, SCREENSHOT_DIR
-from modules.gpt import random_ukrainian_word_command, clear_used_words, get_used_words_count
+from const import weather_emojis, city_translations, feels_like_emojis, SCREENSHOT_DIR, GAME_STATE_FILE
+from modules.gpt import ask_gpt_command, random_ukrainian_word_command
 
 game_state = {}
+
+USED_WORDS_FILE = 'data/used_words.csv'
 
 # Text processing utilities
 def remove_links(text: str) -> str:
@@ -176,22 +180,43 @@ async def schedule_task(cls):
     manager = cls()
     await manager.schedule_task()
 
+def save_game_state():
+    """Save game state to file."""
+    with open(GAME_STATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(game_state, f, ensure_ascii=False)
+
+def load_game_state():
+    """Load game state from file."""
+    global game_state
+    try:
+        if os.path.exists(GAME_STATE_FILE):
+            with open(GAME_STATE_FILE, 'r', encoding='utf-8') as f:
+                game_state.update({int(k): v for k, v in json.load(f).items()})
+    except Exception as e:
+        general_logger.error(f"Error loading game state: {e}")
 
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Starts the word game by fetching a random Ukrainian word."""
     chat_id = update.effective_chat.id
-    word = await random_ukrainian_word_command()
-    if word:
-        game_state[chat_id] = word
-        await update.message.reply_text(f"Гра почалася! Вгадайте українське слово.")
-        
-        # Log the game start and print the game state for debugging
-        general_logger.info(f"Game started for chat_id {chat_id} with word: {word}")
-        general_logger.info(f"Game active in chat {chat_id}. Random word: {random_word}")
-        # print(f"Current game state: {game_state}")  # Debug print
-    else:
-        await update.message.reply_text("На жаль, я не змогла запустити гру в цьому чаті.")
-        general_logger.error(f"Failed to start game for chat_id {chat_id}")
+    
+    # Check if there's already an active game
+    if chat_id in game_state:
+        await update.message.reply_text("В цьому чаті вже є активна гра! Використайте /endgame щоб завершити поточну гру.")
+        return
+
+    try:
+        word = await random_ukrainian_word_command()
+        if word and isinstance(word, str) and len(word) > 0:
+            game_state[chat_id] = word
+            save_game_state()
+            await update.message.reply_text(f"Гра почалася! Вгадайте українське слово.")
+            general_logger.info(f"Game started for chat_id {chat_id} with word: {word}")
+        else:
+            await update.message.reply_text("Вибачте, не вдалося отримати слово. Спробуйте ще раз.")
+            general_logger.error(f"Got invalid word from random_ukrainian_word_command: {word}")
+    except Exception as e:
+        await update.message.reply_text("Вибачте, сталася помилка при запуску гри. Спробуйте ще раз.")
+        general_logger.error(f"Error in game_command: {str(e)}")
 
 async def end_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ends the current word game in the chat."""
@@ -200,6 +225,7 @@ async def end_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id in game_state:
         word = game_state[chat_id]
         del game_state[chat_id]
+        save_game_state()
         await update.message.reply_text(f"Гру завершено! Слово було: '{word}'")
         general_logger.debug(f"Game manually ended in chat {chat_id}")
     else:
@@ -217,3 +243,67 @@ async def clear_words_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(
         f"Історію використаних слів очищено. Було видалено {current_count} слів."
     )
+
+async def hint_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Provides a hint for the current word."""
+    chat_id = update.effective_chat.id
+    
+    if chat_id not in game_state:
+        await update.message.reply_text("В цьому чаті немає активної гри.")
+        return
+        
+    word = game_state[chat_id]
+    prompt = f"Дай підказку для українського слова '{word}', але не називай саме слово. Підказка має бути короткою (1-2 речення) і містити або визначення, або контекст використання, або синонім."
+    
+    try:
+        # Use ask_gpt_command directly without return_text parameter
+        await ask_gpt_command(prompt, update, context)
+    except Exception as e:
+        general_logger.error(f"Error getting hint: {e}")
+        await update.message.reply_text("Вибачте, не вдалося отримати підказку.")
+
+async def random_ukrainian_word_command() -> Optional[str]:
+    """Get a random Ukrainian word using GPT."""
+    try:
+        # Read used words
+        with open(USED_WORDS_FILE, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            used_words = set(word.strip() for word in content.split(',') if word.strip())
+    except FileNotFoundError:
+        used_words = set()
+
+    # Ask GPT for a new word
+    prompt = """Згенеруй одне випадкове українське іменник в однині. s
+    Дай тільки саме слово, без пояснень чи додаткового тексту.
+    Слово має бути від 3 до 8 букв.
+    Не використовуй ці слова: {used_words_str}"""
+
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        try:
+            # Use ask_gpt_command with return_text=True
+            word = await ask_gpt_command(prompt, return_text=True)
+            if word:
+                # Clean up the word (remove spaces, punctuation, etc.)
+                word = word.strip().lower()
+                
+                # Validate word
+                if (word not in used_words and 
+                    3 <= len(word) <= 8 and 
+                    word.isalpha()):
+                    
+                    # Add to used words
+                    used_words.add(word)
+                    with open(USED_WORDS_FILE, 'a', encoding='utf-8') as f:
+                        f.write(f"{word},")
+                    
+                    return word
+                else:
+                    general_logger.debug(f"Word '{word}' already used or invalid, trying again. Attempt {attempt + 1}/{max_attempts}")
+            
+        except Exception as e:
+            general_logger.error(f"Error getting word from GPT: {e}")
+            continue
+
+    return None
+
