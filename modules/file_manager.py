@@ -9,7 +9,7 @@ import pytz
 
 
 
-CSV_FILE = "user_locations.csv"
+CSV_FILE = os.path.join("data", "user_locations.csv")
 
 
 
@@ -83,6 +83,9 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def save_user_location(user_id: int, city: str):
     """Save the user's last used city to a CSV file."""
+    # Ensure data directory exists
+    os.makedirs(os.path.dirname(CSV_FILE), exist_ok=True)
+    
     rows = []
     updated = False
     try:
