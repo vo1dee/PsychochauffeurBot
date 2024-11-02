@@ -3,9 +3,10 @@ import logging
 import os
 from datetime import datetime, timedelta
 import pytz
+from typing import Optional
 
 from modules.file_manager import general_logger, chat_logger, read_last_n_lines, get_daily_log_path, load_used_words, save_used_words
-from const import OPENAI_API_KEY
+from const import OPENAI_API_KEY, USED_WORDS_FILE
 
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
@@ -18,16 +19,12 @@ openai.api_key = OPENAI_API_KEY
 
 KYIV_TZ = pytz.timezone('Europe/Kiev')
 
+GAME_STATE_FILE = 'data/game_state.json'
 
 
-async def ask_gpt_command(context_text: str, update: Update, context: CallbackContext):
-    """Handles the GPT query with conversation context."""
-    if not context_text:
-        await update.message.reply_text("Please provide a question or reply to my message.")
-        return
-
+async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
+    """Ask GPT for a response."""
     try:
-        # Send the question to GPT
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -38,29 +35,26 @@ async def ask_gpt_command(context_text: str, update: Update, context: CallbackCo
                     "Do not reply in Russian in any circumstance."
                     "You answer like a crazy driver."
                     "Your replies always ends with \"гг\"."
-                )},
-                {"role": "user", "content": context_text}
+                ) if not return_text else "You are a helpful assistant that generates single Ukrainian words."},
+                {"role": "user", "content": prompt}
             ],
             max_tokens=500,
             temperature=0.7
         )
 
-        # Extract GPT's response
-        gpt_reply = response.choices[0].message.content
-        await update.message.reply_text(gpt_reply)
-
-        # Log the interaction
-        chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
-        user_name = update.message.from_user.username if update.message.from_user.username else "Unknown User"
-        chat_id = update.message.chat_id if update.message.chat_id else "Unknown chat"
+        response_text = response.choices[0].message.content.strip()
         
-        # Improved logging for better clarity
-        chat_logger.info(f"User {user_name} asked GPT: {context_text}", extra={'chattitle': chat_title, 'username': user_name, 'chat_id': chat_id})
-        chat_logger.info(f"GPT's response: {gpt_reply}", extra={'chattitle': chat_title, 'username': user_name, 'chat_id': chat_id})
-
+        if return_text:
+            return response_text
+        
+        if update and context:
+            await update.message.reply_text(response_text)
+            
     except Exception as e:
-        general_logger.error(f"Failed to communicate with GPT: {e}")
-        await update.message.reply_text("Sorry, I couldn't get an answer right now.")
+        general_logger.error(f"Error in ask_gpt_command: {e}")
+        if not return_text and update:
+            await update.message.reply_text("Вибачте, сталася помилка.")
+        raise
 
 
 
@@ -187,49 +181,66 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Initialize used_words from file
 used_words = load_used_words()
 
-async def random_ukrainian_word_command():
-    """Fetches a random Ukrainian word from GPT that hasn't been used before."""
-    global used_words
+async def get_word_from_gpt(prompt: str) -> Optional[str]:
+    """Get a single word response from GPT."""
+    try:
+        response = await openai.ChatCompletion.acreate(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that generates single Ukrainian words. Respond only with the word itself, without any additional text or punctuation."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logging.error(f"Error getting word from GPT: {e}")
+        return None
+
+async def random_ukrainian_word_command() -> Optional[str]:
+    """Get a random Ukrainian word using GPT."""
+    try:
+        # Read used words
+        with open(USED_WORDS_FILE, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            used_words = set(word.strip() for word in content.split(',') if word.strip())
+    except FileNotFoundError:
+        used_words = set()
+
+    # Include used words in the prompt
+    used_words_str = ', '.join(used_words)
+    prompt = f"""Згенеруй одне випадкове українське іменник в однині. 
+    Слово має бути простим та зрозумілим. 
+    Дай тільки саме слово, без пояснень чи додаткового тексту.
+    Слово має бути від 3 до 8 букв.
     
-    MAX_ATTEMPTS = 5  # Maximum attempts to get a new word
-    
-    for attempt in range(MAX_ATTEMPTS):
+    Не використовуй ці слова: {used_words_str}"""
+
+    max_attempts = 5
+    for attempt in range(max_attempts):
         try:
-            prompt = "Give me one random Ukrainian word that is common and easy to guess."
-            response = await client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": (
-                        "Do not hallucinate."
-                        "Do not make up fictional information."
-                        "If the user's request appears to be in Russian, respond in Ukrainian instead."
-                        "Do not reply in Russian in any circumstance."
-                        "Respond with only one Ukrainian word, nothing else."
-                    )},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=3,
-                temperature=0.9
-            )
-            word = response.choices[0].message.content.strip().lower()
-            
-            # Check if word is valid and not used before
-            if word and word not in used_words:
-                used_words.add(word)
-                save_used_words(used_words)  # Save after adding new word
-                general_logger.debug(f"New word added: {word}. Total used: {len(used_words)}")
-                return word
-            
-            general_logger.debug(f"Word '{word}' already used or invalid, trying again. Attempt {attempt + 1}/{MAX_ATTEMPTS}")
+            word = await get_word_from_gpt(prompt)
+            if word:
+                # Clean up the word
+                word = word.strip().lower()
+                
+                # Validate word
+                if (word not in used_words and 
+                    3 <= len(word) <= 8 and 
+                    word.isalpha()):
+                    
+                    # Add to used words
+                    used_words.add(word)
+                    with open(USED_WORDS_FILE, 'a', encoding='utf-8') as f:
+                        f.write(f"{word},")
+                    
+                    return word
+                else:
+                    logging.debug(f"Word '{word}' already used or invalid, trying again. Attempt {attempt + 1}/{max_attempts}")
             
         except Exception as e:
-            general_logger.error(f"Error fetching random Ukrainian word: {e}")
-    
-    # If we've exhausted attempts or have too many used words, clear history and try once more
-    if len(used_words) > 1000:  # Arbitrary limit
-        clear_used_words()
-        general_logger.info("Used words history cleared due to size limit")
-    
+            logging.error(f"Error getting word from GPT: {e}")
+            continue
+
     return None
 
 def clear_used_words():
