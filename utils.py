@@ -253,7 +253,7 @@ async def hint_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     word = game_state[chat_id]
-    prompt = f"Дай підказку для українського слова '{word}', але не називай саме слово. Підказка має бути короткою (1-2 речення) і містити або визначення, або контекст використання, або синонім."
+    prompt = f"Дай підказку для українського слова '{word}', але не називай саме слово. Підказка має бути короткою (1-2 речення) але не давати прямого натяку на слово."
     
     try:
         # Use ask_gpt_command directly without return_text parameter

@@ -14,6 +14,7 @@ from utils import (
 )
 from const import Config
 from modules.file_manager import general_logger, save_user_location, get_last_used_city
+from modules.gpt import ask_gpt_command
 
 
 @dataclass
@@ -26,17 +27,37 @@ class WeatherData:
     temperature: float
     feels_like: float
 
-    def format_message(self) -> str:
+    async def get_clothing_advice(self) -> str:
+        """Get GPT advice on what to wear."""
+        prompt = f"""Дай коротку пораду (1-2 речення) щодо того, що краще вдягнути при такій погоді:
+        Температура: {round(self.temperature)}°C
+        Відчувається як: {round(self.feels_like)}°C
+        Погода: {self.description}
+        
+        Відповідай тільки порадою, без додаткового тексту."""
+
+        try:
+            advice = await ask_gpt_command(prompt, return_text=True)
+            return f"\n👕 {advice}"
+        except Exception as e:
+            general_logger.error(f"Error getting clothing advice: {e}")
+            return ""
+
+    async def format_message(self) -> str:
         """Format weather data into a readable message."""
         weather_emoji = get_weather_emoji(self.weather_id)
         country_flag = country_code_to_emoji(self.country_code)
         feels_like_emoji = get_feels_like_emoji(self.feels_like)
+        
+        # Get clothing advice
+        clothing_advice = await self.get_clothing_advice()
 
         return (
             f"Погода в {self.city_name}, {self.country_code} {country_flag}:\n"
             f"{weather_emoji} {self.description.capitalize()}\n"
             f"🌡 Температура: {round(self.temperature)}°C\n"
             f"{feels_like_emoji} Відчувається як: {round(self.feels_like)}°C"
+            f"{clothing_advice}"
         )
 
 
@@ -94,7 +115,7 @@ class WeatherCommand:
         """Process weather request and return formatted message."""
         weather_data = await self.weather_api.fetch_weather(city)
         if weather_data:
-            return weather_data.format_message()
+            return await weather_data.format_message()
         return "Не вдалося отримати дані про погоду. Спробуйте пізніше."
     
     async def __call__(self, update: Update, context: CallbackContext) -> None:
