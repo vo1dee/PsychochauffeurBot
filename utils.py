@@ -71,7 +71,7 @@ class ScreenshotManager:
     def __init__(self):
         if not hasattr(self, '_initialized'):
             self.timezone = pytz.timezone('Europe/Kyiv')
-            self.schedule_time = dt_time(1, 0)  # 1 AM Kyiv time
+            self.schedule_time = dt_time(2, 0)  # 1 AM Kyiv time
             config = imgkit.config(wkhtmltoimage='/usr/bin/wkhtmltoimage')
             self.options = {
                 'quality': '100',
