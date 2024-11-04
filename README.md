@@ -101,7 +101,7 @@ PsychoChauffeur is a Telegram bot that enhances chat experience by providing lin
 
 4. **Daily Screenshots**
    - Manual: `/flares`
-   - Automatic: Daily at 1 AM Kyiv time
+   - Automatic: Daily at 2 AM Kyiv time
 
 ## Contributing
 
