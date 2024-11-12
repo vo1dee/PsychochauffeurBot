@@ -298,9 +298,8 @@ async def random_ukrainian_word_command() -> Optional[str]:
         try:
             prompt = """Згенеруй одне випадкове унікальне українське іменник в однині."""
             # ... other code ...
-        except SomeException:  # Replace SomeException with the actual exception you want to catch
-            # Handle the exception
-            pass  # Or any other handling logic
+        except Exception as e:
+            general_logger.error(f"Error getting hint: {e}")
 
         max_attempts = 5
         for attempt in range(max_attempts):
