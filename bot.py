@@ -90,7 +90,7 @@ async def handle_message(update: Update, context: CallbackContext):
 
 async def random_gpt_response(update: Update, context: CallbackContext):
     """Randomly responds to a message with a 2% chance using GPT."""
-    if random.random() < 0.1:
+    if random.random() < 0.02:
         message_text = update.message.text
         general_logger.info(f"Random message to reply to: {message_text}")
         await ask_gpt_command(message_text, update, context)
