@@ -30,12 +30,41 @@ async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackC
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": (
-                    "Do not hallucinate."
-                    "Do not make up fictional information."
                     "If the user's request appears to be in Russian, respond in Ukrainian instead."
                     "Do not reply in Russian in any circumstance."
-                    "You answer like a crazy driver."
-                    "Your replies always ends with \"гг\"."
+                    "You answer like a crazy driver but stick to the point of the conversation."
+                ) if not return_text else "You are a helpful assistant that generates single Ukrainian words."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500,
+            temperature=0.7
+        )
+
+        response_text = response.choices[0].message.content.strip()
+
+        if return_text:
+            return response_text
+
+        if update and context:
+            await update.message.reply_text(response_text)
+
+    except Exception as e:
+        general_logger.error(f"Error in ask_gpt_command: {e}")
+        if not return_text and update:
+            await update.message.reply_text("Вибачте, сталася помилка.")
+        raise
+
+
+async def answer_from_gpt(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
+    """Ask GPT for a response."""
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": (
+                    "If the user's request appears to be in Russian, respond in Ukrainian instead."
+                    "Do not reply in Russian in any circumstance."
+                    "You answer like a crazy driver but stick to the point of the conversation."
                 ) if not return_text else "You are a helpful assistant that generates single Ukrainian words."},
                 {"role": "user", "content": prompt}
             ],
