@@ -35,7 +35,6 @@ class WeatherData:
         Погода: {self.description}
         
         Відповідай тільки порадою, без додаткового тексту."""
-
         try:
             advice = await ask_gpt_command(prompt, return_text=True)
             return f"\n👕 {advice}"

@@ -22,37 +22,34 @@ KYIV_TZ = pytz.timezone('Europe/Kiev')
 GAME_STATE_FILE = 'data/game_state.json'
 
 
-async def ask_gpt_command(message, update, context, return_text=False):
+# Modify ask_gpt_command to handle both direct text and bot updates
+async def ask_gpt_command(message_or_update, context=None, return_text=False):
     try:
-        print("Debug: Received update:", update)
-        
-        # Handle both message and callback query
-        if update.callback_query:
-            text = update.callback_query.data
-            print("Debug: Callback query data:", text)
-            reply_to = update.callback_query.message.reply_text
-        elif update.message:
-            text = update.message.text
-            print("Debug: Message text:", text)
-            reply_to = update.message.reply_text
-        else:
-            print("Debug: No message or callback query found")
-            return
+        # If it's a direct text message
+        if isinstance(message_or_update, str):
+            message_text = message_or_update
             
-        # Extract the actual message content
-        parts = text.split(' ', 1)
-        message_text = parts[1] if len(parts) > 1 else parts[0]  # Use the first part if only one word
-        print("Debug: Extracted message text:", message_text)
-        
-        if not message_text:
-            print("Debug: Empty message text")
-            await reply_to("Будь ласка, додайте текст після команди.")
-            return
+        # If it's a bot update
+        else:
+            update = message_or_update
+            # Handle both message and callback query
+            if update.callback_query:
+                text = update.callback_query.data
+                reply_to = update.callback_query.message.reply_text
+            elif update.message:
+                text = update.message.text
+                reply_to = update.message.reply_text
+            else:
+                print("Debug: No message or callback query found")
+                return
+                
+            # Extract the actual message content
+            parts = text.split(' ', 1)
+            message_text = parts[1] if len(parts) > 1 else parts[0]
 
         print("Debug: Sending request to OpenAI")
-        
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",  # Ensure you are using the correct model
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": (
                     "Do not hallucinate."
@@ -60,29 +57,31 @@ async def ask_gpt_command(message, update, context, return_text=False):
                     "If the user's request appears to be in Russian, respond in Ukrainian instead."
                     "Do not reply in Russian in any circumstance."
                     "You answer like a crazy driver."
-                    "Your replies always ends with \"гг\"."
-                ) if not return_text else "You are a helpful assistant that generates single Ukrainian words."},
+                    "Your replies always ends with \" гг\"."
+                )},
                 {"role": "user", "content": message_text}
             ],
             max_tokens=500,
             temperature=0.7
         )
-        
-        print("Debug: Received response from OpenAI:", response)
+
         reply_text = response.choices[0].message.content
-        print("Debug: Extracted reply text:", reply_text)
         
+        # If return_text is True, just return the response
+        if return_text:
+            return reply_text
+            
+        # Otherwise, send it as a reply
         await reply_to(reply_text)
-        
+
     except Exception as e:
         print("Debug: Error occurred:", str(e))
-        print("Debug: Error type:", type(e))
-        print("Debug: Full error details:", e)
-        if update.callback_query:
+        if return_text:
+            raise e
+        if hasattr(update, 'callback_query') and update.callback_query:
             await update.callback_query.message.reply_text("Вибачте, сталася помилка.")
-        elif update.message:
+        elif hasattr(update, 'message') and update.message:
             await update.message.reply_text("Вибачте, сталася помилка.")
-
 
 
 
