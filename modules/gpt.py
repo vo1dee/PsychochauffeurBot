@@ -22,11 +22,39 @@ KYIV_TZ = pytz.timezone('Europe/Kiev')
 GAME_STATE_FILE = 'data/game_state.json'
 
 
-async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
-    """Ask GPT for a response."""
+async def ask_gpt_command(message, update, context):
     try:
+        print("Debug: Received update:", update)
+        
+        # Handle both message and callback query
+        if update.callback_query:
+            text = update.callback_query.data
+            print("Debug: Callback query data:", text)
+            reply_to = update.callback_query.message.reply_text
+        elif update.message:
+            text = update.message.text
+            print("Debug: Message text:", text)
+            reply_to = update.message.reply_text
+        else:
+            print("Debug: No message or callback query found")
+            return
+            
+        # Extract the actual message content
+        parts = text.split(' ', 1)
+        message_text = parts[1] if len(parts) > 1 else parts[0]  # Use the first part if only one word
+        print("Debug: Extracted message text:", message_text)
+        
+        if not message_text:
+            print("Debug: Empty message text")
+            await reply_to("Будь ласка, додайте текст після команди.")
+            return
+
+        print("Debug: Sending request to OpenAI")
+        
+        return_text = False  # Set this based on your requirements
+
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o-mini",  # Changed to gpt-4o-mini
             messages=[
                 {"role": "system", "content": (
                     "Do not hallucinate."
@@ -36,25 +64,26 @@ async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackC
                     "You answer like a crazy driver."
                     "Your replies always ends with \"гг\"."
                 ) if not return_text else "You are a helpful assistant that generates single Ukrainian words."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": message_text}
             ],
             max_tokens=500,
             temperature=0.7
         )
-
-        response_text = response.choices[0].message.content.strip()
         
-        if return_text:
-            return response_text
+        print("Debug: Received response from OpenAI:", response)
+        reply_text = response.choices[0].message.content
+        print("Debug: Extracted reply text:", reply_text)
         
-        if update and context:
-            await update.message.reply_text(response_text)
-            
+        await reply_to(reply_text)
+        
     except Exception as e:
-        general_logger.error(f"Error in ask_gpt_command: {e}")
-        if not return_text and update:
+        print("Debug: Error occurred:", str(e))
+        print("Debug: Error type:", type(e))
+        print("Debug: Full error details:", e)
+        if update.callback_query:
+            await update.callback_query.message.reply_text("Вибачте, сталася помилка.")
+        elif update.message:
             await update.message.reply_text("Вибачте, сталася помилка.")
-        raise
 
 
 
@@ -69,7 +98,7 @@ async def gpt_summary_function(messages):
 
         # Call the OpenAI API to get the summary
         response = await client.chat.completions.create(  # Ensure this matches your library's documentation
-            model="gpt-4o",  # or any other model you prefer
+            model="gpt-4o-mini",  # or any other model you prefer
             messages=[
                 {"role": "system", "content": (
                     "Do not hallucinate."
@@ -181,20 +210,20 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Initialize used_words from file
 used_words = load_used_words()
 
-async def get_word_from_gpt(prompt: str) -> Optional[str]:
-    """Get a single word response from GPT."""
-    try:
-        response = await openai.ChatCompletion.acreate(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that generates single Ukrainian word. Respond only with the word itself, without any additional text or punctuation."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        logging.error(f"Error getting word from GPT: {e}")
-        return None
+# async def get_word_from_gpt(prompt: str) -> Optional[str]:
+#     """Get a single word response from GPT."""
+#     try:
+#         response = await openai.ChatCompletion.acreate(
+#             model="gpt-3.5-turbo",
+#             messages=[
+#                 {"role": "system", "content": "You are a helpful assistant that generates single creative Ukrainian word. Respond only with the word itself, without any additional text or punctuation."},
+#                 {"role": "user", "content": prompt}
+#             ]
+#         )
+#         return response.choices[0].message.content.strip()
+#     except Exception as e:
+#         logging.error(f"Error getting word from GPT: {e}")
+#         return None
 
 async def random_ukrainian_word_command() -> Optional[str]:
     """Get a random Ukrainian word using GPT."""
@@ -210,7 +239,7 @@ async def random_ukrainian_word_command() -> Optional[str]:
     used_words_str = ', '.join(used_words)
     prompt = f"""Згенеруй одне випадкове українське іменник в однині. 
     Дай тільки саме слово, без пояснень чи додаткового тексту.
-    Слово має бути від 3 до 8 букв.
+    Слово має бути цікаве, креативне і незвичайне.
     
     Не використовуй ці слова: {used_words_str}"""
 
@@ -252,3 +281,12 @@ def clear_used_words():
 def get_used_words_count() -> int:
     """Returns the number of used words."""
     return len(used_words)
+
+async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if the user is an admin in the chat."""
+    if not update.effective_chat:
+        return False
+    
+    user_id = update.effective_user.id
+    chat_member = await context.bot.get_chat_member(update.effective_chat.id, user_id)
+    return chat_member.status in ['creator', 'administrator']

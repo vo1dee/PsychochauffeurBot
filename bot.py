@@ -2,6 +2,7 @@ import asyncio
 import logging
 import nest_asyncio
 import pytz
+import random
 
 from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
@@ -91,8 +92,17 @@ async def handle_message(update: Update, context: CallbackContext):
             if "Modified links:" in update.message.reply_to_message.text:
                 return  # Skip GPT processing for replies to modified links
         
-        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
+        cleaned_message = update.message.text  # Assuming this is how you get the message
         await ask_gpt_command(cleaned_message, update, context)
+
+    # Call the random GPT response function
+    await random_gpt_response(update, context)
+
+async def random_gpt_response(update: Update, context: CallbackContext):
+    """Randomly responds to a message with a 2% chance using GPT."""
+    if random.random() < 0.02:  # 2% chance
+        message_text = update.message.text
+        await ask_gpt_command(message_text, update, context)
 
 async def handle_sticker(update: Update, context: CallbackContext):
     sticker_id = update.message.sticker.file_unique_id
