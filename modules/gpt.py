@@ -22,7 +22,7 @@ KYIV_TZ = pytz.timezone('Europe/Kiev')
 GAME_STATE_FILE = 'data/game_state.json'
 
 
-async def ask_gpt_command(message, update, context):
+async def ask_gpt_command(message, update, context, return_text=False):
     try:
         print("Debug: Received update:", update)
         
@@ -51,10 +51,8 @@ async def ask_gpt_command(message, update, context):
 
         print("Debug: Sending request to OpenAI")
         
-        return_text = False  # Set this based on your requirements
-
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",  # Changed to gpt-4o-mini
+            model="gpt-4o-mini",  # Ensure you are using the correct model
             messages=[
                 {"role": "system", "content": (
                     "Do not hallucinate."
