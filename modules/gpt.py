@@ -181,20 +181,20 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Initialize used_words from file
 used_words = load_used_words()
 
-# async def get_word_from_gpt(prompt: str) -> Optional[str]:
-#     """Get a single word response from GPT."""
-#     try:
-#         response = await openai.ChatCompletion.acreate(
-#             model="gpt-3.5-turbo",
-#             messages=[
-#                 {"role": "system", "content": "You are a helpful assistant that generates single creative Ukrainian word. Respond only with the word itself, without any additional text or punctuation."},
-#                 {"role": "user", "content": prompt}
-#             ]
-#         )
-#         return response.choices[0].message.content.strip()
-#     except Exception as e:
-#         logging.error(f"Error getting word from GPT: {e}")
-#         return None
+async def get_word_from_gpt(prompt: str) -> Optional[str]:
+    """Get a single word response from GPT."""
+    try:
+        response = await openai.ChatCompletion.acreate(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that generates single creative Ukrainian word. Respond only with the word itself, without any additional text or punctuation."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logging.error(f"Error getting word from GPT: {e}")
+        return None
 
 async def random_ukrainian_word_command() -> Optional[str]:
     """Get a random Ukrainian word using GPT."""
