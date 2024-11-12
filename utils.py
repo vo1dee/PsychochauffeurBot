@@ -13,7 +13,7 @@ from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
 from modules.file_manager import general_logger
 from const import weather_emojis, city_translations, feels_like_emojis, SCREENSHOT_DIR, GAME_STATE_FILE
-from modules.gpt import ask_gpt_command, random_ukrainian_word_command
+from modules.gpt import ask_gpt_command, random_ukrainian_word_command, is_admin
 
 game_state = {}
 
@@ -232,6 +232,23 @@ async def end_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("В цьому чаті немає активної гри.")
         general_logger.debug(f"Attempted to end non-existent game in chat {chat_id}")
 
+def get_used_words_count() -> int:
+    """Get the count of used words from the file."""
+    try:
+        with open(USED_WORDS_FILE, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            return len([word for word in content.split(',') if word.strip()])
+    except FileNotFoundError:
+        return 0
+
+def clear_used_words() -> None:
+    """Clear the used words file."""
+    try:
+        with open(USED_WORDS_FILE, 'w', encoding='utf-8') as f:
+            f.write('')
+    except Exception as e:
+        general_logger.error(f"Error clearing used words: {e}")
+
 async def clear_words_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Clears the history of used words in the game."""
     if not await is_admin(update, context):
@@ -266,44 +283,53 @@ async def random_ukrainian_word_command() -> Optional[str]:
     """Get a random Ukrainian word using GPT."""
     try:
         # Read used words
-        with open(USED_WORDS_FILE, 'r', encoding='utf-8') as f:
-            content = f.read().strip()
-            used_words = set(word.strip() for word in content.split(',') if word.strip())
-    except FileNotFoundError:
         used_words = set()
-
-    # Ask GPT for a new word
-    prompt = """Згенеруй одне випадкове українське іменник в однині. s
-    Дай тільки саме слово, без пояснень чи додаткового тексту.
-    Слово має бути від 3 до 8 букв.
-    Не використовуй ці слова: {used_words_str}"""
-
-    max_attempts = 5
-    for attempt in range(max_attempts):
         try:
-            # Use ask_gpt_command with return_text=True
-            word = await ask_gpt_command(prompt, return_text=True)
-            if word:
-                # Clean up the word (remove spaces, punctuation, etc.)
-                word = word.strip().lower()
-                
-                # Validate word
-                if (word not in used_words and 
-                    3 <= len(word) <= 8 and 
-                    word.isalpha()):
-                    
-                    # Add to used words
-                    used_words.add(word)
-                    with open(USED_WORDS_FILE, 'a', encoding='utf-8') as f:
-                        f.write(f"{word},")
-                    
-                    return word
-                else:
-                    general_logger.debug(f"Word '{word}' already used or invalid, trying again. Attempt {attempt + 1}/{max_attempts}")
-            
-        except Exception as e:
-            general_logger.error(f"Error getting word from GPT: {e}")
-            continue
+            with open(USED_WORDS_FILE, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                used_words = set(word.strip() for word in content.split(',') if word.strip())
+        except FileNotFoundError:
+            pass  # It's okay if the file doesn't exist yet
 
-    return None
+        # Format used words for the prompt
+        used_words_str = ", ".join(used_words) if used_words else ""
+
+        # Ask GPT for a new word
+        try:
+            prompt = """Згенеруй одне випадкове унікальне українське іменник в однині."""
+            # ... other code ...
+        except SomeException:  # Replace SomeException with the actual exception you want to catch
+            # Handle the exception
+            pass  # Or any other handling logic
+
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            try:
+                word = await ask_gpt_command(prompt, return_text=True)
+                if word:
+                    # Clean up the word (remove spaces, punctuation, etc.)
+                    word = word.strip().lower()
+                    
+                    # Validate word
+                    if (word not in used_words and 
+                        3 <= len(word) <= 8 and 
+                        word.isalpha()):
+                        
+                        # Add to used words
+                        with open(USED_WORDS_FILE, 'a', encoding='utf-8') as f:
+                            f.write(f"{word},")
+                        
+                        return word
+                    
+                general_logger.debug(f"Word '{word}' invalid or already used, attempt {attempt + 1}/{max_attempts}")
+            except Exception as e:
+                general_logger.error(f"Error in attempt {attempt + 1}: {e}")
+                continue
+
+        general_logger.error("Failed to get valid word after all attempts")
+        return None
+
+    except Exception as e:
+        general_logger.error(f"Error in random_ukrainian_word_command: {e}")
+        return None
 
