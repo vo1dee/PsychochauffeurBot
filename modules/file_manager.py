@@ -43,7 +43,7 @@ def get_daily_log_path(date=None):
         f"chat_{date.strftime('%Y-%m-%d')}.log"
     )
     
-    general_logger.debug(f"get_daily_log_path: Input date={date}, Generated path={log_path}")
+    # general_logger.debug(f"get_daily_log_path: Input date={date}, Generated path={log_path}")
     return log_path
 
 # Set up a rotating file handler for general logs

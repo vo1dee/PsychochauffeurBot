@@ -42,17 +42,6 @@ async def handle_message(update: Update, context: CallbackContext):
     is_mention = context.bot.username in message_text
     is_reply = update.message.reply_to_message is not None
 
-     # Check if a game is active in this chat
-    # print(game_state)
-    if chat_id in game_state:
-        random_word = game_state[chat_id]
-        # Check if the message contains the random word (case-insensitive)
-        if random_word.lower() in message_text.lower():
-            await update.message.reply_text(f"Вітаю, @{username}! ти вгадав слово! '{random_word}'!")
-            # End the game by removing the word from the game state
-            del game_state[chat_id]
-            general_logger.info(f"Game ended in chat {chat_id}")
-
     # Handle trigger words
     if contains_trigger_words(message_text):
         await restrict_user(update, context)
@@ -86,17 +75,24 @@ async def handle_message(update: Update, context: CallbackContext):
 
     # Handle GPT queries
     if is_mention or is_private_chat:
-
+        # Check if this is a reply to a modified link message
+        if is_reply and update.message.reply_to_message.text:
+            # Check if the replied message contains "Modified links:"
+            if "Modified links:" in update.message.reply_to_message.text:
+                return  # Skip GPT processing for replies to modified links
+        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         cleaned_message = update.message.text  # Assuming this is how you get the message
         await ask_gpt_command(cleaned_message, update, context)
 
     # Call the random GPT response function
     await random_gpt_response(update, context)
 
+
 async def random_gpt_response(update: Update, context: CallbackContext):
     """Randomly responds to a message with a 2% chance using GPT."""
-    if random.random() < 0.02:  # 2% chance
+    if random.random() < 0.1:
         message_text = update.message.text
+        general_logger.info(f"Random message to reply to: {message_text}")
         await ask_gpt_command(message_text, update, context)
 
 async def handle_sticker(update: Update, context: CallbackContext):

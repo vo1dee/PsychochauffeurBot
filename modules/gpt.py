@@ -22,32 +22,10 @@ KYIV_TZ = pytz.timezone('Europe/Kiev')
 GAME_STATE_FILE = 'data/game_state.json'
 
 
-# Modify ask_gpt_command to handle both direct text and bot updates
-async def ask_gpt_command(message_or_update, context=None, return_text=False):
-    try:
-        # If it's a direct text message
-        if isinstance(message_or_update, str):
-            message_text = message_or_update
-            
-        # If it's a bot update
-        else:
-            update = message_or_update
-            # Handle both message and callback query
-            if update.callback_query:
-                text = update.callback_query.data
-                reply_to = update.callback_query.message.reply_text
-            elif update.message:
-                text = update.message.text
-                reply_to = update.message.reply_text
-            else:
-                print("Debug: No message or callback query found")
-                return
-                
-            # Extract the actual message content
-            parts = text.split(' ', 1)
-            message_text = parts[1] if len(parts) > 1 else parts[0]
 
-        print("Debug: Sending request to OpenAI")
+async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
+    """Ask GPT for a response."""
+    try:
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -57,31 +35,27 @@ async def ask_gpt_command(message_or_update, context=None, return_text=False):
                     "If the user's request appears to be in Russian, respond in Ukrainian instead."
                     "Do not reply in Russian in any circumstance."
                     "You answer like a crazy driver."
-                    "Your replies always ends with \" гг\"."
-                )},
-                {"role": "user", "content": message_text}
+                    "Your replies always ends with \"гг\"."
+                ) if not return_text else "You are a helpful assistant that generates single Ukrainian words."},
+                {"role": "user", "content": prompt}
             ],
             max_tokens=500,
             temperature=0.7
         )
 
-        reply_text = response.choices[0].message.content
-        
-        # If return_text is True, just return the response
+        response_text = response.choices[0].message.content.strip()
+
         if return_text:
-            return reply_text
-            
-        # Otherwise, send it as a reply
-        await reply_to(reply_text)
+            return response_text
+
+        if update and context:
+            await update.message.reply_text(response_text)
 
     except Exception as e:
-        print("Debug: Error occurred:", str(e))
-        if return_text:
-            raise e
-        if hasattr(update, 'callback_query') and update.callback_query:
-            await update.callback_query.message.reply_text("Вибачте, сталася помилка.")
-        elif hasattr(update, 'message') and update.message:
+        general_logger.error(f"Error in ask_gpt_command: {e}")
+        if not return_text and update:
             await update.message.reply_text("Вибачте, сталася помилка.")
+        raise
 
 
 
