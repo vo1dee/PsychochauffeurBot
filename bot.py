@@ -86,12 +86,7 @@ async def handle_message(update: Update, context: CallbackContext):
 
     # Handle GPT queries
     if is_mention or is_private_chat:
-        # Check if this is a reply to a modified link message
-        if is_reply and update.message.reply_to_message.text:
-            # Check if the replied message contains "Modified links:"
-            if "Modified links:" in update.message.reply_to_message.text:
-                return  # Skip GPT processing for replies to modified links
-        
+
         cleaned_message = update.message.text  # Assuming this is how you get the message
         await ask_gpt_command(cleaned_message, update, context)
 
