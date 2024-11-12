@@ -6,7 +6,7 @@ import random
 
 from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
-from modules.gpt import ask_gpt_command, analyze_command 
+from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import weather
 from modules.file_manager import general_logger, chat_logger
 from modules.user_management import restrict_user
@@ -16,6 +16,9 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 # Apply the patch to allow nested event loops
 nest_asyncio.apply()
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
+
+message_counts = {}
+
 
 def contains_trigger_words(message_text):
     triggers = ["5€", "€5", "5 євро", "5 єуро", "5 €", "Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]
@@ -90,10 +93,18 @@ async def handle_message(update: Update, context: CallbackContext):
 
 async def random_gpt_response(update: Update, context: CallbackContext):
     """Randomly responds to a message with a 2% chance using GPT."""
-    if random.random() < 0.02:
+    chat_id = update.message.chat_id
+    message_counts[chat_id] = message_counts.get(chat_id, 0) + 1
+
+    if random.random() < 0.02 and message_counts[chat_id] > 40:
         message_text = update.message.text
-        general_logger.info(f"Random message to reply to: {message_text}")
-        await ask_gpt_command(message_text, update, context)
+        general_logger.info(f"Random GPT response triggered in chat {chat_id}: {message_text}")
+        
+        # Call the GPT function
+        await answer_from_gpt(message_text, update, context)
+        
+        # Reset message count for the chat
+        message_counts[chat_id] = 0
 
 async def handle_sticker(update: Update, context: CallbackContext):
     sticker_id = update.message.sticker.file_unique_id
