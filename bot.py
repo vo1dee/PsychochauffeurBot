@@ -110,7 +110,7 @@ async def handle_sticker(update: Update, context: CallbackContext):
     sticker_id = update.message.sticker.file_unique_id
     username = update.message.from_user.username
     
-    general_logger.debug(f"Received sticker with file_unique_id: {sticker_id}")
+    general_logger.info(f"Received sticker with file_unique_id: {sticker_id}")
     
     if sticker_id == "AgAD6BQAAh-z-FM":
         logging.info(f"Matched specific sticker from {username}, restricting user.")
