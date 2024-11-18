@@ -57,9 +57,11 @@ async def handle_message(update: Update, context: CallbackContext):
     # Handle domain modifications
     modified_links = []
     for link in message_text.split():
-        if any(link.startswith(modified_domain) for modified_domain in domain_modifications.values()):
+        # Skip links that are already modified, with or without "https://"
+        if any(modified_domain in link for modified_domain in domain_modifications.values()):
             continue
-        
+
+        # Modify unmodified links
         for domain, modified_domain in domain_modifications.items():
             if domain in link:
                 modified_links.append(link.replace(domain, modified_domain))
