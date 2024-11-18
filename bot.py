@@ -92,12 +92,17 @@ async def handle_message(update: Update, context: CallbackContext):
 
 
 async def random_gpt_response(update: Update, context: CallbackContext):
-    """Randomly responds to a message with a 2% chance using GPT."""
+    """Randomly responds to a message with a 2% chance using GPT, only if the message has 5 or more words."""
     chat_id = update.message.chat_id
     message_counts[chat_id] = message_counts.get(chat_id, 0) + 1
 
+    message_text = update.message.text
+    word_count = len(message_text.split())  # Count the number of words
+
+    if word_count < 5:  # Check if the message has less than 5 words
+        return  # Skip processing if not enough words
+
     if random.random() < 0.02 and message_counts[chat_id] > 40:
-        message_text = update.message.text
         general_logger.info(f"Random GPT response triggered in chat {chat_id}: {message_text}")
         
         # Call the GPT function
