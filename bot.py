@@ -1,9 +1,11 @@
 import asyncio
+import hashlib
 import logging
 import nest_asyncio
 import pytz
 import random
 
+from modules.keyboards import create_link_keyboard, button_callback
 from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
@@ -11,7 +13,8 @@ from modules.weather import weather
 from modules.file_manager import general_logger, chat_logger
 from modules.user_management import restrict_user
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext, \
+    CallbackQueryHandler
 
 # Apply the patch to allow nested event loops
 nest_asyncio.apply()
@@ -56,27 +59,44 @@ async def handle_message(update: Update, context: CallbackContext):
 
     # Handle domain modifications
     modified_links = []
+    original_links = []
     for link in message_text.split():
-        # Skip links that are already modified, with or without "https://"
+        # Skip links that are already modified
         if any(modified_domain in link for modified_domain in domain_modifications.values()):
             continue
 
         # Modify unmodified links
         for domain, modified_domain in domain_modifications.items():
             if domain in link:
-                modified_links.append(link.replace(domain, modified_domain))
+                modified_link = link.replace(domain, modified_domain)
+                modified_links.append(modified_link)
+                original_links.append(modified_link)
                 break
 
     if modified_links:
-        cleaned_message_text = remove_links(message_text)
-        modified_message = "\n".join(modified_links)
-        final_message = f"@{username}💬: {cleaned_message_text}\n\nModified links:\n{modified_message}"
+        try:
+            # Create the message
+            cleaned_message_text = remove_links(message_text)
+            modified_message = "\n".join(modified_links)
+            final_message = f"@{username}💬: {cleaned_message_text}\n\nModified links:\n{modified_message}"
 
-        reply_to_id = update.message.reply_to_message.message_id if update.message.reply_to_message else None
-        await context.bot.send_message(chat_id=chat_id, text=final_message, reply_to_message_id=reply_to_id)
-        await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
-        general_logger.info(f"Processed modified links: {final_message}")
-        return
+            # Store the link and create keyboard
+            link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
+            context.bot_data[link_hash] = modified_links[0]
+            reply_markup = create_link_keyboard(modified_links[0])
+
+            # Send modified message and delete original
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=final_message,
+                reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
+                reply_markup=reply_markup
+            )
+            await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
+
+        except Exception as e:
+            general_logger.error(f"Error modifying links: {str(e)}")
+            await update.message.reply_text("Sorry, an error occurred. Please try again.")
 
     # Handle GPT queries
     if is_mention or is_private_chat:
@@ -149,6 +169,7 @@ async def main():
     # Add message handlers
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     bot.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+    bot.add_handler(CallbackQueryHandler(button_callback))
 
     # Start the screenshot scheduler
     screenshot_manager = ScreenshotManager()  # Create instance first
