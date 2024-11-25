@@ -42,7 +42,7 @@ async def restrict_user(update: Update, context: CallbackContext) -> None:
         # Set up restriction    
         restrict_duration = random.randint(*RESTRICT_DURATION_RANGE)
         until_date = datetime.now(LOCAL_TZ) + timedelta(minutes=restrict_duration)
-        permissions = ChatPermissions(can_send_messages=False)
+        permissions = ChatPermissions(can_send_messages=False, can_send_other_messages=True, can_send_video_notes=True)
 
         # Apply restriction
         await context.bot.restrict_chat_member(
@@ -55,7 +55,7 @@ async def restrict_user(update: Update, context: CallbackContext) -> None:
         # Send notifications
         await update.message.reply_text(
             f"Вас запсихопаркували на {restrict_duration} хвилин. "
-            "Ви не можете надсилати повідомлення."
+            "Ви не можете надсилати повідомлення, але можете спробувати стікер або гіфку."
         )
         await context.bot.send_sticker(chat_id=chat.id, sticker=RESTRICTION_STICKER)
         
