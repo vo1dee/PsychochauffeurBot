@@ -64,12 +64,7 @@ async def handle_message(update: Update, context: CallbackContext):
     original_links = []
 
     for link in message_text.split():
-        # Shorten URLs longer than 60 characters
-        if len(link) > 60:
-            lielnk = await shorten_url(link)  # Ensure this function is defined
-            logging.info(f"Shortened link: {link}")
-
-        elif any(modified_domain in link for modified_domain in domain_modifications.values()):
+        if any(modified_domain in link for modified_domain in domain_modifications.values()):
             continue
 
 
