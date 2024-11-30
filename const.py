@@ -30,6 +30,7 @@ class LinkModification:
         "twitter.com": "fxtwitter.com",
         "x.com": "fixupx.com",
         "instagram.com": "ddinstagram.com"
+        
     }
 
 class Weather:
