@@ -24,7 +24,7 @@ message_counts = {}
 
 
 def contains_trigger_words(message_text):
-    triggers = ["5€", "€5", "5 євро", "5 єуро", "5 €", "Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]
+    triggers = ["Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]
     return any(trigger in message_text for trigger in triggers)
 
 async def start(update: Update, context: CallbackContext):
