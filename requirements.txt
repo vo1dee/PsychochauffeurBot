@@ -6,4 +6,5 @@ imgkit==1.2.3
 pytz==2023.3
 schedule==1.2.2
 openai==1.52.2
-requests=2.32.3
+requests==2.32.3
+pyshorteners==1.0.1
