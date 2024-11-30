@@ -66,6 +66,10 @@ async def handle_message(update: Update, context: CallbackContext):
     for link in message_text.split():
         if any(modified_domain in link for modified_domain in domain_modifications.values()):
             continue
+        # Shorten URLs longer than 60 characters
+        elif len(link) > 60:
+            lielnk = await shorten_url(link)  # Ensure this function is defined
+            logging.info(f"Shortened link: {link}")
 
         for domain, modified_domain in domain_modifications.items():
             if domain in link:
@@ -95,7 +99,7 @@ async def handle_message(update: Update, context: CallbackContext):
             )
             await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
 
-            
+
         except Exception as e:
             general_logger.error(f"Error modifying links: {str(e)}")
             await update.message.reply_text("Sorry, an error occurred. Please try again.")
