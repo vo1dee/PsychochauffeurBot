@@ -108,7 +108,7 @@ async def gpt_summary_function(messages):
                 )},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=750,  # Adjust the number of tokens for the summary as needed
+            max_tokens=1750,  # Adjust the number of tokens for the summary as needed
             temperature=0.7  # Adjust the creativity of the response
         )
 
