@@ -4,6 +4,7 @@ import logging
 import nest_asyncio
 import pytz
 import random
+import pyshorteners
 
 from modules.keyboards import create_link_keyboard, button_callback
 from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state
@@ -36,6 +37,8 @@ async def handle_message(update: Update, context: CallbackContext):
         return
 
     message_text = update.message.text
+    logging.info(f"Received message: {message_text}")  # Log the received message
+
     chat_id = update.message.chat_id
     username = update.message.from_user.username
     chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
@@ -55,23 +58,48 @@ async def handle_message(update: Update, context: CallbackContext):
 
     # Handle AliExpress links
     if any(domain in message_text for domain in ["aliexpress.com/item/", "a.aliexpress.com/"]):
-        await update.message.reply_sticker(sticker=ALIEXPRESS_STICKER_ID)
+        await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
+        logging.info(f"Sent sticker for AliExpress link in chat {update.effective_chat.id}")
 
-    # Handle domain modifications
+    # Handle domain modifications and hashtags
     modified_links = []
     original_links = []
     for link in message_text.split():
-        # Skip links that are already modified
-        if any(modified_domain in link for modified_domain in domain_modifications.values()):
+        logging.info(f"Processing link: {link}")  # Log each link being processed
+
+        # Check if the link is valid (not empty)
+        if not link.strip():
+            logging.warning("Empty link detected, skipping.")
             continue
 
-        # Modify unmodified links
-        for domain, modified_domain in domain_modifications.items():
-            if domain in link:
-                modified_link = link.replace(domain, modified_domain)
-                modified_links.append(modified_link)
-                original_links.append(modified_link)
-                break
+        # Add hashtags based on the domain before shortening
+        if "youtube.com" in link or "youtu.be" in link:
+            hashtag = " #youtube"
+            logging.info(f"Identified YouTube link: {link}")
+        elif "aliexpress.com/item/" in link or "a.aliexpress.com/" in link:
+            hashtag = " #aliexpress"
+            logging.info(f"Identified AliExpress link: {link}")
+        else:
+            hashtag = ""
+
+        # Shorten URLs longer than 60 characters
+        if len(link) > 60:
+            link = await shorten_url(link)  # Ensure this function is defined
+            logging.info(f"Shortened link: {link}")
+
+        # Append the hashtag after shortening
+        if hashtag:
+            link += f"\n{hashtag}"
+            logging.info(f"Added hashtag to link: {link}")
+
+        # Skip links that are already modified
+        if any(modified_domain in link for modified_domain in domain_modifications.values()):
+            logging.info(f"Skipping already modified link: {link}")
+            continue
+
+        # Add the modified link to the list
+        modified_links.append(link)
+        logging.info(f"Final modified link added: {link}")
 
     if modified_links:
         try:
@@ -142,6 +170,18 @@ async def handle_sticker(update: Update, context: CallbackContext):
     if sticker_id == "AgAD6BQAAh-z-FM":
         logging.info(f"Matched specific sticker from {username}, restricting user.")
         await restrict_user(update, context)
+
+async def shorten_url(url):
+    # Create a Shortener object
+    s = pyshorteners.Shortener()
+
+    try:
+        # Use a specific shortening service (e.g., TinyURL)
+        short_url = s.tinyurl.short(url)
+        return short_url
+    except Exception as e:
+        logging.error(f"Error shortening URL {url}: {str(e)}")
+        return url  # Return the original URL if there's an error
 
 async def main():
     # Load game state at startup
