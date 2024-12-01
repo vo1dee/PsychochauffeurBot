@@ -158,7 +158,7 @@ async def handle_message(update: Update, context: CallbackContext):
         return  # Ensure to return after processing
 
     # Check if the chat is private and the message does not contain a link
-    if update.effective_chat.type == 'private' and not any(domain in message_text for domain in ["youtube.com", "youtu.be", "aliexpress.com/item/", "a.aliexpress.com/"]):
+    if update.effective_chat.type == 'private' and not any(domain in message_text for domain in ["youtube.com", "youtu.be", "aliexpress.com/item/", "a.aliexpress.com/"]) and not any(domain in message_text for domain, modified_domain in domain_modifications.items()):
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         await ask_gpt_command(cleaned_message, update, context)
         return  # Ensure to return after processing
