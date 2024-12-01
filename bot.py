@@ -136,7 +136,7 @@ async def handle_message(update: Update, context: CallbackContext):
 
             # Add the modified link to the list
             modified_links.append(link)
-            general_logger.info(f"Final modified link added: {link}")
+            logging.info(f"Final modified link added: {link}")
 
         # Send the modified links back to the chat
         if modified_links:
@@ -151,6 +151,11 @@ async def handle_message(update: Update, context: CallbackContext):
         # Check if the replied message contains "Modified links:"
         if update.message.reply_to_message and "Modified links:" in update.message.reply_to_message.text:
             return  # Skip GPT processing for replies to modified links
+
+        # If the message is a mention and not a reply to modified links, process it
+        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
+        await ask_gpt_command(cleaned_message, update, context)
+        return  # Ensure to return after processing
 
     # Check if the chat is private and the message does not contain a link
     if update.effective_chat.type == 'private' and not any(domain in message_text for domain in ["youtube.com", "youtu.be", "aliexpress.com/item/", "a.aliexpress.com/"]):
