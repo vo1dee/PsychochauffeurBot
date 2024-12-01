@@ -140,20 +140,18 @@ async def handle_message(update: Update, context: CallbackContext):
 
         # Send the modified links back to the chat
         if modified_links:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="\n".join(modified_links))
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=" ".join(modified_links))  # Join with space to maintain structure
 
             await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
 
     # Handle GPT queries
     if is_mention:
-        # Check if this is a reply to a modified link message
-        if is_reply and update.message.reply_to_message.text:
-            # Check if the replied message contains "Modified links:"
-            if "Modified links:" in update.message.reply_to_message.text:
-                return  # Skip GPT processing for replies to modified links
-        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
-        cleaned_message = update.message.text  # Assuming this is how you get the message
-        await ask_gpt_command(cleaned_message, update, context)
+        # Check if the replied message contains "Modified links:"
+        if "Modified links:" in update.message.reply_to_message.text:
+            return  # Skip GPT processing for replies to modified links
+    cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
+    cleaned_message = update.message.text  # Assuming this is how you get the message
+    await ask_gpt_command(cleaned_message, update, context)
 
     # Call the random GPT response function
     await random_gpt_response(update, context)
