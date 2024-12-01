@@ -43,7 +43,7 @@ async def handle_message(update: Update, context: CallbackContext):
 
     # Log message with extra fields
     chat_logger.info(f"User message: {message_text}", extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
-    logging.info(f"Received message: {message_text}")  # Log the received message
+    # logging.info(f"Received message: {message_text}")  # Log the received message 
 
     # Define is_mention and is_private_chat
     is_mention = update.message.entities and any(entity.type == 'mention' for entity in update.message.entities)
@@ -108,35 +108,35 @@ async def handle_message(update: Update, context: CallbackContext):
         modified_links = []
         original_links = []
         for link in message_text.split():
-            logging.info(f"Processing link: {link}")  # Log each link being processed
+            general_logger.info(f"Processing link: {link}")  # Log each link being processed
 
             # Check if the link is valid (not empty)
             if not link.strip():
-                logging.warning("Empty link detected, skipping.")
+                general_logger.warning("Empty link detected, skipping.")
                 continue
 
             # Add hashtags based on the domain before shortening
             hashtag = ""
             if "youtube.com" in link or "youtu.be" in link:
                 hashtag = " #youtube"
-                logging.info(f"Identified YouTube link: {link}")
+                general_logger.info(f"Identified YouTube link: {link}")
             elif "aliexpress.com/item/" in link or "a.aliexpress.com/" in link:
                 hashtag = " #aliexpress"
-                logging.info(f"Identified AliExpress link: {link}")
+                general_logger.info(f"Identified AliExpress link: {link}")
 
             # Shorten URLs longer than 60 characters
             if len(link) > 60:
                 link = await shorten_url(link)  # Ensure this function is defined
-                logging.info(f"Shortened link: {link}")
+                general_logger.info(f"Shortened link: {link}")
 
             # Append the hashtag after shortening
             if hashtag:
                 link += hashtag
-                logging.info(f"Added hashtag to link: {link}")
+                general_logger.info(f"Added hashtag to link: {link}")
 
             # Add the modified link to the list
             modified_links.append(link)
-            logging.info(f"Final modified link added: {link}")
+            general_logger.info(f"Final modified link added: {link}")
 
         # Send the modified links back to the chat
         if modified_links:
@@ -149,9 +149,11 @@ async def handle_message(update: Update, context: CallbackContext):
         # Check if the message is from a group chat
         # Allow GPT response if mentioned in any chat
         # Check if the replied message contains "Modified links:"
-        if "Modified links:" in update.message.reply_to_message.text:
+        if update.message.reply_to_message and "Modified links:" in update.message.reply_to_message.text:
             return  # Skip GPT processing for replies to modified links
 
+    # Check if the chat is private and the message does not contain a link
+    if update.effective_chat.type == 'private' and not any(domain in message_text for domain in ["youtube.com", "youtu.be", "aliexpress.com/item/", "a.aliexpress.com/"]):
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         await ask_gpt_command(cleaned_message, update, context)
         return  # Ensure to return after processing

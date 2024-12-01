@@ -46,6 +46,11 @@ async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackC
             return response_text
 
         if update and context:
+            # Log only necessary information instead of the entire update object
+            user_id = update.message.from_user.id if update.message and update.message.from_user else "unknown"
+            chat_id = update.effective_chat.id if update.effective_chat else "unknown"
+            general_logger.info(f"Sending GPT response to user {user_id} in chat {chat_id}")
+
             await update.message.reply_text(response_text)
 
     except Exception as e:
