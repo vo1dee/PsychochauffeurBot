@@ -146,12 +146,15 @@ async def handle_message(update: Update, context: CallbackContext):
 
     # Handle GPT queries
     if is_mention:
+        # Check if the message is from a group chat
+        # Allow GPT response if mentioned in any chat
         # Check if the replied message contains "Modified links:"
         if "Modified links:" in update.message.reply_to_message.text:
             return  # Skip GPT processing for replies to modified links
-    cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
-    cleaned_message = update.message.text  # Assuming this is how you get the message
-    await ask_gpt_command(cleaned_message, update, context)
+
+        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
+        await ask_gpt_command(cleaned_message, update, context)
+        return  # Ensure to return after processing
 
     # Call the random GPT response function
     await random_gpt_response(update, context)
