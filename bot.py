@@ -173,13 +173,24 @@ async def random_gpt_response(update: Update, context: CallbackContext):
     message_counts[chat_id] = message_counts.get(chat_id, 0) + 1
 
     message_text = update.message.text
+
+    if not message_text:
+        general_logger.info("Message text is empty or None.")
+        return
+
     word_count = len(message_text.split())  # Count the number of words
+    # general_logger.info(f"Message text: '{message_text}' | Word count: {word_count}")
 
     if word_count < 5:  # Check if the message has less than 5 words
+        general_logger.info("Message has less than 5 words, skipping processing.")
         return  # Skip processing if not enough words
 
-    if random.random() < 0.02 and message_counts[chat_id] > 40:
-        general_logger.info(f"Random GPT response triggered in chat {chat_id}: {message_text}")
+    random_value = random.random()
+    current_message_count = message_counts[chat_id]
+    general_logger.info(f"Random value: {random_value} | Current message count: {current_message_count}")
+
+    if random_value < 0.02 and current_message_count > 50:
+        general_logger.info(f"Random GPT response triggered in chat {chat_id}: {message_text}, Random value: {random_value} | Current message count: {current_message_count}")
         
         # Call the GPT function
         await answer_from_gpt(message_text, update, context)
