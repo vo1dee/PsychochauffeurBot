@@ -145,14 +145,8 @@ async def handle_message(update: Update, context: CallbackContext):
             await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
 
     # Handle GPT queries
-    if is_mention:
-        # Check if the message is from a group chat
-        # Allow GPT response if mentioned in any chat
-        # Check if the replied message contains "Modified links:"
-        if update.message.reply_to_message and "Modified links:" in update.message.reply_to_message.text:
-            return  # Skip GPT processing for replies to modified links
-
-        # If the message is a mention and not a reply to modified links, process it
+    if f"@{context.bot.username}" in message_text:
+        # Process the message as a direct mention
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         await ask_gpt_command(cleaned_message, update, context)
         return  # Ensure to return after processing
@@ -162,6 +156,7 @@ async def handle_message(update: Update, context: CallbackContext):
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         await ask_gpt_command(cleaned_message, update, context)
         return  # Ensure to return after processing
+
 
     # Call the random GPT response function
     await random_gpt_response(update, context)
@@ -187,10 +182,15 @@ async def random_gpt_response(update: Update, context: CallbackContext):
 
     random_value = random.random()
     current_message_count = message_counts[chat_id]
-    general_logger.info(f"Random value: {random_value} | Current message count: {current_message_count}")
+    # general_logger.info(f"Random value: {random_value} | Current message count: {current_message_count}")
 
     if random_value < 0.02 and current_message_count > 50:
-        general_logger.info(f"Random GPT response triggered in chat {chat_id}: {message_text}, Random value: {random_value} | Current message count: {current_message_count}")
+        general_logger.info(
+            f"Random GPT response triggered in chat {chat_id}: "
+            f"Message: '{message_text}' | Random value: {random_value:.4f} | "
+            f"Current message count: {current_message_count}"
+        )
+
         
         # Call the GPT function
         await answer_from_gpt(message_text, update, context)
