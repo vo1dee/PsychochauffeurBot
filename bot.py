@@ -138,11 +138,38 @@ async def handle_message(update: Update, context: CallbackContext):
             modified_links.append(link)
             logging.info(f"Final modified link added: {link}")
 
-        # Send the modified links back to the chat
-        if modified_links:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=" ".join(modified_links))  # Join with space to maintain structure
+        # # Send the modified links back to the chat
+        # if modified_links:
+        #     await context.bot.send_message(chat_id=update.effective_chat.id, text=" ".join(modified_links))  # Join with space to maintain structure
 
-            await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
+        #     await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
+
+        if modified_links:
+        
+            try:
+                # Create the message
+                cleaned_message_text = remove_links(message_text)
+                modified_message = "\n".join(modified_links)
+                final_message = f"@{username}💬: {cleaned_message_text}\nWant's to share:\n{modified_message}"
+
+                # Store the link and create keyboard
+                link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
+                context.bot_data[link_hash] = modified_links[0]
+                # reply_markup = create_link_keyboard(modified_links[0])
+                # Send modified message and delete original
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=final_message,
+                    reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
+                    # reply_markup=reply_markup
+                )
+                await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
+
+
+            except Exception as e:
+                general_logger.error(f"Error modifying links: {str(e)}")
+                await update.message.reply_text("Sorry, an error occurred. Please try again.")
+
 
     # Handle GPT queries
     if f"@{context.bot.username}" in message_text:
@@ -177,7 +204,7 @@ async def random_gpt_response(update: Update, context: CallbackContext):
     # general_logger.info(f"Message text: '{message_text}' | Word count: {word_count}")
 
     if word_count < 5:  # Check if the message has less than 5 words
-        general_logger.info("Message has less than 5 words, skipping processing.")
+        # general_logger.info("Message has less than 5 words, skipping processing.")
         return  # Skip processing if not enough words
 
     random_value = random.random()
