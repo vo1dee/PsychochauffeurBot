@@ -5,6 +5,7 @@ import nest_asyncio
 import pytz
 import random
 import pyshorteners
+from urllib.parse import urlparse, urlunparse
 
 from modules.keyboards import create_link_keyboard, button_callback
 from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state
@@ -27,6 +28,12 @@ message_counts = {}
 def contains_trigger_words(message_text):
     triggers = ["Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]
     return any(trigger in message_text for trigger in triggers)
+
+def sanitize_url(url: str, replace_domain: str = None) -> str:
+    parsed_url = urlparse(url)
+    netloc = replace_domain if replace_domain else parsed_url.netloc
+    sanitized_url = urlunparse((parsed_url.scheme, netloc, parsed_url.path, '', '', ''))
+    return sanitized_url
 
 async def start(update: Update, context: CallbackContext):
     general_logger.info(f"Processing /start command from user {update.message.from_user.id} in chat {update.effective_chat.id}")
@@ -64,13 +71,15 @@ async def handle_message(update: Update, context: CallbackContext):
     original_links = []
 
     for link in message_text.split():
-        if any(modified_domain in link for modified_domain in domain_modifications.values()):
+        # Sanitize the link before processing
+        sanitized_link = sanitize_url(link)
+
+        if any(modified_domain in sanitized_link for modified_domain in domain_modifications.values()):
             continue
 
-
         for domain, modified_domain in domain_modifications.items():
-            if domain in link:
-                modified_link = link.replace(domain, modified_domain)
+            if domain in sanitized_link:
+                modified_link = sanitized_link.replace(domain, modified_domain)
                 modified_links.append(modified_link)
                 original_links.append(modified_link)
                 break
