@@ -16,6 +16,7 @@ from modules.user_management import restrict_user
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext, \
     CallbackQueryHandler
+from urllib.parse import urlparse, urlunparse
 
 # Apply the patch to allow nested event loops
 nest_asyncio.apply()
