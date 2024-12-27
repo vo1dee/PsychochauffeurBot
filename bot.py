@@ -6,6 +6,7 @@ import pytz
 import random
 import pyshorteners
 from urllib.parse import urlparse, urlunparse
+import re
 
 from modules.keyboards import create_link_keyboard, button_callback
 from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state
@@ -35,100 +36,78 @@ def sanitize_url(url: str, replace_domain: str = None) -> str:
     sanitized_url = urlunparse((parsed_url.scheme, netloc, parsed_url.path, '', '', ''))
     return sanitized_url
 
+def extract_urls(text):
+    """Extract URLs from text using regex pattern."""
+    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    return re.findall(url_pattern, text)
+
 async def start(update: Update, context: CallbackContext):
     general_logger.info(f"Processing /start command from user {update.message.from_user.id} in chat {update.effective_chat.id}")
     await update.message.reply_text("Hello! Send me TikTok, Twitter, or Instagram links, and I will modify them for you!")
 
 async def handle_message(update: Update, context: CallbackContext):
+    """Handle incoming messages."""
     if not update.message or not update.message.text:
         return
 
     message_text = update.message.text
+    
+    # Initialize modified_link before using it
+    modified_link = message_text
+
+    # Extract URLs if present
+    urls = extract_urls(message_text)
+    if urls:
+        modified_link = urls[0]  # Take the first URL if multiple exist
+        
+
     chat_id = update.message.chat_id
     username = update.message.from_user.username
     chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
 
     # Log message with extra fields
     chat_logger.info(f"User message: {message_text}", extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
-    # logging.info(f"Received message: {message_text}")  # Log the received message 
-
-    # Define is_mention and is_private_chat
-    is_mention = update.message.entities and any(entity.type == 'mention' for entity in update.message.entities)
-    # is_private_chat = update.effective_chat.type == 'private'
 
     # Handle trigger words
     if contains_trigger_words(message_text):
         await restrict_user(update, context)
         return
 
-    # Check for AliExpress links and send a sticker
-    if any(domain in message_text for domain in ["aliexpress.com/item/", "a.aliexpress.com/"]):
-        await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
-        # logging.info(f"Sent sticker for AliExpress link in chat {update.effective_chat.id}")
-
-
     modified_links = []
     original_links = []
 
+    # Process all links in a single pass
     for link in message_text.split():
-        # Sanitize the link before processing
         sanitized_link = sanitize_url(link)
-
-        if any(modified_domain in sanitized_link for modified_domain in domain_modifications.values()):
+        
+        # Check for YouTube/AliExpress links first
+        if any(domain in modified_link for domain in ["youtube.com", "youtu.be"]):
+            if len(modified_link) > 60:
+                modified_link = await shorten_url(modified_link)
+            modified_link += " #youtube"
+            modified_links.append(modified_link)
+            continue
+            
+        elif any(domain in modified_link for domain in ["aliexpress.com/item/", "a.aliexpress.com/"]):
+            if len(modified_link) > 60:
+                modified_link = await shorten_url(modified_link)
+            modified_link += " #aliexpress"
+            modified_links.append(modified_link)
+            # Send AliExpress sticker
+            await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
             continue
 
+        # Then check for domain modifications (x.com etc.)
         for domain, modified_domain in domain_modifications.items():
             if domain in sanitized_link:
                 modified_link = sanitized_link.replace(domain, modified_domain)
                 modified_links.append(modified_link)
-                original_links.append(modified_link)
                 break
-        
+
+    # Send modified message if any links were processed
     if modified_links:
-        cleaned_message_text = remove_links(message_text).replace("\n", " ")  # Replace newlines with spaces
+        cleaned_message_text = remove_links(message_text).replace("\n", " ")
         await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
-
-
-    # Process only if the message contains a link
-    if any(domain in message_text for domain in ["youtube.com", "youtu.be", "aliexpress.com/item/", "a.aliexpress.com/"]):
-        # Handle domain modifications and hashtags
-        modified_links = []
-        original_links = []
-        for link in message_text.split():
-            general_logger.info(f"Processing link: {link}")  # Log each link being processed
-
-            # Check if the link is valid (not empty)
-            if not link.strip():
-                general_logger.warning("Empty link detected, skipping.")
-                continue
-
-            # Add hashtags based on the domain before shortening
-            hashtag = ""
-            if "youtube.com" in link or "youtu.be" in link:
-                hashtag = " #youtube"
-                general_logger.info(f"Identified YouTube link: {link}")
-            elif "aliexpress.com/item/" in link or "a.aliexpress.com/" in link:
-                hashtag = " #aliexpress"
-                general_logger.info(f"Identified AliExpress link: {link}")
-
-            # Shorten URLs longer than 60 characters
-            if len(link) > 60:
-                link = await shorten_url(link)  # Ensure this function is defined
-                general_logger.info(f"Shortened link: {link}")
-
-            # Append the hashtag after shortening
-            if hashtag:
-                link += hashtag
-                general_logger.info(f"Added hashtag to link: {link}")
-
-            # Add the modified link to the list
-            modified_links.append(link)
-            logging.info(f"Final modified link added: {link}")
-
-        if modified_links:
-                cleaned_message_text = remove_links(message_text).replace("\n", " ")  # Replace newlines with spaces
-                await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
-
 
     # Handle GPT queries
     if f"@{context.bot.username}" in message_text:
@@ -208,9 +187,19 @@ async def shorten_url(url):
 
 async def construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context):
     try:
+        # Log the function call for debugging
+        general_logger.info(f"Constructing and sending message for chat_id: {chat_id}, username: {username}")
+
+        # Log the cleaned message text and modified links
+        general_logger.info(f"Cleaned message text: {cleaned_message_text}")
+        general_logger.info(f"Modified links: {modified_links}")
+
         # Create the message
         modified_message = " ".join(modified_links)  # Use space to join links
-        final_message = f"@{username}💬: {cleaned_message_text} Wants to share: {modified_message}"
+        final_message = f"@{username}💬: {cleaned_message_text}\nWants to share: {modified_message}"
+
+        # Log the final message
+        general_logger.info(f"Final message: {final_message}")
 
         # Store the link and create keyboard
         link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
