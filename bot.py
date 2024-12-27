@@ -85,30 +85,8 @@ async def handle_message(update: Update, context: CallbackContext):
                 break
         
     if modified_links:
-        
-        try:
-            # Create the message
-            cleaned_message_text = remove_links(message_text)
-            modified_message = "\n".join(modified_links)
-            final_message = f"@{username}💬: {cleaned_message_text}\n\nModified links:\n{modified_message}"
-
-            # Store the link and create keyboard
-            link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
-            context.bot_data[link_hash] = modified_links[0]
-            reply_markup = create_link_keyboard(modified_links[0])
-            # Send modified message and delete original
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=final_message,
-                reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
-                reply_markup=reply_markup
-            )
-            await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
-
-
-        except Exception as e:
-            general_logger.error(f"Error modifying links: {str(e)}")
-            await update.message.reply_text("Sorry, an error occurred. Please try again.")
+        cleaned_message_text = remove_links(message_text).replace("\n", " ")  # Replace newlines with spaces
+        await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
 
 
     # Process only if the message contains a link
@@ -147,37 +125,9 @@ async def handle_message(update: Update, context: CallbackContext):
             modified_links.append(link)
             logging.info(f"Final modified link added: {link}")
 
-        # # Send the modified links back to the chat
-        # if modified_links:
-        #     await context.bot.send_message(chat_id=update.effective_chat.id, text=" ".join(modified_links))  # Join with space to maintain structure
-
-        #     await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
-
         if modified_links:
-        
-            try:
-                # Create the message
-                cleaned_message_text = remove_links(message_text)
-                modified_message = "\n".join(modified_links)
-                final_message = f"@{username}💬: {cleaned_message_text}\nWant's to share:\n{modified_message}"
-
-                # Store the link and create keyboard
-                link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
-                context.bot_data[link_hash] = modified_links[0]
-                # reply_markup = create_link_keyboard(modified_links[0])
-                # Send modified message and delete original
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=final_message,
-                    reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
-                    # reply_markup=reply_markup
-                )
-                await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
-
-
-            except Exception as e:
-                general_logger.error(f"Error modifying links: {str(e)}")
-                await update.message.reply_text("Sorry, an error occurred. Please try again.")
+                cleaned_message_text = remove_links(message_text).replace("\n", " ")  # Replace newlines with spaces
+                await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
 
 
     # Handle GPT queries
@@ -255,6 +205,29 @@ async def shorten_url(url):
     except Exception as e:
         logging.error(f"Error shortening URL {url}: {str(e)}")
         return url  # Return the original URL if there's an error
+
+async def construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context):
+    try:
+        # Create the message
+        modified_message = " ".join(modified_links)  # Use space to join links
+        final_message = f"@{username}💬: {cleaned_message_text} Wants to share: {modified_message}"
+
+        # Store the link and create keyboard
+        link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
+        context.bot_data[link_hash] = modified_links[0]
+        # reply_markup = create_link_keyboard(modified_links[0])
+        # Send modified message and delete original
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=final_message,
+            reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
+            # reply_markup=reply_markup
+        )
+        await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
+
+    except Exception as e:
+        general_logger.error(f"Error modifying links: {str(e)}")
+        await update.message.reply_text("Sorry, an error occurred. Please try again.")
 
 async def main():
     # Load game state at startup
