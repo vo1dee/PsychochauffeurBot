@@ -55,6 +55,14 @@ async def handle_message(update: Update, context: CallbackContext):
     # Initialize modified_link before using it
     modified_link = message_text
 
+    # Check for YouTube links first
+    if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
+        if len(message_text) > 60:
+            modified_link = await shorten_url(message_text)
+        # Just send a hashtag reply once
+        await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
+        return  # Exit the function after handling YouTube link
+        
     # Extract URLs if present
     urls = extract_urls(message_text)
     if urls:
@@ -79,18 +87,10 @@ async def handle_message(update: Update, context: CallbackContext):
     # Process all links in a single pass
     for link in message_text.split():
         sanitized_link = sanitize_url(link)
-        
-        # Check for YouTube/AliExpress links first
-        if any(domain in modified_link for domain in ["youtube.com", "youtu.be"]):
-            if len(modified_link) > 60:
-                modified_link = await shorten_url(modified_link)
-            modified_link += " #youtube"
-            modified_links.append(modified_link)
-            continue
             
-        elif any(domain in modified_link for domain in ["aliexpress.com/item/", "a.aliexpress.com/"]):
-            if len(modified_link) > 60:
-                modified_link = await shorten_url(modified_link)
+        if any(domain in message_text for domain in ["aliexpress.com/item/", "a.aliexpress.com/"]):
+            if len(message_text) > 60:
+                modified_link = await shorten_url(message_text)
             modified_link += " #aliexpress"
             modified_links.append(modified_link)
             # Send AliExpress sticker
