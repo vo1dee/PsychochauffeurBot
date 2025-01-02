@@ -205,13 +205,13 @@ async def construct_and_send_message(chat_id, username, cleaned_message_text, mo
         # Store the link and create keyboard
         link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
         context.bot_data[link_hash] = modified_links[0]
-        # reply_markup = create_link_keyboard(modified_links[0])
+        reply_markup = create_link_keyboard(modified_links[0])
         # Send modified message and delete original
         await context.bot.send_message(
             chat_id=chat_id,
             text=final_message,
             reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
-            # reply_markup=reply_markup
+            reply_markup=reply_markup
         )
         await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
 
