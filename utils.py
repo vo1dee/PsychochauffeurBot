@@ -31,7 +31,7 @@ def country_code_to_emoji(country_code: str) -> str:
 
 def get_weather_emoji(weather_id: int) -> str:
     """Get weather emoji based on weather ID."""
-    return next((emoji for id_range, emoji in weather_emojis.items() 
+    return next((emoji for id_range, emoji in weather_emojis.items()
                 if weather_id in id_range), '🌈')
 
 def get_feels_like_emoji(feels_like: float) -> str:
@@ -62,12 +62,12 @@ async def cat_command(update: Update, context: CallbackContext) -> None:
 # Screenshot functionality
 class ScreenshotManager:
     _instance = None  # Singleton instance
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self):
         if not hasattr(self, '_initialized'):
             self.timezone = pytz.timezone('Europe/Kyiv')
@@ -111,7 +111,7 @@ class ScreenshotManager:
                     ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
                 ]
             }
-            
+
             config = imgkit.config(wkhtmltoimage='/usr/bin/wkhtmltoimage')
             imgkit.from_url(url, output_path, options=options, config=config)
             return output_path
@@ -124,27 +124,27 @@ class ScreenshotManager:
         while True:
             # Get current time in Kyiv timezone
             kyiv_now = datetime.now(self.timezone)
-            
+
             # Create target time for today at 1 AM Kyiv time
             target_time = self.timezone.localize(
                 datetime.combine(kyiv_now.date(), self.schedule_time)
             )
-            
+
             # If it's already past 1 AM Kyiv time today, schedule for tomorrow
             if kyiv_now > target_time:
                 target_time += timedelta(days=1)
-            
+
             # Convert target time to server's local time for sleep calculation
             server_now = datetime.now(pytz.UTC).astimezone()  # Get server's local time
             target_time_local = target_time.astimezone(server_now.tzinfo)
-            
+
             # Calculate sleep duration based on server time
             sleep_seconds = (target_time_local - server_now).total_seconds()
             general_logger.info(f"Current server time: {server_now}")
             general_logger.info(f"Current Kyiv time: {kyiv_now}")
             general_logger.info(f"Next screenshot scheduled for: {target_time} (Kyiv time)")
             general_logger.info(f"Sleep duration: {sleep_seconds} seconds")
-            
+
             # Sleep until next run
             await asyncio.sleep(sleep_seconds)
             await self.take_screenshot('https://api.meteoagent.com/widgets/v1/kindex', self.get_screenshot_path())
@@ -156,18 +156,18 @@ async def screenshot_command(update: Update, context: CallbackContext) -> None:
         manager = ScreenshotManager()
         # Try to get today's existing screenshot first
         screenshot_path = manager.get_latest_screenshot()
-        
+
         # If no screenshot exists for today, take a new one
         if not screenshot_path:
             screenshot_path = await manager.take_screenshot(
-                'https://api.meteoagent.com/widgets/v1/kindex', 
+                'https://api.meteoagent.com/widgets/v1/kindex',
                 manager.get_screenshot_path()
             )
-            
+
         if screenshot_path:
             with open(screenshot_path, 'rb') as photo:
                 await context.bot.send_photo(
-                    chat_id=update.effective_chat.id, 
+                    chat_id=update.effective_chat.id,
                     photo=photo
                 )
     except Exception as e:
@@ -198,7 +198,7 @@ def load_game_state():
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Starts the word game by fetching a random Ukrainian word."""
     chat_id = update.effective_chat.id
-    
+
     # Check if there's already an active game
     if chat_id in game_state:
         await update.message.reply_text("В цьому чаті вже є активна гра! Використайте /endgame щоб завершити поточну гру.")
@@ -221,7 +221,7 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def end_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ends the current word game in the chat."""
     chat_id = update.effective_chat.id
-    
+
     if chat_id in game_state:
         word = game_state[chat_id]
         del game_state[chat_id]
@@ -253,8 +253,8 @@ async def clear_words_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Clears the history of used words in the game."""
     if not await is_admin(update, context):
         await update.message.reply_text("Ця команда доступна тільки для адміністраторів.")
-        return  
-    
+        return
+
     current_count = get_used_words_count()
     clear_used_words()
     await update.message.reply_text(
@@ -264,14 +264,14 @@ async def clear_words_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def hint_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Provides a hint for the current word."""
     chat_id = update.effective_chat.id
-    
+
     if chat_id not in game_state:
         await update.message.reply_text("В цьому чаті немає активної гри.")
         return
-        
+
     word = game_state[chat_id]
     prompt = f"Дай підказку для українського слова '{word}', але не називай саме слово. Підказка має бути короткою (1-2 речення) але не давати прямого натяку на слово."
-    
+
     try:
         # Use ask_gpt_command directly without return_text parameter
         await ask_gpt_command(prompt, update, context)
@@ -308,18 +308,18 @@ async def random_ukrainian_word_command() -> Optional[str]:
                 if word:
                     # Clean up the word (remove spaces, punctuation, etc.)
                     word = word.strip().lower()
-                    
+
                     # Validate word
-                    if (word not in used_words and 
-                        3 <= len(word) <= 8 and 
+                    if (word not in used_words and
+                        3 <= len(word) <= 8 and
                         word.isalpha()):
-                        
+
                         # Add to used words
                         with open(USED_WORDS_FILE, 'a', encoding='utf-8') as f:
                             f.write(f"{word},")
-                        
+
                         return word
-                    
+
                 general_logger.debug(f"Word '{word}' invalid or already used, attempt {attempt + 1}/{max_attempts}")
             except Exception as e:
                 general_logger.error(f"Error in attempt {attempt + 1}: {e}")

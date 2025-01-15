@@ -18,6 +18,7 @@ from modules.user_management import restrict_user
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext, \
     CallbackQueryHandler
+from urllib.parse import urlparse, urlunparse
 
 # Apply the patch to allow nested event loops
 nest_asyncio.apply()
@@ -51,7 +52,7 @@ async def handle_message(update: Update, context: CallbackContext):
         return
 
     message_text = update.message.text
-    
+
     # Initialize modified_link before using it
     modified_link = message_text
 
@@ -62,12 +63,12 @@ async def handle_message(update: Update, context: CallbackContext):
         # Just send a hashtag reply once
         await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
         return  # Exit the function after handling YouTube link
-        
+
     # Extract URLs if present
     urls = extract_urls(message_text)
     if urls:
         modified_link = urls[0]  # Take the first URL if multiple exist
-        
+
 
     chat_id = update.message.chat_id
     username = update.message.from_user.username
@@ -87,7 +88,7 @@ async def handle_message(update: Update, context: CallbackContext):
     # Process all links in a single pass
     for link in message_text.split():
         sanitized_link = sanitize_url(link)
-            
+
         if any(domain in message_text for domain in ["aliexpress.com/item/", "a.aliexpress.com/"]):
             if len(message_text) > 60:
                 modified_link = await shorten_url(message_text)
@@ -156,19 +157,19 @@ async def random_gpt_response(update: Update, context: CallbackContext):
             f"Current message count: {current_message_count}"
         )
 
-        
+
         # Call the GPT function
         await answer_from_gpt(message_text, update, context)
-        
+
         # Reset message count for the chat
         message_counts[chat_id] = 0
 
 async def handle_sticker(update: Update, context: CallbackContext):
     sticker_id = update.message.sticker.file_unique_id
     username = update.message.from_user.username
-    
+
     general_logger.info(f"Received sticker with file_unique_id: {sticker_id}")
-    
+
     if sticker_id == "AgAD6BQAAh-z-FM":
         logging.info(f"Matched specific sticker from {username}, restricting user.")
         await restrict_user(update, context)
@@ -204,13 +205,13 @@ async def construct_and_send_message(chat_id, username, cleaned_message_text, mo
         # Store the link and create keyboard
         link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
         context.bot_data[link_hash] = modified_links[0]
-        # reply_markup = create_link_keyboard(modified_links[0])
+        reply_markup = create_link_keyboard(modified_links[0])
         # Send modified message and delete original
         await context.bot.send_message(
             chat_id=chat_id,
             text=final_message,
             reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
-            # reply_markup=reply_markup
+            reply_markup=reply_markup
         )
         await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
 
@@ -221,9 +222,9 @@ async def construct_and_send_message(chat_id, username, cleaned_message_text, mo
 async def main():
     # Load game state at startup
     load_game_state()
-    
+
     bot = ApplicationBuilder().token(TOKEN).build()
-    
+
     # Add command handlers
     commands = {
         'start': start,
@@ -237,7 +238,7 @@ async def main():
         'clearwords': clear_words_command,
         'hint': hint_command  # Add hint command
     }
-    
+
     for command, handler in commands.items():
         bot.add_handler(CommandHandler(command, handler))
 
