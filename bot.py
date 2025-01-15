@@ -58,8 +58,8 @@ async def handle_message(update: Update, context: CallbackContext):
 
     # Check for YouTube links first
     if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
-        if len(message_text) > 60:
-            modified_link = await shorten_url(message_text)
+        if len(sanitized_link) > 60:
+            modified_link = await shorten_url(sanitized_link)
         # Just send a hashtag reply once
         await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
         return  # Exit the function after handling YouTube link
@@ -86,11 +86,12 @@ async def handle_message(update: Update, context: CallbackContext):
     original_links = []
 
     # Process all links in a single pass
-    for link in message_text.split():
+    urls = extract_urls(message_text)
+    for link in urls:
         sanitized_link = sanitize_url(link)
-
-        if any(domain in message_text for domain in ["aliexpress.com/item/", "a.aliexpress.com/"]):
-            if len(message_text) > 60:
+        if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
+            if len(sanitized_link) > 60:
+                modified_link = await shorten_url(sanitized_link)
                 modified_link = await shorten_url(message_text)
             modified_link += " #aliexpress"
             modified_links.append(modified_link)
@@ -118,13 +119,14 @@ async def handle_message(update: Update, context: CallbackContext):
         return  # Ensure to return after processing
 
     # Check if the chat is private and the message does not contain a link
-    if update.effective_chat.type == 'private' and not any(domain in message_text for domain in ["youtube.com", "youtu.be", "aliexpress.com/item/", "a.aliexpress.com/"]) and not any(domain in message_text for domain, modified_domain in domain_modifications.items()):
+    is_private_chat = update.effective_chat.type == 'private'
+    contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', message_text)
+    contains_domain_modifications = any(domain in message_text for domain, modified_domain in domain_modifications.items())
+
+    if is_private_chat and not contains_youtube_or_aliexpress and not contains_domain_modifications:
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         await ask_gpt_command(cleaned_message, update, context)
         return  # Ensure to return after processing
-
-
-    # Call the random GPT response function
     await random_gpt_response(update, context)
 
 
