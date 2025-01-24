@@ -7,6 +7,10 @@ import random
 import pyshorteners
 from urllib.parse import urlparse, urlunparse
 import re
+import os
+import telebot
+import yt_dlp
+
 
 from modules.keyboards import create_link_keyboard, button_callback
 from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state
@@ -16,8 +20,15 @@ from modules.weather import weather
 from modules.file_manager import general_logger, chat_logger
 from modules.user_management import restrict_user
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext, \
-    CallbackQueryHandler
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    CallbackContext,
+    CallbackQueryHandler,
+    ContextTypes
+    )
 from urllib.parse import urlparse, urlunparse
 
 # Apply the patch to allow nested event loops
@@ -25,6 +36,99 @@ nest_asyncio.apply()
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 
 message_counts = {}
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+
+# Supported platforms
+SUPPORTED_PLATFORMS = [
+    'tiktok.com', 'instagram.com', 'youtube.com', 
+    'youtu.be', 'facebook.com', 'twitter.com', 
+    'vimeo.com', 'reddit.com'
+]
+
+async def download_video(url):
+    """
+    Async video download using yt-dlp
+    """
+    ydl_opts = {
+        'format': 'best[ext=mp4]/best',
+        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'no_warnings': True,
+        'ignoreerrors': False,
+        'no_color': True,
+        'nooverwrites': True,
+        'no_part': True
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
+            video_title = info_dict.get('title', None)
+            filename = ydl.prepare_filename(info_dict)
+            return filename, video_title
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        return None, None
+
+def download_progress(d):
+    """
+    Log download progress
+    """
+    if d['status'] == 'finished':
+        logger.info('Download complete, processing...')
+
+
+async def handle_video_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handle video download request
+    """
+    url = update.message.text.strip()
+    
+    # Add debug logging
+    logger.info(f"Attempting to download video from URL: {url}")
+    
+    # Send initial processing message
+    processing_msg = await update.message.reply_text("🔄 Processing video...")
+    
+    try:
+        # Download video
+        filename, title = await download_video(url)
+        
+        if filename and os.path.exists(filename):
+            # Log successful download
+            logger.info(f"Successfully downloaded video: {filename}")
+            
+            # Send video file
+            with open(filename, 'rb') as video_file:
+                await update.message.reply_video(
+                    video=video_file, 
+                    caption=f"📹 {title or 'Downloaded Video'}"
+                )
+            
+            # Clean up downloaded file
+            os.remove(filename)
+            await processing_msg.delete()
+        else:
+            logger.error(f"Download failed: filename={filename}, exists={os.path.exists(filename) if filename else False}")
+            await update.message.reply_text("❌ Video download failed. Check the link and try again.")
+    
+    except Exception as e:
+        logger.error(f"Error processing video: {e}")
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+
+
+async def handle_invalid_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handle messages without supported video links
+    """
+    await update.message.reply_text("❌ Please send a valid video link from supported platforms.")
+
 
 
 def contains_trigger_words(message_text):
@@ -42,9 +146,19 @@ def extract_urls(text):
     url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
     return re.findall(url_pattern, text)
 
-async def start(update: Update, context: CallbackContext):
-    general_logger.info(f"Processing /start command from user {update.message.from_user.id} in chat {update.effective_chat.id}")
-    await update.message.reply_text("Hello! Send me TikTok, Twitter, or Instagram links, and I will modify them for you!")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler for /start command
+    """
+    welcome_text = (
+        "🤖 Video Downloader Bot\n\n"
+        "Send me a link from:\n"
+        "• TikTok\n• Instagram\n• YouTube Shorts\n"
+        "• Facebook\n• Twitter\n• Vimeo\n• Reddit\n\n"
+        "I'll download and send the video directly!"
+    )
+    await update.message.reply_text(welcome_text)
+
 
 async def handle_message(update: Update, context: CallbackContext):
     """Handle incoming messages."""
@@ -99,17 +213,17 @@ async def handle_message(update: Update, context: CallbackContext):
             await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
             continue
 
-        # Then check for domain modifications (x.com etc.)
-        for domain, modified_domain in domain_modifications.items():
-            if domain in sanitized_link:
-                modified_link = sanitized_link.replace(domain, modified_domain)
-                modified_links.append(modified_link)
-                break
+        # # Then check for domain modifications (x.com etc.)
+        # for domain, modified_domain in domain_modifications.items():
+        #     if domain in sanitized_link:
+        #         modified_link = sanitized_link.replace(domain, modified_domain)
+        #         modified_links.append(modified_link)
+        #         break
 
-    # Send modified message if any links were processed
-    if modified_links:
-        cleaned_message_text = remove_links(message_text).replace("\n", " ")
-        await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
+    # # Send modified message if any links were processed
+    # if modified_links:
+    #     cleaned_message_text = remove_links(message_text).replace("\n", " ")
+    #     await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
 
     # Handle GPT queries
     if f"@{context.bot.username}" in message_text:
@@ -122,8 +236,9 @@ async def handle_message(update: Update, context: CallbackContext):
     is_private_chat = update.effective_chat.type == 'private'
     contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', message_text)
     contains_domain_modifications = any(domain in message_text for domain, modified_domain in domain_modifications.items())
+    contain_download = any(domain in message_text for domain in SUPPORTED_PLATFORMS)
 
-    if is_private_chat and not contains_youtube_or_aliexpress and not contains_domain_modifications:
+    if is_private_chat and not contains_youtube_or_aliexpress and not contains_domain_modifications and not contain_download:
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         await ask_gpt_command(cleaned_message, update, context)
         return  # Ensure to return after processing
@@ -225,7 +340,10 @@ async def main():
     # Load game state at startup
     load_game_state()
 
-    bot = ApplicationBuilder().token(TOKEN).build()
+    # Ensure downloads directory exists
+    os.makedirs('downloads', exist_ok=True)
+
+    application = ApplicationBuilder().token(TOKEN).build()
 
     # Add command handlers
     commands = {
@@ -238,26 +356,47 @@ async def main():
         'game': game_command,
         'endgame': end_game_command,
         'clearwords': clear_words_command,
-        'hint': hint_command  # Add hint command
+        'hint': hint_command
     }
 
     for command, handler in commands.items():
-        bot.add_handler(CommandHandler(command, handler))
+        application.add_handler(CommandHandler(command, handler))
 
-    # Add message handlers
-    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    bot.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
-    bot.add_handler(CallbackQueryHandler(button_callback))
+    # Add video download handlers
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & filters.Regex('|'.join(SUPPORTED_PLATFORMS)), 
+            handle_video_link
+        ),
+        group=1  # Move group parameter here
+    )
+    
+    # General message handler
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND, 
+            handle_message
+        ),
+        group=2  # Move group parameter here
+    )
+    
+    # Other handlers...
+    application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+    application.add_handler(CallbackQueryHandler(button_callback))
 
     # Start the screenshot scheduler
-    screenshot_manager = ScreenshotManager()  # Create instance first
+    screenshot_manager = ScreenshotManager()
     asyncio.create_task(screenshot_manager.schedule_task())
 
     # Start bot
-    await bot.run_polling()
-    await bot.idle()
+    logger.info("Bot is running...")
+    await application.run_polling()
 
 if __name__ == '__main__':
+    # Apply the patch to allow nested event loops
+    nest_asyncio.apply()
+    
+    # Create a new event loop
     new_loop = asyncio.new_event_loop()
     asyncio.set_event_loop(new_loop)
     new_loop.run_until_complete(main())
