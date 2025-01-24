@@ -62,6 +62,9 @@ async def download_video(url):
         'merge_output_format': 'mp4',
         'postprocessors': [],  # Remove post-processing
         'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'restrictfilenames': True,  # Restrict file names to safe characters
+        'max_filesize': 20 * 1024 * 1024,  # 20MB max file size
+        'no_warnings': True,
         'no_warnings': True,
         'ignoreerrors': False,
         'no_color': True,
