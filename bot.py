@@ -54,42 +54,27 @@ SUPPORTED_PLATFORMS = [
 ]
 
 async def download_video(url):
-    def sanitize_filename(filename, max_length=255):
-        # Truncate to 255 characters, removing from middle if needed
-        if len(filename) > max_length:
-            half = (max_length - 3) // 2
-            filename = f"{filename[:half]}...{filename[-half:]}"
-        
-        # Remove invalid filename characters
-        return ''.join(c for c in filename if c.isalnum() or c in ['-', '_', '.', ' ']).strip()
+   ydl_opts = {
+       'format': 'bestvideo+bestaudio/best',
+       'merge_output_format': 'mp4',
+       'outtmpl': 'downloads/video.mp4',  # Use fixed placeholder name
+       'max_filesize': 20 * 1024 * 1024,
+       'nooverwrites': False,
+       'no_part': True,
+       'retries': 3,
+       'fragment_retries': 3,
+       'ignoreerrors': False,
+       'quiet': True,
+   }
 
-    ydl_opts = {
-        'format': 'bestvideo+bestaudio/best',
-        'merge_output_format': 'mp4',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
-        'restrictfilenames': True,
-        'max_filesize': 20 * 1024 * 1024,
-        'nooverwrites': True,
-        'no_part': True,
-        'retries': 3,
-        'fragment_retries': 3,
-        'ignoreerrors': False,
-        'quiet': True,
-    }
-
-    try:    
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=True)
-            
-            original_title = info_dict.get('title', 'unknown')
-            sanitized_title = sanitize_filename(original_title)
-            
-            filename = f'downloads/{sanitized_title}.mp4'
-            
-            return filename, sanitized_title
-    except Exception as e:
-        logger.error(f"Download error: {e}")
-        return None, None
+   try:    
+       with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+           info_dict = ydl.extract_info(url, download=True)
+           filename = 'downloads/video.mp4'
+           return filename, info_dict.get('title', 'Unknown')
+   except Exception as e:
+       logger.error(f"Download error: {e}")
+       return None, None
 
 
 def download_progress(d):
