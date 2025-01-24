@@ -55,56 +55,43 @@ SUPPORTED_PLATFORMS = [
 
 async def download_video(url):
     """
-    Async video download using yt-dlp with Reddit authentication
+    Async video download using yt-dlp with improved filename handling
     """
+    def sanitize_filename(filename, max_length=250):
+        # Truncate filename if too long
+        if len(filename) > max_length:
+            filename = filename[:max_length]
+        
+        # Remove invalid characters
+        return ''.join(c for c in filename if c.isalnum() or c in ['-', '_', '.', ' '])
+
     ydl_opts = {
-        'format': 'bestvideo+bestaudio/best',  # Combine best video and audio
+        'format': 'bestvideo+bestaudio/best',
         'merge_output_format': 'mp4',
-        'postprocessors': [],  # Remove post-processing
         'outtmpl': 'downloads/%(title)s.%(ext)s',
-        'restrictfilenames': True,  # Restrict file names to safe characters
+        'restrictfilenames': True,
         'max_filesize': 20 * 1024 * 1024,  # 20MB max file size
-        'no_warnings': True,
-        'no_warnings': True,
-        'ignoreerrors': False,
-        'no_color': True,
         'nooverwrites': True,
         'no_part': True,
-        'cookiefile': '.reddit_cookies.txt',
-        'cookies_from_browser': 'firefox',    
         'retries': 3,
         'fragment_retries': 3,
-        'extractor_args': {
-            'reddit': {
-                'comments': False,  # Disable downloading comments
-            }
-        },
-        # Bypass age restrictions and bot checks
-        'age_limit': 0,
-        'nocheckcertificate': True,
-        
-        # Minimize user interaction
-        'ignoreerrors': True,
+        'ignoreerrors': False,
+        'no_color': True,
         'quiet': True,
-        
-        # Retry options
-        'retries': 3,
-        'fragment_retries': 3,
-        
-        # Force download without login
-        'force_generic_extractor': True,
     }
+
     try:    
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
-            video_title = info_dict.get('title', None)
-            filename = ydl.prepare_filename(info_dict)
             
-            # Attempt to handle multiple formats
-            if isinstance(filename, list):
-                filename = filename[0] if filename else None
+            # Sanitize filename
+            original_title = info_dict.get('title', 'unknown')
+            sanitized_title = sanitize_filename(original_title)
             
-            return filename, video_title
+            # Reconstruct filename with sanitized title
+            filename = f'downloads/{sanitized_title}.mp4'
+            
+            return filename, sanitized_title
     except Exception as e:
         logger.error(f"Download error: {e}")
         return None, None
