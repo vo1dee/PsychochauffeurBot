@@ -54,29 +54,26 @@ SUPPORTED_PLATFORMS = [
 ]
 
 async def download_video(url):
-    """
-    Async video download using yt-dlp with improved filename handling
-    """
-    def sanitize_filename(filename, max_length=250):
-        # Truncate filename if too long
+    def sanitize_filename(filename, max_length=255):
+        # Truncate to 255 characters, removing from middle if needed
         if len(filename) > max_length:
-            filename = filename[:max_length]
+            half = (max_length - 3) // 2
+            filename = f"{filename[:half]}...{filename[-half:]}"
         
-        # Remove invalid characters
-        return ''.join(c for c in filename if c.isalnum() or c in ['-', '_', '.', ' '])
+        # Remove invalid filename characters
+        return ''.join(c for c in filename if c.isalnum() or c in ['-', '_', '.', ' ']).strip()
 
     ydl_opts = {
         'format': 'bestvideo+bestaudio/best',
         'merge_output_format': 'mp4',
         'outtmpl': 'downloads/%(title)s.%(ext)s',
         'restrictfilenames': True,
-        'max_filesize': 20 * 1024 * 1024,  # 20MB max file size
+        'max_filesize': 20 * 1024 * 1024,
         'nooverwrites': True,
         'no_part': True,
         'retries': 3,
         'fragment_retries': 3,
         'ignoreerrors': False,
-        'no_color': True,
         'quiet': True,
     }
 
@@ -84,11 +81,9 @@ async def download_video(url):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
             
-            # Sanitize filename
             original_title = info_dict.get('title', 'unknown')
             sanitized_title = sanitize_filename(original_title)
             
-            # Reconstruct filename with sanitized title
             filename = f'downloads/{sanitized_title}.mp4'
             
             return filename, sanitized_title
