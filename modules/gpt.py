@@ -26,6 +26,14 @@ GAME_STATE_FILE = 'data/game_state.json'
 async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
     """Ask GPT for a response."""
     try:
+        # If prompt is an Update object (direct command), extract the text after the command
+        if isinstance(prompt, Update):
+            update = prompt
+            message_text = update.message.text
+            # Remove the command from the message
+            command_parts = message_text.split(' ', 1)
+            prompt = command_parts[1] if len(command_parts) > 1 else "Привіт!"
+
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -45,9 +53,9 @@ async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackC
         if return_text:
             return response_text
 
-        if update and context:
+        if update and update.message:
             # Log only necessary information instead of the entire update object
-            user_id = update.message.from_user.id if update.message and update.message.from_user else "unknown"
+            user_id = update.message.from_user.id if update.message.from_user else "unknown"
             chat_id = update.effective_chat.id if update.effective_chat else "unknown"
             general_logger.info(f"Sending GPT response to user {user_id} in chat {chat_id}")
 
@@ -55,7 +63,7 @@ async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackC
 
     except Exception as e:
         general_logger.error(f"Error in ask_gpt_command: {e}")
-        if not return_text and update:
+        if not return_text and update and update.message:
             await update.message.reply_text("Вибачте, сталася помилка.")
         raise
 
