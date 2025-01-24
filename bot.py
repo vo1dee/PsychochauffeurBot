@@ -76,9 +76,21 @@ async def download_video(url):
                 'comments': False,  # Disable downloading comments
             }
         },
+        # Bypass age restrictions and bot checks
+        'age_limit': 0,
+        'nocheckcertificate': True,
+        
+        # Minimize user interaction
+        'ignoreerrors': True,
+        'quiet': True,
+        
+        # Retry options
+        'retries': 3,
+        'fragment_retries': 3,
+        
+        # Force download without login
         'force_generic_extractor': True,
     }
-
     try:    
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
