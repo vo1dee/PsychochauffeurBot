@@ -10,6 +10,7 @@ import re
 import os
 import telebot
 import yt_dlp
+import telegram
 
 
 from modules.keyboards import create_link_keyboard, button_callback
@@ -100,10 +101,22 @@ def download_progress(d):
 
 
 async def handle_video_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Handle video download request
-    """
-    url = update.message.text.strip()
+    """Handle video download request"""
+    message_text = update.message.text.strip()
+    
+    # Extract URLs from the message
+    urls = extract_urls(message_text)
+    if not urls:
+        return
+        
+    # Take the first URL found
+    url = urls[0]
+    
+    # Check if it's a YouTube link but not a short
+    if any(domain in url for domain in ["youtube.com", "youtu.be"]):
+        if not "/shorts/" in url:
+            await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
+            return
     
     # Add debug logging
     logger.info(f"Attempting to download video from URL: {url}")
@@ -116,19 +129,33 @@ async def handle_video_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filename, title = await download_video(url)
         
         if filename and os.path.exists(filename):
+            # Check file size (50MB limit)
+            file_size = os.path.getsize(filename) / (1024 * 1024)  # Convert to MB
+            if file_size > 50:
+                os.remove(filename)
+                await processing_msg.delete()
+                await update.message.reply_text("❌ Sorry, the video is too large (>50MB). Try a shorter video.")
+                return
+            
             # Log successful download
             logger.info(f"Successfully downloaded video: {filename}")
             
             # Send video file
-            with open(filename, 'rb') as video_file:
-                await update.message.reply_video(
-                    video=video_file, 
-                    caption=f"📹 {title or 'Downloaded Video'}"
-                )
-            
-            # Clean up downloaded file
-            os.remove(filename)
-            await processing_msg.delete()
+            try:
+                with open(filename, 'rb') as video_file:
+                    await update.message.reply_video(
+                        video=video_file, 
+                        caption=f"📹 {title or 'Downloaded Video'}"
+                    )
+            except telegram.error.BadRequest as e:
+                if "Request Entity Too Large" in str(e):
+                    await update.message.reply_text("❌ Sorry, the video is too large to send via Telegram (>50MB).")
+                else:
+                    raise e
+            finally:
+                # Clean up downloaded file
+                os.remove(filename)
+                await processing_msg.delete()
         else:
             logger.error(f"Download failed: filename={filename}, exists={os.path.exists(filename) if filename else False}")
             await update.message.reply_text("❌ Video download failed. Check the link and try again.")
@@ -136,6 +163,8 @@ async def handle_video_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error processing video: {e}")
         await update.message.reply_text(f"❌ Error: {str(e)}")
+        if processing_msg:
+            await processing_msg.delete()
 
 
 async def handle_invalid_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,23 +210,17 @@ async def handle_message(update: Update, context: CallbackContext):
         return
 
     message_text = update.message.text
-
+    
     # Initialize modified_link before using it
     modified_link = message_text
 
-    # Check for YouTube links first
-    if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
-        if len(sanitized_link) > 60:
-            modified_link = await shorten_url(sanitized_link)
-        # Just send a hashtag reply once
-        await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
-        return  # Exit the function after handling YouTube link
-
     # Extract URLs if present
     urls = extract_urls(message_text)
+    
+
+    # Rest of the message handling...
     if urls:
         modified_link = urls[0]  # Take the first URL if multiple exist
-
 
     chat_id = update.message.chat_id
     username = update.message.from_user.username
@@ -351,12 +374,27 @@ async def construct_and_send_message(chat_id, username, cleaned_message_text, mo
         general_logger.error(f"Error modifying links: {str(e)}")
         await update.message.reply_text("Sorry, an error occurred. Please try again.")
 
+def ensure_downloads_dir():
+    """Ensure downloads directory exists and is empty"""
+    downloads_dir = 'downloads'
+    if not os.path.exists(downloads_dir):
+        os.makedirs(downloads_dir)
+    else:
+        # Clean any leftover files
+        for file in os.listdir(downloads_dir):
+            file_path = os.path.join(downloads_dir, file)
+            try:
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+            except Exception as e:
+                logger.error(f"Error cleaning downloads directory: {e}")
+
 async def main():
     # Load game state at startup
     load_game_state()
 
     # Ensure downloads directory exists
-    os.makedirs('downloads', exist_ok=True)
+    ensure_downloads_dir()
 
     application = ApplicationBuilder().token(TOKEN).build()
 
