@@ -69,28 +69,31 @@ async def download_video(url):
         'no_part': True,
         'cookiefile': '.reddit_cookies.txt',
         'cookies_from_browser': 'firefox',    
-        
-        # Optional: allow more download retries
         'retries': 3,
         'fragment_retries': 3,
-        
-        # Optional: additional Reddit API parameters
         'extractor_args': {
             'reddit': {
                 'comments': False,  # Disable downloading comments
             }
-        }
+        },
+        'force_generic_extractor': True,
     }
 
-    try:
+    try:    
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
             video_title = info_dict.get('title', None)
             filename = ydl.prepare_filename(info_dict)
+            
+            # Attempt to handle multiple formats
+            if isinstance(filename, list):
+                filename = filename[0] if filename else None
+            
             return filename, video_title
     except Exception as e:
         logger.error(f"Download error: {e}")
         return None, None
+
 
 def download_progress(d):
     """
