@@ -57,7 +57,9 @@ async def download_video(url):
     Async video download using yt-dlp with Reddit authentication
     """
     ydl_opts = {
-        'format': 'mp4',
+        'format': 'bestvideo+bestaudio/best',  # Combine best video and audio
+        'merge_output_format': 'mp4',
+        'postprocessors': [],  # Remove post-processing
         'outtmpl': 'downloads/%(title)s.%(ext)s',
         'no_warnings': True,
         'ignoreerrors': False,
