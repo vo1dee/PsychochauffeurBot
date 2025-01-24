@@ -30,6 +30,9 @@ python-web-screenshots/*
 !python-web-screenshots/.gitkeep
 !python-web-screenshots/.gitignore
 
+# downloads
+downloads/*
+
 # Data files
 *.json
 reminders.json
@@ -82,3 +85,17 @@ data/*
 !data/.gitkeep
 !data/.gitignore
 .reddit_cookies.txt
+
+
+# Ignore downloaded videos and temp files
+downloads/
+*.mp4
+*.webm
+*.mkv
+*.avi
+*.mov
+*.flv
+*.wmv
+*.m4v
+*.part
+*.temp
