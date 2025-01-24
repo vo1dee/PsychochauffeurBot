@@ -10,4 +10,4 @@ requests==2.32.3
 pyshorteners==1.0.1
 pyTelegramBotAPI==4.26.0
 yt-dlp==2024.12.13
-browser_cookie
+browser_cookie3==0.20.1
