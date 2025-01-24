@@ -54,16 +54,29 @@ SUPPORTED_PLATFORMS = [
 
 async def download_video(url):
     """
-    Async video download using yt-dlp
+    Async video download using yt-dlp with Reddit authentication
     """
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
+        'format': 'mp4',
         'outtmpl': 'downloads/%(title)s.%(ext)s',
         'no_warnings': True,
         'ignoreerrors': False,
         'no_color': True,
         'nooverwrites': True,
-        'no_part': True
+        'no_part': True,
+        'cookiefile': '.reddit_cookies.txt',
+        'cookies_from_browser': 'firefox',    
+        
+        # Optional: allow more download retries
+        'retries': 3,
+        'fragment_retries': 3,
+        
+        # Optional: additional Reddit API parameters
+        'extractor_args': {
+            'reddit': {
+                'comments': False,  # Disable downloading comments
+            }
+        }
     }
 
     try:

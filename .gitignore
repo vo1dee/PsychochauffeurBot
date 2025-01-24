@@ -81,3 +81,4 @@ test_*.py
 data/*
 !data/.gitkeep
 !data/.gitignore
+.reddit_cookies.txt
