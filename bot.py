@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_PLATFORMS = [
     'tiktok.com', 'instagram.com', 'youtube.com', 
     'youtu.be', 'facebook.com', 'twitter.com', 
-    'vimeo.com', 'reddit.com'
+    'vimeo.com', 'reddit.com','x.com'
 ]
 
 async def download_video(url):
