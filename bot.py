@@ -54,29 +54,54 @@ SUPPORTED_PLATFORMS = [
 ]
 
 async def download_video(url):
-   ydl_opts = {
-       'format': 'bestvideo+bestaudio/best',
-       'merge_output_format': 'mp4',
-       'outtmpl': 'downloads/video.mp4',
-       'max_filesize': 20 * 1024 * 1024,
-       'nooverwrites': False,
-       'no_part': True,
-       'retries': 3,
-       'fragment_retries': 3,
-       'ignoreerrors': False,
-       'quiet': True,
-       'cookiefile': '.cookies.txt',  # Use exported Netscape format cookies
-       'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-   }
+    ydl_opts = {
+        'format': 'bestvideo+bestaudio/best',
+        'merge_output_format': 'mp4',
+        'outtmpl': 'downloads/video.mp4',
+        'max_filesize': 20 * 1024 * 1024,
+        'nooverwrites': False,
+        'no_part': True,
+        'retries': 3,
+        'fragment_retries': 3,
+        'ignoreerrors': False,
+        'quiet': True,
+        'cookiefile': '.cookies.txt',
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        # Add these options for better handling
+        'socket_timeout': 10,
+        'extractor_retries': 3,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        }
+    }
 
-   try:    
-       with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-           info_dict = ydl.extract_info(url, download=True)
-           filename = 'downloads/video.mp4'
-           return filename, info_dict.get('title', 'Unknown')
-   except Exception as e:
-       logger.error(f"Download error: {e}")
-       return None, None
+    try:
+        # First verify if cookies file exists
+        if not os.path.exists('.cookies.txt'):
+            logger.error("Cookies file not found: .cookies.txt")
+            return None, None
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                info_dict = ydl.extract_info(url, download=True)
+                filename = 'downloads/video.mp4'
+                if os.path.exists(filename):
+                    return filename, info_dict.get('title', 'Unknown')
+                else:
+                    logger.error(f"File not found after download: {filename}")
+                    return None, None
+            except yt_dlp.utils.DownloadError as de:
+                logger.error(f"YouTube download error: {str(de)}")
+                return None, None
+            except Exception as e:
+                logger.error(f"Unexpected error during download: {str(e)}")
+                return None, None
+
+    except Exception as e:
+        logger.error(f"Critical error in download_video: {str(e)}")
+        return None, None
 
 def download_progress(d):
     """
