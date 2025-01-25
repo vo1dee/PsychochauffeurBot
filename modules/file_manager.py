@@ -8,10 +8,13 @@ import asyncio
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 import pytz
+from const import Config  # Add this import at the top
 
-from config import Config
+
 
 CSV_FILE = os.path.join("data", "user_locations.csv")
+
+
 
 LOG_DIR = '/var/log/psychochauffeurbot'
 
