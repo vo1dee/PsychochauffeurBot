@@ -85,7 +85,7 @@ data/*
 !data/.gitkeep
 !data/.gitignore
 .reddit_cookies.txt
-
+.cookies.txt
 
 # Ignore downloaded videos and temp files
 downloads/

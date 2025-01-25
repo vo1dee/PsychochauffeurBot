@@ -54,28 +54,29 @@ SUPPORTED_PLATFORMS = [
 ]
 
 async def download_video(url):
-   ydl_opts = {
-       'format': 'bestvideo+bestaudio/best',
-       'merge_output_format': 'mp4',
-       'outtmpl': 'downloads/video.mp4',  # Use fixed placeholder name
-       'max_filesize': 20 * 1024 * 1024,
-       'nooverwrites': False,
-       'no_part': True,
-       'retries': 3,
-       'fragment_retries': 3,
-       'ignoreerrors': False,
-       'quiet': True,
-   }
+    ydl_opts = {
+        'format': 'bestvideo+bestaudio/best',
+        'merge_output_format': 'mp4',
+        'outtmpl': 'downloads/video.mp4',
+        'max_filesize': 20 * 1024 * 1024,
+        'nooverwrites': False,
+        'no_part': True,
+        'retries': 3,
+        'fragment_retries': 3,
+        'ignoreerrors': False,
+        'quiet': True,
+        'cookiefile': '.cookies.txt',  # Path to cookie file
+        'cookiesfrombrowser': ('firefox', None, None)  # Extract cookies from Firefox
+    }
 
-   try:    
-       with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-           info_dict = ydl.extract_info(url, download=True)
-           filename = 'downloads/video.mp4'
-           return filename, info_dict.get('title', 'Unknown')
-   except Exception as e:
-       logger.error(f"Download error: {e}")
-       return None, None
-
+    try:    
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
+            filename = 'downloads/video.mp4'
+            return filename, info_dict.get('title', 'Unknown')
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        return None, None
 
 def download_progress(d):
     """
