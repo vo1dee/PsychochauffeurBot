@@ -55,26 +55,23 @@ SUPPORTED_PLATFORMS = [
 
 async def download_video(url):
     ydl_opts = {
-        'format': 'bestvideo+bestaudio/best',
-        'merge_output_format': 'mp4',
-        'outtmpl': 'downloads/video.mp4',
-        'max_filesize': 20 * 1024 * 1024,
-        'nooverwrites': False,
-        'no_part': True,
-        'retries': 3,
-        'fragment_retries': 3,
-        'ignoreerrors': False,
-        'quiet': True,
-        'cookiefile': '.cookies.txt',
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        # Add these options for better handling
-        'socket_timeout': 10,
-        'extractor_retries': 3,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-        }
+       'format': 'bestvideo+bestaudio/best',
+       'merge_output_format': 'mp4',
+       'outtmpl': 'downloads/video.mp4',
+       'max_filesize': 20 * 1024 * 1024,
+       'nooverwrites': False,
+       'no_part': True,
+       'retries': 3,
+       'fragment_retries': 3,
+       'ignoreerrors': False,
+       'quiet': True,
+       'cookiefile': '.cookies.txt',
+       'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+       'http_headers': {
+           'X-Requested-With': 'XMLHttpRequest',
+           'Referer': 'https://www.instagram.com/'
+       }
+
     }
 
     try:
