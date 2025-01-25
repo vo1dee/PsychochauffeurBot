@@ -191,16 +191,32 @@ class TelegramErrorHandler(logging.Handler):
             msg = self.format(record)
             now = time.time()
             
+            # Escape special characters for MarkdownV2
+            escaped_msg = (
+                msg.replace('_', '\\_')
+                   .replace('*', '\\*')
+                   .replace('[', '\\[')
+                   .replace(']', '\\]')
+                   .replace('(', '\\(')
+                   .replace(')', '\\)')
+                   .replace('~', '\\~')
+                   .replace('`', '\\`')
+                   .replace('>', '\\>')
+                   .replace('#', '\\#')
+                   .replace('+', '\\+')
+                   .replace('-', '\\-')
+                   .replace('=', '\\=')
+                   .replace('|', '\\|')
+                   .replace('{', '\\{')
+                   .replace('}', '\\}')
+                   .replace('.', '\\.')
+                   .replace('!', '\\!')
+            )
+            
             # Format error message for Telegram
             error_msg = (
                 f"🚨 *Error Report*\n"
-                f"```\n"
-                f"Time: {datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"Level: {record.levelname}\n"
-                f"Location: {record.pathname}:{record.lineno}\n"
-                f"Function: {record.funcName}\n"
-                f"Message: {msg}\n"
-                f"```"
+                f"`{escaped_msg}`"
             )
 
             # Rate limiting
