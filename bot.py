@@ -438,6 +438,9 @@ async def main():
     # Initialize application
     application = ApplicationBuilder().token(TOKEN).build()
 
+    # Initialize error handler with bot instance
+    init_error_handler(application.bot)
+
     # Add command handlers
     commands = {
         'start': start,
