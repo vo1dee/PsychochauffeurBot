@@ -21,7 +21,7 @@ from utils import remove_links, screenshot_command, schedule_task, cat_command, 
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import weather
-from modules.file_manager import general_logger, chat_logger
+from modules.file_manager import general_logger, chat_logger, init_error_handler
 from modules.user_management import restrict_user
 from telegram import Update
 from telegram.ext import (
@@ -121,7 +121,8 @@ async def download_video(url):
                 logger.error(f"yt-dlp download error: {str(e)}")
             return None, None
     except Exception as e:
-        logger.error(f"Download error: {e}")
+        error_logger.error(f"Failed to download video from {url}: {str(e)}", 
+                          exc_info=True)
         return None, None
 
 def download_progress(d):
@@ -189,7 +190,7 @@ async def handle_video_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.remove(filename)
                 await processing_msg.delete()
         else:
-            logger.error(f"Download failed: filename={filename}, exists={os.path.exists(filename) if filename else False}")
+            error_logger.error(f"Download failed: filename={filename}, exists={os.path.exists(filename) if filename else False}")
             await update.message.reply_text("❌ Video download failed. Check the link and try again.")
     
     except Exception as e:
@@ -363,7 +364,7 @@ async def shorten_url(url):
         short_url = s.tinyurl.short(url)
         return short_url
     except Exception as e:
-        logging.error(f"Error shortening URL {url}: {str(e)}")
+        error_logger.error(f"Error shortening URL {url}: {str(e)}")
         return url  # Return the original URL if there's an error
 
 async def construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context):
@@ -396,7 +397,7 @@ async def construct_and_send_message(chat_id, username, cleaned_message_text, mo
         await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
 
     except Exception as e:
-        general_logger.error(f"Error modifying links: {str(e)}")
+        error_logger.error(f"Error modifying links: {str(e)}")
         await update.message.reply_text("Sorry, an error occurred. Please try again.")
 
 def ensure_downloads_dir():
@@ -412,7 +413,19 @@ def ensure_downloads_dir():
                 if os.path.isfile(file_path):
                     os.unlink(file_path)
             except Exception as e:
-                logger.error(f"Error cleaning downloads directory: {e}")
+                error_logger.error(f"Error cleaning downloads directory: {e}")
+
+async def test_error_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Test command to trigger error logging"""
+    try:
+        # Deliberately cause different types of errors
+        
+        # 1. Division by zero error
+        result = 1 / 0
+        
+    except Exception as e:
+        error_logger.error(f"Test error triggered: {str(e)}", exc_info=True)
+        await update.message.reply_text("Test error has been logged to the channel!")
 
 async def main():
     """Main function"""
@@ -424,6 +437,9 @@ async def main():
 
     # Initialize application
     application = ApplicationBuilder().token(TOKEN).build()
+    
+    # Initialize error handler
+    init_error_handler(application.bot)
 
     # Add command handlers
     commands = {
@@ -461,6 +477,9 @@ async def main():
     
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
     application.add_handler(CallbackQueryHandler(button_callback))
+
+    # Add test error command
+    application.add_handler(CommandHandler("testerror", test_error_command))
 
     # Start the screenshot scheduler
     screenshot_manager = ScreenshotManager()
