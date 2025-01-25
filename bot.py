@@ -21,7 +21,7 @@ from utils import remove_links, screenshot_command, schedule_task, cat_command, 
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import weather
-from modules.file_manager import general_logger, chat_logger, init_error_handler
+from modules.file_manager import general_logger, chat_logger, init_error_handler, error_logger
 from modules.user_management import restrict_user
 from telegram import Update
 from telegram.ext import (
@@ -419,8 +419,6 @@ async def test_error_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Test command to trigger error logging"""
     try:
         # Deliberately cause different types of errors
-        
-        # 1. Division by zero error
         result = 1 / 0
         
     except Exception as e:
