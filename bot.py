@@ -249,7 +249,6 @@ async def handle_message(update: Update, context: CallbackContext):
     # Extract URLs if present
     urls = extract_urls(message_text)
     
-
     # Rest of the message handling...
     if urls:
         modified_link = urls[0]  # Take the first URL if multiple exist
@@ -283,18 +282,6 @@ async def handle_message(update: Update, context: CallbackContext):
             await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
             continue
 
-        # # Then check for domain modifications (x.com etc.)
-        # for domain, modified_domain in domain_modifications.items():
-        #     if domain in sanitized_link:
-        #         modified_link = sanitized_link.replace(domain, modified_domain)
-        #         modified_links.append(modified_link)
-        #         break
-
-    # # Send modified message if any links were processed
-    # if modified_links:
-    #     cleaned_message_text = remove_links(message_text).replace("\n", " ")
-    #     await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
-
     # Handle GPT queries
     if f"@{context.bot.username}" in message_text:
         # Process the message as a direct mention
@@ -304,7 +291,7 @@ async def handle_message(update: Update, context: CallbackContext):
 
     # Check if the chat is private and the message does not contain a link
     is_private_chat = update.effective_chat.type == 'private'
-    contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', message_text)
+    contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or re.search(r'(?:aliexpress|a\.aliexpress)\.(?:item/)?', message_text)
     contains_domain_modifications = any(domain in message_text for domain, modified_domain in domain_modifications.items())
     contain_download = any(domain in message_text for domain in SUPPORTED_PLATFORMS)
 
@@ -313,6 +300,12 @@ async def handle_message(update: Update, context: CallbackContext):
         await ask_gpt_command(cleaned_message, update, context)
         return  # Ensure to return after processing
     await random_gpt_response(update, context)
+
+    # Attempt to delete the message
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
+    except telegram.error.BadRequest as e:
+        logger.warning(f"Failed to delete message: {e}")
 
 
 async def random_gpt_response(update: Update, context: CallbackContext):
