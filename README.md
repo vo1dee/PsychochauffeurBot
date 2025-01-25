@@ -1,112 +1,74 @@
-# PsychoChauffeurBot
+# Telegram PsychochauffeurBot Bot 🤖
 
-PsychoChauffeur is a Telegram bot that enhances chat experience by providing link modification, GPT integration, weather updates, and various utility functions. The bot is designed to be simple to use and efficient in handling various chat-related tasks.
+A Telegram bot that downloads videos from various social media platforms and provides additional utility features.
 
-## Core Features
+## 🎥 Supported Platforms
+- TikTok
+- Instagram
+- YouTube Shorts
+- Facebook
+- Twitter/X
+- Vimeo
+- Reddit
 
-- **Link Modification**
-  - Automatically modifies links from TikTok, Twitter, and Instagram
-  - Removes original message and reposts with modified links
-  - Preserves message context and user attribution
-  - Special handling for AliExpress links (responds with a sticker)
+## 🚀 How to Use
 
-- **GPT Integration**
-  - Responds to direct mentions or private messages
-  - Processes queries and provides AI-generated responses
-  - Supports both command-based (`/gpt`) and mention-based interactions
+### Video Downloads
+Simply send a video link from any supported platform, and the bot will:
+1. Process your request
+2. Download the video
+3. Send it directly in the chat
 
-- **Utility Commands**
-  - `/weather <city>`: Current weather information with emojis
-  - `/flares`: Daily screenshots of specified webpage (automated at 2 AM Kyiv time)
-  - `/analyze`: Analyzes today's chat messages
-  - `/cat`: Sends random cat pictures
+**Note**: Maximum video size is 50MB due to Telegram restrictions
 
-- **Moderation Features**
-  - Monitors messages for specific trigger words
-  - Automatic user restriction for violating content
-  - Sticker-based moderation triggers
+### YouTube Links
+- For YouTube Shorts: Bot downloads and sends the video
+- For regular YouTube videos: Bot replies with #youtube hashtag
 
-## Setup
+### AliExpress Links
+- Automatically shortens long URLs
+- Adds #aliexpress hashtag
+- Sends a sticker
 
-1. Clone the repository:
+## 🛠 Commands
+- `/start` - Welcome message and bot info
+- `/gpt` - Chat with GPT
+- `/weather` - Get weather updates
+- `/cat` - Random cat pictures
+- `/game` - Start word game [In Dev]
+- `/endgame` - End current game 
+- `/clearwords` - Clear game words
+- `/hint` - Get game hint
 
-   ```bash
-   git clone https://github.com/vo1dee/psychochauffeurbot.git
-   ```
+## 🔧 Technical Requirements
+- Python 3.7+
+- Telegram Bot Token
+- Required packages:
+  ```
+  python-telegram-bot
+  yt-dlp
+  pyshorteners
+  nest_asyncio
+  pytz
+  ```
 
-2. Install dependencies:
-
+## 📝 Setup
+1. Install required packages:
    ```bash
    pip install -r requirements.txt
    ```
-
-3. Configure environment variables:
-   Create a `.env` file with:
+2. Create `.env` file with your bot token:
    ```
    TOKEN=your_telegram_bot_token
-   OPENAI_API_KEY=your_openai_api_key
-   OPENWEATHER_API_KEY=your_openweather_api_key
    ```
-
-4. Set up logging directory:
-
-   ```bash
-   sudo mkdir -p /var/log/psychochauffeurbot
-   sudo chown your_user:your_group /var/log/psychochauffeurbot
-   ```
-
-5. Run the bot:
-
+3. Run the bot:
    ```bash
    python bot.py
    ```
 
-## Requirements
+## ⚠️ Limitations
+- 50MB maximum video size
+- Some platforms may have additional restrictions
+- Bot needs appropriate permissions in group chats
 
-- Python 3.10+
-- Required packages:
-  - python-telegram-bot==20.3
-  - openai==1.52.2
-  - imgkit==1.2.3
-  - pytz==2023.3
-  - Additional dependencies in requirements.txt
-
-## File Structure
-
-```
-├── bot.py              # Main bot logic
-├── const.py            # Constants and configurations
-├── utils.py            # Utility functions
-├── modules/
-│   ├── gpt.py         # GPT integration
-│   ├── weather.py     # Weather functionality
-│   ├── file_manager.py # Logging and file operations
-│   └── user_management.py # User moderation
-└── requirements.txt
-```
-
-## Usage
-
-1. **Link Modification**
-   - Simply send a supported link in the chat
-   - Bot will automatically modify and repost
-
-2. **GPT Queries**
-   - Mention bot: `@YourBot what is Python?`
-   - Or use command: `/gpt explain async programming`
-
-3. **Weather Updates**
-   - Command: `/weather London`
-   - Displays temperature, conditions, and relevant emojis
-
-4. **Daily Screenshots**
-   - Manual: `/flares`
-   - Automatic: Daily at 2 AM Kyiv time
-
-## Contributing
-
-Feel free to submit issues and pull requests for new features or improvements.
-
-## License
-
-This project is licensed under the MIT License.
+For issues or suggestions, please contact @vo1dee
