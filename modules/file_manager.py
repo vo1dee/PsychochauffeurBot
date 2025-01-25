@@ -2,8 +2,6 @@ import logging
 import csv
 import os
 from typing import Set
-import time
-import asyncio
 
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
@@ -191,32 +189,16 @@ class TelegramErrorHandler(logging.Handler):
             msg = self.format(record)
             now = time.time()
             
-            # Escape special characters for MarkdownV2
-            escaped_msg = (
-                msg.replace('_', '\\_')
-                   .replace('*', '\\*')
-                   .replace('[', '\\[')
-                   .replace(']', '\\]')
-                   .replace('(', '\\(')
-                   .replace(')', '\\)')
-                   .replace('~', '\\~')
-                   .replace('`', '\\`')
-                   .replace('>', '\\>')
-                   .replace('#', '\\#')
-                   .replace('+', '\\+')
-                   .replace('-', '\\-')
-                   .replace('=', '\\=')
-                   .replace('|', '\\|')
-                   .replace('{', '\\{')
-                   .replace('}', '\\}')
-                   .replace('.', '\\.')
-                   .replace('!', '\\!')
-            )
-            
             # Format error message for Telegram
             error_msg = (
                 f"🚨 *Error Report*\n"
-                f"`{escaped_msg}`"
+                f"```\n"
+                f"Time: {datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"Level: {record.levelname}\n"
+                f"Location: {record.pathname}:{record.lineno}\n"
+                f"Function: {record.funcName}\n"
+                f"Message: {msg}\n"
+                f"```"
             )
 
             # Rate limiting
@@ -240,6 +222,8 @@ class TelegramErrorHandler(logging.Handler):
 # Configure error logger
 error_logger = logging.getLogger('bot_error_logger')
 error_logger.setLevel(logging.ERROR)
+
+# The handler will be added after bot initialization
 
 def init_error_handler(bot):
     """Initialize error handler with bot instance"""
