@@ -14,6 +14,7 @@ import browser_cookie3
 import tempfile
 import json
 import nest_asyncio  # Add this import
+from modules.file_manager import init_error_handler  # Ensure this import is present
 
 
 from modules.keyboards import create_link_keyboard, button_callback
@@ -21,7 +22,7 @@ from utils import remove_links, screenshot_command, schedule_task, cat_command, 
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import weather
-from modules.file_manager import general_logger, chat_logger, error_logger
+from modules.file_manager import general_logger, chat_logger, error_logger, init_error_handler
 from modules.user_management import restrict_user
 from telegram import Update
 from telegram.ext import (
