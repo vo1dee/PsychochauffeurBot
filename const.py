@@ -15,6 +15,7 @@ class Config:
     DISCORD_WEBHOOK_URL: str = os.getenv('DISCORD_WEBHOOK_URL', '')
     TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
     OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
+    ERROR_CHANNEL_ID: str = os.getenv('ERROR_CHANNEL_ID', '')
     
     # File paths
     SCREENSHOT_DIR: str = 'python-web-screenshots'

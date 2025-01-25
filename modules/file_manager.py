@@ -2,16 +2,16 @@ import logging
 import csv
 import os
 from typing import Set
+import time
+import asyncio
 
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 import pytz
 
-
+from config import Config
 
 CSV_FILE = os.path.join("data", "user_locations.csv")
-
-
 
 LOG_DIR = '/var/log/psychochauffeurbot'
 
@@ -172,5 +172,66 @@ def save_used_words(words: Set[str]) -> None:
         general_logger.debug(f"Saved {len(words)} words to file")
     except Exception as e:
         general_logger.error(f"Error saving used words: {e}")
+
+class TelegramErrorHandler(logging.Handler):
+    """Custom handler for sending error logs to Telegram channel"""
+    def __init__(self, bot, channel_id):
+        super().__init__()
+        self.bot = bot
+        self.channel_id = channel_id
+        self.buffer = []
+        self.last_sent = 0
+        self.rate_limit = 1  # Minimum seconds between messages
+
+    async def emit_async(self, record):
+        try:
+            msg = self.format(record)
+            now = time.time()
+            
+            # Format error message for Telegram
+            error_msg = (
+                f"🚨 *Error Report*\n"
+                f"```\n"
+                f"Time: {datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"Level: {record.levelname}\n"
+                f"Location: {record.pathname}:{record.lineno}\n"
+                f"Function: {record.funcName}\n"
+                f"Message: {msg}\n"
+                f"```"
+            )
+
+            # Rate limiting
+            if now - self.last_sent >= self.rate_limit:
+                await self.bot.send_message(
+                    chat_id=self.channel_id,
+                    text=error_msg,
+                    parse_mode='MarkdownV2'
+                )
+                self.last_sent = now
+            else:
+                self.buffer.append(error_msg)
+
+        except Exception as e:
+            print(f"Error in TelegramErrorHandler: {e}")
+
+    def emit(self, record):
+        # Create task in event loop to send message
+        asyncio.create_task(self.emit_async(record))
+
+# Configure error logger
+error_logger = logging.getLogger('bot_error_logger')
+error_logger.setLevel(logging.ERROR)
+
+def init_error_handler(bot):
+    """Initialize error handler with bot instance"""
+    if Config.ERROR_CHANNEL_ID:
+        handler = TelegramErrorHandler(bot, Config.ERROR_CHANNEL_ID)
+        handler.setFormatter(KyivTimezoneFormatter(
+            '%(asctime)s - %(name)s - %(levelname)s\n'
+            'File: %(pathname)s:%(lineno)d\n'
+            'Function: %(funcName)s\n'
+            'Message: %(message)s'
+        ))
+        error_logger.addHandler(handler)
 
 
