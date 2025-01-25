@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import logging
-import nest_asyncio
 import pytz
 import random
 import pyshorteners
@@ -11,6 +10,10 @@ import os
 import telebot
 import yt_dlp
 import telegram
+import browser_cookie3
+import tempfile
+import json
+import nest_asyncio  # Add this import
 
 
 from modules.keyboards import create_link_keyboard, button_callback
@@ -32,8 +35,6 @@ from telegram.ext import (
     )
 from urllib.parse import urlparse, urlunparse
 
-# Apply the patch to allow nested event loops
-nest_asyncio.apply()
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 
 message_counts = {}
@@ -53,32 +54,61 @@ SUPPORTED_PLATFORMS = [
     'vimeo.com', 'reddit.com','x.com'
 ]
 
-async def download_video(url):
-    ydl_opts = {
-       'format': 'bestvideo+bestaudio/best',
-       'merge_output_format': 'mp4',
-       'outtmpl': 'downloads/video.mp4',
-       'max_filesize': 20 * 1024 * 1024,
-       'nooverwrites': False,
-       'no_part': True,
-       'retries': 3,
-       'fragment_retries': 3,
-       'ignoreerrors': False,
-       'quiet': True,
-       'cookiefile': '.cookies.txt',
-       'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-       'http_headers': {
-           'X-Requested-With': 'XMLHttpRequest',
-           'Referer': 'https://www.instagram.com/'
-       }
+# Apply the patch to allow nested event loops
+nest_asyncio.apply()
 
-    }
-
+async def get_instagram_cookies():
+    """Extract Instagram cookies from Chrome browser"""
     try:
-        # First verify if cookies file exists
-        if not os.path.exists('.cookies.txt'):
-            logger.error("Cookies file not found: .cookies.txt")
-            return None, None
+        # Get cookies from Chrome
+        chrome_cookies = browser_cookie3.chrome(domain_name='.instagram.com')
+        
+        # Create a temporary cookie file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+            cookie_dict = {}
+            for cookie in chrome_cookies:
+                cookie_dict[cookie.name] = cookie.value
+            
+            # Write cookies in Netscape format
+            for name, value in cookie_dict.items():
+                f.write(f'.instagram.com\tTRUE\t/\tTRUE\t2597573456\t{name}\t{value}\n')
+            
+            return f.name
+    except Exception as e:
+        logger.error(f"Failed to extract Instagram cookies: {e}")
+        return None
+
+async def download_video(url):
+    try:
+        ydl_opts = {
+            'format': 'best',  # Simplified format selection
+            'outtmpl': 'downloads/video.mp4',
+            'max_filesize': 50 * 1024 * 1024,  # Increased to 50MB
+            'nooverwrites': True,
+            'no_part': True,
+            'retries': 5,
+            'fragment_retries': 5,
+            'ignoreerrors': False,
+            'quiet': True,
+            'no_check_certificate': True,
+            'extractor_args': {
+                'instagram': {
+                    'download_thumbnails': False,
+                    'extract_flat': False,
+                }
+            },
+            'http_headers': {
+                'User-Agent': 'Instagram 219.0.0.12.117 Android',
+                'Cookie': ''
+            }
+        }
+
+        # Special handling for Instagram
+        if 'instagram.com' in url:
+            # Clean up the URL
+            url = url.split('?')[0]  # Remove query parameters
+            if not url.endswith('/'):
+                url += '/'  # Add trailing slash
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
@@ -86,18 +116,12 @@ async def download_video(url):
                 filename = 'downloads/video.mp4'
                 if os.path.exists(filename):
                     return filename, info_dict.get('title', 'Unknown')
-                else:
-                    logger.error(f"File not found after download: {filename}")
-                    return None, None
-            except yt_dlp.utils.DownloadError as de:
-                logger.error(f"YouTube download error: {str(de)}")
-                return None, None
-            except Exception as e:
-                logger.error(f"Unexpected error during download: {str(e)}")
-                return None, None
-
+                logger.error("File not found after download")
+            except yt_dlp.utils.DownloadError as e:
+                logger.error(f"yt-dlp download error: {str(e)}")
+            return None, None
     except Exception as e:
-        logger.error(f"Critical error in download_video: {str(e)}")
+        logger.error(f"Download error: {e}")
         return None, None
 
 def download_progress(d):
@@ -398,12 +422,14 @@ def ensure_downloads_dir():
                 logger.error(f"Error cleaning downloads directory: {e}")
 
 async def main():
+    """Main function"""
     # Load game state at startup
     load_game_state()
 
     # Ensure downloads directory exists
     ensure_downloads_dir()
 
+    # Initialize application
     application = ApplicationBuilder().token(TOKEN).build()
 
     # Add command handlers
@@ -423,25 +449,23 @@ async def main():
     for command, handler in commands.items():
         application.add_handler(CommandHandler(command, handler))
 
-    # Add video download handlers
+    # Add handlers
     application.add_handler(
         MessageHandler(
             filters.TEXT & filters.Regex('|'.join(SUPPORTED_PLATFORMS)), 
             handle_video_link
         ),
-        group=1  # Move group parameter here
+        group=1
     )
     
-    # General message handler
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND, 
             handle_message
         ),
-        group=2  # Move group parameter here
+        group=2
     )
     
-    # Other handlers...
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
     application.add_handler(CallbackQueryHandler(button_callback))
 
@@ -451,13 +475,16 @@ async def main():
 
     # Start bot
     logger.info("Bot is running...")
-    await application.run_polling()
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+def run_bot():
+    """Run the bot with proper event loop handling"""
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nBot stopped by user")
+    except Exception as e:
+        print(f"Error: {e}")
 
 if __name__ == '__main__':
-    # Apply the patch to allow nested event loops
-    nest_asyncio.apply()
-    
-    # Create a new event loop
-    new_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(new_loop)
-    new_loop.run_until_complete(main())
+    run_bot()
