@@ -117,9 +117,9 @@ async def download_video(url):
                 filename = 'downloads/video.mp4'
                 if os.path.exists(filename):
                     return filename, info_dict.get('title', 'Unknown')
-                logger.error("File not found after download")
+                error_logger.error("File not found after download")
             except yt_dlp.utils.DownloadError as e:
-                logger.error(f"yt-dlp download error: {str(e)}")
+                error_logger.error(f"yt-dlp download error: {str(e)}")
             return None, None
     except Exception as e:
         error_logger.error(f"Failed to download video from {url}: {str(e)}", 
