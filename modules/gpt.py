@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytz
 from typing import Optional
 
-from modules.file_manager import general_logger, chat_logger, read_last_n_lines, get_daily_log_path, load_used_words, save_used_words
+from modules.file_manager import general_logger, chat_logger, get_daily_log_path, load_used_words, save_used_words
 from const import OPENAI_API_KEY, USED_WORDS_FILE
 
 from telegram import Update
@@ -23,17 +23,9 @@ GAME_STATE_FILE = 'data/game_state.json'
 
 
 
-async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
-    """Ask GPT for a response."""
+async def gpt_response(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
+    """Get a response from GPT."""
     try:
-        # If prompt is an Update object (direct command), extract the text after the command
-        if isinstance(prompt, Update):
-            update = prompt
-            message_text = update.message.text
-            # Remove the command from the message
-            command_parts = message_text.split(' ', 1)
-            prompt = command_parts[1] if len(command_parts) > 1 else "Привіт!"
-
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -54,52 +46,36 @@ async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackC
             return response_text
 
         if update and update.message:
-            # Log only necessary information instead of the entire update object
-            user_id = update.message.from_user.id if update.message.from_user else "unknown"
-            chat_id = update.effective_chat.id if update.effective_chat else "unknown"
-            general_logger.info(f"Sending GPT response to user {user_id} in chat {chat_id}")
-
-            await update.message.reply_text(response_text)
+            await log_user_response(update, response_text)
 
     except Exception as e:
-        general_logger.error(f"Error in ask_gpt_command: {e}")
-        if not return_text and update and update.message:
-            await update.message.reply_text("Вибачте, сталася помилка.")
-        raise
+        await handle_error(e, update, return_text)
 
+async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
+    """Ask GPT for a response."""
+    if isinstance(prompt, Update):
+        update = prompt
+        message_text = update.message.text
+        command_parts = message_text.split(' ', 1)
+        prompt = command_parts[1] if len(command_parts) > 1 else "Привіт!"
+    
+    return await gpt_response(prompt, update, context, return_text)
 
 async def answer_from_gpt(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
     """Ask GPT for a response."""
-    try:
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": (
-                    "If the user's request appears to be in Russian, respond in Ukrainian instead."
-                    "Do not reply in Russian in any circumstance."
-                    "You answer like a crazy driver but stick to the point of the conversation."
-                ) if not return_text else "You are a helpful assistant that generates single Ukrainian words."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500,
-            temperature=0.7
-        )
+    return await gpt_response(prompt, update, context, return_text)
 
-        response_text = response.choices[0].message.content.strip()
+async def log_user_response(update, response_text):
+    user_id = update.message.from_user.id if update.message.from_user else "unknown"
+    chat_id = update.effective_chat.id if update.effective_chat else "unknown"
+    general_logger.info(f"Sending GPT response to user {user_id} in chat {chat_id}")
+    await update.message.reply_text(response_text)
 
-        if return_text:
-            return response_text
-
-        if update and context:
-            await update.message.reply_text(response_text)
-
-    except Exception as e:
-        general_logger.error(f"Error in ask_gpt_command: {e}")
-        if not return_text and update:
-            await update.message.reply_text("Вибачте, сталася помилка.")
-        raise
-
-
+async def handle_error(e, update, return_text):
+    general_logger.error(f"Error in ask_gpt_command: {e}")
+    if not return_text and update and update.message:
+        await update.message.reply_text("Вибачте, сталася помилка.")
+    raise
 
 async def gpt_summary_function(messages):
     try:

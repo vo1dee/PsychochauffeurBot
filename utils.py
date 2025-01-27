@@ -19,6 +19,18 @@ game_state = {}
 
 USED_WORDS_FILE = 'data/used_words.csv'
 
+# Define imgkit options once to avoid duplication
+IMGKIT_OPTIONS = {
+    'quality': '100',
+    'format': 'png',
+    'width': '1024',  # Set a fixed width
+    'enable-javascript': None,
+    'javascript-delay': '1000',  # Wait 1 second for JavaScript
+    'custom-header': [
+        ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+    ]
+}
+
 # Text processing utilities
 def remove_links(text: str) -> str:
     """Remove all URLs from given text."""
@@ -99,21 +111,11 @@ class ScreenshotManager:
             return screenshot_path
         return None
 
-    async def take_screenshot(self, url, output_path):
+    async def take_screenshot(self, url: str, output_path: str) -> str | bool:
+        """Take a screenshot of the given URL and save it to the output path."""
         try:
-            options = {
-                'quality': '100',
-                'format': 'png',
-                'width': '1024',  # Changed from 1920 to 1024 pixels
-                'enable-javascript': None,
-                'javascript-delay': '1000',
-                'custom-header': [
-                    ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-                ]
-            }
-
             config = imgkit.config(wkhtmltoimage='/usr/bin/wkhtmltoimage')
-            imgkit.from_url(url, output_path, options=options, config=config)
+            imgkit.from_url(url, output_path, options=IMGKIT_OPTIONS, config=config)
             return output_path
         except Exception as e:
             general_logger.error(f"Error taking screenshot: {str(e)}")
@@ -280,7 +282,7 @@ async def hint_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Вибачте, не вдалося отримати підказку.")
 
 async def random_ukrainian_word_command() -> Optional[str]:
-    """Get a random Ukrainian word using GPT."""
+    """Get a random Ukrainian word using GPT, ensuring it is unique and valid."""
     try:
         # Read used words
         used_words = set()
