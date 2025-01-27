@@ -43,7 +43,6 @@ async def restrict_user(update: Update, context: CallbackContext) -> None:
         restrict_duration = random.randint(*RESTRICT_DURATION_RANGE)
         until_date = datetime.now(LOCAL_TZ) + timedelta(minutes=restrict_duration)
         permissions = ChatPermissions(can_send_messages=False)
-        # permissions = ChatPermissions(can_send_other_messages=True, can_send_messages=False)
 
         # Apply restriction
         await context.bot.restrict_chat_member(
@@ -64,6 +63,7 @@ async def restrict_user(update: Update, context: CallbackContext) -> None:
 
     except TelegramError as e:
         general_logger.error(f"Telegram API error while restricting user {user.id}: {e}")
-        # You might want to notify the user or admin here
+        await update.message.reply_text("An error occurred while trying to restrict the user.")
     except Exception as e:
         general_logger.error(f"Unexpected error while restricting user {user.id}: {e}")
+        await update.message.reply_text("An unexpected error occurred.")

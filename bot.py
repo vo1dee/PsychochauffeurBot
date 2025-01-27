@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_PLATFORMS = [
     'tiktok.com', 'instagram.com', 'youtube.com', 
     'youtu.be', 'facebook.com', 'twitter.com', 
-    'vimeo.com', 'reddit.com','x.com'
+    'vimeo.com', 'reddit.com', 'x.com'
 ]
 
 # Apply the patch to allow nested event loops
@@ -61,19 +61,9 @@ nest_asyncio.apply()
 async def get_instagram_cookies():
     """Extract Instagram cookies from Chrome browser"""
     try:
-        # Get cookies from Chrome
         chrome_cookies = browser_cookie3.chrome(domain_name='.instagram.com')
-        
-        # Create a temporary cookie file
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
-            cookie_dict = {}
-            for cookie in chrome_cookies:
-                cookie_dict[cookie.name] = cookie.value
-            
-            # Write cookies in Netscape format
-            for name, value in cookie_dict.items():
-                f.write(f'.instagram.com\tTRUE\t/\tTRUE\t2597573456\t{name}\t{value}\n')
-            
+            f.writelines(f'.instagram.com\tTRUE\t/\tTRUE\t2597573456\t{cookie.name}\t{cookie.value}\n' for cookie in chrome_cookies)
             return f.name
     except Exception as e:
         logger.error(f"Failed to extract Instagram cookies: {e}")
@@ -82,9 +72,9 @@ async def get_instagram_cookies():
 async def download_video(url):
     try:
         ydl_opts = {
-            'format': 'best',  # Simplified format selection
+            'format': 'best',
             'outtmpl': 'downloads/video.mp4',
-            'max_filesize': 50 * 1024 * 1024,  # Increased to 50MB
+            'max_filesize': 50 * 1024 * 1024,
             'nooverwrites': True,
             'no_part': True,
             'retries': 5,
@@ -104,12 +94,8 @@ async def download_video(url):
             }
         }
 
-        # Special handling for Instagram
         if 'instagram.com' in url:
-            # Clean up the URL
-            url = url.split('?')[0]  # Remove query parameters
-            if not url.endswith('/'):
-                url += '/'  # Add trailing slash
+            url = url.split('?')[0] + ('/' if not url.endswith('/') else '')
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
@@ -122,8 +108,7 @@ async def download_video(url):
                 error_logger.error(f"yt-dlp download error: {str(e)}")
             return None, None
     except Exception as e:
-        error_logger.error(f"Failed to download video from {url}: {str(e)}", 
-                          exc_info=True)
+        error_logger.error(f"Failed to download video from {url}: {str(e)}", exc_info=True)
         return None, None
 
 def download_progress(d):
@@ -244,25 +229,15 @@ async def handle_message(update: Update, context: CallbackContext):
         return
 
     message_text = update.message.text
-    
-    # Initialize modified_link before using it
-    modified_link = message_text
-
-    # Extract URLs if present
     urls = extract_urls(message_text)
-    
-    # Rest of the message handling...
-    if urls:
-        modified_link = urls[0]  # Take the first URL if multiple exist
+    modified_link = urls[0] if urls else message_text
 
     chat_id = update.message.chat_id
     username = update.message.from_user.username
     chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
 
-    # Log message with extra fields
     chat_logger.info(f"User message: {message_text}", extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
 
-    # Handle trigger words
     if contains_trigger_words(message_text):
         await restrict_user(update, context)
         return
@@ -270,44 +245,31 @@ async def handle_message(update: Update, context: CallbackContext):
     modified_links = []
     original_links = []
 
-    # Process all links in a single pass
-    urls = extract_urls(message_text)
     for link in urls:
         sanitized_link = sanitize_url(link)
         if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
             if len(sanitized_link) > 60:
                 modified_link = await shorten_url(sanitized_link)
-                modified_link = await shorten_url(message_text)
             modified_link += " #aliexpress"
             modified_links.append(modified_link)
-            # Send AliExpress sticker
             await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
             continue
 
-    # Handle GPT queries
     if f"@{context.bot.username}" in message_text:
-        # Process the message as a direct mention
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         await ask_gpt_command(cleaned_message, update, context)
-        return  # Ensure to return after processing
+        return
 
-    # Check if the chat is private and the message does not contain a link
     is_private_chat = update.effective_chat.type == 'private'
     contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or re.search(r'(?:aliexpress|a\.aliexpress)\.(?:item/)?', message_text)
     contains_domain_modifications = any(domain in message_text for domain, modified_domain in domain_modifications.items())
     contain_download = any(domain in message_text for domain in SUPPORTED_PLATFORMS)
 
-    if is_private_chat and not contains_youtube_or_aliexpress and not contains_domain_modifications and not contain_download:
+    if is_private_chat and not (contains_youtube_or_aliexpress or contains_domain_modifications or contain_download):
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         await ask_gpt_command(cleaned_message, update, context)
-        return  # Ensure to return after processing
+        return
     await random_gpt_response(update, context)
-
-    # Attempt to delete the message
-    # try:
-    #     await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
-    # except telegram.error.BadRequest as e:
-    #     logger.warning(f"Failed to delete message: {e}")
 
 
 async def random_gpt_response(update: Update, context: CallbackContext):
@@ -322,15 +284,12 @@ async def random_gpt_response(update: Update, context: CallbackContext):
         return
 
     word_count = len(message_text.split())  # Count the number of words
-    # general_logger.info(f"Message text: '{message_text}' | Word count: {word_count}")
 
     if word_count < 5:  # Check if the message has less than 5 words
-        # general_logger.info("Message has less than 5 words, skipping processing.")
         return  # Skip processing if not enough words
 
     random_value = random.random()
     current_message_count = message_counts[chat_id]
-    # general_logger.info(f"Random value: {random_value} | Current message count: {current_message_count}")
 
     if random_value < 0.02 and current_message_count > 50:
         general_logger.info(

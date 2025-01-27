@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Optional
-import requests
+import httpx
 from telegram import Update
 from telegram.ext import CallbackContext
 
@@ -80,8 +80,9 @@ class WeatherAPI:
         }
         
         try:
-            response = requests.get(self.BASE_URL, params=params)
-            data = response.json()
+            async with httpx.AsyncClient() as client:
+                response = await client.get(self.BASE_URL, params=params)
+                data = response.json()
 
             if data.get("cod") != 200:
                 general_logger.error(f"Weather API error response: {data}")
@@ -99,6 +100,9 @@ class WeatherAPI:
                 feels_like=main.get("feels_like", 0)
             )
             
+        except httpx.HTTPStatusError as e:
+            general_logger.error(f"HTTP error fetching weather data: {e}")
+            return None
         except Exception as e:
             general_logger.error(f"Error fetching weather data: {e}")
             return None
