@@ -34,6 +34,14 @@ class LinkModification:
         
     }
 
+class VideoPlatforms:
+    # Supported platforms
+    SUPPORTED_PLATFORMS = [
+        'tiktok.com', 'instagram.com', 'youtube.com', 
+        'youtu.be', 'facebook.com', 'x.com', 
+        'vimeo.com', 'reddit.com'
+    ]
+
 class Weather:
     """Weather-related configurations and mappings."""
     
@@ -74,6 +82,7 @@ domain_modifications = LinkModification.DOMAINS
 city_translations = Weather.CITY_TRANSLATIONS
 weather_emojis = Weather.CONDITION_EMOJIS
 feels_like_emojis = Weather.FEELS_LIKE_EMOJIS
+platforms = VideoPlatforms.SUPPORTED_PLATFORMS
 
 # File paths
 DATA_DIR = 'data'

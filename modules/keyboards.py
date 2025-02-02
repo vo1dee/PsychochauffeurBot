@@ -1,9 +1,10 @@
 import hashlib
-
+import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext
+from modules.file_manager import general_logger,error_logger
 
-from modules.file_manager import general_logger
+
 
 """
 This module handles inline keyboard modifications for the Telegram bot's link transformation functionality.
@@ -70,26 +71,32 @@ BUTTONS_CONFIG = [
     {
         'action': 'translate',
         'text': '🌍 Translate',
-        'check': lambda link: 'fixupx.com' in link,
-        'modify': lambda link: link # No modification to link
+        'check': lambda link: 'fixupx.com' in link and not any(link.endswith(f"/{lang['action']}") for lang in LANGUAGE_OPTIONS_CONFIG),
+        'modify': lambda link: link
     },
     {
         'action': 'translate_remove',
         'text': '❌ Remove Translation',
-        'check': lambda link: 'fixupx.com' in link and any(link.endswith(f"/{option['action']}") for option in LANGUAGE_OPTIONS_CONFIG),
+        'check': lambda link: 'fixupx.com' in link and any(link.endswith(f"/{lang['action']}") for lang in LANGUAGE_OPTIONS_CONFIG),
         'modify': lambda link: modify_language(link, 'none')
     },
     {
         'action': 'desc_remove',
         'text': '❌ Hide Description',
-        'check': lambda link: 'd.fixupx.com' not in link and 'fixupx.com' in link,
-        'modify': lambda link: f"{link.split('://', 1)[0]}://d.{link.split('://', 1)[1]}"
+        'check': lambda link: 'fixupx.com' in link and not link.startswith('https://d.'),
+        'modify': lambda link: link.replace('https://', 'https://d.')
     },
     {
         'action': 'desc_add',
         'text': '📺 Add Description',
-        'check': lambda link: 'd.fixupx.com' in link,
-        'modify': lambda link: f"{link.split('://d.', 1)[0]}://{link.split('://d.', 1)[1]}"
+        'check': lambda link: link.startswith('https://d.'),
+        'modify': lambda link: link.replace('https://d.', 'https://')
+    },
+    {
+        'action': 'download_video',
+        'text': '⬇️ Download Video',
+        'check': lambda link: 'x.com' in link or 'fixupx.com' in link,
+        'modify': lambda link: link
     },
 ]
 
@@ -115,90 +122,172 @@ LANGUAGE_OPTIONS_CONFIG = [
 ]
 
 async def button_callback(update: Update, context: CallbackContext):
+    """Handle button callbacks for link modifications and video downloads."""
     query = update.callback_query
     await query.answer()
-
+    
     try:
+        general_logger.info(f"Received callback data: {query.data}")
+        chat_id = query.message.chat_id
+        message_id = query.message.message_id
+        
+        # Split action and hash from callback data
         action, link_hash = query.data.split(':', 1)
         original_link = context.bot_data.get(link_hash)
-
+        
+        general_logger.info(f"Action: {action}, Hash: {link_hash}, Original link: {original_link}")
+        
         if not original_link:
             await query.message.edit_text("Sorry, this button has expired. Please generate a new link.")
             return
+        
+        # Handle video download action first
+        if action == 'download_video':
+            video_downloader = context.bot_data.get('video_downloader')
+            if not video_downloader:
+                await query.message.edit_text("❌ Video downloader not initialized.")
+                return
+                
+            try:
+                await query.message.edit_text("🔄 Downloading video...")
+                filename, title = await video_downloader.download_video(original_link)
+                
+                if filename and os.path.exists(filename):
+                    with open(filename, 'rb') as video_file:
+                        await context.bot.send_video(
+                            chat_id=chat_id,
+                            video=video_file,
+                            caption=f"📹 {title or 'Downloaded Video'}"
+                        )
+                    os.remove(filename)
+                    await query.message.edit_text("✅ Download complete!")
+                else:
+                    await query.message.edit_text("❌ Video download failed. Check the link and try again.")
+                return
+            except Exception as e:
+                error_logger.error(f"Error in video download: {str(e)}")
+                await query.message.edit_text("❌ An error occurred while downloading the video.")
+                return
+            
+        # Convert x.com to fixupx.com if needed (only once)
+        if 'x.com' in original_link and 'fixupx.com' not in original_link:
+            original_link = original_link.replace('x.com', 'fixupx.com')
 
+        # Handle translate action (language menu)
         if action == 'translate':
-            # Show the language selection sub-menu
-            reply_markup = create_language_menu(original_link)
+            general_logger.info("Creating language menu")
+            keyboard = create_language_menu(original_link, link_hash)  # Pass both arguments
             await query.message.edit_text(
-                # Replacing the text with link fixes the issue of the link no longer working after
-                # opening the language sub-menu
-                text = original_link,
-                reply_markup = reply_markup
+                text=query.message.text,
+                reply_markup=keyboard
             )
             return
 
-        # Find the corresponding button config
-        # First check if the action corresponds to a language option
-        config = next((c for c in LANGUAGE_OPTIONS_CONFIG if c['action'] == action), None)
-        if not config:
-            # If not a language option, fallback to BUTTONS_CONFIG
+        # Handle all other link modifications
+        new_link = None
+        
+        # Handle language selection
+        if action in ['ua', 'sk', 'en']:
+            new_link = modify_language(original_link, action)
+            general_logger.info(f"Modified link with language {action}: {new_link}")
+        
+        # Handle description toggle
+        elif action in ['desc_remove', 'desc_add']:
             config = next((c for c in BUTTONS_CONFIG if c['action'] == action), None)
-        if not config:
-            return
+            if config:
+                new_link = config['modify'](original_link)
+                general_logger.info(f"Modified link with {action}: {new_link}")
+        
+        # Handle translation removal
+        elif action == 'translate_remove':
+            new_link = modify_language(original_link, 'none')
+            general_logger.info(f"Removed translation: {new_link}")
 
-        # Modify the link
-        new_link = config['modify'](original_link)
-
-        # Update the message text with the new link
-        message_parts = query.message.text.split('\n')
-        for i, line in enumerate(message_parts):
-            if original_link in line:
-                message_parts[i] = new_link
-        new_message = '\n'.join(message_parts)
-
-        # Store the new link and create the updated keyboard
-        context.bot_data[hashlib.md5(new_link.encode()).hexdigest()[:8]] = new_link
-        reply_markup = create_link_keyboard(new_link)
-
-        await query.message.edit_text(text=new_message, reply_markup=reply_markup)
+        if new_link:
+            # Update message with new link
+            new_message = query.message.text.replace(original_link, new_link)
+            
+            # Store new link hash
+            new_hash = hashlib.md5(new_link.encode()).hexdigest()[:8]
+            context.bot_data[new_hash] = new_link
+            
+            # Create updated keyboard
+            keyboard = create_link_keyboard(new_link)
+            
+            await query.message.edit_text(
+                text=new_message,
+                reply_markup=keyboard
+            )
+        else:
+            general_logger.error(f"No modification performed for action: {action}")
+            await query.message.edit_text("❌ Invalid action")
 
     except Exception as e:
-        general_logger.error(f"Error in button callback: {str(e)}")
-        await query.message.edit_text("Sorry, an error occurred. Please try again.")
+        general_logger.error(f"Error in button callback: {str(e)}", exc_info=True)
+        await query.message.edit_text(f"❌ Error: {str(e)}")
 
-def create_language_menu(link):
-    """Create a sub-menu for language selection"""
-    link_hash = hashlib.md5(link.encode()).hexdigest()[:8]
-    buttons = [
-        InlineKeyboardButton(config['text'], callback_data=f"{config['action']}:{link_hash}")
-        for config in LANGUAGE_OPTIONS_CONFIG
-        if config['check'](link)
-    ]
-    return InlineKeyboardMarkup([buttons]) if buttons else None
+
 
 def create_link_keyboard(link):
-    """Create keyboard with available modification buttons for a link"""
+    """Create keyboard with available modification buttons"""
     link_hash = hashlib.md5(link.encode()).hexdigest()[:8]
-    buttons = [
-        InlineKeyboardButton(config['text'], callback_data=f"{config['action']}:{link_hash}")
-        for config in BUTTONS_CONFIG
-        if config['check'](link)
-    ]
+    buttons = []
+    
+    # Ensure link is using fixupx.com domain
+    if 'x.com' in link:
+        link = link.replace('x.com', 'fixupx.com')
+    
+    general_logger.info(f"Creating keyboard for link: {link}")
+    
+    for config in BUTTONS_CONFIG:
+        if config['check'](link):
+            callback_data = f"{config['action']}:{link_hash}"
+            general_logger.info(f"Adding button: {config['text']} with callback_data: {callback_data}")
+            buttons.append(
+                InlineKeyboardButton(
+                    config['text'],
+                    callback_data=callback_data
+                )
+            )
+    
     return InlineKeyboardMarkup([buttons]) if buttons else None
 
-def modify_language(link, lang):
-    """Change X/Twitter link language modifier"""
-    # Dynamically generate the list of language modifiers from LANGUAGE_OPTIONS
-    languages = [option['action'] for option in LANGUAGE_OPTIONS_CONFIG]
+
+def create_language_menu(link, link_hash):
+    """Create language selection menu"""
+    buttons = []
     
-    # Check if the link already ends with a language modifier and remove it
-    for l in languages:
-        if link.endswith(f"/{l}"):
-            link = link.rsplit('/', 1)[0]
+    general_logger.info(f"Creating language menu for link: {link}")
+    
+    for config in LANGUAGE_OPTIONS_CONFIG:
+        if config['check'](link):
+            callback_data = f"{config['action']}:{link_hash}"
+            general_logger.info(f"Adding language button: {config['text']} with callback_data: {callback_data}")
+            buttons.append(
+                InlineKeyboardButton(
+                    config['text'],
+                    callback_data=callback_data
+                )
+            )
+    
+    return InlineKeyboardMarkup([buttons]) if buttons else None
+
+
+
+
+def modify_language(link, lang):
+    """Modify link language"""
+    base_link = link
+    
+    # Remove any existing language suffix
+    for option in LANGUAGE_OPTIONS_CONFIG:
+        lang_suffix = f"/{option['action']}"
+        if base_link.endswith(lang_suffix):
+            base_link = base_link[:-len(lang_suffix)]
             break
     
-    # Add the new language modifier if lang is not none else return link with no modifier
+    # Add new language if not 'none'
     if lang != 'none':
-        return f"{link}/{lang}"
-    else:
-        return link
+        return f"{base_link}/{lang}"
+    return base_link
+
