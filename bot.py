@@ -50,9 +50,16 @@ logger = logging.getLogger(__name__)
 
 # Supported platforms
 SUPPORTED_PLATFORMS = [
-    'tiktok.com', 'instagram.com', 'youtube.com', 
-    'youtu.be', 'facebook.com', 'twitter.com', 
-    'vimeo.com', 'reddit.com', 'x.com', 'treads.net'
+    'tiktok.com',
+    'instagram.com',
+    'youtube.com',
+    'youtu.be',
+    'facebook.com',
+    'twitter.com',
+    'vimeo.com',
+    'reddit.com',
+    'x.com',
+    'threads.net'
 ]
 
 # Apply the patch to allow nested event loops
