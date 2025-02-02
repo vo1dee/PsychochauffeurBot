@@ -20,7 +20,7 @@ from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import weather
 from modules.file_manager import general_logger, chat_logger
 from modules.user_management import restrict_user
-from modules.video_downloader import setup_video_handlers
+from modules.video_downloader import setup_video_handlers, handle_video_link, handle_invalid_link
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -136,6 +136,12 @@ async def handle_message(update: Update, context: CallbackContext):
                 modified_link = sanitized_link.replace(domain, modified_domain)
                 modified_links.append(modified_link)
                 break
+        
+    if urls and any(platform in url.lower() for url in urls for platform in SUPPORTED_PLATFORMS):
+        await handle_video_link(update, context)
+    else:
+        await handle_invalid_link(update, context)
+        
 
     # Send modified message if any links were processed
     if modified_links:
@@ -246,47 +252,6 @@ async def construct_and_send_message(chat_id, username, cleaned_message_text, mo
         general_logger.error(f"Error in construct_and_send_message: {str(e)}")
         await update.message.reply_text("Sorry, an error occurred.")
 
-
-
-# async def button_callback(update: Update, context: CallbackContext):
-#     query = update.callback_query
-#     await query.answer()
-
-#     data = query.data
-#     chat_id = query.message.chat_id
-#     message_id = query.message.message_id
-
-#     # Get video_downloader from bot_data
-#     video_downloader = context.bot_data['video_downloader']
-
-#     if data.startswith("download_video:"):
-#         url = context.bot_data.get(data.split(":", 1)[1])
-#         if not url:
-#             await query.edit_message_text(text="❌ Invalid URL.")
-#             return
-
-#         try:
-#             await query.edit_message_text(text="🔄 Downloading video...")
-#             filename, title = await video_downloader.download_video(url)
-            
-#             if filename and os.path.exists(filename):
-#                 with open(filename, 'rb') as video_file:
-#                     await context.bot.send_video(
-#                         chat_id=chat_id,
-#                         video=video_file,
-#                         caption=f"📹 {title or 'Downloaded Video'}"
-#                     )
-#                 os.remove(filename)
-#                 await query.edit_message_text(text="✅ Download complete!")
-#             else:
-#                 await query.edit_message_text(text="❌ Video download failed. Check the link and try again.")
-                
-#         except Exception as e:
-#             logger.error(f"Error in button_callback: {e}")
-#             await query.edit_message_text(text="❌ An error occurred while downloading the video.")
-            
-#     else:
-#         await query.edit_message_text(text="❌ Invalid action.")
 
 async def main():
     # Load game state at startup
