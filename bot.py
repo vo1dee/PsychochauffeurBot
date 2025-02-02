@@ -4,7 +4,6 @@ import logging
 import pytz
 import random
 import pyshorteners
-from urllib.parse import urlparse, urlunparse
 import re
 import os
 import telebot
@@ -13,8 +12,8 @@ import telegram
 import browser_cookie3
 import tempfile
 import json
-import nest_asyncio  # Add this import
-from modules.file_manager import init_error_handler  # Ensure this import is present
+import nest_asyncio
+from modules.file_manager import init_error_handler
 
 
 from modules.keyboards import create_link_keyboard, button_callback
@@ -36,6 +35,7 @@ from telegram.ext import (
     )
 from urllib.parse import urlparse, urlunparse
 
+
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 
 message_counts = {}
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_PLATFORMS = [
     'tiktok.com', 'instagram.com', 'youtube.com', 
     'youtu.be', 'facebook.com', 'twitter.com', 
-    'vimeo.com', 'reddit.com', 'x.com'
+    'vimeo.com', 'reddit.com', 'x.com', 'treads.net'
 ]
 
 # Apply the patch to allow nested event loops
