@@ -38,7 +38,7 @@ class VideoPlatforms:
     # Supported platforms
     SUPPORTED_PLATFORMS = [
         'tiktok.com', 'instagram.com', 'youtube.com', 
-        'youtu.be', 'facebook.com', 'x.com', 
+        'youtu.be', 'facebook.com', 
         'vimeo.com', 'reddit.com'
     ]
 
