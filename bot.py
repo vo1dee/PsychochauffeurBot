@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import nest_asyncio
 import pytz
 import random
 import pyshorteners
@@ -8,21 +9,18 @@ import re
 import os
 import telebot
 import yt_dlp
-import telegram
-import browser_cookie3
-import tempfile
-import json
-import nest_asyncio
-from modules.file_manager import init_error_handler
 
 
+from urllib.parse import urlparse, urlunparse
 from modules.keyboards import create_link_keyboard, button_callback
 from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state
-from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID
+from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID, VideoPlatforms
+
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import weather
-from modules.file_manager import general_logger, chat_logger, error_logger, init_error_handler
+from modules.file_manager import general_logger, chat_logger
 from modules.user_management import restrict_user
+from modules.video_downloader import setup_video_handlers
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -34,11 +32,12 @@ from telegram.ext import (
     ContextTypes
     )
 from urllib.parse import urlparse, urlunparse
-from modules.video_downloader import get_instagram_cookies, download_video, handle_video_link, handle_invalid_link
-from utils.url_utils import extract_urls
 
+# Apply the patch to allow nested event loops
+nest_asyncio.apply()
 
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
+SUPPORTED_PLATFORMS = VideoPlatforms.SUPPORTED_PLATFORMS
 
 message_counts = {}
 
@@ -49,24 +48,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-# Supported platforms
-SUPPORTED_PLATFORMS = [
-    'tiktok.com',
-    'instagram.com',
-    'youtube.com',
-    'youtu.be',
-    'facebook.com',
-    'twitter.com',
-    'vimeo.com',
-    'reddit.com',
-    'x.com',
-    'threads.net'
-]
-
-# Apply the patch to allow nested event loops
-nest_asyncio.apply()
-
+def extract_urls(text):
+    """Extract URLs from text using regex pattern."""
+    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    return re.findall(url_pattern, text)
 
 def contains_trigger_words(message_text):
     triggers = ["Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]
@@ -77,30 +62,6 @@ def sanitize_url(url: str, replace_domain: str = None) -> str:
     netloc = replace_domain if replace_domain else parsed_url.netloc
     sanitized_url = urlunparse((parsed_url.scheme, netloc, parsed_url.path, '', '', ''))
     return sanitized_url
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle incoming messages and route to appropriate handlers."""
-    try:
-        if not update.message or not update.message.text:
-            return
-
-        message_text = update.message.text.strip()
-        urls = extract_urls(message_text)
-        
-        if urls and any(platform in url.lower() for url in urls for platform in SUPPORTED_PLATFORMS):
-            await handle_video_link(update, context)
-        else:
-            await handle_invalid_link(update, context)
-            
-    except Exception as e:
-        logger.error(f"Error in handle_message: {str(e)}")
-        await error_logger(f"Handle message error: {str(e)}")
-        await update.message.reply_text("❌ An error occurred while processing your request.")
-
-def extract_urls(text):
-    """Extract URLs from text using regex pattern."""
-    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
-    return re.findall(url_pattern, text)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -118,127 +79,87 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: CallbackContext):
     """Handle incoming messages."""
-    try:
-        if not update.message or not update.message.text:
-            return
-            
-        message_text = update.message.text.strip()
-        chat_id = update.message.chat_id
-        username = update.message.from_user.username
-        chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
-        
-        # Log message with extra fields
-        chat_logger.info(f"User message: {message_text}", 
-                        extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
+    if not update.message or not update.message.text:
+        return
 
-        # Extract URLs first for multiple checks
-        urls = extract_urls(message_text)
+    message_text = update.message.text
 
-        # Check for supported video platforms first
-        if urls and any(platform in url.lower() for url in urls for platform in SUPPORTED_PLATFORMS):
-            await handle_video_link(update, context)
-            return
+    # Initialize modified_link before using it
+    modified_link = message_text
 
-        # Handle trigger words
-        if contains_trigger_words(message_text):
-            await restrict_user(update, context)
-            return
+    # Check for YouTube links first
+    if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
+        if len(sanitized_link) > 60:
+            modified_link = await shorten_url(sanitized_link)
+        # Just send a hashtag reply once
+        await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
+        return  # Exit the function after handling YouTube link
 
-        # Check for bot mention for GPT processing
-        if f"@{context.bot.username}" in message_text:
-            cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
-            await ask_gpt_command(cleaned_message, update, context)
-            return
+    # Extract URLs if present
+    urls = extract_urls(message_text)
+    if urls:
+        modified_link = urls[0]  # Take the first URL if multiple exist
 
-        # Handle YouTube links
-        if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
-            for link in urls:
-                sanitized_link = sanitize_url(link)
-                if len(sanitized_link) > 60:
-                    modified_link = await shorten_url(sanitized_link)
-                await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
-                return
 
-        # Process other links
-        modified_links = []
-        for link in urls:
-            sanitized_link = sanitize_url(link)
-            
-            # Handle AliExpress links
-            if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
-                if len(sanitized_link) > 60:
-                    modified_link = await shorten_url(sanitized_link)
-                modified_link += " #aliexpress"
+    chat_id = update.message.chat_id
+    username = update.message.from_user.username
+    chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
+
+    # Log message with extra fields
+    chat_logger.info(f"User message: {message_text}", extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
+
+    # Handle trigger words
+    if contains_trigger_words(message_text):
+        await restrict_user(update, context)
+        return
+
+    modified_links = []
+    original_links = []
+
+    # Process all links in a single pass
+    urls = extract_urls(message_text)
+    for link in urls:
+        sanitized_link = sanitize_url(link)
+        if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
+            if len(sanitized_link) > 60:
+                modified_link = await shorten_url(sanitized_link)
+                modified_link = await shorten_url(message_text)
+            modified_link += " #aliexpress"
+            modified_links.append(modified_link)
+            # Send AliExpress sticker
+            await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
+            continue
+
+        # Then check for domain modifications (x.com etc.)
+        for domain, modified_domain in domain_modifications.items():
+            if domain in sanitized_link:
+                modified_link = sanitized_link.replace(domain, modified_domain)
                 modified_links.append(modified_link)
-                await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
-                continue
+                break
 
-            # Handle domain modifications
-            for domain, modified_domain in domain_modifications.items():
-                if domain in sanitized_link:
-                    modified_link = sanitized_link.replace(domain, modified_domain)
-                    modified_links.append(modified_link)
-                    break
+    # Send modified message if any links were processed
+    if modified_links:
+        cleaned_message_text = remove_links(message_text).replace("\n", " ")
+        await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
 
-        # Send modified message if any links were processed
-        if modified_links:
-            cleaned_message_text = remove_links(message_text).replace("\n", " ")
-            await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
-            return
+    # Handle GPT queries
+    if f"@{context.bot.username}" in message_text:
+        # Process the message as a direct mention
+        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
+        await ask_gpt_command(cleaned_message, update, context)
+        return  # Ensure to return after processing
 
-        # Handle private chat messages
-        is_private_chat = update.effective_chat.type == 'private'
-        contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or \
-                                    re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', message_text)
-        contains_domain_modifications = any(domain in message_text for domain, modified_domain in domain_modifications.items())
-        contain_download = any(domain in message_text for domain in SUPPORTED_PLATFORMS)
+    # Check if the chat is private and the message does not contain a link
+    is_private_chat = update.effective_chat.type == 'private'
+    contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', message_text)
+    contains_domain_modifications = any(domain in message_text for domain, modified_domain in domain_modifications.items())
+    contain_download = any(domain in message_text for domain in SUPPORTED_PLATFORMS)
 
-        if is_private_chat and not (contains_youtube_or_aliexpress or contains_domain_modifications or contain_download):
-            cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
-            await ask_gpt_command(cleaned_message, update, context)
-            return
-
-        # Handle invalid links
-        if urls:
-            await handle_invalid_link(update, context)
-            return
-
-        await random_gpt_response(update, context)
-
-    except Exception as e:
-        logger.error(f"Error in handle_message: {str(e)}")
-        await error_logger(f"Handle message error: {str(e)}")
-        await update.message.reply_text("❌ An error occurred while processing your request.")
-
-
-async def construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context):
-    """Construct and send modified message with links."""
-    try:
-        general_logger.info(f"Constructing and sending message for chat_id: {chat_id}, username: {username}")
-        general_logger.info(f"Cleaned message text: {cleaned_message_text}")
-        general_logger.info(f"Modified links: {modified_links}")
-
-        modified_message = " ".join(modified_links)
-        final_message = f"@{username}💬: {cleaned_message_text}\nWants to share: {modified_message}"
-        
-        general_logger.info(f"Final message: {final_message}")
-        
-        # Store link and create keyboard
-        link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
-        context.bot_data[link_hash] = modified_links[0]
-        reply_markup = create_link_keyboard(modified_links[0])
-
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=final_message,
-            reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
-            reply_markup=reply_markup
-        )
-        await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
-        
-    except Exception as e:
-        general_logger.error(f"Error modifying links: {str(e)}")
-        await update.message.reply_text("Sorry, an error occurred. Please try again.")
+    if is_private_chat and not contains_youtube_or_aliexpress and not contains_domain_modifications and not contain_download:
+        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
+        await ask_gpt_command(cleaned_message, update, context)
+        return  # Ensure to return after processing
+    await random_gpt_response(update, context)
 
 
 async def random_gpt_response(update: Update, context: CallbackContext):
@@ -253,12 +174,15 @@ async def random_gpt_response(update: Update, context: CallbackContext):
         return
 
     word_count = len(message_text.split())  # Count the number of words
+    # general_logger.info(f"Message text: '{message_text}' | Word count: {word_count}")
 
     if word_count < 5:  # Check if the message has less than 5 words
+        # general_logger.info("Message has less than 5 words, skipping processing.")
         return  # Skip processing if not enough words
 
     random_value = random.random()
     current_message_count = message_counts[chat_id]
+    # general_logger.info(f"Random value: {random_value} | Current message count: {current_message_count}")
 
     if random_value < 0.02 and current_message_count > 50:
         general_logger.info(
@@ -296,48 +220,82 @@ async def shorten_url(url):
         logging.error(f"Error shortening URL {url}: {str(e)}")
         return url  # Return the original URL if there's an error
 
-
-
-def ensure_downloads_dir():
-    """Ensure downloads directory exists and is empty"""
-    downloads_dir = 'downloads'
-    if not os.path.exists(downloads_dir):
-        os.makedirs(downloads_dir)
-    else:
-        # Clean any leftover files
-        for file in os.listdir(downloads_dir):
-            file_path = os.path.join(downloads_dir, file)
-            try:
-                if os.path.isfile(file_path):
-                    os.unlink(file_path)
-            except Exception as e:
-                logger.error(f"Error cleaning downloads directory: {e}")
-
-async def test_error_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Test command to trigger error logging"""
+async def construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context):
     try:
-        # Deliberately cause different types of errors
+        modified_message = " ".join(modified_links)
+        final_message = f"@{username}💬: {cleaned_message_text}\nWants to share: {modified_message}"
+
+        # Store the link in context.bot_data
+        link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
+        context.bot_data[link_hash] = modified_links[0]
         
-        # 1. Division by zero error
-        result = 1 / 0
+        # Create and send message with keyboard
+        keyboard = create_link_keyboard(modified_links[0])
+        sent_message = await context.bot.send_message(
+            chat_id=chat_id,
+            text=final_message,
+            reply_markup=keyboard,
+            reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
+            # reply_markup=reply_markup
+
+        )
+        
+        general_logger.info(f"Sent message with keyboard. Link hash: {link_hash}")
         
     except Exception as e:
-        error_logger.error(f"Test error triggered: {str(e)}", exc_info=True)
-        await update.message.reply_text("Test error has been logged to the channel!")
+        general_logger.error(f"Error in construct_and_send_message: {str(e)}")
+        await update.message.reply_text("Sorry, an error occurred.")
+
+
+
+# async def button_callback(update: Update, context: CallbackContext):
+#     query = update.callback_query
+#     await query.answer()
+
+#     data = query.data
+#     chat_id = query.message.chat_id
+#     message_id = query.message.message_id
+
+#     # Get video_downloader from bot_data
+#     video_downloader = context.bot_data['video_downloader']
+
+#     if data.startswith("download_video:"):
+#         url = context.bot_data.get(data.split(":", 1)[1])
+#         if not url:
+#             await query.edit_message_text(text="❌ Invalid URL.")
+#             return
+
+#         try:
+#             await query.edit_message_text(text="🔄 Downloading video...")
+#             filename, title = await video_downloader.download_video(url)
+            
+#             if filename and os.path.exists(filename):
+#                 with open(filename, 'rb') as video_file:
+#                     await context.bot.send_video(
+#                         chat_id=chat_id,
+#                         video=video_file,
+#                         caption=f"📹 {title or 'Downloaded Video'}"
+#                     )
+#                 os.remove(filename)
+#                 await query.edit_message_text(text="✅ Download complete!")
+#             else:
+#                 await query.edit_message_text(text="❌ Video download failed. Check the link and try again.")
+                
+#         except Exception as e:
+#             logger.error(f"Error in button_callback: {e}")
+#             await query.edit_message_text(text="❌ An error occurred while downloading the video.")
+            
+#     else:
+#         await query.edit_message_text(text="❌ Invalid action.")
 
 async def main():
-    """Main function"""
     # Load game state at startup
     load_game_state()
 
     # Ensure downloads directory exists
-    ensure_downloads_dir()
+    os.makedirs('downloads', exist_ok=True)
 
-    # Initialize application
     application = ApplicationBuilder().token(TOKEN).build()
-
-    # Initialize error handler with bot instance
-    init_error_handler(application.bot)
 
     # Add command handlers
     commands = {
@@ -350,32 +308,19 @@ async def main():
         'game': game_command,
         'endgame': end_game_command,
         'clearwords': clear_words_command,
-        'hint': hint_command,
-        'testerror': test_error_command
+        'hint': hint_command
     }
 
     for command, handler in commands.items():
         application.add_handler(CommandHandler(command, handler))
 
-    # Add handlers
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT & filters.Regex('|'.join(SUPPORTED_PLATFORMS)), 
-            handle_video_link
-        ),
-        group=1
-    )
-    
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND, 
-            handle_message
-        ),
-        group=2
-    )
-    
+    # Add message handlers
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
     application.add_handler(CallbackQueryHandler(button_callback))
+    
+    # Setup video handlers
+    video_downloader = setup_video_handlers(application)
 
     # Start the screenshot scheduler
     screenshot_manager = ScreenshotManager()
@@ -383,16 +328,13 @@ async def main():
 
     # Start bot
     logger.info("Bot is running...")
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-def run_bot():
-    """Run the bot with proper event loop handling"""
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nBot stopped by user")
-    except Exception as e:
-        print(f"Error: {e}")
+    await application.run_polling()
 
 if __name__ == '__main__':
-    run_bot()
+    # Apply the patch to allow nested event loops
+    nest_asyncio.apply()
+    
+    # Create a new event loop
+    new_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(new_loop)
+    new_loop.run_until_complete(main())
