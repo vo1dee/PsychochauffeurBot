@@ -20,7 +20,7 @@ from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import weather
 from modules.file_manager import general_logger, chat_logger
 from modules.user_management import restrict_user
-from modules.video_downloader import setup_video_handlers, handle_video_link, handle_invalid_link
+from modules.video_downloader import VideoDownloader    
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -38,6 +38,9 @@ nest_asyncio.apply()
 
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 SUPPORTED_PLATFORMS = VideoPlatforms.SUPPORTED_PLATFORMS
+video_downloader = VideoDownloader(download_path='downloads')
+
+
 
 message_counts = {}
 
@@ -83,90 +86,91 @@ async def handle_message(update: Update, context: CallbackContext):
         return
 
     message_text = update.message.text
-
-    # Initialize modified_link before using it
     modified_link = message_text
+    urls = extract_urls(message_text)
+    modified_links = []
+    needs_video_download = False
 
-    # Check for YouTube links first
+    # First, check if the URL is from a supported video platform
+    if urls:
+        needs_video_download = any(
+            platform in url.lower() 
+            for url in urls 
+            for platform in SUPPORTED_PLATFORMS
+        )
+
+    # Handle YouTube links first
     if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
         if len(sanitized_link) > 60:
             modified_link = await shorten_url(sanitized_link)
-        # Just send a hashtag reply once
         await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
-        return  # Exit the function after handling YouTube link
+        return
 
-    # Extract URLs if present
-    urls = extract_urls(message_text)
-    if urls:
-        modified_link = urls[0]  # Take the first URL if multiple exist
-
-
+    # Log message
     chat_id = update.message.chat_id
     username = update.message.from_user.username
     chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
-
-    # Log message with extra fields
-    chat_logger.info(f"User message: {message_text}", extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
+    chat_logger.info(f"User message: {message_text}", 
+                    extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
 
     # Handle trigger words
     if contains_trigger_words(message_text):
         await restrict_user(update, context)
         return
 
-    modified_links = []
-    original_links = []
-
-    # Process all links in a single pass
-    urls = extract_urls(message_text)
+    # Process links for modification (X.com, AliExpress, etc.)
     for link in urls:
         sanitized_link = sanitize_url(link)
+        
+        # Handle AliExpress links
         if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
             if len(sanitized_link) > 60:
                 modified_link = await shorten_url(sanitized_link)
-                modified_link = await shorten_url(message_text)
             modified_link += " #aliexpress"
             modified_links.append(modified_link)
-            # Send AliExpress sticker
-            await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
+            await context.bot.send_sticker(chat_id=update.effective_chat.id, 
+                                         sticker=ALIEXPRESS_STICKER_ID)
             continue
 
-        # Then check for domain modifications (x.com etc.)
+        # Handle domain modifications (x.com etc.)
         for domain, modified_domain in domain_modifications.items():
             if domain in sanitized_link:
                 modified_link = sanitized_link.replace(domain, modified_domain)
                 modified_links.append(modified_link)
                 break
-        
-    if urls and any(platform in url.lower() for url in urls for platform in SUPPORTED_PLATFORMS):
-        await handle_video_link(update, context)
-    else:
-        await handle_invalid_link(update, context)
-        
 
-    # Send modified message if any links were processed
+    # Send modified message if there are modified links
     if modified_links:
         cleaned_message_text = remove_links(message_text).replace("\n", " ")
-        await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
+        await construct_and_send_message(chat_id, username, cleaned_message_text, 
+                                       modified_links, update, context)
 
-    # Handle GPT queries
+    # Handle video download if needed
+    if needs_video_download:
+        video_downloader = context.bot_data.get('video_downloader')
+        if video_downloader:
+            await video_downloader.handle_video_link(update, context)
+        return
+
+    # Handle GPT responses
     if f"@{context.bot.username}" in message_text:
-        # Process the message as a direct mention
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         await ask_gpt_command(cleaned_message, update, context)
-        return  # Ensure to return after processing
+        return
 
-    # Check if the chat is private and the message does not contain a link
+    # Handle private chat GPT responses
     is_private_chat = update.effective_chat.type == 'private'
-    contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', message_text)
-    contains_domain_modifications = any(domain in message_text for domain, modified_domain in domain_modifications.items())
-    contain_download = any(domain in message_text for domain in SUPPORTED_PLATFORMS)
+    contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or \
+                                   re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', message_text)
+    contains_domain_modifications = any(domain in message_text for domain in domain_modifications)
 
-    if is_private_chat and not contains_youtube_or_aliexpress and not contains_domain_modifications and not contain_download:
+    if is_private_chat and not contains_youtube_or_aliexpress and \
+       not contains_domain_modifications and not needs_video_download:
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
         await ask_gpt_command(cleaned_message, update, context)
-        return  # Ensure to return after processing
-    await random_gpt_response(update, context)
+        return
 
+    await random_gpt_response(update, context)
 
 async def random_gpt_response(update: Update, context: CallbackContext):
     """Randomly responds to a message with a 2% chance using GPT, only if the message has 5 or more words."""
@@ -284,8 +288,9 @@ async def main():
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
     application.add_handler(CallbackQueryHandler(button_callback))
     
-    # Setup video handlers
-    video_downloader = setup_video_handlers(application)
+    # Initialize and store VideoDownloader instance
+    video_downloader = VideoDownloader(download_path='downloads')
+    application.bot_data['video_downloader'] = video_downloader
 
     # Start the screenshot scheduler
     screenshot_manager = ScreenshotManager()
