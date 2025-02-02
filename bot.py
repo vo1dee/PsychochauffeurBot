@@ -34,6 +34,8 @@ from telegram.ext import (
     ContextTypes
     )
 from urllib.parse import urlparse, urlunparse
+from modules.video_downloader import get_instagram_cookies, download_video, handle_video_link, handle_invalid_link
+from utils.url_utils import extract_urls
 
 
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
@@ -65,141 +67,6 @@ SUPPORTED_PLATFORMS = [
 # Apply the patch to allow nested event loops
 nest_asyncio.apply()
 
-async def get_instagram_cookies():
-    """Extract Instagram cookies from Chrome browser"""
-    try:
-        chrome_cookies = browser_cookie3.chrome(domain_name='.instagram.com')
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
-            f.writelines(f'.instagram.com\tTRUE\t/\tTRUE\t2597573456\t{cookie.name}\t{cookie.value}\n' for cookie in chrome_cookies)
-            return f.name
-    except Exception as e:
-        logger.error(f"Failed to extract Instagram cookies: {e}")
-        return None
-
-async def download_video(url):
-    try:
-        ydl_opts = {
-            'format': 'best',
-            'outtmpl': 'downloads/video.mp4',
-            'max_filesize': 50 * 1024 * 1024,
-            'nooverwrites': True,
-            'no_part': True,
-            'retries': 5,
-            'fragment_retries': 5,
-            'ignoreerrors': False,
-            'quiet': True,
-            'no_check_certificate': True,
-            'extractor_args': {
-                'instagram': {
-                    'download_thumbnails': False,
-                    'extract_flat': False,
-                }
-            },
-            'http_headers': {
-                'User-Agent': 'Instagram 219.0.0.12.117 Android',
-                'Cookie': ''
-            }
-        }
-
-        if 'instagram.com' in url:
-            url = url.split('?')[0] + ('/' if not url.endswith('/') else '')
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                info_dict = ydl.extract_info(url, download=True)
-                filename = 'downloads/video.mp4'
-                if os.path.exists(filename):
-                    return filename, info_dict.get('title', 'Unknown')
-                error_logger.error("File not found after download")
-            except yt_dlp.utils.DownloadError as e:
-                error_logger.error(f"yt-dlp download error: {str(e)}")
-            return None, None
-    except Exception as e:
-        error_logger.error(f"Failed to download video from {url}: {str(e)}", exc_info=True)
-        return None, None
-
-def download_progress(d):
-    """
-    Log download progress
-    """
-    if d['status'] == 'finished':
-        logger.info('Download complete, processing...')
-
-
-async def handle_video_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle video download request"""
-    message_text = update.message.text.strip()
-    
-    # Extract URLs from the message
-    urls = extract_urls(message_text)
-    if not urls:
-        return
-        
-    # Take the first URL found
-    url = urls[0]
-    
-    # Check if it's a YouTube link but not a short
-    if any(domain in url for domain in ["youtube.com", "youtu.be"]):
-        if not "/shorts/" in url:
-            await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
-            return
-    
-    # Add debug logging
-    logger.info(f"Attempting to download video from URL: {url}")
-    
-    # Send initial processing message
-    processing_msg = await update.message.reply_text("🔄 Processing video...")
-    
-    try:
-        # Download video
-        filename, title = await download_video(url)
-        
-        if filename and os.path.exists(filename):
-            # Check file size (50MB limit)
-            file_size = os.path.getsize(filename) / (1024 * 1024)  # Convert to MB
-            if file_size > 50:
-                os.remove(filename)
-                await processing_msg.delete()
-                await update.message.reply_text("❌ Sorry, the video is too large (>50MB). Try a shorter video.")
-                return
-            
-            # Log successful download
-            logger.info(f"Successfully downloaded video: {filename}")
-            
-            # Send video file
-            try:
-                with open(filename, 'rb') as video_file:
-                    await update.message.reply_video(
-                        video=video_file, 
-                        caption=f"📹 {title or 'Downloaded Video'}"
-                    )
-            except telegram.error.BadRequest as e:
-                if "Request Entity Too Large" in str(e):
-                    await update.message.reply_text("❌ Sorry, the video is too large to send via Telegram (>50MB).")
-                else:
-                    raise e
-            finally:
-                # Clean up downloaded file
-                os.remove(filename)
-                await processing_msg.delete()
-        else:
-            logger.error(f"Download failed: filename={filename}, exists={os.path.exists(filename) if filename else False}")
-            await update.message.reply_text("❌ Video download failed. Check the link and try again.")
-    
-    except Exception as e:
-        logger.error(f"Error processing video: {e}")
-        await update.message.reply_text(f"❌ Error: {str(e)}")
-        if processing_msg:
-            await processing_msg.delete()
-
-
-async def handle_invalid_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Handle messages without supported video links
-    """
-    await update.message.reply_text("❌ Please send a valid video link from supported platforms.")
-
-
 
 def contains_trigger_words(message_text):
     triggers = ["Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]
@@ -210,6 +77,25 @@ def sanitize_url(url: str, replace_domain: str = None) -> str:
     netloc = replace_domain if replace_domain else parsed_url.netloc
     sanitized_url = urlunparse((parsed_url.scheme, netloc, parsed_url.path, '', '', ''))
     return sanitized_url
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle incoming messages and route to appropriate handlers."""
+    try:
+        if not update.message or not update.message.text:
+            return
+
+        message_text = update.message.text.strip()
+        urls = extract_urls(message_text)
+        
+        if urls and any(platform in url.lower() for url in urls for platform in SUPPORTED_PLATFORMS):
+            await handle_video_link(update, context)
+        else:
+            await handle_invalid_link(update, context)
+            
+    except Exception as e:
+        logger.error(f"Error in handle_message: {str(e)}")
+        await error_logger(f"Handle message error: {str(e)}")
+        await update.message.reply_text("❌ An error occurred while processing your request.")
 
 def extract_urls(text):
     """Extract URLs from text using regex pattern."""
@@ -232,51 +118,127 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: CallbackContext):
     """Handle incoming messages."""
-    if not update.message or not update.message.text:
-        return
+    try:
+        if not update.message or not update.message.text:
+            return
+            
+        message_text = update.message.text.strip()
+        chat_id = update.message.chat_id
+        username = update.message.from_user.username
+        chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
+        
+        # Log message with extra fields
+        chat_logger.info(f"User message: {message_text}", 
+                        extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
 
-    message_text = update.message.text
-    urls = extract_urls(message_text)
-    modified_link = urls[0] if urls else message_text
+        # Extract URLs first for multiple checks
+        urls = extract_urls(message_text)
 
-    chat_id = update.message.chat_id
-    username = update.message.from_user.username
-    chat_title = update.message.chat.title if update.message.chat.title else "Private Chat"
+        # Check for supported video platforms first
+        if urls and any(platform in url.lower() for url in urls for platform in SUPPORTED_PLATFORMS):
+            await handle_video_link(update, context)
+            return
 
-    chat_logger.info(f"User message: {message_text}", extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
+        # Handle trigger words
+        if contains_trigger_words(message_text):
+            await restrict_user(update, context)
+            return
 
-    if contains_trigger_words(message_text):
-        await restrict_user(update, context)
-        return
+        # Check for bot mention for GPT processing
+        if f"@{context.bot.username}" in message_text:
+            cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
+            await ask_gpt_command(cleaned_message, update, context)
+            return
 
-    modified_links = []
-    original_links = []
+        # Handle YouTube links
+        if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
+            for link in urls:
+                sanitized_link = sanitize_url(link)
+                if len(sanitized_link) > 60:
+                    modified_link = await shorten_url(sanitized_link)
+                await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
+                return
 
-    for link in urls:
-        sanitized_link = sanitize_url(link)
-        if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
-            if len(sanitized_link) > 60:
-                modified_link = await shorten_url(sanitized_link)
-            modified_link += " #aliexpress"
-            modified_links.append(modified_link)
-            await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
-            continue
+        # Process other links
+        modified_links = []
+        for link in urls:
+            sanitized_link = sanitize_url(link)
+            
+            # Handle AliExpress links
+            if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
+                if len(sanitized_link) > 60:
+                    modified_link = await shorten_url(sanitized_link)
+                modified_link += " #aliexpress"
+                modified_links.append(modified_link)
+                await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
+                continue
 
-    if f"@{context.bot.username}" in message_text:
-        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
-        await ask_gpt_command(cleaned_message, update, context)
-        return
+            # Handle domain modifications
+            for domain, modified_domain in domain_modifications.items():
+                if domain in sanitized_link:
+                    modified_link = sanitized_link.replace(domain, modified_domain)
+                    modified_links.append(modified_link)
+                    break
 
-    is_private_chat = update.effective_chat.type == 'private'
-    contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or re.search(r'(?:aliexpress|a\.aliexpress)\.(?:item/)?', message_text)
-    contains_domain_modifications = any(domain in message_text for domain, modified_domain in domain_modifications.items())
-    contain_download = any(domain in message_text for domain in SUPPORTED_PLATFORMS)
+        # Send modified message if any links were processed
+        if modified_links:
+            cleaned_message_text = remove_links(message_text).replace("\n", " ")
+            await construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context)
+            return
 
-    if is_private_chat and not (contains_youtube_or_aliexpress or contains_domain_modifications or contain_download):
-        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
-        await ask_gpt_command(cleaned_message, update, context)
-        return
-    await random_gpt_response(update, context)
+        # Handle private chat messages
+        is_private_chat = update.effective_chat.type == 'private'
+        contains_youtube_or_aliexpress = any(domain in message_text for domain in ["youtube.com", "youtu.be"]) or \
+                                    re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', message_text)
+        contains_domain_modifications = any(domain in message_text for domain, modified_domain in domain_modifications.items())
+        contain_download = any(domain in message_text for domain in SUPPORTED_PLATFORMS)
+
+        if is_private_chat and not (contains_youtube_or_aliexpress or contains_domain_modifications or contain_download):
+            cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
+            await ask_gpt_command(cleaned_message, update, context)
+            return
+
+        # Handle invalid links
+        if urls:
+            await handle_invalid_link(update, context)
+            return
+
+        await random_gpt_response(update, context)
+
+    except Exception as e:
+        logger.error(f"Error in handle_message: {str(e)}")
+        await error_logger(f"Handle message error: {str(e)}")
+        await update.message.reply_text("❌ An error occurred while processing your request.")
+
+
+async def construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context):
+    """Construct and send modified message with links."""
+    try:
+        general_logger.info(f"Constructing and sending message for chat_id: {chat_id}, username: {username}")
+        general_logger.info(f"Cleaned message text: {cleaned_message_text}")
+        general_logger.info(f"Modified links: {modified_links}")
+
+        modified_message = " ".join(modified_links)
+        final_message = f"@{username}💬: {cleaned_message_text}\nWants to share: {modified_message}"
+        
+        general_logger.info(f"Final message: {final_message}")
+        
+        # Store link and create keyboard
+        link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
+        context.bot_data[link_hash] = modified_links[0]
+        reply_markup = create_link_keyboard(modified_links[0])
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=final_message,
+            reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
+            reply_markup=reply_markup
+        )
+        await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
+        
+    except Exception as e:
+        general_logger.error(f"Error modifying links: {str(e)}")
+        await update.message.reply_text("Sorry, an error occurred. Please try again.")
 
 
 async def random_gpt_response(update: Update, context: CallbackContext):
@@ -334,38 +296,7 @@ async def shorten_url(url):
         logging.error(f"Error shortening URL {url}: {str(e)}")
         return url  # Return the original URL if there's an error
 
-async def construct_and_send_message(chat_id, username, cleaned_message_text, modified_links, update, context):
-    try:
-        # Log the function call for debugging
-        general_logger.info(f"Constructing and sending message for chat_id: {chat_id}, username: {username}")
 
-        # Log the cleaned message text and modified links
-        general_logger.info(f"Cleaned message text: {cleaned_message_text}")
-        general_logger.info(f"Modified links: {modified_links}")
-
-        # Create the message
-        modified_message = " ".join(modified_links)  # Use space to join links
-        final_message = f"@{username}💬: {cleaned_message_text}\nWants to share: {modified_message}"
-
-        # Log the final message
-        general_logger.info(f"Final message: {final_message}")
-
-        # Store the link and create keyboard
-        link_hash = hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
-        context.bot_data[link_hash] = modified_links[0]
-        reply_markup = create_link_keyboard(modified_links[0])
-        # Send modified message and delete original
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=final_message,
-            reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None,
-            reply_markup=reply_markup
-        )
-        await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
-
-    except Exception as e:
-        general_logger.error(f"Error modifying links: {str(e)}")
-        await update.message.reply_text("Sorry, an error occurred. Please try again.")
 
 def ensure_downloads_dir():
     """Ensure downloads directory exists and is empty"""

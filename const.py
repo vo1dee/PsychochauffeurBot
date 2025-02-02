@@ -27,10 +27,10 @@ class Stickers:
 class LinkModification:
     """Domain modifications for various social media platforms."""
     DOMAINS: Dict[str, str] = {
-        "tiktok.com": "tfxktok.com",
+        # "tiktok.com": "tfxktok.com",
         "twitter.com": "fxtwitter.com",
         "x.com": "fixupx.com",
-        "instagram.com": "ddinstagram.com"
+        # "instagram.com": "ddinstagram.com"
         
     }
 
