@@ -1,137 +1,295 @@
-import yt_dlp
-import browser_cookie3
-import tempfile
+import asyncio
+import random
 import os
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 from const import VideoPlatforms
-
+from utils import extract_urls
+from modules.file_manager import error_logger,init_error_handler
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_PLATFORMS = VideoPlatforms.SUPPORTED_PLATFORMS
 
+
 class VideoDownloader:
-    def __init__(self, download_path='downloads'):  # Change the parameter to download_path
-        self.supported_platforms = SUPPORTED_PLATFORMS  # Use the constant directly
+    def __init__(self, download_path='downloads', extract_urls_func=None):
+        self.supported_platforms = SUPPORTED_PLATFORMS
         self.download_path = download_path
+        self.extract_urls = extract_urls_func
         os.makedirs(download_path, exist_ok=True)
-        self.base_opts = {
-            'format': 'best',
-            'max_filesize': 50 * 1024 * 1024,
-            'nooverwrites': True,
-            'no_part': True,
-            'retries': 5,
-            'fragment_retries': 5,
-            'ignoreerrors': False,
-            'quiet': True,
-            'no_check_certificate': True,
-            'extractor_args': {
-                'instagram': {
-                    'download_thumbnails': False,
-                    'extract_flat': False,
-                }
-            },
-            'http_headers': {
-                'User-Agent': 'Instagram 219.0.0.12.117 Android',
-                'Cookie': ''
-            }
-        }
         
-        # Create downloads directory if it doesn't exist
-        os.makedirs(download_path, exist_ok=True)
+        # Define error stickers
+        self.ERROR_STICKERS = [
+            "CAACAgQAAxkBAAExX39nn7xI2ENP9ev7Ib1-0GCV0TcFvwACNxUAAn_QmFB67ToFiTpdgTYE",
+            "CAACAgQAAxkBAAExX31nn7xByvIhPZHPreVkPONIn82IKgACgxcAAuYrIFHS_QFCSfHYGTYE"
+        ]
 
-    def extract_urls(self, text):
-        return [text] if text.startswith("http") else []
-
-    async def get_instagram_cookies(self):
+    async def send_error_sticker(self, update: Update):
         try:
-            chrome_cookies = browser_cookie3.chrome(domain_name='.instagram.com')
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
-                f.writelines(f'.instagram.com\tTRUE\t/\tTRUE\t2597573456\t{cookie.name}\t{cookie.value}\n' 
-                           for cookie in chrome_cookies)
-                return f.name
+            chosen_sticker = random.choice(self.ERROR_STICKERS)
+            await update.message.reply_sticker(sticker=chosen_sticker)
         except Exception as e:
-            logger.error(f"Failed to extract Instagram cookies: {e}")
-            return None
-
-    async def download_video(self, url):
-        try:
-            filename = os.path.join(self.download_path, 'video.mp4')
-            ydl_opts = self.base_opts.copy()
-            ydl_opts['outtmpl'] = filename
-
-            if 'instagram.com' in url:
-                url = url.split('?')[0] + ('/' if not url.endswith('/') else '')
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                title = info.get('title', 'Downloaded Video')
-                ydl.download([url])
-
-            if os.path.exists(filename):
-                logger.info('Download complete, processing...')
-                return filename, title
-            else:
-                logger.error("File not found after download")
-                return None, None
-
-        except yt_dlp.utils.DownloadError as e:
-            logger.error(f"yt-dlp download error: {str(e)}")
-            return None, None
-        except Exception as e:
-            logger.error(f"Error in download_video function: {str(e)}")
-            return None, None
+            error_logger.error(
+                f"🚨 Sticker Error\n"
+                f"Error: {str(e)}\n"
+                f"User ID: {update.effective_user.id}\n"
+                f"Username: @{update.effective_user.username}"
+            )
+            await update.message.reply_text("❌ An error occurred.")
 
     async def handle_video_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         processing_msg = None
+        filename = None
         try:
             message_text = update.message.text.strip()
             urls = self.extract_urls(message_text)
             if not urls:
+                await self.send_error_sticker(update)
                 return
 
             processing_msg = await update.message.reply_text("⏳ Processing your request...")
             
             for url in urls:
                 filename, title = await self.download_video(url)
-                if filename:
-                    with open(filename, 'rb') as video_file:
-                        await update.message.reply_video(
-                            video=video_file,
-                            caption=f"📹 {title}"
+                if filename and os.path.exists(filename):
+                    try:
+                        with open(filename, 'rb') as video_file:
+                            await update.message.reply_video(
+                                video=video_file,
+                                caption=f"📹 {title}"
+                            )
+                    except Exception as e:
+                        error_logger.error(
+                            f"🎥 Video Sending Error\n"
+                            f"Error: {str(e)}\n"
+                            f"URL: {url}\n"
+                            f"User ID: {update.effective_user.id}\n"
+                            f"Username: @{update.effective_user.username}\n"
+                            f"File Size: {os.path.getsize(filename) if os.path.exists(filename) else 'N/A'} bytes"
                         )
-                    os.remove(filename)
-                    await processing_msg.delete()
+                        await self.send_error_sticker(update)
                 else:
-                    await update.message.reply_text("❌ Video download failed")
+                    error_logger.error(
+                        f"⬇️ Download Error\n"
+                        f"URL: {url}\n"
+                        f"User ID: {update.effective_user.id}\n"
+                        f"Username: @{update.effective_user.username}\n"
+                        f"Platform: {next((p for p in self.supported_platforms if p in url), 'unknown')}"
+                    )
+                    await self.send_error_sticker(update)
 
         except Exception as e:
-            error_msg = f"Error processing video request:\nUser: {update.effective_user.id}\nMessage: {message_text}\nError: {str(e)}"
-            logger.error(error_msg)
-            
-            if processing_msg:
-                await processing_msg.delete()
-                
-            await update.message.reply_sticker(
-                sticker="CAACAgIAAxkBAAEKqDFlUKAvtQr8WZeLfd8AAcOk85nqzWYAAioAA8GcYAwt9nwGwHb3ODQE"
+            error_logger.error(
+                f"⚠️ Processing Error\n"
+                f"Error: {str(e)}\n"
+                f"URL: {url if 'url' in locals() else 'N/A'}\n"
+                f"User ID: {update.effective_user.id}\n"
+                f"Username: @{update.effective_user.username}\n"
+                f"Message: {message_text if 'message_text' in locals() else 'N/A'}"
             )
-            await update.message.reply_text("❌ Something went wrong. Our team has been notified.")
+            await self.send_error_sticker(update)
+        finally:
+            # Clean up
+            if processing_msg:
+                try:
+                    await processing_msg.delete()
+                except Exception as e:
+                    error_logger.error(
+                        f"🗑️ Cleanup Error\n"
+                        f"Error: {str(e)}\n"
+                        f"User ID: {update.effective_user.id}\n"
+                        f"Username: @{update.effective_user.username}"
+                    )
+            if filename and os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                except Exception as e:
+                    error_logger.error(
+                        f"🗑️ File Removal Error\n"
+                        f"Error: {str(e)}\n"
+                        f"File: {filename}\n"
+                        f"User ID: {update.effective_user.id}\n"
+                        f"Username: @{update.effective_user.username}"
+                    )
 
     async def handle_invalid_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("❌ Please send a valid video link from supported platforms.")
+        error_logger.error(
+            f"🔗 Invalid Link\n"
+            f"Message: {update.message.text}\n"
+            f"User ID: {update.effective_user.id}\n"
+            f"Username: @{update.effective_user.username}"
+        )
+        await self.send_error_sticker(update)
 
 
-def setup_video_handlers(application):
-    # Initialize video downloader with download path
-    video_downloader = VideoDownloader(download_path='downloads')  # Specify the download path
+
+
+    async def download_video(self, url):
+        try:
+            # Clean the URL
+            url = url.strip().strip('\\')
+            
+            # Use a simple filename
+            output_template = os.path.join(self.download_path, 'video.%(ext)s')
+            
+            if 'instagram.com' in url:
+                # Instagram specific command
+                command = [
+                    'yt-dlp',
+                    '-f', 'best',  # Use best format for Instagram
+                    '--merge-output-format', 'mp4',
+                    '-o', output_template,
+                    '--no-check-certificates',
+                    '--no-warnings',
+                    '--add-header', 'User-Agent: Instagram 219.0.0.12.117 Android',
+                    '--add-header', 'Cookie: ds_user_id=12345; sessionid=ABC123',
+                    url
+                ]
+                
+                # Try to get clean Instagram URL
+                try:
+                    if '/reel/' in url:
+                        reel_id = url.split('/reel/')[1].split('/?')[0]
+                        url = f'https://www.instagram.com/reel/{reel_id}/'
+                    elif '/p/' in url:
+                        post_id = url.split('/p/')[1].split('/?')[0]
+                        url = f'https://www.instagram.com/p/{post_id}/'
+                except:
+                    pass
+
+            elif 'tiktok.com' in url:
+                # First, list available formats
+                list_command = [
+                    'yt-dlp',
+                    '-F',
+                    url
+                ]
+                
+                process = await asyncio.create_subprocess_exec(
+                    *list_command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                stdout, stderr = await process.communicate()
+                formats = stdout.decode()
+                
+                # Parse formats to find the best video format
+                format_id = None
+                for line in formats.split('\n'):
+                    if 'video only' in line.lower() or 'mp4' in line.lower():
+                        format_id = line.split()[0]
+                        break
+                
+                if not format_id:
+                    format_id = 'best'  # Fallback to best if no specific format found
+                
+                command = [
+                    'yt-dlp',
+                    '-f', format_id,
+                    '--merge-output-format', 'mp4',
+                    '-o', output_template,
+                    '--no-check-certificates',
+                    '--no-warnings',
+                    url
+                ]
+            else:
+                command = [
+                    'yt-dlp',
+                    '-f', 'best[height<=720]',
+                    '--merge-output-format', 'mp4',
+                    '-o', output_template,
+                    url
+                ]
+
+            # Execute download command
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                logger.error(f"yt-dlp error: {stderr.decode()}")
+                
+                # If Instagram download failed, try alternative method
+                if 'instagram.com' in url:
+                    logger.info("Trying alternative method for Instagram...")
+                    alt_command = [
+                        'yt-dlp',
+                        '--format', 'dash-HD',  # Try specific Instagram format
+                        '--merge-output-format', 'mp4',
+                        '-o', output_template,
+                        '--no-check-certificates',
+                        '--no-warnings',
+                        '--add-header', 'User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15',
+                        url
+                    ]
+                    
+                    process = await asyncio.create_subprocess_exec(
+                        *alt_command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    
+                    stdout, stderr = await process.communicate()
+                    if process.returncode != 0:
+                        return None, None
+
+            # Use the fixed filename
+            filename = os.path.join(self.download_path, 'video.mp4')
+            if not os.path.exists(filename):
+                return None, None
+
+            # Get title based on platform
+            if 'instagram.com' in url:
+                try:
+                    if '/reel/' in url:
+                        reel_id = url.split('/reel/')[1].split('/?')[0]
+                        title = f"Instagram Reel {reel_id}"
+                    else:
+                        post_id = url.split('/p/')[1].split('/?')[0]
+                        title = f"Instagram Post {post_id}"
+                except:
+                    title = "Instagram Video"
+            else:
+                # Regular title extraction for other platforms
+                title_command = [
+                    'yt-dlp',
+                    '--get-title',
+                    url
+                ]
+                
+                process = await asyncio.create_subprocess_exec(
+                    *title_command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                title_stdout, _ = await process.communicate()
+                title = title_stdout.decode().strip()
+
+            return filename, title
+
+        except Exception as e:
+            logger.error(f"Error in download_video function: {str(e)}")
+            return None, None
+
+
+def setup_video_handlers(application, extract_urls_func=None):
+    video_downloader = VideoDownloader(
+        download_path='downloads',
+        extract_urls_func=extract_urls_func
+    )
     application.bot_data['video_downloader'] = video_downloader
 
-    # Add video download handlers
+    # Add handlers
     application.add_handler(MessageHandler(
-        filters.TEXT & 
-        filters.Regex('|'.join(SUPPORTED_PLATFORMS)), 
+        filters.TEXT & filters.Regex('|'.join(SUPPORTED_PLATFORMS)), 
         video_downloader.handle_video_link
     ))
     application.add_handler(MessageHandler(
@@ -140,4 +298,6 @@ def setup_video_handlers(application):
     ))
 
     return video_downloader
+
+
 

@@ -31,10 +31,17 @@ IMGKIT_OPTIONS = {
     ]
 }
 
+
+
 # Text processing utilities
 def remove_links(text: str) -> str:
     """Remove all URLs from given text."""
     return re.sub(r'http[s]?://\S+', '', text).strip()
+
+def extract_urls(text):
+    """Extract URLs from text using regex pattern."""
+    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    return re.findall(url_pattern, text)
 
 # Weather-related utilities
 def country_code_to_emoji(country_code: str) -> str:
