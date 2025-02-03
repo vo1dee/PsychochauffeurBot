@@ -62,17 +62,102 @@ class VideoDownloader:
             error_logger.error(f"Error finding yt-dlp: {str(e)}")
         return None
 
-    def _install_yt_dlp(self):
-        """Install yt-dlp using pip."""
+    async def send_error_sticker(self, update: Update):
         try:
-            import subprocess
-            subprocess.run(['pip3', 'install', '--user', '--upgrade', 'yt-dlp'], 
-                         check=True)
-            subprocess.run(['chmod', '+x', 
-                          os.path.expanduser('~/.local/bin/yt-dlp')], 
-                         check=True)
+            chosen_sticker = random.choice(self.ERROR_STICKERS)
+            await update.message.reply_sticker(sticker=chosen_sticker)
         except Exception as e:
-            error_logger.error(f"Error installing yt-dlp: {str(e)}")
+            error_logger.error(
+                f"🚨 Sticker Error\n"
+                f"Error: {str(e)}\n"
+                f"User ID: {update.effective_user.id}\n"
+                f"Username: @{update.effective_user.username}"
+            )
+            await update.message.reply_text("❌ An error occurred.")
+
+    async def handle_video_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        processing_msg = None
+        filename = None
+        try:
+            message_text = update.message.text.strip()
+            urls = self.extract_urls(message_text)
+            if not urls:
+                await self.send_error_sticker(update)
+                return
+
+            processing_msg = await update.message.reply_text("⏳ Processing your request...")
+            
+            for url in urls:
+                filename, title = await self.download_video(url)
+                if filename and os.path.exists(filename):
+                    try:
+                        with open(filename, 'rb') as video_file:
+                            await update.message.reply_video(
+                                video=video_file,
+                                caption=f"📹 {title}"
+                            )
+                    except Exception as e:
+                        error_logger.error(
+                            f"🎥 Video Sending Error\n"
+                            f"Error: {str(e)}\n"
+                            f"URL: {url}\n"
+                            f"User ID: {update.effective_user.id}\n"
+                            f"Username: @{update.effective_user.username}\n"
+                            f"File Size: {os.path.getsize(filename) if os.path.exists(filename) else 'N/A'} bytes"
+                        )
+                        await self.send_error_sticker(update)
+                else:
+                    error_logger.error(
+                        f"⬇️ Download Error\n"
+                        f"URL: {url}\n"
+                        f"User ID: {update.effective_user.id}\n"
+                        f"Username: @{update.effective_user.username}\n"
+                        f"Platform: {next((p for p in self.supported_platforms if p in url), 'unknown')}"
+                    )
+                    await self.send_error_sticker(update)
+
+        except Exception as e:
+            error_logger.error(
+                f"⚠️ Processing Error\n"
+                f"Error: {str(e)}\n"
+                f"URL: {url if 'url' in locals() else 'N/A'}\n"
+                f"User ID: {update.effective_user.id}\n"
+                f"Username: @{update.effective_user.username}\n"
+                f"Message: {message_text if 'message_text' in locals() else 'N/A'}"
+            )
+            await self.send_error_sticker(update)
+        finally:
+            # Clean up
+            if processing_msg:
+                try:
+                    await processing_msg.delete()
+                except Exception as e:
+                    error_logger.error(
+                        f"🗑️ Cleanup Error\n"
+                        f"Error: {str(e)}\n"
+                        f"User ID: {update.effective_user.id}\n"
+                        f"Username: @{update.effective_user.username}"
+                    )
+            if filename and os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                except Exception as e:
+                    error_logger.error(
+                        f"🗑️ File Removal Error\n"
+                        f"Error: {str(e)}\n"
+                        f"File: {filename}\n"
+                        f"User ID: {update.effective_user.id}\n"
+                        f"Username: @{update.effective_user.username}"
+                    )
+
+    async def handle_invalid_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        error_logger.error(
+            f"🔗 Invalid Link\n"
+            f"Message: {update.message.text}\n"
+            f"User ID: {update.effective_user.id}\n"
+            f"Username: @{update.effective_user.username}"
+        )
+        await self.send_error_sticker(update)
 
     async def download_video(self, url):
         try:
@@ -98,22 +183,10 @@ class VideoDownloader:
                     url
                 ]
                 
-                # Clean Instagram URL
-                try:
-                    if '/reel/' in url:
-                        reel_id = url.split('/reel/')[1].split('/?')[0]
-                        url = f'https://www.instagram.com/reel/{reel_id}/'
-                    elif '/p/' in url:
-                        post_id = url.split('/p/')[1].split('/?')[0]
-                        url = f'https://www.instagram.com/p/{post_id}/'
-                except:
-                    pass
-
             elif 'tiktok.com' in url:
                 command = base_command + [
                     '-f', 'best',
                     '-o', output_template,
-                    '--add-header', 'User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15',
                     url
                 ]
             else:
@@ -177,7 +250,6 @@ class VideoDownloader:
             error_logger.error(f"Error getting title: {str(e)}")
             return "Video"
 
-
 def setup_video_handlers(application, extract_urls_func=None):
     video_downloader = VideoDownloader(
         download_path='downloads',
@@ -196,6 +268,3 @@ def setup_video_handlers(application, extract_urls_func=None):
     ))
 
     return video_downloader
-
-
-
