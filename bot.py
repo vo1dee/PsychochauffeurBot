@@ -83,30 +83,9 @@ async def handle_message(update: Update, context: CallbackContext):
         return
 
     message_text = update.message.text
-    modified_link = message_text
     urls = extract_urls(message_text)
     modified_links = []
     needs_video_download = False
-
-    # First, check if the URL is from a supported video platform
-    if urls:
-        needs_video_download = any(
-            platform in url.lower() 
-            for url in urls 
-            for platform in SUPPORTED_PLATFORMS
-        )
-
-    # # Handle YouTube links first
-    # if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
-    #         # Extract and sanitize YouTube URL first
-    #         youtube_urls = [url for url in urls if any(domain in url for domain in ["youtube.com", "youtu.be"])]
-    #         if youtube_urls:
-    #             sanitized_link = sanitize_url(youtube_urls[0])
-    #             if len(sanitized_link) > 60:
-    #                 modified_link = await shorten_url(sanitized_link)
-    #             await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
-    #             return
-
 
     # Log message
     chat_id = update.message.chat_id
@@ -120,12 +99,21 @@ async def handle_message(update: Update, context: CallbackContext):
         await restrict_user(update, context)
         return
 
+    # First, check if the URL is from a supported video platform
+    if urls:
+        needs_video_download = any(
+            platform in url.lower() 
+            for url in urls 
+            for platform in SUPPORTED_PLATFORMS
+        )
+
     # Process links for modification (X.com, AliExpress, etc.)
-    for link in urls:
-        sanitized_link = sanitize_url(link)
+    for url in urls:
+        sanitized_link = sanitize_url(url)
         
         # Handle AliExpress links
         if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
+            modified_link = sanitized_link
             if len(sanitized_link) > 60:
                 modified_link = await shorten_url(sanitized_link)
             modified_link += " #aliexpress"
@@ -134,21 +122,20 @@ async def handle_message(update: Update, context: CallbackContext):
                                          sticker=ALIEXPRESS_STICKER_ID)
             continue
 
-    # Handle domain modifications (x.com etc.)
-    for domain, modified_domain in domain_modifications.items():
-        if domain in sanitized_link and modified_domain not in sanitized_link:  # Check if not already modified
-            modified_link = sanitized_link.replace(domain, modified_domain)
-            modified_links.append(modified_link)
-            break
-        elif modified_domain in sanitized_link:  # If already modified, use as is
-            modified_links.append(sanitized_link)
-            break
+        # Handle domain modifications (x.com etc.)
+        for domain, modified_domain in domain_modifications.items():
+            if domain in sanitized_link and modified_domain not in sanitized_link:
+                modified_links.append(sanitized_link.replace(domain, modified_domain))
+                break
+            elif modified_domain in sanitized_link:
+                modified_links.append(sanitized_link)
+                break
 
     # Send modified message if there are modified links
     if modified_links:
         cleaned_message_text = remove_links(message_text).replace("\n", " ")
         await construct_and_send_message(chat_id, username, cleaned_message_text, 
-                                    modified_links, update, context)
+                                       modified_links, update, context)
 
     # Handle video download if needed
     if needs_video_download:
