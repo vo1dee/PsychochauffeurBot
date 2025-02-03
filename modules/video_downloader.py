@@ -25,11 +25,8 @@ class VideoDownloader:
         
         # Verify yt-dlp installation
         if not self.yt_dlp_path:
-            error_logger.error("yt-dlp not found. Installing...")
-            self._install_yt_dlp()
-            self.yt_dlp_path = self._get_yt_dlp_path()
-            if not self.yt_dlp_path:
-                raise RuntimeError("Could not install or find yt-dlp")
+            error_logger.error("yt-dlp not found. Please install it using: sudo pip3 install --break-system-packages yt-dlp")
+            raise RuntimeError("yt-dlp not found. Please install it manually using sudo.")
         
         # Define error stickers
         self.ERROR_STICKERS = [
@@ -41,12 +38,6 @@ class VideoDownloader:
         """Find yt-dlp executable path."""
         try:
             import subprocess
-            result = subprocess.run(['which', 'yt-dlp'], 
-                                 capture_output=True, 
-                                 text=True)
-            if result.returncode == 0:
-                return result.stdout.strip()
-            
             # Check common paths
             paths = [
                 '/usr/local/bin/yt-dlp',
@@ -55,6 +46,14 @@ class VideoDownloader:
                 os.path.expanduser('~/.local/bin/yt-dlp')
             ]
             
+            # Try which command first
+            result = subprocess.run(['which', 'yt-dlp'], 
+                                 capture_output=True, 
+                                 text=True)
+            if result.returncode == 0:
+                return result.stdout.strip()
+            
+            # Check common paths
             for path in paths:
                 if os.path.exists(path) and os.access(path, os.X_OK):
                     return path
