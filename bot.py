@@ -13,14 +13,14 @@ import yt_dlp
 
 from urllib.parse import urlparse, urlunparse
 from modules.keyboards import create_link_keyboard, button_callback
-from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state
+from utils import remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager, game_state, game_command, end_game_command, clear_words_command, hint_command, load_game_state, extract_urls
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID, VideoPlatforms
 
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import weather
 from modules.file_manager import general_logger, chat_logger
 from modules.user_management import restrict_user
-from modules.video_downloader import VideoDownloader    
+from modules.video_downloader import VideoDownloader, setup_video_handlers    
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -51,10 +51,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def extract_urls(text):
-    """Extract URLs from text using regex pattern."""
-    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
-    return re.findall(url_pattern, text)
+
 
 def contains_trigger_words(message_text):
     triggers = ["Ы", "ы", "ъ", "Ъ", "Э", "э", "Ё", "ё"]
@@ -99,12 +96,17 @@ async def handle_message(update: Update, context: CallbackContext):
             for platform in SUPPORTED_PLATFORMS
         )
 
-    # Handle YouTube links first
-    if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
-        if len(sanitized_link) > 60:
-            modified_link = await shorten_url(sanitized_link)
-        await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
-        return
+    # # Handle YouTube links first
+    # if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
+    #         # Extract and sanitize YouTube URL first
+    #         youtube_urls = [url for url in urls if any(domain in url for domain in ["youtube.com", "youtu.be"])]
+    #         if youtube_urls:
+    #             sanitized_link = sanitize_url(youtube_urls[0])
+    #             if len(sanitized_link) > 60:
+    #                 modified_link = await shorten_url(sanitized_link)
+    #             await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
+    #             return
+
 
     # Log message
     chat_id = update.message.chat_id
@@ -132,18 +134,21 @@ async def handle_message(update: Update, context: CallbackContext):
                                          sticker=ALIEXPRESS_STICKER_ID)
             continue
 
-        # Handle domain modifications (x.com etc.)
-        for domain, modified_domain in domain_modifications.items():
-            if domain in sanitized_link:
-                modified_link = sanitized_link.replace(domain, modified_domain)
-                modified_links.append(modified_link)
-                break
+    # Handle domain modifications (x.com etc.)
+    for domain, modified_domain in domain_modifications.items():
+        if domain in sanitized_link and modified_domain not in sanitized_link:  # Check if not already modified
+            modified_link = sanitized_link.replace(domain, modified_domain)
+            modified_links.append(modified_link)
+            break
+        elif modified_domain in sanitized_link:  # If already modified, use as is
+            modified_links.append(sanitized_link)
+            break
 
     # Send modified message if there are modified links
     if modified_links:
         cleaned_message_text = remove_links(message_text).replace("\n", " ")
         await construct_and_send_message(chat_id, username, cleaned_message_text, 
-                                       modified_links, update, context)
+                                    modified_links, update, context)
 
     # Handle video download if needed
     if needs_video_download:
@@ -288,10 +293,9 @@ async def main():
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
     application.add_handler(CallbackQueryHandler(button_callback))
     
-    # Initialize and store VideoDownloader instance
-    video_downloader = VideoDownloader(download_path='downloads')
-    application.bot_data['video_downloader'] = video_downloader
-
+    # Initialize video downloader with extract_urls function
+    video_downloader = setup_video_handlers(application, extract_urls_func=extract_urls)
+    
     # Start the screenshot scheduler
     screenshot_manager = ScreenshotManager()
     asyncio.create_task(screenshot_manager.schedule_task())

@@ -30,7 +30,7 @@ class LinkModification:
         # "tiktok.com": "tfxktok.com",
         "twitter.com": "fxtwitter.com",
         "x.com": "fixupx.com",
-        # "instagram.com": "ddinstagram.com"
+        # "fixupx.com": "fixupx.com"
         
     }
 

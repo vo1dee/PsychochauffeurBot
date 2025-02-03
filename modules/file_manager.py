@@ -171,5 +171,3 @@ def read_last_n_lines(file_path: str, n: int) -> list:
     with open(file_path, 'r', encoding='utf-8') as file:
         lines = file.readlines()
         return lines[-n:]  # Return the last n lines
-
-
