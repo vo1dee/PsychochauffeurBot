@@ -129,19 +129,13 @@ class ScreenshotManager:
             return False
 
     async def schedule_task(self) -> None:
-        """Schedule daily screenshot task."""
+        """Schedule a screenshot task every 6 hours."""
         while True:
             # Get current time in Kyiv timezone
             kyiv_now = datetime.now(self.timezone)
 
-            # Create target time for today at 1 AM Kyiv time
-            target_time = self.timezone.localize(
-                datetime.combine(kyiv_now.date(), self.schedule_time)
-            )
-
-            # If it's already past 1 AM Kyiv time today, schedule for tomorrow
-            if kyiv_now > target_time:
-                target_time += timedelta(hours=8)
+            # Create target time for the next screenshot (6 hours from now)
+            target_time = kyiv_now + timedelta(hours=6)
 
             # Convert target time to server's local time for sleep calculation
             server_now = datetime.now(pytz.UTC).astimezone()  # Get server's local time
