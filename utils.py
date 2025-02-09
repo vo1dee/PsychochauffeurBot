@@ -141,7 +141,7 @@ class ScreenshotManager:
 
             # If it's already past 1 AM Kyiv time today, schedule for tomorrow
             if kyiv_now > target_time:
-                target_time += timedelta(days=1)
+                target_time += timedelta(hours=8)
 
             # Convert target time to server's local time for sleep calculation
             server_now = datetime.now(pytz.UTC).astimezone()  # Get server's local time
