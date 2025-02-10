@@ -20,12 +20,19 @@ class KyivTimezoneFormatter(logging.Formatter):
         dt = datetime.fromtimestamp(record.created).astimezone(KYIV_TZ)
         return dt.strftime(datefmt) if datefmt else dt.strftime("%Y-%m-%d %H:%M:%S %z")
 
-def get_daily_log_path(date: Optional[datetime] = None) -> str:
-    """Get the path to the daily log file for the specified date."""
+def get_daily_log_path(date: Optional[datetime] = None, chat_id: Optional[int] = None) -> str:
+    """Get the path to the daily log file for the specified date and chat."""
     date = date or datetime.now(KYIV_TZ)
     if date.tzinfo is None:
         date = KYIV_TZ.localize(date)
-    return os.path.join(LOG_DIR, f"chat_{date.strftime('%Y-%m-%d')}.log")
+    
+    if chat_id is not None:
+        # Store chat-specific logs in subdirectories
+        chat_log_dir = os.path.join(LOG_DIR, f"chat_{chat_id}")
+        return os.path.join(chat_log_dir, f"chat_{date.strftime('%Y-%m-%d')}.log")
+    else:
+        # Default path for general logs
+        return os.path.join(LOG_DIR, f"chat_{date.strftime('%Y-%m-%d')}.log")
 
 # Set up logging handlers
 handler1 = RotatingFileHandler(os.path.join(LOG_DIR, 'bot.log'), maxBytes=5*1024*1024, backupCount=3)
@@ -35,7 +42,9 @@ handler1.setFormatter(KyivTimezoneFormatter('%(asctime)s - %(name)s - %(levelnam
 class DailyLogHandler(logging.Handler):
     def emit(self, record):
         try:
-            daily_log_path = get_daily_log_path()
+            # Extract chat_id from the log record
+            chat_id = getattr(record, 'chat_id', None)
+            daily_log_path = get_daily_log_path(chat_id=chat_id)
             msg = self.format(record)
             os.makedirs(os.path.dirname(daily_log_path), exist_ok=True)
             with open(daily_log_path, 'a', encoding='utf-8') as f:
