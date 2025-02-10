@@ -9,14 +9,18 @@ from typing import Optional, Tuple, List, Dict
 from asyncio import Lock
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple, List, Dict
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 from const import VideoPlatforms
 from utils import extract_urls
 from modules.file_manager import error_logger, init_error_handler
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
 
 class Platform(Enum):
     INSTAGRAM = "instagram.com"
@@ -72,8 +76,7 @@ class VideoDownloader:
                     "--no-warnings",
                     "--quiet",
                     "--referer", "https://www.tiktok.com/"
-    ]
-
+                ]
             ),
             Platform.OTHER: DownloadConfig(
                 format="best[height<=720]"
@@ -178,24 +181,19 @@ class VideoDownloader:
             # First, resolve any short URL
             async with aiohttp.ClientSession() as session:
                 headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Accept-Encoding": "gzip, deflate",
-                    "Connection": "keep-alive",
-                    "Upgrade-Insecure-Requests": "1"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.5"
                 }
                 
                 async with session.get(url, headers=headers, allow_redirects=True) as response:
                     final_url = str(response.url)
                     video_id = None
                     
-                    # Try to extract video ID from the final URL
                     if match := re.search(r'/video/(\d+)', final_url):
                         video_id = match.group(1)
                     
                     if not video_id:
-                        # Try to extract from page content
                         text = await response.text()
                         if match := re.search(r'"id":"(\d+)"', text):
                             video_id = match.group(1)
@@ -203,19 +201,26 @@ class VideoDownloader:
                     if not video_id:
                         return None
 
+                    if not RAPIDAPI_KEY:
+                        error_logger.error("RAPIDAPI_KEY not found in environment variables")
+                        return None
+
                     # Use rapid API endpoint
-                    api_url = f"https://tiktok-download-without-watermark.p.rapidapi.com/analysis"
+                    api_url = "https://tiktok-download-without-watermark.p.rapidapi.com/analysis"
                     headers = {
-                        "X-RapidAPI-Key": "YOUR_RAPIDAPI_KEY",  # Replace with your RapidAPI key
+                        "X-RapidAPI-Key": RAPIDAPI_KEY,
                         "X-RapidAPI-Host": "tiktok-download-without-watermark.p.rapidapi.com"
                     }
                     params = {"url": final_url}
 
-                    async with session.get(api_url, headers=headers, params=params) as api_response:
-                        if api_response.status == 200:
-                            data = await api_response.json()
-                            if data.get("data", {}).get("play"):
-                                return data["data"]["play"]
+                    try:
+                        async with session.get(api_url, headers=headers, params=params) as api_response:
+                            if api_response.status == 200:
+                                data = await api_response.json()
+                                if data.get("data", {}).get("play"):
+                                    return data["data"]["play"]
+                    except aiohttp.ClientError as e:
+                        error_logger.error(f"RapidAPI request failed: {str(e)}")
 
                     # Fallback to alternative API if RapidAPI fails
                     fallback_api = f"https://api.tiktokv.com/aweme/v1/feed/?aweme_id={video_id}"
@@ -233,8 +238,14 @@ class VideoDownloader:
                                 pass
 
             return None
+        except aiohttp.ClientError as e:
+            error_logger.error(f"Network error during download: {str(e)}")
+            return None
+        except json.JSONDecodeError as e:
+            error_logger.error(f"Invalid JSON response: {str(e)}")
+            return None
         except Exception as e:
-            error_logger.error(f"Error getting TikTok download URL: {str(e)}")
+            error_logger.error(f"Unexpected error: {str(e)}")
             return None
 
             
@@ -417,106 +428,6 @@ class VideoDownloader:
         except Exception as e:
             error_logger.error(f"Simple TikTok download failed: {str(e)}")
             return None, None
-
-
-    async def _download_tiktok_api(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-    """Download TikTok video using API method."""
-    try:
-        video_id = await self._extract_tiktok_video_id(url)
-        if not video_id:
-            return None, None
-
-        api_url = f"https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={video_id}"
-        headers = {
-            "User-Agent": "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet"
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    try:
-                        video_url = data['aweme_list'][0]['video']['play_addr']['url_list'][0]
-                        filename = os.path.join(self.download_path, 'video.mp4')
-                        
-                        async with session.get(video_url) as video_response:
-                            if video_response.status == 200:
-                                with open(filename, 'wb') as f:
-                                    async for chunk in video_response.content.iter_chunked(8192):
-                                        f.write(chunk)
-                                return filename, "TikTok Video"
-                    except (KeyError, IndexError):
-                        pass
-        return None, None
-    except Exception as e:
-        error_logger.error(f"TikTok API download failed: {str(e)}")
-        return None, None
-
-    async def _download_tiktok_ytdlp(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-        """Download TikTok video using yt-dlp method."""
-        try:
-            command = [
-                self.yt_dlp_path,
-                '--no-warnings',
-                '--format', 'best',
-                '-o', os.path.join(self.download_path, 'video.%(ext)s'),
-                '--add-header', 'User-Agent: TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet',
-                '--add-header', 'Accept: application/json',
-                url
-            ]
-            
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await process.communicate()
-            if process.returncode == 0:
-                filename = os.path.join(self.download_path, 'video.mp4')
-                if os.path.exists(filename):
-                    return filename, "TikTok Video"
-            return None, None
-        except Exception as e:
-            error_logger.error(f"yt-dlp TikTok download failed: {str(e)}")
-            return None, None
-
-    async def _download_generic(self, url: str, platform: Platform) -> Tuple[Optional[str], Optional[str]]:
-        """Generic download method for non-TikTok platforms."""
-        try:
-            command = await self._build_download_command(url, platform)
-            config = self.platform_configs[platform]
-            
-            for attempt in range(config.max_retries):
-                try:
-                    process = await asyncio.create_subprocess_exec(
-                        *command,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-
-                    stdout, stderr = await process.communicate()
-                    
-                    if process.returncode == 0:
-                        filename = os.path.join(self.download_path, 'video.mp4')
-                        if os.path.exists(filename):
-                            title = await self._get_video_title(url)
-                            return filename, title
-                    
-                    error_msg = stderr.decode()
-                    error_logger.error(f"Download attempt {attempt + 1} failed: {error_msg}")
-                    
-                except Exception as e:
-                    error_logger.error(f"Download attempt {attempt + 1} error: {str(e)}")
-                    if attempt == config.max_retries - 1:
-                        raise
-
-            return None, None
-        except Exception as e:
-            error_logger.error(f"Generic download error: {str(e)}")
-            return None, None
-
-
 
     async def _get_video_title(self, url: str) -> str:
         try:
