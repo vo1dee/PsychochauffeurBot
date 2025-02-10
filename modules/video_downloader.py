@@ -237,87 +237,284 @@ class VideoDownloader:
             error_logger.error(f"Error getting TikTok download URL: {str(e)}")
             return None
 
-async def download_video(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-    """Download video with improved error handling and multiple fallback methods."""
-    try:
-        url = url.strip().strip('\\')
-        platform = self._get_platform(url)
-        
-        if platform == Platform.TIKTOK:
-            # Try multiple methods for TikTok downloads
-            methods = [
-                self._download_tiktok_direct,
-                self._download_tiktok_api,
-                self._download_tiktok_ytdlp
+            
+
+    async def _download_tiktok_api(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Download TikTok video using API method."""
+        try:
+            video_id = await self._extract_tiktok_video_id(url)
+            if not video_id:
+                return None, None
+
+            api_url = f"https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={video_id}"
+            headers = {
+                "User-Agent": "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        try:
+                            video_url = data['aweme_list'][0]['video']['play_addr']['url_list'][0]
+                            filename = os.path.join(self.download_path, 'video.mp4')
+                            
+                            async with session.get(video_url) as video_response:
+                                if video_response.status == 200:
+                                    with open(filename, 'wb') as f:
+                                        async for chunk in video_response.content.iter_chunked(8192):
+                                            f.write(chunk)
+                                    return filename, "TikTok Video"
+                        except (KeyError, IndexError):
+                            pass
+            return None, None
+        except Exception as e:
+            error_logger.error(f"TikTok API download failed: {str(e)}")
+            return None, None
+
+    async def _download_tiktok_ytdlp(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Download TikTok video using yt-dlp method."""
+        try:
+            command = [
+                self.yt_dlp_path,
+                '--no-warnings',
+                '--format', 'best',
+                '-o', os.path.join(self.download_path, 'video.%(ext)s'),
+                '--add-header', 'User-Agent: TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet',
+                '--add-header', 'Accept: application/json',
+                url
             ]
             
-            for method in methods:
-                try:
-                    result = await method(url)
-                    if result and result[0] and os.path.exists(result[0]):
-                        return result
-                except Exception as e:
-                    error_logger.error(f"TikTok download method failed: {str(e)}")
-                    continue
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
             
-            # If all methods fail, try one last time with a simple configuration
-            return await self._download_tiktok_simple(url)
-        
-        # For other platforms, use the original method
-        return await self._download_generic(url, platform)
-    
-    except Exception as e:
-        error_logger.error(f"Download error: {str(e)}")
-        return None, None
-
-async def _download_tiktok_direct(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-    """Download TikTok video directly using API."""
-    try:
-        video_url = await self._get_tiktok_download_url(url)
-        if not video_url:
-            return None, None
-            
-        filename = os.path.join(self.download_path, 'video.mp4')
-        async with aiohttp.ClientSession() as session:
-            async with session.get(video_url) as response:
-                if response.status == 200:
-                    with open(filename, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            f.write(chunk)
+            stdout, stderr = await process.communicate()
+            if process.returncode == 0:
+                filename = os.path.join(self.download_path, 'video.mp4')
+                if os.path.exists(filename):
                     return filename, "TikTok Video"
+            return None, None
+        except Exception as e:
+            error_logger.error(f"yt-dlp TikTok download failed: {str(e)}")
+            return None, None
+
+    async def _download_generic(self, url: str, platform: Platform) -> Tuple[Optional[str], Optional[str]]:
+        """Generic download method for non-TikTok platforms."""
+        try:
+            command = await self._build_download_command(url, platform)
+            config = self.platform_configs[platform]
+            
+            for attempt in range(config.max_retries):
+                try:
+                    process = await asyncio.create_subprocess_exec(
+                        *command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+
+                    stdout, stderr = await process.communicate()
+                    
+                    if process.returncode == 0:
+                        filename = os.path.join(self.download_path, 'video.mp4')
+                        if os.path.exists(filename):
+                            title = await self._get_video_title(url)
+                            return filename, title
+                    
+                    error_msg = stderr.decode()
+                    error_logger.error(f"Download attempt {attempt + 1} failed: {error_msg}")
+                    
+                except Exception as e:
+                    error_logger.error(f"Download attempt {attempt + 1} error: {str(e)}")
+                    if attempt == config.max_retries - 1:
+                        raise
+
+            return None, None
+        except Exception as e:
+            error_logger.error(f"Generic download error: {str(e)}")
+            return None, None
+
+    async def download_video(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Download video with improved error handling and multiple fallback methods."""
+        try:
+            url = url.strip().strip('\\')
+            platform = self._get_platform(url)
+            
+            if platform == Platform.TIKTOK:
+                # Try multiple methods for TikTok downloads
+                methods = [
+                    self._download_tiktok_direct,
+                    self._download_tiktok_api,
+                    self._download_tiktok_ytdlp
+                ]
+                
+                for method in methods:
+                    try:
+                        result = await method(url)
+                        if result and result[0] and os.path.exists(result[0]):
+                            return result
+                    except Exception as e:
+                        error_logger.error(f"TikTok download method failed: {str(e)}")
+                        continue
+                
+                # If all methods fail, try one last time with a simple configuration
+                return await self._download_tiktok_simple(url)
+            
+            # For other platforms, use the original method
+            return await self._download_generic(url, platform)
+        
+        except Exception as e:
+            error_logger.error(f"Download error: {str(e)}")
+            return None, None
+
+    async def _download_tiktok_direct(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Download TikTok video directly using API."""
+        try:
+            video_url = await self._get_tiktok_download_url(url)
+            if not video_url:
+                return None, None
+            
+            filename = os.path.join(self.download_path, 'video.mp4')
+            async with aiohttp.ClientSession() as session:
+                async with session.get(video_url) as response:
+                    if response.status == 200:
+                        with open(filename, 'wb') as f:
+                            async for chunk in response.content.iter_chunked(8192):
+                                f.write(chunk)
+                        return filename, "TikTok Video"
+            return None, None
+        except Exception as e:
+            error_logger.error(f"Direct TikTok download failed: {str(e)}")
+            return None, None
+
+    async def _download_tiktok_simple(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Simple fallback method for TikTok downloads."""
+        try:
+            command = [
+                self.yt_dlp_path,
+                '--no-warnings',
+                '--format', 'best',
+                '-o', os.path.join(self.download_path, 'video.%(ext)s'),
+                '--user-agent', 'TikTok/26.2.0 (iPhone; iOS 14.4.2; Scale/3.00)',
+                '--referer', 'https://www.tiktok.com/',
+                url
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            if process.returncode == 0:
+                filename = os.path.join(self.download_path, 'video.mp4')
+                if os.path.exists(filename):
+                    return filename, "TikTok Video"
+            return None, None
+        except Exception as e:
+            error_logger.error(f"Simple TikTok download failed: {str(e)}")
+            return None, None
+
+
+    async def _download_tiktok_api(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+    """Download TikTok video using API method."""
+    try:
+        video_id = await self._extract_tiktok_video_id(url)
+        if not video_id:
+            return None, None
+
+        api_url = f"https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={video_id}"
+        headers = {
+            "User-Agent": "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet"
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    try:
+                        video_url = data['aweme_list'][0]['video']['play_addr']['url_list'][0]
+                        filename = os.path.join(self.download_path, 'video.mp4')
+                        
+                        async with session.get(video_url) as video_response:
+                            if video_response.status == 200:
+                                with open(filename, 'wb') as f:
+                                    async for chunk in video_response.content.iter_chunked(8192):
+                                        f.write(chunk)
+                                return filename, "TikTok Video"
+                    except (KeyError, IndexError):
+                        pass
         return None, None
     except Exception as e:
-        error_logger.error(f"Direct TikTok download failed: {str(e)}")
+        error_logger.error(f"TikTok API download failed: {str(e)}")
         return None, None
 
-async def _download_tiktok_simple(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-    """Simple fallback method for TikTok downloads."""
-    try:
-        command = [
-            self.yt_dlp_path,
-            '--no-warnings',
-            '--format', 'best',
-            '-o', os.path.join(self.download_path, 'video.%(ext)s'),
-            '--user-agent', 'TikTok/26.2.0 (iPhone; iOS 14.4.2; Scale/3.00)',
-            '--referer', 'https://www.tiktok.com/',
-            url
-        ]
-        
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await process.communicate()
-        if process.returncode == 0:
-            filename = os.path.join(self.download_path, 'video.mp4')
-            if os.path.exists(filename):
-                return filename, "TikTok Video"
-        return None, None
-    except Exception as e:
-        error_logger.error(f"Simple TikTok download failed: {str(e)}")
-        return None, None
+    async def _download_tiktok_ytdlp(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Download TikTok video using yt-dlp method."""
+        try:
+            command = [
+                self.yt_dlp_path,
+                '--no-warnings',
+                '--format', 'best',
+                '-o', os.path.join(self.download_path, 'video.%(ext)s'),
+                '--add-header', 'User-Agent: TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet',
+                '--add-header', 'Accept: application/json',
+                url
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            if process.returncode == 0:
+                filename = os.path.join(self.download_path, 'video.mp4')
+                if os.path.exists(filename):
+                    return filename, "TikTok Video"
+            return None, None
+        except Exception as e:
+            error_logger.error(f"yt-dlp TikTok download failed: {str(e)}")
+            return None, None
+
+    async def _download_generic(self, url: str, platform: Platform) -> Tuple[Optional[str], Optional[str]]:
+        """Generic download method for non-TikTok platforms."""
+        try:
+            command = await self._build_download_command(url, platform)
+            config = self.platform_configs[platform]
+            
+            for attempt in range(config.max_retries):
+                try:
+                    process = await asyncio.create_subprocess_exec(
+                        *command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+
+                    stdout, stderr = await process.communicate()
+                    
+                    if process.returncode == 0:
+                        filename = os.path.join(self.download_path, 'video.mp4')
+                        if os.path.exists(filename):
+                            title = await self._get_video_title(url)
+                            return filename, title
+                    
+                    error_msg = stderr.decode()
+                    error_logger.error(f"Download attempt {attempt + 1} failed: {error_msg}")
+                    
+                except Exception as e:
+                    error_logger.error(f"Download attempt {attempt + 1} error: {str(e)}")
+                    if attempt == config.max_retries - 1:
+                        raise
+
+            return None, None
+        except Exception as e:
+            error_logger.error(f"Generic download error: {str(e)}")
+            return None, None
 
 
 
