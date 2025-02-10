@@ -187,6 +187,10 @@ class VideoDownloader:
                 }
                 
                 async with session.get(url, headers=headers, allow_redirects=True) as response:
+                    if response.status != 200:
+                        error_logger.error(f"Failed to fetch TikTok URL: Status {response.status}")
+                        return None
+                        
                     final_url = str(response.url)
                     video_id = None
                     
@@ -199,6 +203,7 @@ class VideoDownloader:
                             video_id = match.group(1)
 
                     if not video_id:
+                        error_logger.error(f"Could not extract video ID from URL: {url}")
                         return None
 
                     if not RAPIDAPI_KEY:
@@ -217,8 +222,13 @@ class VideoDownloader:
                         async with session.get(api_url, headers=headers, params=params) as api_response:
                             if api_response.status == 200:
                                 data = await api_response.json()
-                                if data.get("data", {}).get("play"):
-                                    return data["data"]["play"]
+                                if data and isinstance(data, dict):
+                                    play_url = data.get("data", {}).get("play")
+                                    if play_url:
+                                        return play_url
+                                    error_logger.error(f"No play URL found in RapidAPI response: {data}")
+                            else:
+                                error_logger.error(f"RapidAPI request failed with status: {api_response.status}")
                     except aiohttp.ClientError as e:
                         error_logger.error(f"RapidAPI request failed: {str(e)}")
 
@@ -232,12 +242,26 @@ class VideoDownloader:
                     async with session.get(fallback_api, headers=headers) as fallback_response:
                         if fallback_response.status == 200:
                             data = await fallback_response.json()
-                            try:
-                                return data['aweme_list'][0]['video']['play_addr']['url_list'][0]
-                            except (KeyError, IndexError):
-                                pass
+                            if data and isinstance(data, dict):
+                                try:
+                                    aweme_list = data.get('aweme_list', [])
+                                    if aweme_list and len(aweme_list) > 0:
+                                        video_data = aweme_list[0].get('video', {})
+                                        play_addr = video_data.get('play_addr', {})
+                                        url_list = play_addr.get('url_list', [])
+                                        if url_list and len(url_list) > 0:
+                                            return url_list[0]
+                                        error_logger.error("No URL found in url_list")
+                                    else:
+                                        error_logger.error("No videos found in aweme_list")
+                                except Exception as e:
+                                    error_logger.error(f"Error parsing fallback API response: {str(e)}")
+                        else:
+                            error_logger.error(f"Fallback API request failed with status: {fallback_response.status}")
 
+            error_logger.error("All download methods failed")
             return None
+            
         except aiohttp.ClientError as e:
             error_logger.error(f"Network error during download: {str(e)}")
             return None
@@ -248,13 +272,12 @@ class VideoDownloader:
             error_logger.error(f"Unexpected error: {str(e)}")
             return None
 
-            
-
     async def _download_tiktok_api(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         """Download TikTok video using API method."""
         try:
             video_id = await self._extract_tiktok_video_id(url)
             if not video_id:
+                error_logger.error(f"Could not extract video ID from URL: {url}")
                 return None, None
 
             api_url = f"https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={video_id}"
@@ -266,18 +289,33 @@ class VideoDownloader:
                 async with session.get(api_url, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        try:
-                            video_url = data['aweme_list'][0]['video']['play_addr']['url_list'][0]
-                            filename = os.path.join(self.download_path, 'video.mp4')
-                            
-                            async with session.get(video_url) as video_response:
-                                if video_response.status == 200:
-                                    with open(filename, 'wb') as f:
-                                        async for chunk in video_response.content.iter_chunked(8192):
-                                            f.write(chunk)
-                                    return filename, "TikTok Video"
-                        except (KeyError, IndexError):
-                            pass
+                        if data and isinstance(data, dict):
+                            try:
+                                aweme_list = data.get('aweme_list', [])
+                                if aweme_list and len(aweme_list) > 0:
+                                    video_data = aweme_list[0].get('video', {})
+                                    play_addr = video_data.get('play_addr', {})
+                                    url_list = play_addr.get('url_list', [])
+                                    if url_list and len(url_list) > 0:
+                                        video_url = url_list[0]
+                                        filename = os.path.join(self.download_path, 'video.mp4')
+                                        
+                                        async with session.get(video_url) as video_response:
+                                            if video_response.status == 200:
+                                                with open(filename, 'wb') as f:
+                                                    async for chunk in video_response.content.iter_chunked(8192):
+                                                        f.write(chunk)
+                                                return filename, "TikTok Video"
+                                            else:
+                                                error_logger.error(f"Video download failed with status: {video_response.status}")
+                                    else:
+                                        error_logger.error("No URL found in url_list")
+                                else:
+                                    error_logger.error("No videos found in aweme_list")
+                            except Exception as e:
+                                error_logger.error(f"Error parsing API response: {str(e)}")
+                    else:
+                        error_logger.error(f"API request failed with status: {response.status}")
             return None, None
         except Exception as e:
             error_logger.error(f"TikTok API download failed: {str(e)}")
