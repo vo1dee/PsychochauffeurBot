@@ -173,69 +173,69 @@ class VideoDownloader:
         return None
 
     async def _get_tiktok_download_url(self, url: str) -> Optional[str]:
-    """Get direct download URL for TikTok video."""
-    try:
-        # First, resolve any short URL
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate",
-                "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1"
-            }
-            
-            async with session.get(url, headers=headers, allow_redirects=True) as response:
-                final_url = str(response.url)
-                video_id = None
+        """Get direct download URL for TikTok video."""
+        try:
+            # First, resolve any short URL
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Connection": "keep-alive",
+                    "Upgrade-Insecure-Requests": "1"
+                }
                 
-                # Try to extract video ID from the final URL
-                if match := re.search(r'/video/(\d+)', final_url):
-                    video_id = match.group(1)
-                
-                if not video_id:
-                    # Try to extract from page content
-                    text = await response.text()
-                    if match := re.search(r'"id":"(\d+)"', text):
+                async with session.get(url, headers=headers, allow_redirects=True) as response:
+                    final_url = str(response.url)
+                    video_id = None
+                    
+                    # Try to extract video ID from the final URL
+                    if match := re.search(r'/video/(\d+)', final_url):
                         video_id = match.group(1)
+                    
+                    if not video_id:
+                        # Try to extract from page content
+                        text = await response.text()
+                        if match := re.search(r'"id":"(\d+)"', text):
+                            video_id = match.group(1)
 
-                if not video_id:
-                    return None
+                    if not video_id:
+                        return None
 
-                # Use rapid API endpoint
-                api_url = f"https://tiktok-download-without-watermark.p.rapidapi.com/analysis"
-                headers = {
-                    "X-RapidAPI-Key": "YOUR_RAPIDAPI_KEY",  # Replace with your RapidAPI key
-                    "X-RapidAPI-Host": "tiktok-download-without-watermark.p.rapidapi.com"
-                }
-                params = {"url": final_url}
+                    # Use rapid API endpoint
+                    api_url = f"https://tiktok-download-without-watermark.p.rapidapi.com/analysis"
+                    headers = {
+                        "X-RapidAPI-Key": "YOUR_RAPIDAPI_KEY",  # Replace with your RapidAPI key
+                        "X-RapidAPI-Host": "tiktok-download-without-watermark.p.rapidapi.com"
+                    }
+                    params = {"url": final_url}
 
-                async with session.get(api_url, headers=headers, params=params) as api_response:
-                    if api_response.status == 200:
-                        data = await api_response.json()
-                        if data.get("data", {}).get("play"):
-                            return data["data"]["play"]
+                    async with session.get(api_url, headers=headers, params=params) as api_response:
+                        if api_response.status == 200:
+                            data = await api_response.json()
+                            if data.get("data", {}).get("play"):
+                                return data["data"]["play"]
 
-                # Fallback to alternative API if RapidAPI fails
-                fallback_api = f"https://api.tiktokv.com/aweme/v1/feed/?aweme_id={video_id}"
-                headers = {
-                    "User-Agent": "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet",
-                    "Accept": "application/json"
-                }
-                
-                async with session.get(fallback_api, headers=headers) as fallback_response:
-                    if fallback_response.status == 200:
-                        data = await fallback_response.json()
-                        try:
-                            return data['aweme_list'][0]['video']['play_addr']['url_list'][0]
-                        except (KeyError, IndexError):
-                            pass
+                    # Fallback to alternative API if RapidAPI fails
+                    fallback_api = f"https://api.tiktokv.com/aweme/v1/feed/?aweme_id={video_id}"
+                    headers = {
+                        "User-Agent": "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet",
+                        "Accept": "application/json"
+                    }
+                    
+                    async with session.get(fallback_api, headers=headers) as fallback_response:
+                        if fallback_response.status == 200:
+                            data = await fallback_response.json()
+                            try:
+                                return data['aweme_list'][0]['video']['play_addr']['url_list'][0]
+                            except (KeyError, IndexError):
+                                pass
 
-        return None
-    except Exception as e:
-        error_logger.error(f"Error getting TikTok download URL: {str(e)}")
-        return None
+            return None
+        except Exception as e:
+            error_logger.error(f"Error getting TikTok download URL: {str(e)}")
+            return None
 
 async def download_video(self, url: str) -> Tuple[Optional[str], Optional[str]]:
     """Download video with improved error handling and multiple fallback methods."""
