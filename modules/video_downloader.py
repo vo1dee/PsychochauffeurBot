@@ -59,19 +59,26 @@ class VideoDownloader:
                 format="best",
                 max_retries=3,
                 headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.5",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Connection": "keep-alive",
+                    "Upgrade-Insecure-Requests": "1"
                 },
                 extra_args=[
                     "--force-generic-extractor",
-                    "--allow-unplayable-formats",
-                    "--ignore-config",
-                    "--no-playlist",
                     "--no-check-certificates",
+                    "--no-warnings",
+                    "--quiet",
                     "--extractor-args",
-                    "tiktok:api_hostname=api16-normal-c-useast1a.tiktokv.com",
+                    "tiktok:api_hostname=api19-normal-c-useast1a.tiktokv.com,webpage_api_hostname=api19-normal-c-useast1a.tiktokv.com",
                     "--add-header",
-                    "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                    "Referer:https://www.tiktok.com/",
+                    "--format",
+                    "download_addr-0/play_addr-0"
                 ]
+
             ),
             Platform.OTHER: DownloadConfig(
                 format="best[height<=720]"
