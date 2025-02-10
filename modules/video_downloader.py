@@ -273,23 +273,23 @@ class VideoDownloader:
             await self._cleanup(processing_msg, filename, update)
 
     async def _send_video(self, update: Update, filename: str, title: str) -> None:
-    try:
-        file_size = os.path.getsize(filename)
-        max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
-        
-        if file_size > max_size:
-            error_logger.warning(f"File too large: {file_size} bytes")
-            await update.message.reply_text("❌ Video file too large to send.")
-            return
+        try:
+            file_size = os.path.getsize(filename)
+            max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
+            
+            if file_size > max_size:
+                error_logger.warning(f"File too large: {file_size} bytes")
+                await update.message.reply_text("❌ Video file too large to send.")
+                return
 
-        with open(filename, 'rb') as video_file:
-            await update.message.reply_video(
-                video=video_file,
-                caption=f"📹 {title}"
-            )
-    except Exception as e:
-        error_logger.error(f"Video sending error: {str(e)}")
-        await self.send_error_sticker(update)
+            with open(filename, 'rb') as video_file:
+                await update.message.reply_video(
+                    video=video_file,
+                    caption=f"📹 {title}"
+                )
+        except Exception as e:
+            error_logger.error(f"Video sending error: {str(e)}")
+            await self.send_error_sticker(update)
 
     async def _handle_download_error(self, update: Update, url: str) -> None:
         """Handle download errors with detailed logging."""
