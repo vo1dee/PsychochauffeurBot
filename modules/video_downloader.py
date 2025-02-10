@@ -62,17 +62,23 @@ class VideoDownloader:
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                 },
                 extra_args=[
-                    "--cookies-from-browser", "chrome",
                     "--force-generic-extractor",
                     "--allow-unplayable-formats",
                     "--ignore-config",
-                    "--no-playlist"
+                    "--no-playlist",
+                    "--no-check-certificates",
+                    "--extractor-args",
+                    "tiktok:api_hostname=api16-normal-c-useast1a.tiktokv.com",
+                    "--add-header",
+                    "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                 ]
             ),
             Platform.OTHER: DownloadConfig(
                 format="best[height<=720]"
             )
         }
+
+
 
     def _init_download_path(self) -> None:
         """Initialize download directory."""
