@@ -4,7 +4,7 @@ import os
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 from const import VideoPlatforms
@@ -21,9 +21,10 @@ class Platform(Enum):
 @dataclass
 class DownloadConfig:
     format: str
-    headers: Optional[dict] = None
-    cookies: Optional[dict] = None
+    headers: Optional[Dict[str, str]] = None
+    cookies: Optional[Dict[str, str]] = None
     max_height: Optional[int] = None
+    max_retries: int = 1  # Added max_retries with default value of 1
 
 class VideoDownloader:
     ERROR_STICKERS = [
@@ -51,12 +52,13 @@ class VideoDownloader:
             ),
             Platform.TIKTOK: DownloadConfig(
                 format="best",
-                max_retries=3
+                max_retries=3  # Now this is a valid parameter
             ),
             Platform.OTHER: DownloadConfig(
                 format="best[height<=720]"
             )
         }
+
 
     def _init_download_path(self) -> None:
         """Initialize download directory."""
@@ -130,7 +132,8 @@ class VideoDownloader:
             platform = self._get_platform(url)
             command = await self._build_download_command(url, platform)
 
-            max_retries = self.platform_configs[platform].max_retries if hasattr(self.platform_configs[platform], 'max_retries') else 1
+            config = self.platform_configs[platform]
+            max_retries = config.max_retries
             
             for attempt in range(max_retries):
                 try:
@@ -160,6 +163,7 @@ class VideoDownloader:
         except Exception as e:
             error_logger.error(f"Download error: {str(e)}")
             return None, None
+
 
     async def _get_video_title(self, url: str) -> str:
         """Get video title with improved error handling."""
