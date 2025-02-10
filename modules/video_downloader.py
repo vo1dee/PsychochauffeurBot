@@ -85,6 +85,19 @@ class VideoDownloader:
             error_logger.error(error_msg)
             raise RuntimeError(error_msg)
 
+
+    def _get_platform(self, url: str) -> Platform:
+        """Determine the platform from the URL."""
+        url = url.lower()
+        if "tiktok.com" in url:
+            return Platform.TIKTOK
+        elif "instagram.com" in url:
+            return Platform.INSTAGRAM
+        else:
+            return Platform.OTHER
+
+
+
     @staticmethod
     def _get_yt_dlp_path() -> Optional[str]:  # Changed from _find_yt_dlp to _get_yt_dlp_path
         """Find yt-dlp executable path."""
