@@ -198,24 +198,24 @@ class VideoDownloader:
 
 
     async def _get_video_title(self, url: str) -> str:
-    try:
-        process = await asyncio.create_subprocess_exec(
-            self.yt_dlp_path,
-            '--get-title',
-            url,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        # Add timeout
-        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=30.0)
-        return stdout.decode().strip() or "Video"
-    except asyncio.TimeoutError:
-        error_logger.error(f"Title fetch timeout for URL: {url}")
-        return "Video"
-    except Exception as e:
-        error_logger.error(f"Error getting title: {str(e)}")
-        return "Video"
+        try:
+            process = await asyncio.create_subprocess_exec(
+                self.yt_dlp_path,
+                '--get-title',
+                url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # Add timeout
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=30.0)
+            return stdout.decode().strip() or "Video"
+        except asyncio.TimeoutError:
+            error_logger.error(f"Title fetch timeout for URL: {url}")
+            return "Video"
+        except Exception as e:
+            error_logger.error(f"Error getting title: {str(e)}")
+            return "Video"
 
     @staticmethod
     def _get_instagram_title(url: str) -> str:
