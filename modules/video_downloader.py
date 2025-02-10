@@ -2,6 +2,9 @@ import asyncio
 import random
 import os
 import logging
+import aiohttp
+import re
+import json
 from asyncio import Lock
 from dataclasses import dataclass
 from enum import Enum
@@ -59,24 +62,12 @@ class VideoDownloader:
                 format="best",
                 max_retries=3,
                 headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.5",
-                    "Accept-Encoding": "gzip, deflate",
-                    "Connection": "keep-alive",
-                    "Upgrade-Insecure-Requests": "1"
+                    "User-Agent": "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet"
                 },
                 extra_args=[
-                    "--force-generic-extractor",
                     "--no-check-certificates",
                     "--no-warnings",
-                    "--quiet",
-                    "--extractor-args",
-                    "tiktok:api_hostname=api19-normal-c-useast1a.tiktokv.com,webpage_api_hostname=api19-normal-c-useast1a.tiktokv.com",
-                    "--add-header",
-                    "Referer:https://www.tiktok.com/",
-                    "--format",
-                    "download_addr-0/play_addr-0"
+                    "--quiet"
                 ]
 
             ),
@@ -163,13 +154,79 @@ class VideoDownloader:
         command.append(url)
         return command
 
+    async def _extract_tiktok_video_id(self, url: str) -> Optional[str]:
+        """Extract TikTok video ID from URL."""
+        patterns = [
+            r'video/(\d+)',
+            r'/v/(\d+)',
+            r'tiktok.com/.*?/video/(\d+)',
+            r'vm.tiktok.com/(\w+)',
+        ]
+        
+        for pattern in patterns:
+            if match := re.search(pattern, url):
+                return match.group(1)
+        return None
+
+    async def _get_tiktok_download_url(self, url: str) -> Optional[str]:
+        """Get direct download URL for TikTok video."""
+        try:
+            # First, resolve any short URL
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, allow_redirects=True) as response:
+                    final_url = str(response.url)
+
+            # Extract video ID
+            video_id = await self._extract_tiktok_video_id(final_url)
+            if not video_id:
+                return None
+
+            # Use TikTok API
+            api_url = f"https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={video_id}"
+            headers = {
+                "User-Agent": "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet",
+                "Accept": "application/json"
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        try:
+                            video_url = data['aweme_list'][0]['video']['play_addr']['url_list'][0]
+                            return video_url
+                        except (KeyError, IndexError):
+                            return None
+
+            return None
+        except Exception as e:
+            error_logger.error(f"Error getting TikTok download URL: {str(e)}")
+            return None
+
     async def download_video(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         """Download video with platform-specific configurations and error handling."""
         try:
             url = url.strip().strip('\\')
             platform = self._get_platform(url)
-            command = await self._build_download_command(url, platform)
+            
+            if platform == Platform.TIKTOK:
+                # Try TikTok-specific download method first
+                direct_url = await self._get_tiktok_download_url(url)
+                if direct_url:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(direct_url) as response:
+                            if response.status == 200:
+                                filename = os.path.join(self.download_path, 'video.mp4')
+                                with open(filename, 'wb') as f:
+                                    while True:
+                                        chunk = await response.content.read(8192)
+                                        if not chunk:
+                                            break
+                                        f.write(chunk)
+                                return filename, "TikTok Video"
 
+            # If TikTok-specific method fails or it's another platform, use regular download method
+            command = await self._build_download_command(url, platform)
             config = self.platform_configs[platform]
             max_retries = config.max_retries
             
@@ -191,24 +248,7 @@ class VideoDownloader:
                     
                     error_msg = stderr.decode()
                     error_logger.error(f"Download attempt {attempt + 1} failed: {error_msg}")
-                    
-                    # If we get a specific error about no video formats, try alternative approach
-                    if "No video formats found" in error_msg and platform == Platform.TIKTOK:
-                        # Try alternative download method for TikTok
-                        alt_command = command.copy()
-                        alt_command.extend(['--format', 'download_addr-0'])
-                        process = await asyncio.create_subprocess_exec(
-                            *alt_command,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE
-                        )
-                        stdout, stderr = await process.communicate()
-                        if process.returncode == 0:
-                            filename = os.path.join(self.download_path, 'video.mp4')
-                            if os.path.exists(filename):
-                                title = await self._get_video_title(url)
-                                return filename, title
-                    
+
                 except Exception as e:
                     error_logger.error(f"Download attempt {attempt + 1} error: {str(e)}")
                     if attempt == max_retries - 1:
@@ -219,6 +259,7 @@ class VideoDownloader:
         except Exception as e:
             error_logger.error(f"Download error: {str(e)}")
             return None, None
+
 
 
 
