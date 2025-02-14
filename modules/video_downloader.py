@@ -49,7 +49,7 @@ class VideoDownloader:
         self.yt_dlp_path = self._get_yt_dlp_path()
         
         # Service configuration - update to use environment variables
-        self.service_url = os.getenv('YTDL_SERVICE_URL', 'http://192.168.88.27:8000')
+        self.service_url = os.getenv('YTDL_SERVICE_URL')
         self.max_retries = int(os.getenv('YTDL_MAX_RETRIES', '3'))
         self.retry_delay = int(os.getenv('YTDL_RETRY_DELAY', '1'))
         
@@ -107,16 +107,20 @@ class VideoDownloader:
         """Check if the download service is available."""
         try:
             async with aiohttp.ClientSession() as session:
-                headers = {"X-API-Key": self.api_key}
+                headers = {"X-API-Key": self.api_key} if self.api_key else {}
                 async with session.get(
                     f"{self.service_url}/health",
                     headers=headers,
-                    timeout=2,  # Reduced timeout
+                    timeout=5,  # Increased timeout slightly
                     ssl=False  # Disable SSL verification for local development
                 ) as response:
-                    return response.status == 200
+                    if response.status == 200:
+                        error_logger.info("Service health check successful")
+                        return True
+                    error_logger.warning(f"Service health check failed with status {response.status}")
+                    return False
         except Exception as e:
-            error_logger.debug(f"Service health check failed: {str(e)}")
+            error_logger.error(f"Service health check failed: {str(e)}")
             return False
 
     async def _download_from_service(self, url: str, format: str = "best") -> Tuple[Optional[str], Optional[str]]:
@@ -180,22 +184,18 @@ class VideoDownloader:
             url = url.strip().strip('\\')
             platform = self._get_platform(url)
             
-            # Try service download only if explicitly configured
-            if self.api_key and self.service_url:
-                try:
-                    service_available = await self._check_service_health()
-                    if service_available:
-                        # Try service download first
-                        filename, title = await self._download_from_service(url)
-                        if filename and os.path.exists(filename):
-                            return filename, title
-                except Exception as e:
-                    error_logger.warning(f"Service download failed, using direct methods: {str(e)}")
+            # Check if it's a YouTube Shorts URL
+            if "youtube.com/shorts" in url.lower():
+                # Try service first for YouTube Shorts
+                if await self._check_service_health():
+                    result = await self._download_from_service(url)
+                    if result[0]:  # If service download successful
+                        return result
+                    
+                # Fallback to direct download if service fails
+                error_logger.warning("Service download failed, falling back to direct download")
             
-            # Use direct download methods
-            if platform == Platform.TIKTOK:
-                return await self._download_tiktok_ytdlp(url)
-            
+            # For all other platforms or if service failed, use direct methods
             return await self._download_generic(url, platform)
             
         except Exception as e:
