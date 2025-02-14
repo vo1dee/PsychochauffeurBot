@@ -8,11 +8,35 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 import pytz
 from const import Config  # Add this import at the top
+import sys
 
 CSV_FILE = os.path.join("data", "user_locations.csv")
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
 USED_WORDS_FILE = "data/used_words.csv"
 KYIV_TZ = pytz.timezone('Europe/Kiev')  # Add Kyiv timezone constant
+
+# Get the project root directory (one level up from modules)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
+
+# Create log directory if it doesn't exist
+try:
+    os.makedirs(LOG_DIR, exist_ok=True)
+    print(f"Log directory created/verified at: {LOG_DIR}")
+except Exception as e:
+    print(f"Error creating log directory: {e}")
+    sys.exit(1)
+
+# Verify write permissions by attempting to create a test file
+test_log_path = os.path.join(LOG_DIR, 'test.log')
+try:
+    with open(test_log_path, 'w') as f:
+        f.write('Test log write\n')
+    os.remove(test_log_path)
+    print("Write permission verified for log directory")
+except Exception as e:
+    print(f"Error: No write permission for log directory: {e}")
+    sys.exit(1)
 
 class KyivTimezoneFormatter(logging.Formatter):
     """Custom formatter that uses Kyiv timezone"""
@@ -183,3 +207,75 @@ def read_last_n_lines(file_path: str, n: int) -> list:
     with open(file_path, 'r', encoding='utf-8') as file:
         lines = file.readlines()
         return lines[-n:]  # Return the last n lines
+
+# Configure loggers
+error_logger = logging.getLogger('error_logger')
+error_logger.setLevel(logging.INFO)
+
+chat_logger = logging.getLogger('chat_logger')
+chat_logger.setLevel(logging.INFO)
+
+general_logger = logging.getLogger('general_logger')
+general_logger.setLevel(logging.INFO)
+
+# Create console handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.INFO)
+
+# Create file handlers with absolute paths
+error_handler = RotatingFileHandler(
+    os.path.join(LOG_DIR, 'error.log'),
+    maxBytes=5*1024*1024,  # 5MB
+    backupCount=3,
+    encoding='utf-8'
+)
+
+chat_handler = RotatingFileHandler(
+    os.path.join(LOG_DIR, 'chat.log'),
+    maxBytes=5*1024*1024,
+    backupCount=3,
+    encoding='utf-8'
+)
+
+general_handler = RotatingFileHandler(
+    os.path.join(LOG_DIR, 'general.log'),
+    maxBytes=5*1024*1024,
+    backupCount=3,
+    encoding='utf-8'
+)
+
+# Create formatters and add it to handlers
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+error_handler.setFormatter(formatter)
+chat_handler.setFormatter(formatter)
+general_handler.setFormatter(formatter)
+
+# Add both console and file handlers to the loggers
+error_logger.addHandler(console_handler)
+error_logger.addHandler(error_handler)
+
+chat_logger.addHandler(console_handler)
+chat_logger.addHandler(chat_handler)
+
+general_logger.addHandler(console_handler)
+general_logger.addHandler(general_handler)
+
+# Prevent duplicate logs
+error_logger.propagate = False
+chat_logger.propagate = False
+general_logger.propagate = False
+
+# Log initial setup success
+try:
+    error_logger.info("Logging system initialized successfully")
+    chat_logger.info("Chat logging system initialized successfully")
+    general_logger.info("General logging system initialized successfully")
+    print(f"Log files are being written to: {LOG_DIR}")
+    print("Available log files:")
+    print(f"  - {os.path.join(LOG_DIR, 'error.log')}")
+    print(f"  - {os.path.join(LOG_DIR, 'chat.log')}")
+    print(f"  - {os.path.join(LOG_DIR, 'general.log')}")
+except Exception as e:
+    print(f"Error writing initial log messages: {e}")
+    sys.exit(1)
