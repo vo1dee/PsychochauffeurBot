@@ -110,15 +110,18 @@ class ScreenshotManager:
         date_str = kyiv_time.strftime('%Y-%m-%d')
         return os.path.join(SCREENSHOT_DIR, f'flares_{date_str}_kyiv.png')
 
-    def get_latest_screenshot(self) -> str | None:
-        """Get the path of today's screenshot if it exists."""
+    def get_latest_screenshot(self) -> Optional[str]:
+        """
+        Get the path to the latest screenshot.
+        Returns None if no screenshots are found.
+        """
         kyiv_time = datetime.now(self.timezone)
         screenshot_path = self.get_screenshot_path()
         if os.path.exists(screenshot_path):
             return screenshot_path
         return None
 
-    async def take_screenshot(self, url: str, output_path: str) -> str | bool:
+    async def take_screenshot(self, url: str, output_path: str) -> Optional[str]:
         """Take a screenshot of the given URL and save it to the output path."""
         try:
             config = imgkit.config(wkhtmltoimage='/usr/bin/wkhtmltoimage')
