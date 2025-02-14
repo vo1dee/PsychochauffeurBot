@@ -49,16 +49,17 @@ class VideoDownloader:
         self.yt_dlp_path = self._get_yt_dlp_path()
         
         # Service configuration - update to use environment variables
-        self.service_url = os.getenv('YTDL_SERVICE_URL')
+        self.service_url = os.getenv('YTDL_SERVICE_URL')  # Add default value
+        self.api_key = os.getenv('YTDL_SERVICE_API_KEY')
         self.max_retries = int(os.getenv('YTDL_MAX_RETRIES', '3'))
         self.retry_delay = int(os.getenv('YTDL_RETRY_DELAY', '1'))
         
-        # Load API key from environment or file
-        self.api_key = self._load_api_key()
+        # Log service configuration
+        error_logger.info(f"Service URL: {self.service_url}")
+        error_logger.info(f"API Key present: {bool(self.api_key)}")
         
         self._init_download_path()
         self._verify_yt_dlp()
-
         self.lock = Lock()
         self.last_download = {}
         
@@ -106,21 +107,27 @@ class VideoDownloader:
     async def _check_service_health(self) -> bool:
         """Check if the download service is available."""
         try:
+            error_logger.info(f"Checking service health at: {self.service_url}/health")
             async with aiohttp.ClientSession() as session:
                 headers = {"X-API-Key": self.api_key} if self.api_key else {}
+                error_logger.info(f"Request headers: {headers}")
+                
                 async with session.get(
                     f"{self.service_url}/health",
                     headers=headers,
-                    timeout=5,  # Increased timeout slightly
-                    ssl=False  # Disable SSL verification for local development
+                    timeout=5,
+                    ssl=False
                 ) as response:
+                    response_text = await response.text()
+                    error_logger.info(f"Service health check response: {response.status} - {response_text}")
+                    
                     if response.status == 200:
                         error_logger.info("Service health check successful")
                         return True
                     error_logger.warning(f"Service health check failed with status {response.status}")
                     return False
         except Exception as e:
-            error_logger.error(f"Service health check failed: {str(e)}")
+            error_logger.error(f"Service health check failed with exception: {str(e)}")
             return False
 
     async def _download_from_service(self, url: str, format: str = "best") -> Tuple[Optional[str], Optional[str]]:
@@ -186,14 +193,23 @@ class VideoDownloader:
             
             # Check if it's a YouTube Shorts URL
             if "youtube.com/shorts" in url.lower():
+                error_logger.info(f"YouTube Shorts URL detected: {url}")
                 # Try service first for YouTube Shorts
-                if await self._check_service_health():
+                service_healthy = await self._check_service_health()
+                error_logger.info(f"Service health check result: {service_healthy}")
+                
+                if service_healthy:
+                    error_logger.info("Attempting service download")
                     result = await self._download_from_service(url)
                     if result[0]:  # If service download successful
+                        error_logger.info("Service download successful")
                         return result
-                    
+                    error_logger.warning("Service download failed")
+                else:
+                    error_logger.warning("Service health check failed")
+                
                 # Fallback to direct download if service fails
-                error_logger.warning("Service download failed, falling back to direct download")
+                error_logger.warning("Falling back to direct download")
             
             # For all other platforms or if service failed, use direct methods
             return await self._download_generic(url, platform)
