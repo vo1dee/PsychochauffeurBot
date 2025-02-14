@@ -87,6 +87,21 @@ async def handle_message(update: Update, context: CallbackContext):
     modified_links = []
     needs_video_download = False
 
+    # First, check if the URL is from a supported video platform
+    if urls:
+        needs_video_download = any(
+            platform in url.lower() 
+            for url in urls 
+            for platform in SUPPORTED_PLATFORMS
+        )
+
+    # # Handle YouTube links first
+    # if any(domain in message_text for domain in ["youtube.com", "youtu.be"]):
+    #     if len(sanitized_link) > 60:
+    #         modified_link = await shorten_url(sanitized_link)
+    #     await update.message.reply_text("#youtube", reply_to_message_id=update.message.message_id)
+    #     return
+
     # Log message
     chat_id = update.message.chat_id
     username = update.message.from_user.username

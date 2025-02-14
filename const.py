@@ -37,9 +37,9 @@ class LinkModification:
 class VideoPlatforms:
     # Supported platforms
     SUPPORTED_PLATFORMS = [
-        'tiktok.com', 'instagram.com', 'youtube.com', 
-        'youtu.be', 'facebook.com', 
-        'vimeo.com', 'reddit.com'
+        'tiktok.com', 'instagram.com', 'youtube.com/shorts', 
+        'youtu.be/shorts', 'facebook.com', 
+        'vimeo.com', 'reddit.com', 'twitch.tv'
     ]
 
 class Weather:

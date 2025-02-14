@@ -10,7 +10,7 @@ import pytz
 from const import Config  # Add this import at the top
 
 CSV_FILE = os.path.join("data", "user_locations.csv")
-LOG_DIR = '/var/log/psychochauffeurbot'
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
 USED_WORDS_FILE = "data/used_words.csv"
 KYIV_TZ = pytz.timezone('Europe/Kiev')  # Add Kyiv timezone constant
 
@@ -33,6 +33,9 @@ def get_daily_log_path(date: Optional[datetime] = None, chat_id: Optional[int] =
     else:
         # Default path for general logs
         return os.path.join(LOG_DIR, f"chat_{date.strftime('%Y-%m-%d')}.log")
+
+# Create logs directory if it doesn't exist
+os.makedirs(LOG_DIR, exist_ok=True)
 
 # Set up logging handlers
 handler1 = RotatingFileHandler(os.path.join(LOG_DIR, 'bot.log'), maxBytes=5*1024*1024, backupCount=3)
