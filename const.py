@@ -30,6 +30,7 @@ class LinkModification:
         # "tiktok.com": "tfxktok.com",
         "twitter.com": "fxtwitter.com",
         "x.com": "fixupx.com",
+        "instagram.com":"ddinstagram.com"
         # "fixupx.com": "fixupx.com"
         
     }
@@ -37,7 +38,7 @@ class LinkModification:
 class VideoPlatforms:
     # Supported platforms
     SUPPORTED_PLATFORMS = [
-        'tiktok.com', 'instagram.com', 'youtube.com/shorts', 
+        'tiktok.com', 'instagram.com/reels', 'youtube.com/shorts', 
         'youtu.be/shorts', 'facebook.com', 
         'vimeo.com', 'reddit.com', 'twitch.tv'
     ]
