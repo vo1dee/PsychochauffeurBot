@@ -86,6 +86,7 @@ data/*
 !data/.gitignore
 .reddit_cookies.txt
 .cookies.txt
+prompts.py
 
 # Ignore downloaded videos and temp files
 downloads/
