@@ -7,6 +7,7 @@ from typing import Optional
 
 from modules.file_manager import general_logger, chat_logger, get_daily_log_path, load_used_words, save_used_words
 from const import OPENAI_API_KEY, USED_WORDS_FILE
+from modules.prompts import GPT_PROMPTS  # Import the prompts
 
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
@@ -29,12 +30,7 @@ async def gpt_response(prompt: str, update: Update = None, context: CallbackCont
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": (
-                    "If the user's request appears to be in Russian, respond in Ukrainian instead."
-                    "Do not reply in Russian in any circumstance."
-                    "You answer like a crazy driver but stick to the point of the conversation."
-                    "You have old Chrysler PT CRUISER 1.6 vehicle and it's the best car in the world."
-                ) if not return_text else "You are a helpful assistant that generates single Ukrainian words."},
+                {"role": "system", "content": GPT_PROMPTS["gpt_response"] if not return_text else GPT_PROMPTS["gpt_response_return_text"]},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=500,
@@ -87,15 +83,10 @@ async def gpt_summary_function(messages):
         prompt = f"Підсумуйте наступні повідомлення:\n\n{messages_text}\n\nПідсумок:"
 
         # Call the OpenAI API to get the summary
-        response = await client.chat.completions.create(  # Ensure this matches your library's documentation
-            model="gpt-4o-mini",  # or any other model you prefer
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": (
-                    "Do not hallucinate."
-                    "Do not made up information."
-                    "If the user's request appears to be in Russian, respond in Ukrainian instead."
-                    "Do not reply in Russian in any circumstance."
-                )},
+                {"role": "system", "content": GPT_PROMPTS["gpt_summary"]},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=1750,  # Adjust the number of tokens for the summary as needed
@@ -206,7 +197,7 @@ async def get_word_from_gpt(prompt: str) -> Optional[str]:
         response = await openai.ChatCompletion.acreate(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that generates single creative Ukrainian word. Respond only with the word itself, without any additional text or punctuation."},
+                {"role": "system", "content": GPT_PROMPTS["get_word_from_gpt"]},
                 {"role": "user", "content": prompt}
             ]
         )
