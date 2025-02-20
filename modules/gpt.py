@@ -38,7 +38,7 @@ async def gpt_response(prompt: str, update: Update = None, context: CallbackCont
                 last_messages = f.readlines()[-3:]  # Get the last 10 messages
 
         # Combine last messages with the prompt
-        context_prompt = ''.join(last_messages)  # Join the last messages into a single string
+        context_prompt = ' '.join(last_messages)  # Join the last messages into a single string
         full_prompt = context_prompt + prompt  # Prepend the last messages to the prompt
 
         response = await client.chat.completions.create(
