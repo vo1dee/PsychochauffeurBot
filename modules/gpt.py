@@ -27,11 +27,25 @@ GAME_STATE_FILE = 'data/game_state.json'
 async def gpt_response(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
     """Get a response from GPT."""
     try:
+        # Extract chat_id from the update
+        chat_id = update.effective_chat.id if update.effective_chat else "unknown"
+        
+        # Read the last 10 messages from the chat log
+        log_path = get_daily_log_path(chat_id)  # Pass chat_id to get the log path for today
+        last_messages = []
+        if os.path.exists(log_path):
+            with open(log_path, 'r', encoding='utf-8') as f:
+                last_messages = f.readlines()[-3:]  # Get the last 10 messages
+
+        # Combine last messages with the prompt
+        context_prompt = ''.join(last_messages)  # Join the last messages into a single string
+        full_prompt = context_prompt + prompt  # Prepend the last messages to the prompt
+
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": GPT_PROMPTS["gpt_response"] if not return_text else GPT_PROMPTS["gpt_response_return_text"]},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": full_prompt}  # Use the full prompt here
             ],
             max_tokens=500,
             temperature=0.7
