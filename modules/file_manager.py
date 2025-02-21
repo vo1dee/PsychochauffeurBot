@@ -113,18 +113,21 @@ def initialize_logging():
     if not ensure_directories():
         sys.exit(1)
     
-    # Create formatters
-    default_formatter = KyivTimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    chat_formatter = KyivTimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s - %(chattitle)s - %(username)s - %(message)s')
-    
+    class CustomFormatter(logging.Formatter):
+        def format(self, record):
+            record.chat_id = getattr(record, 'chat_id', 'N/A')
+            record.chattitle = getattr(record, 'chattitle', 'Unknown')
+            record.username = getattr(record, 'username', 'Unknown')
+            return super().format(record)
+
     # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(default_formatter)
+    console_handler.setFormatter(KyivTimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     
     # --- General Logger ---
     general_logger = logging.getLogger('general_logger')
-    general_logger.setLevel(logging.DEBUG)
+    general_logger.setLevel(logging.INFO)
     
     general_file_handler = RotatingFileHandler(
         os.path.join(LOG_DIR, 'general.log'),
@@ -132,8 +135,8 @@ def initialize_logging():
         backupCount=3,
         encoding='utf-8'
     )
-    general_file_handler.setFormatter(default_formatter)
-    general_file_handler.setLevel(logging.DEBUG)
+    general_file_handler.setFormatter(CustomFormatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s - %(chattitle)s - %(username)s - %(message)s'))
+    general_file_handler.setLevel(logging.INFO)
     
     general_logger.addHandler(console_handler)
     general_logger.addHandler(general_file_handler)
@@ -149,11 +152,11 @@ def initialize_logging():
         backupCount=3,
         encoding='utf-8'
     )
-    chat_file_handler.setFormatter(chat_formatter)
+    chat_file_handler.setFormatter(CustomFormatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s - %(chattitle)s - %(username)s - %(message)s'))
     
     daily_handler = DailyLogHandler()
     daily_handler.setLevel(logging.INFO)
-    daily_handler.setFormatter(chat_formatter)
+    daily_handler.setFormatter(CustomFormatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s - %(chattitle)s - %(username)s - %(message)s'))
     
     chat_logger.addHandler(console_handler)
     chat_logger.addHandler(chat_file_handler)
@@ -170,7 +173,7 @@ def initialize_logging():
         backupCount=3,
         encoding='utf-8'
     )
-    error_file_handler.setFormatter(default_formatter)
+    error_file_handler.setFormatter(KyivTimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     
     error_logger.addHandler(console_handler)
     error_logger.addHandler(error_file_handler)
