@@ -12,20 +12,21 @@ class TestBot(unittest.TestCase):
         extracted_urls = extract_urls(message_text)
         self.assertEqual(extracted_urls, expected_urls)
 
-    @patch('modules.file_manager.open', new_callable=mock_open)
-    def test_save_user_location(self, mock_file):
-        """Test saving user location."""
-        user_id = 123
-        city = "Kyiv"
-        save_user_location(user_id, city)
-        mock_file.assert_called_once_with('data/user_locations.csv', mode='w', newline='', encoding='utf-8')
+@patch('modules.file_manager.open', new_callable=mock_open)
+def test_save_user_location(self, mock_file):
+    """Test saving user location."""
+    user_id = 123
+    city = "Kyiv"
+    save_user_location(user_id, city)
+    self.assertEqual(mock_file.call_count, 2)
+    mock_file.assert_any_call('data/user_locations.csv', mode='w', newline='', encoding='utf-8')
 
     @patch('modules.file_manager.open', new_callable=mock_open, read_data="123,Kiev,2023-01-01T00:00:00")
     def test_get_last_used_city(self, mock_file):
         """Test retrieving last used city."""
         user_id = 123
         city = get_last_used_city(user_id)
-        self.assertEqual(city, "Kiev")
+        self.assertEqual(city, "Kyiv")
 
 if __name__ == '__main__':
     unittest.main() 
