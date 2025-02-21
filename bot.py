@@ -13,7 +13,7 @@ from modules.keyboards import create_link_keyboard, button_callback
 from utils import (
     remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager,
     game_state, game_command, end_game_command, clear_words_command, hint_command,
-    load_game_state, extract_urls
+    load_game_state, extract_urls, get_daily_log_path
 )
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID, VideoPlatforms
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt

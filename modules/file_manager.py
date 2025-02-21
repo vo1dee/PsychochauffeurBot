@@ -265,10 +265,10 @@ def read_last_n_lines(file_path: str, n: int) -> list:
         lines = file.readlines()
         return lines[-n:]  # Return the last n lines
 
-# Ensure get_daily_log_path is defined
-def get_daily_log_path(chat_id: str) -> str:
-    """Generate the path for the daily log file based on chat_id."""
-    date = datetime.now(KYIV_TZ)
+def get_daily_log_path(chat_id: str, date: Optional[datetime] = None) -> str:
+    """Generate the path for the daily log file based on chat_id and optional date."""
+    if date is None:
+        date = datetime.now(KYIV_TZ)
     return os.path.join(LOG_DIR, f"chat_{chat_id}", f"chat_{date.strftime('%Y-%m-%d')}.log")
 
 # Initialize logging when this module is imported

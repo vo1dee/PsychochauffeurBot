@@ -140,7 +140,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         general_logger.debug(f"Analyzing messages for yesterday: {target_date}")
 
     # Get log file path using chat_id and target date
-    log_path = os.path.join(LOG_DIR, f"chat_{chat_id}", f"chat_{target_date.strftime('%Y-%m-%d')}.log")
+    log_path = get_daily_log_path(chat_id, target_date)  # Use the updated function
     general_logger.debug(f"Log file path: {log_path}")
 
     try:
