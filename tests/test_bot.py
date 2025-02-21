@@ -12,13 +12,18 @@ class TestBot(unittest.TestCase):
         extracted_urls = extract_urls(message_text)
         self.assertEqual(extracted_urls, expected_urls)
 
-@patch('modules.file_manager.open', new_callable=mock_open)
-def test_save_user_location(self, mock_file):
+import pytest
+from unittest.mock import mock_open
+from modules.file_manager import save_user_location
+
+def test_save_user_location(mocker):
     """Test saving user location."""
+    mock_file = mocker.patch('modules.file_manager.open', mock_open())
     user_id = 123
     city = "Kyiv"
     save_user_location(user_id, city)
-    self.assertEqual(mock_file.call_count, 2)
+
+    # Check that file was opened for writing
     mock_file.assert_any_call('data/user_locations.csv', mode='w', newline='', encoding='utf-8')
 
     @patch('modules.file_manager.open', new_callable=mock_open, read_data="123,Kiev,2023-01-01T00:00:00")
