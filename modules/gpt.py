@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytz
 from typing import Optional
 
-from modules.file_manager import general_logger, chat_logger, get_daily_log_path, load_used_words, save_used_words
+from modules.file_manager import general_logger, chat_logger, get_daily_log_path, load_used_words, save_used_words, LOG_DIR
 from const import OPENAI_API_KEY, USED_WORDS_FILE
 from modules.prompts import GPT_PROMPTS  # Import the prompts
 
