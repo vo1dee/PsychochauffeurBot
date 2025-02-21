@@ -208,6 +208,7 @@ def save_user_location(user_id: int, city: str) -> None:
     updated = False
     rows = []
 
+    # Remove the reading part if not needed for saving
     try:
         with open(CSV_FILE, mode='r', newline='', encoding='utf-8') as file:
             rows = list(csv.reader(file))
