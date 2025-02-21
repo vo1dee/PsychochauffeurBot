@@ -46,6 +46,12 @@ class VideoDownloader:
         self.supported_platforms = VideoPlatforms.SUPPORTED_PLATFORMS
         self.download_path = os.path.abspath(download_path)
         self.extract_urls = extract_urls_func
+        
+        # Check if extract_urls_func is callable
+        if self.extract_urls is None or not callable(self.extract_urls):
+            error_logger.error("extract_urls_func is not provided or not callable.")
+            raise ValueError("extract_urls_func must be a callable function.")
+        
         self.yt_dlp_path = self._get_yt_dlp_path()
         
         # Service configuration - update to use environment variables
@@ -487,6 +493,7 @@ def setup_video_handlers(application, extract_urls_func=None):
         download_path='downloads',
         extract_urls_func=extract_urls_func
     )
+    
     application.bot_data['video_downloader'] = video_downloader
 
     application.add_handler(MessageHandler(

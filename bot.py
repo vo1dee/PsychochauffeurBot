@@ -200,9 +200,11 @@ async def process_urls(update: Update, context: CallbackContext, urls: list, mes
 
     if needs_video_download:
         video_downloader = context.bot_data.get('video_downloader')
-        if video_downloader:
+        if video_downloader and hasattr(video_downloader, 'handle_video_link'):
             logger.info(f"Attempting video download for URLs: {urls}")
             await video_downloader.handle_video_link(update, context)
+        else:
+            logger.error("Video downloader is not initialized or handle_video_link is not callable.")
 
 
 async def random_gpt_response(update: Update, context: CallbackContext):
@@ -273,6 +275,12 @@ async def construct_and_send_message(chat_id: int, username: str, cleaned_messag
         await update.message.reply_text("Sorry, an error occurred.")
 
 
+def extract_urls(message_text: str) -> list:
+    """Extract URLs from the message text."""
+    # Your implementation for extracting URLs goes here
+    return re.findall(r'https?://[^\s]+', message_text)
+
+
 async def main():
     """Main function to initialize and run the bot."""
     try:
@@ -302,9 +310,9 @@ async def main():
         application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
         application.add_handler(CallbackQueryHandler(button_callback))
 
-        # Initialize video downloader
+        # Initialize video downloader with extract_urls function
         video_downloader = setup_video_handlers(application, extract_urls_func=extract_urls)
-        application.bot_data['video_downloader'] = VideoDownloader(download_path='downloads')
+        application.bot_data['video_downloader'] = video_downloader
 
         # Start screenshot scheduler
         screenshot_manager = ScreenshotManager()
@@ -319,4 +327,10 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except RuntimeError as e:
+        if "Cannot close a running event loop" in str(e):
+            logger.error("Event loop is already running. Please check your environment.")
+        else:
+            raise
