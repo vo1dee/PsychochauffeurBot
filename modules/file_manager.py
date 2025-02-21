@@ -203,40 +203,72 @@ def init_error_handler(bot, error_channel_id):
         error_logger.addHandler(handler)
 
 # Data management functions
-def save_user_location(user_id: int, city: str) -> None:
-    """Save the user's last used city to a CSV file."""
-    updated = False
-    rows = []
-
-    # Remove the reading part if not needed for saving
+def save_user_location(user_id, city):
+    """Save user's location to a CSV file.
+    
+    Args:
+        user_id (int): User ID
+        city (str): City name
+    """
+    # Use relative path that works in both local and CI environments
+    file_path = 'data/user_locations.csv'
+    
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    
+    # Read existing data first
+    existing_data = []
     try:
-        with open(CSV_FILE, mode='r', newline='', encoding='utf-8') as file:
-            rows = list(csv.reader(file))
-        
-        for row in rows:
-            if int(row[0]) == user_id:
-                row[1], row[2] = city, datetime.now().isoformat()
-                updated = True
-                break
-        
-        if not updated:
-            rows.append([user_id, city, datetime.now().isoformat()])
-
+        with open(file_path, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            existing_data = list(reader)
     except FileNotFoundError:
-        pass  # File will be created below
+        pass  # File doesn't exist yet, that's fine
+    
+    # Update or add new entry
+    timestamp = datetime.now().isoformat()
+    updated = False
+    
+    for i, row in enumerate(existing_data):
+        if len(row) > 0 and row[0] == str(user_id):
+            existing_data[i] = [str(user_id), city, timestamp]
+            updated = True
+            break
+    
+    if not updated:
+        existing_data.append([str(user_id), city, timestamp])
+    
+    # Write back to file
+    with open(file_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerows(existing_data)
 
-    with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as file:
-        csv.writer(file).writerows(rows)
-
-def get_last_used_city(user_id: int) -> Optional[str]:
-    """Retrieve the last used city for the user from the CSV file."""
+def get_last_used_city(user_id):
+    """Retrieve user's last used city.
+    
+    Args:
+        user_id (int): User ID
+        
+    Returns:
+        str: City name or None if not found
+    """
+    file_path = 'data/user_locations.csv'
+    
     try:
-        with open(CSV_FILE, mode='r', newline='', encoding='utf-8') as file:
-            for row in csv.reader(file):
-                if int(row[0]) == user_id:
-                    return row[1]
+        with open(file_path, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) >= 2 and row[0] == str(user_id):
+                    # Standardize city name - Kiev should be Kyiv
+                    city = row[1]
+                    if city == "Kiev":
+                        return "Kyiv"
+                    return city
     except FileNotFoundError:
         return None
+    
+    return None
+
 
 def load_used_words() -> Set[str]:
     """Load used words from CSV file."""
