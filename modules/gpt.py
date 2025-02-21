@@ -103,8 +103,8 @@ async def gpt_summary_function(messages):
                 {"role": "system", "content": GPT_PROMPTS["gpt_summary"]},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=1750,  # Adjust the number of tokens for the summary as needed
-            temperature=0.7  # Adjust the creativity of the response
+            max_tokens=2750,  # Adjust the number of tokens for the summary as needed
+            temperature=0.6  # Adjust the creativity of the response
         )
 
         # Extract the summary from the response
