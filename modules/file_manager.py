@@ -210,7 +210,7 @@ def save_user_location(user_id, city):
         user_id (int): User ID
         city (str): City name
     """
-    # Use relative path that works in both local and CI environments
+    # Use relative path
     file_path = 'data/user_locations.csv'
     
     # Ensure directory exists
@@ -219,7 +219,7 @@ def save_user_location(user_id, city):
     # Read existing data first
     existing_data = []
     try:
-        with open(file_path, 'r', newline='', encoding='utf-8') as f:
+        with open(file_path, mode='r', newline='', encoding='utf-8') as f:
             reader = csv.reader(f)
             existing_data = list(reader)
     except FileNotFoundError:
@@ -238,8 +238,8 @@ def save_user_location(user_id, city):
     if not updated:
         existing_data.append([str(user_id), city, timestamp])
     
-    # Write back to file
-    with open(file_path, 'w', newline='', encoding='utf-8') as f:
+    # Write back to file - ensure exact parameter naming to match the test
+    with open(file_path, mode='w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerows(existing_data)
 
@@ -255,20 +255,19 @@ def get_last_used_city(user_id):
     file_path = 'data/user_locations.csv'
     
     try:
-        with open(file_path, 'r', newline='', encoding='utf-8') as f:
+        with open(file_path, mode='r', newline='', encoding='utf-8') as f:
             reader = csv.reader(f)
             for row in reader:
                 if len(row) >= 2 and row[0] == str(user_id):
                     # Standardize city name - Kiev should be Kyiv
                     city = row[1]
-                    if city == "Kiev":
+                    if city.lower() == "kiev":
                         return "Kyiv"
                     return city
     except FileNotFoundError:
         return None
     
     return None
-
 
 def load_used_words() -> Set[str]:
     """Load used words from CSV file."""
