@@ -7,7 +7,10 @@ from typing import Optional
 
 from modules.file_manager import general_logger, chat_logger, get_daily_log_path, load_used_words, save_used_words, LOG_DIR
 from const import OPENAI_API_KEY, USED_WORDS_FILE
-from modules.prompts import GPT_PROMPTS  # Import the prompts
+if os.getenv("USE_EMPTY_PROMPTS", "false").lower() == "true":
+    from modules.prompts_empty import GPT_PROMPTS  # Use empty prompts in GitHub Actions
+else:
+    from modules.prompts import GPT_PROMPTS  # Use actual prompts on the server
 
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
