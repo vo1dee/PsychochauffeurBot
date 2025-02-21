@@ -11,7 +11,7 @@ from typing import Optional
 
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
-from modules.file_manager import general_logger
+from modules.file_manager import general_logger, LOG_DIR
 from const import weather_emojis, city_translations, feels_like_emojis, SCREENSHOT_DIR, GAME_STATE_FILE
 from modules.gpt import ask_gpt_command, random_ukrainian_word_command, is_admin
 
@@ -337,4 +337,10 @@ async def random_ukrainian_word_command() -> Optional[str]:
     except Exception as e:
         general_logger.error(f"Error in random_ukrainian_word_command: {e}")
         return None
+
+def get_daily_log_path(chat_id: str, date: Optional[datetime] = None) -> str:
+    """Generate the path for the daily log file based on chat_id and optional date."""
+    if date is None:
+        date = datetime.now()
+    return os.path.join(LOG_DIR, f"chat_{chat_id}", f"chat_{date.strftime('%Y-%m-%d')}.log")
 
