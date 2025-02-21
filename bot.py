@@ -97,15 +97,54 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
     return (mentioned or (is_private_chat and not (contains_youtube_or_aliexpress or contains_domain_modifications)))
 
 
+# Sample mapping from English to Ukrainian keyboard layout
+keyboard_mapping = {
+    'q': 'й', 'w': 'ц', 'e': 'у', 'r': 'к', 't': 'е', 'y': 'н', 'u': 'г', 'i': 'ш', 'o': 'щ', 'p': 'з',
+    'a': 'ф', 's': 'і', 'd': 'в', 'f': 'а', 'g': 'п', 'h': 'р', 'j': 'о', 'k': 'л', 'l': 'д',
+    'z': 'я', 'x': 'ч', 'c': 'с', 'v': 'м', 'b': 'и', 'n': 'т', 'm': 'ь',
+    'Q': 'Й', 'W': 'Ц', 'E': 'У', 'R': 'К', 'T': 'Е', 'Y': 'Н', 'U': 'Г', 'I': 'Ш', 'O': 'Щ', 'P': 'З',
+    'A': 'Ф', 'S': 'І', 'D': 'В', 'F': 'А', 'G': 'П', 'H': 'Р', 'J': 'О', 'K': 'Л', 'L': 'Д',
+    'Z': 'Я', 'X': 'Ч', 'C': 'С', 'V': 'М', 'B': 'И', 'N': 'Т', 'M': 'Ь'
+}
+
+# Dictionary to store the last message for each user
+last_user_messages = {}
+
+def convert_to_ukrainian(text: str) -> str:
+    """Convert text from incorrect English layout to Ukrainian layout."""
+    return ''.join(keyboard_mapping.get(char, char) for char in text)
+
+async def translate_last_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Convert the last message of the user to Ukrainian layout."""
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username or "User"  # Fallback if username is not available
+
+    # Retrieve the last message from the stored dictionary
+    last_message = last_user_messages.get(user_id)
+
+    if not last_message:
+        await update.message.reply_text("No previous message found to convert.")
+        return
+
+    # Convert the last message to Ukrainian layout
+    converted_text = convert_to_ukrainian(last_message)
+
+    # Send the converted message back to the user
+    response_text = f"@{username} хотів сказати: {converted_text}"
+    await update.message.reply_text(response_text)
+
+
 async def handle_message(update: Update, context: CallbackContext):
     """Handle incoming text messages."""
     if not update.message or not update.message.text:
         return
 
     message_text = update.message.text
-    urls = extract_urls(message_text)
     chat_id = update.message.chat_id
     username = update.message.from_user.username
+
+    # Store the last message for the user
+    last_user_messages[update.message.from_user.id] = message_text
 
     # Log message
     chat_title = update.message.chat.title or "Private Chat"
@@ -116,6 +155,7 @@ async def handle_message(update: Update, context: CallbackContext):
         await restrict_user(update, context)
         return
 
+    urls = extract_urls(message_text)
     # Process URLs if present
     if urls:
         logger.info(f"Processing URLs: {urls}")
@@ -251,7 +291,8 @@ async def main():
             'game': game_command,
             'endgame': end_game_command,
             'clearwords': clear_words_command,
-            'hint': hint_command
+            'hint': hint_command,
+            'blya': translate_last_message  # Registering the command as /blya
         }
         for command, handler in commands.items():
             application.add_handler(CommandHandler(command, handler))
