@@ -337,10 +337,3 @@ async def random_ukrainian_word_command() -> Optional[str]:
     except Exception as e:
         general_logger.error(f"Error in random_ukrainian_word_command: {e}")
         return None
-
-def get_daily_log_path(chat_id: str, date: Optional[datetime] = None) -> str:
-    """Generate the path for the daily log file based on chat_id and optional date."""
-    if date is None:
-        date = datetime.now()
-    return os.path.join(LOG_DIR, f"chat_{chat_id}", f"chat_{date.strftime('%Y-%m-%d')}.log")
-

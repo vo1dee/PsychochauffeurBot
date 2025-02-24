@@ -13,12 +13,12 @@ from modules.keyboards import create_link_keyboard, button_callback
 from utils import (
     remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager,
     game_state, game_command, end_game_command, clear_words_command, hint_command,
-    load_game_state, extract_urls, get_daily_log_path
+    load_game_state, extract_urls
 )
 from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID, VideoPlatforms
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import weather
-from modules.file_manager import general_logger, chat_logger
+from modules.file_manager import general_logger, chat_logger, get_daily_log_path, error_logger
 from modules.user_management import restrict_user
 from modules.video_downloader import VideoDownloader, setup_video_handlers
 from telegram import Update
@@ -147,7 +147,8 @@ async def handle_message(update: Update, context: CallbackContext):
     last_user_messages[update.message.from_user.id] = message_text
 
     # Log message
-    chat_title = update.message.chat.title or "Private Chat"
+    chat_title = update.effective_chat.title or "Private Chat"
+    log_path = get_daily_log_path(chat_id, chat_title=chat_title)
     chat_logger.info(f"User message: {message_text}", extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
 
     # Handle trigger words
