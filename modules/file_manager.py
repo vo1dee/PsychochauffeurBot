@@ -15,7 +15,20 @@ LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 CSV_FILE = os.path.join(DATA_DIR, "user_locations.csv")
 USED_WORDS_FILE = os.path.join(DATA_DIR, "used_words.csv")
-KYIV_TZ = pytz.timezone('Europe/Kiev')
+KYIV_TZ = pytz.timezone('Europe/Kyiv')
+
+def get_daily_log_path(chat_id: str, date: Optional[datetime] = None, chat_title: Optional[str] = None) -> str:
+    if date is None:
+        date = datetime.now()
+    log_dir = os.path.join(LOG_DIR, f"chat_{chat_id}")
+    os.makedirs(log_dir, exist_ok=True)  # Ensure directory exists
+    
+    if chat_title:
+        chat_name_file = os.path.join(log_dir, "chat_name.txt")
+        with open(chat_name_file, 'w', encoding='utf-8') as f:
+            f.write(chat_title)
+    
+    return os.path.join(log_dir, f"chat_{date.strftime('%Y-%m-%d')}.log")
 
 # Ensure directories exist
 def ensure_directories():
@@ -194,13 +207,18 @@ def initialize_logging():
 # Initialize telegram error handler
 def init_error_handler(bot, error_channel_id):
     """Initialize error handler with bot instance"""
-    if error_channel_id:
-        error_logger = logging.getLogger('error_logger')
-        handler = TelegramErrorHandler(bot, error_channel_id)
-        handler.setFormatter(KyivTimezoneFormatter(
-            '%(asctime)s - %(name)s - %(levelname)s\nFile: %(pathname)s:%(lineno)d\nFunction: %(funcName)s\nMessage: %(message)s'
-        ))
-        error_logger.addHandler(handler)
+    if not bot or not error_channel_id:
+        logging.getLogger('general_logger').warning(
+            "Telegram error handler not initialized: bot or channel_id missing"
+        )
+        return
+        
+    error_logger = logging.getLogger('error_logger')
+    handler = TelegramErrorHandler(bot, error_channel_id)
+    handler.setFormatter(KyivTimezoneFormatter(
+        '%(asctime)s - %(name)s - %(levelname)s\nFile: %(pathname)s:%(lineno)d\nFunction: %(funcName)s\nMessage: %(message)s'
+    ))
+    error_logger.addHandler(handler)
 
 # Data management functions
 def save_user_location(user_id, city):
@@ -210,8 +228,8 @@ def save_user_location(user_id, city):
         user_id (int): User ID
         city (str): City name
     """
-    # Use relative path
-    file_path = 'data/user_locations.csv'
+    # Use the constant instead of hardcoded path
+    file_path = CSV_FILE
     
     # Ensure directory exists
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -252,7 +270,8 @@ def get_last_used_city(user_id):
     Returns:
         str: City name or None if not found
     """
-    file_path = 'data/user_locations.csv'
+    # Use the constant instead of hardcoded path
+    file_path = CSV_FILE
     
     try:
         with open(file_path, mode='r', newline='', encoding='utf-8') as f:
@@ -299,12 +318,6 @@ def read_last_n_lines(file_path: str, n: int) -> list:
     with open(file_path, 'r', encoding='utf-8') as file:
         lines = file.readlines()
         return lines[-n:]  # Return the last n lines
-
-def get_daily_log_path(chat_id: str, date: Optional[datetime] = None) -> str:
-    """Generate the path for the daily log file based on chat_id and optional date."""
-    if date is None:
-        date = datetime.now(KYIV_TZ)
-    return os.path.join(LOG_DIR, f"chat_{chat_id}", f"chat_{date.strftime('%Y-%m-%d')}.log")
 
 # Initialize logging when this module is imported
 general_logger, chat_logger, error_logger = initialize_logging()

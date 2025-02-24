@@ -28,51 +28,45 @@ GAME_STATE_FILE = 'data/game_state.json'
 
 
 async def gpt_response(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
-    """Get a response from GPT."""
     try:
-        # Extract chat_id from the update
-        chat_id = update.effective_chat.id if update.effective_chat else "unknown"
-        
-        # Read the last 10 messages from the chat log
-        log_path = get_daily_log_path(chat_id)  # Pass chat_id to get the log path for today
+        chat_id = "unknown"
         last_messages = []
-        if os.path.exists(log_path):
-            with open(log_path, 'r', encoding='utf-8') as f:
-                last_messages = f.readlines()[-3:]  # Get the last 10 messages
-
-        # Combine last messages with the prompt
-        context_prompt = ' '.join(last_messages)  # Join the last messages into a single string
-        full_prompt = context_prompt + prompt  # Prepend the last messages to the prompt
+        if update and hasattr(update, 'effective_chat') and update.effective_chat:
+            chat_id = update.effective_chat.id
+            log_path = get_daily_log_path(chat_id)
+            if os.path.exists(log_path):
+                with open(log_path, 'r', encoding='utf-8') as f:
+                    last_messages = f.readlines()[-3:]
+        
+        context_prompt = ' '.join(last_messages)
+        full_prompt = context_prompt + prompt
 
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": GPT_PROMPTS["gpt_response"] if not return_text else GPT_PROMPTS["gpt_response_return_text"]},
-                {"role": "user", "content": full_prompt}  # Use the full prompt here
+                {"role": "user", "content": full_prompt}
             ],
             max_tokens=500,
             temperature=0.7
         )
 
         response_text = response.choices[0].message.content.strip()
-
         if return_text:
             return response_text
-
-        if update and update.message:
+        if update and hasattr(update, 'message') and update.message:
             await log_user_response(update, response_text)
-
+        else:
+            general_logger.warning("No valid update object; response not sent to chat.")
     except Exception as e:
         await handle_error(e, update, return_text)
 
 async def ask_gpt_command(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
-    """Ask GPT for a response."""
     if isinstance(prompt, Update):
         update = prompt
         message_text = update.message.text
         command_parts = message_text.split(' ', 1)
         prompt = command_parts[1] if len(command_parts) > 1 else "Привіт!"
-    
     return await gpt_response(prompt, update, context, return_text)
 
 async def answer_from_gpt(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
@@ -128,83 +122,40 @@ async def summarize_messages(messages):
         return "Could not generate summary."
 
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Analyzes chat messages. By default analyzes today's messages; use 'yesterday' for previous day."""
-    chat_id = str(update.effective_chat.id)  # Ensure chat_id is a string
-    kyiv_tz = pytz.timezone('Europe/Kyiv')  # Use correct timezone
-    
-    # Default to today with Kyiv timezone
+    chat_id = str(update.effective_chat.id)
+    kyiv_tz = pytz.timezone('Europe/Kyiv')
     target_date = datetime.now(kyiv_tz)
     date_str = "сьогодні"
 
-    # Check for "yesterday" argument
     if context.args and context.args[0].lower() == "yesterday":
-        target_date = target_date - timedelta(days=1)
+        target_date -= timedelta(days=1)
         date_str = "вчора"
-        general_logger.debug(f"Analyzing messages for yesterday: {target_date}")
 
-    # Get log file path using chat_id and target date
-    log_path = get_daily_log_path(chat_id, target_date)  # Use the updated function
-    general_logger.debug(f"Log file path: {log_path}")
+    log_path = get_daily_log_path(chat_id, target_date)
+    if not os.path.exists(log_path):
+        await context.bot.send_message(chat_id, f"Немає повідомлень для аналізу за {date_str}.")
+        return
 
-    try:
-        # Check if log file exists
-        if not os.path.exists(log_path):
-            general_logger.info(f"No log file found at: {log_path}")
-            await context.bot.send_message(
-                chat_id,
-                f"Немає повідомлень для аналізу за {date_str}."
-            )
-            return
-
-        # Read all messages from the log file
-        with open(log_path, 'r', encoding='utf-8') as f:
-            all_messages = [line.strip() for line in f.readlines() if line.strip()]
-        general_logger.debug(f"Total messages in log: {len(all_messages)}")
-
-        # Since logs are per chat_id, no additional filtering is needed
-        if not all_messages:
-            general_logger.info(f"No messages found in {log_path}")
-            await context.bot.send_message(
-                chat_id,
-                f"Не знайдено повідомлень для аналізу за {date_str}."
-            )
-            return
-
-        # Extract message text (format: timestamp - name - level - chat_id - chattitle - username - message)
-        messages_text = []
-        for line in all_messages:
-            parts = line.split(" - ")
-            if len(parts) >= 7:  # Ensure enough parts to extract message
-                messages_text.append(parts[6].strip())  # Message is the last part
+    messages_text = []
+    with open(log_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            parts = line.strip().split(" - ", 6)  # Split up to 6 times, message is last
+            if len(parts) == 7:
+                messages_text.append(parts[6])
             else:
-                general_logger.debug(f"Skipping malformed log line: {line}")
-        general_logger.debug(f"Extracted {len(messages_text)} messages for summarization")
+                general_logger.debug(f"Partial log line: {line}")
+                if len(parts) > 3:  # At least timestamp, name, level, and some content
+                    messages_text.append(" ".join(parts[3:]))  # Take whatever’s after level
 
-        if not messages_text:
-            await context.bot.send_message(
-                chat_id,
-                f"Не вдалося виділити текст повідомлень за {date_str}."
-            )
-            return
+    if not messages_text:
+        await context.bot.send_message(chat_id, f"Не знайдено повідомлень для аналізу за {date_str}.")
+        return
 
-        # Generate summary using GPT
-        general_logger.debug("Requesting GPT summary")
-        summary = await gpt_summary_function(messages_text)
-        general_logger.debug(f"Summary length: {len(summary)} characters")
-
-        # Send the summary
-        await context.bot.send_message(
-            chat_id,
-            f"Підсумок повідомлень за {date_str} ({len(messages_text)} повідомлень):\n{summary}"
-        )
-
-    except Exception as e:
-        general_logger.error(f"Error in /analyze command: {e}", exc_info=True)
-        await context.bot.send_message(
-            chat_id,
-            "Виникла помилка при аналізі повідомлень."
-        )
-
+    summary = await gpt_summary_function(messages_text)
+    await context.bot.send_message(
+        chat_id,
+        f"Підсумок повідомлень за {date_str} ({len(messages_text)} повідомлень):\n{summary}"
+    )
 # Initialize used_words from file
 used_words = load_used_words()
 
