@@ -6,15 +6,16 @@ import httpx
 from telegram import Update
 from telegram.ext import CallbackContext
 
-from utils import (
+from modules.utils import (
     country_code_to_emoji,
     get_weather_emoji,
     get_city_translation,
-    get_feels_like_emoji
+    get_feels_like_emoji,
+    get_last_used_city
 )
-from const import Config
+from modules.const import Config
 from modules.logger import init_error_handler, error_logger, general_logger
-from modules.file_manager import save_user_location, get_last_used_city
+from modules.file_manager import save_user_location
 from modules.gpt import ask_gpt_command
 
 

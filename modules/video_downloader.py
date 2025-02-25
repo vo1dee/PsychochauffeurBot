@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from enum import Enum
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
-from const import VideoPlatforms
-from utils import extract_urls
+from modules.const import VideoPlatforms
+from modules.utils import extract_urls
 from modules.logger import init_error_handler, error_logger
 from dotenv import load_dotenv
 
