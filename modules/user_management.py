@@ -7,7 +7,7 @@ from telegram import Update, ChatPermissions
 from telegram.ext import CallbackContext
 from telegram.error import TelegramError
 
-from modules.file_manager import general_logger
+from modules.logger import init_error_handler, error_logger
 
 # Constants
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')

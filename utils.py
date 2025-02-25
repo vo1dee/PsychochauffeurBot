@@ -11,9 +11,11 @@ from typing import Optional
 
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
-from modules.file_manager import general_logger, LOG_DIR
-from const import weather_emojis, city_translations, feels_like_emojis, SCREENSHOT_DIR, GAME_STATE_FILE
-from modules.gpt import ask_gpt_command, random_ukrainian_word_command, is_admin
+from modules.logger import init_error_handler, error_logger, LOG_DIR, general_logger
+from const import weather_emojis, city_translations, feels_like_emojis, SCREENSHOT_DIR, GAME_STATE_FILE, DATA_DIR, LOG_DIR, KYIV_TZ, DOWNLOADS_DIR
+from modules.gpt import ask_gpt_command
+from modules.helpers import ensure_directory, get_daily_log_path
+
 
 game_state = {}
 
@@ -339,8 +341,25 @@ async def random_ukrainian_word_command() -> Optional[str]:
         return None
 
 def get_daily_log_path(chat_id: str, date: Optional[datetime] = None) -> str:
-    """Generate the path for the daily log file based on chat_id and optional date."""
+    """
+    Generate the path for the daily log file.
+    
+    Args:
+        chat_id: The chat ID to generate the log path for
+        date: Optional date to generate log path for, defaults to current date
+        
+    Returns:
+        str: Path to the log file
+    """
     if date is None:
-        date = datetime.now()
-    return os.path.join(LOG_DIR, f"chat_{chat_id}", f"chat_{date.strftime('%Y-%m-%d')}.log")
+        date = datetime.now(KYIV_TZ)
+    
+    chat_log_dir = os.path.join(LOG_DIR, f"chat_{chat_id}")
+    ensure_directory(chat_log_dir)
+    return os.path.join(chat_log_dir, f"chat_{date.strftime('%Y-%m-%d')}.log")
 
+def init_directories() -> None:
+    """Initialize all required directories for the application."""
+    directories = [DATA_DIR, LOG_DIR, DOWNLOADS_DIR]
+    for directory in directories:
+        ensure_directory(directory)
