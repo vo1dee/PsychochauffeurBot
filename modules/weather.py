@@ -28,8 +28,7 @@ class WeatherData:
     temperature: float
     feels_like: float
 
-    async def get_clothing_advice(self) -> str:
-        """Get GPT advice on what to wear."""
+    async def get_clothing_advice(self, update: Update = None, context: CallbackContext = None) -> str:
         prompt = f"""Дай коротку пораду (1-2 речення) щодо того, що краще вдягнути при такій погоді:
         Температура: {round(self.temperature)}°C
         Відчувається як: {round(self.feels_like)}°C
@@ -37,20 +36,20 @@ class WeatherData:
         
         Відповідай тільки порадою, без додаткового тексту."""
         try:
-            advice = await ask_gpt_command(prompt, return_text=True)
+            advice = await ask_gpt_command(prompt, update, context, return_text=True)
             return f"\n👕 {advice}"
         except Exception as e:
             general_logger.error(f"Error getting clothing advice: {e}")
             return ""
 
-    async def format_message(self) -> str:
+    async def format_message(self, update: Update = None, context: CallbackContext = None) -> str:
         """Format weather data into a readable message."""
         weather_emoji = get_weather_emoji(self.weather_id)
         country_flag = country_code_to_emoji(self.country_code)
         feels_like_emoji = get_feels_like_emoji(self.feels_like)
         
         # Get clothing advice
-        clothing_advice = await self.get_clothing_advice()
+        clothing_advice = await self.get_clothing_advice(update, context)
 
         return (
             f"Погода в {self.city_name}, {self.country_code} {country_flag}:\n"
@@ -115,11 +114,11 @@ class WeatherCommand:
     def __init__(self):
         self.weather_api = WeatherAPI()
     
-    async def handle_weather_request(self, city: str) -> str:
+    async def handle_weather_request(self, city: str, update: Update = None, context: CallbackContext = None) -> str:
         """Process weather request and return formatted message."""
         weather_data = await self.weather_api.fetch_weather(city)
         if weather_data:
-            return await weather_data.format_message()
+            return await weather_data.format_message(update, context)
         return "Не вдалося отримати дані про погоду. Спробуйте пізніше."
     
     async def __call__(self, update: Update, context: CallbackContext) -> None:
@@ -138,10 +137,9 @@ class WeatherCommand:
                     )
                     return
             
-            # Log the update object for debugging
-            general_logger.info(f"Update object: {update}")
-
-            weather_info = await self.handle_weather_request(city)
+            # Get weather info and pass update, context parameters
+            weather_info = await self.handle_weather_request(city, update, context)
+            
             if update.message:
                 await update.message.reply_text(weather_info)
                 

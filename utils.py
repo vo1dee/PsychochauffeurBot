@@ -339,27 +339,3 @@ async def random_ukrainian_word_command() -> Optional[str]:
     except Exception as e:
         general_logger.error(f"Error in random_ukrainian_word_command: {e}")
         return None
-
-def get_daily_log_path(chat_id: str, date: Optional[datetime] = None) -> str:
-    """
-    Generate the path for the daily log file.
-    
-    Args:
-        chat_id: The chat ID to generate the log path for
-        date: Optional date to generate log path for, defaults to current date
-        
-    Returns:
-        str: Path to the log file
-    """
-    if date is None:
-        date = datetime.now(KYIV_TZ)
-    
-    chat_log_dir = os.path.join(LOG_DIR, f"chat_{chat_id}")
-    ensure_directory(chat_log_dir)
-    return os.path.join(chat_log_dir, f"chat_{date.strftime('%Y-%m-%d')}.log")
-
-def init_directories() -> None:
-    """Initialize all required directories for the application."""
-    directories = [DATA_DIR, LOG_DIR, DOWNLOADS_DIR]
-    for directory in directories:
-        ensure_directory(directory)

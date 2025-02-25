@@ -49,6 +49,7 @@ class VideoPlatforms:
 
 class Weather:
     """Weather-related configurations and mappings."""
+    # City name translations (Ukrainian -> English)
     CITY_TRANSLATIONS: Dict[str, str] = {
         "кортгене": "Kortgene",
         "тель авів": "Tel Aviv",
