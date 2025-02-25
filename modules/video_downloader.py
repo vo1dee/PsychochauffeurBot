@@ -5,6 +5,7 @@ import logging
 import aiohttp
 import re
 import json
+import uuid
 from typing import Optional, Tuple, List, Dict
 from asyncio import Lock
 from dataclasses import dataclass
@@ -427,7 +428,9 @@ class VideoDownloader:
         """Download TikTok video using yt-dlp."""
         try:
             config = self.platform_configs[Platform.TIKTOK]
-            output_template = os.path.join(self.download_path, '%(title)s.%(ext)s')
+            unique_filename = f"video_{uuid.uuid4()}.%(ext)s"
+            output_template = os.path.join(self.download_path, unique_filename) 
+
             
             process = await asyncio.create_subprocess_exec(
                 self.yt_dlp_path,
@@ -459,7 +462,9 @@ class VideoDownloader:
         """Generic video download using yt-dlp."""
         try:
             config = self.platform_configs.get(platform, self.platform_configs[Platform.OTHER])
-            output_template = os.path.join(self.download_path, '%(title)s.%(ext)s')
+            unique_filename = f"video_{uuid.uuid4()}.%(ext)s"
+            output_template = os.path.join(self.download_path, unique_filename) 
+
             
             process = await asyncio.create_subprocess_exec(
                 self.yt_dlp_path,
