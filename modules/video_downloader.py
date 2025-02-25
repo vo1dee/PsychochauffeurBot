@@ -13,7 +13,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 from const import VideoPlatforms
 from utils import extract_urls
-from modules.file_manager import error_logger
+from modules.logger import init_error_handler, error_logger
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)

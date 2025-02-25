@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import mock_open, patch
 from utils import extract_urls
-from modules.file_manager import save_user_location, get_last_used_city
+from modules.logger import init_error_handler, error_logger, get_last_used_city
 
 class TestBot(unittest.TestCase):
 

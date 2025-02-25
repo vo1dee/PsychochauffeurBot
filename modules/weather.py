@@ -13,7 +13,8 @@ from utils import (
     get_feels_like_emoji
 )
 from const import Config
-from modules.file_manager import general_logger, save_user_location, get_last_used_city
+from modules.logger import init_error_handler, error_logger, general_logger
+from modules.file_manager import save_user_location, get_last_used_city
 from modules.gpt import ask_gpt_command
 
 
@@ -137,6 +138,9 @@ class WeatherCommand:
                     )
                     return
             
+            # Log the update object for debugging
+            general_logger.info(f"Update object: {update}")
+
             weather_info = await self.handle_weather_request(city)
             if update.message:
                 await update.message.reply_text(weather_info)

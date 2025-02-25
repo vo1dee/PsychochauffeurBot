@@ -1,13 +1,22 @@
 """
 Constants and configuration settings for the PsychoChauffeur bot.
 """
-
 import os
 from typing import Dict, Union, List
 from dotenv import load_dotenv
+import pytz
 
 # Load environment variables
 load_dotenv()
+
+# Base directories
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
+DOWNLOADS_DIR = os.path.join(PROJECT_ROOT, 'downloads')
+
+# Timezone
+KYIV_TZ = pytz.timezone('Europe/Kiev')
 
 class Config:
     """Bot configuration and API keys."""
@@ -16,8 +25,6 @@ class Config:
     TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
     OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
     ERROR_CHANNEL_ID: str = os.getenv('ERROR_CHANNEL_ID', '')
-    
-    # File paths
     SCREENSHOT_DIR: str = 'python-web-screenshots'
 
 class Stickers:
@@ -27,34 +34,28 @@ class Stickers:
 class LinkModification:
     """Domain modifications for various social media platforms."""
     DOMAINS: Dict[str, str] = {
-        # "tiktok.com": "tfxktok.com",
         "twitter.com": "fxtwitter.com",
         "x.com": "fixupx.com",
-        "instagram.com":"ddinstagram.com"
-        # "fixupx.com": "fixupx.com"
-        
+        "instagram.com": "ddinstagram.com"
     }
 
 class VideoPlatforms:
-    # Supported platforms
+    """Supported video platforms."""
     SUPPORTED_PLATFORMS = [
-        'tiktok.com', 'instagram.com/reels', 'youtube.com/shorts', 
-        'youtu.be/shorts', 'facebook.com', 
+        'tiktok.com', 'instagram.com/reels', 'youtube.com/shorts',
+        'youtu.be/shorts', 'facebook.com',
         'vimeo.com', 'reddit.com', 'twitch.tv'
     ]
 
 class Weather:
     """Weather-related configurations and mappings."""
-    
-    # City name translations (Ukrainian -> English)
     CITY_TRANSLATIONS: Dict[str, str] = {
         "кортгене": "Kortgene",
         "тель авів": "Tel Aviv",
         "тельавів": "Tel Aviv",
         "Тель Авів": "Tel Aviv",
     }
-
-    # Weather condition ID ranges to emoji mappings
+    
     CONDITION_EMOJIS: Dict[range, str] = {
         range(200, 300): '⛈',  # Thunderstorm
         range(300, 400): '🌧',  # Drizzle
@@ -64,15 +65,18 @@ class Weather:
         range(800, 801): '☀️',  # Clear
         range(801, 900): '☁️',  # Clouds
     }
-
-    # Temperature ranges to emoji mappings
+    
     FEELS_LIKE_EMOJIS: Dict[range, str] = {
-        range(-100, 0):  '🥶',  # Very cold
-        range(0, 10):    '🧥',  # Cold
-        range(10, 20):   '🧣',  # Cool
-        range(20, 30):   '😎',  # Comfortable
-        range(30, 100):  '🥵',  # Very hot
+        range(-100, 0): '🥶',  # Very cold
+        range(0, 10): '🧥',    # Cold
+        range(10, 20): '🧣',   # Cool
+        range(20, 30): '😎',   # Comfortable
+        range(30, 100): '🥵',  # Very hot
     }
+
+# Files
+GAME_STATE_FILE = os.path.join(DATA_DIR, 'game_state.json')
+USED_WORDS_FILE = os.path.join(DATA_DIR, 'used_words.csv')
 
 # For backwards compatibility
 TOKEN = Config.TELEGRAM_BOT_TOKEN
@@ -84,8 +88,3 @@ city_translations = Weather.CITY_TRANSLATIONS
 weather_emojis = Weather.CONDITION_EMOJIS
 feels_like_emojis = Weather.FEELS_LIKE_EMOJIS
 platforms = VideoPlatforms.SUPPORTED_PLATFORMS
-
-# File paths
-DATA_DIR = 'data'
-GAME_STATE_FILE = os.path.join(DATA_DIR, 'game_state.json')
-USED_WORDS_FILE = os.path.join(DATA_DIR, 'used_words.csv')
