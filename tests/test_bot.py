@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import mock_open, patch
-from utils import extract_urls
+from modules.utils import extract_urls
 from modules.logger import init_error_handler, error_logger, get_last_used_city
 
 class TestBot(unittest.TestCase):

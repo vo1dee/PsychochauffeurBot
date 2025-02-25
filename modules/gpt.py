@@ -4,10 +4,8 @@ import os
 from datetime import datetime, timedelta
 import pytz
 from typing import Optional
-from modules.file_manager import get_daily_log_path, read_last_n_lines
-from modules.logger import general_logger, chat_logger
-from modules.helpers import get_daily_log_path
-from const import OPENAI_API_KEY, USED_WORDS_FILE
+from modules.logger import general_logger, chat_logger, get_daily_log_path, read_last_n_lines
+from modules.const import OPENAI_API_KEY, USED_WORDS_FILE
 if os.getenv("USE_EMPTY_PROMPTS", "false").lower() == "true":
     from modules.prompts_empty import GPT_PROMPTS  # Use empty prompts in GitHub Actions
 else:
@@ -157,86 +155,3 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id,
         f"Підсумок повідомлень за {date_str} ({len(messages_text)} повідомлень):\n{summary}"
     )
-# Initialize used_words from file
-used_words = load_used_words()
-
-async def get_word_from_gpt(prompt: str) -> Optional[str]:
-    """Get a single word response from GPT."""
-    try:
-        response = await openai.ChatCompletion.acreate(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": GPT_PROMPTS["get_word_from_gpt"]},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        logging.error(f"Error getting word from GPT: {e}")
-        return None
-
-async def random_ukrainian_word_command() -> Optional[str]:
-    """Get a random Ukrainian word using GPT."""
-    try:
-        # Read used words
-        with open(USED_WORDS_FILE, 'r', encoding='utf-8') as f:
-            content = f.read().strip()
-            used_words = set(word.strip() for word in content.split(',') if word.strip())
-    except FileNotFoundError:
-        used_words = set()
-
-    # Include used words in the prompt
-    used_words_str = ', '.join(used_words)
-    prompt = f"""Згенеруй одне випадкове українське іменник в однині. 
-    Дай тільки саме слово, без пояснень чи додаткового тексту.
-    Слово має бути цікаве, креативне і незвичайне.
-    
-    Не використовуй ці слова: {used_words_str}"""
-
-    max_attempts = 5
-    for attempt in range(max_attempts):
-        try:
-            word = await get_word_from_gpt(prompt)
-            if word:
-                # Clean up the word
-                word = word.strip().lower()
-                
-                # Validate word
-                if (word not in used_words and 
-                    3 <= len(word) <= 8 and 
-                    word.isalpha()):
-                    
-                    # Add to used words
-                    used_words.add(word)
-                    with open(USED_WORDS_FILE, 'a', encoding='utf-8') as f:
-                        f.write(f"{word},")
-                    
-                    return word
-                else:
-                    logging.debug(f"Word '{word}' already used or invalid, trying again. Attempt {attempt + 1}/{max_attempts}")
-            
-        except Exception as e:
-            logging.error(f"Error getting word from GPT: {e}")
-            continue
-
-    return None
-
-def clear_used_words():
-    """Clears the history of used words."""
-    global used_words
-    used_words.clear()
-    save_used_words(used_words)  # Save empty set to file
-    general_logger.info("Used words history cleared manually")
-
-def get_used_words_count() -> int:
-    """Returns the number of used words."""
-    return len(used_words)
-
-async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Check if the user is an admin in the chat."""
-    if not update.effective_chat:
-        return False
-    
-    user_id = update.effective_user.id
-    chat_member = await context.bot.get_chat_member(update.effective_chat.id, user_id)
-    return chat_member.status in ['creator', 'administrator']

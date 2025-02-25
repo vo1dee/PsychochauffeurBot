@@ -1,76 +1,73 @@
-"""
-Logging configuration module for the PsychoChauffeur bot.
-"""
+import os
+import sys
 import logging
-from logging.handlers import RotatingFileHandler
 import asyncio
 import html
+from logging.handlers import RotatingFileHandler
+from modules.file_manager import ensure_directories
+import threading
+from typing import Set, Optional, Tuple
 from datetime import datetime
-from typing import Optional
-from telegram.ext import Application
-from telegram.error import TelegramError
+import pytz
+import time
+from modules.const import Config
 
-from const import LOG_DIR, KYIV_TZ
-from modules.helpers import ensure_directory, get_daily_log_path
+# Timezone constants
+KYIV_TZ = pytz.timezone('Europe/Kyiv')
 
-def init_error_handler():
-    """Initialize the error handler and ensure log directory exists."""
-    ensure_directory(LOG_DIR)
+# Path constants
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
+USED_WORDS_FILE = os.path.join(DATA_DIR, "used_words.csv")
 
-def setup_loggers() -> None:
-    """Initialize and configure all loggers."""
-    init_error_handler()
-    
-    # Configure log handlers
-    handlers = {
-        'general': RotatingFileHandler(f'{LOG_DIR}/general_log.log', maxBytes=2000, backupCount=10),
-        'chat': RotatingFileHandler(f'{LOG_DIR}/chat_log.log', maxBytes=2000, backupCount=10),
-        'error': RotatingFileHandler(f'{LOG_DIR}/error_log.log', maxBytes=2000, backupCount=10)
-    }
-    
-    # Configure formatters
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    for handler in handlers.values():
-        handler.setFormatter(formatter)
-    
-    # Set up general logger
-    general_logger = logging.getLogger('general_logger')
-    general_logger.setLevel(logging.INFO)
-    general_logger.addHandler(handlers['general'])
-    
-    # Set up chat logger
-    chat_logger = logging.getLogger('chat_logger')
-    chat_logger.setLevel(logging.INFO)
-    chat_logger.addHandler(handlers['chat'])
-    
-    # Set up error logger
-    error_logger = logging.getLogger('error_logger')
-    error_logger.setLevel(logging.ERROR)
-    error_logger.addHandler(handlers['error'])
 
-# Create global logger instances
-general_logger = logging.getLogger('general_logger')
-chat_logger = logging.getLogger('chat_logger')
-error_logger = logging.getLogger('error_logger')
+# Custom formatter for Kyiv timezone
+class KyivTimezoneFormatter(logging.Formatter):
+    """Custom formatter that uses Kyiv timezone"""
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created).astimezone(KYIV_TZ)
+        return dt.strftime(datefmt) if datefmt else dt.strftime("%Y-%m-%d %H:%M:%S %z")
 
+# Chat-specific daily log handler
+class DailyLogHandler(logging.Handler):
+    def emit(self, record):
+        # Ensure chat_id is included in the record if available
+        if hasattr(record, 'chat_id'):
+            record.chattitle = getattr(record, 'chattitle', 'Unknown')
+            record.username = getattr(record, 'username', 'Unknown')
+        else:
+            record.chat_id = 'N/A'  # Default value if chat_id is not present
+            record.chattitle = 'Unknown'  # Default value for chattitle
+            record.username = 'Unknown'  # Default value for username
+        try:
+            # Format date in Kyiv timezone
+            date = datetime.now(KYIV_TZ)
+            
+            # Create path
+            if record.chat_id is not None:
+                chat_log_dir = os.path.join(LOG_DIR, f"chat_{record.chat_id}")
+                os.makedirs(chat_log_dir, exist_ok=True)
+                daily_log_path = os.path.join(chat_log_dir, f"chat_{date.strftime('%Y-%m-%d')}.log")
+            else:
+                daily_log_path = os.path.join(LOG_DIR, f"chat_{date.strftime('%Y-%m-%d')}.log")
+            
+            msg = self.format(record)
+            with open(daily_log_path, 'a', encoding='utf-8') as f:
+                f.write(msg + '\n')
+        except Exception:
+            self.handleError(record)
+
+# Telegram error reporting handler
 class TelegramErrorHandler(logging.Handler):
-    """Custom handler for sending error logs to Telegram channel."""
-    
-    def __init__(self, bot: Application, channel_id: str, rate_limit: int = 1):
-        """
-        Initialize the Telegram error handler.
-        
-        Args:
-            bot: Telegram bot application instance
-            channel_id: Telegram channel ID to send errors to
-            rate_limit: Minimum seconds between consecutive messages
-        """
+    """Custom handler for sending error logs to Telegram channel"""
+    def __init__(self, bot, channel_id, rate_limit=1):
         super().__init__()
         self.bot = bot
         self.channel_id = channel_id
         self.buffer = []
         self.last_sent = 0
-        self.rate_limit = rate_limit
+        self.rate_limit = rate_limit  # Minimum seconds between messages
         
         try:
             self.loop = asyncio.get_event_loop()
@@ -97,7 +94,7 @@ class TelegramErrorHandler(logging.Handler):
                     parse_mode='MarkdownV2'
                 )
                 return
-            except TelegramError as e:
+            except Exception as e:
                 if attempt == max_retries - 1:
                     general_logger.error(f"Failed to send error message to Telegram after {max_retries} attempts: {e}")
                     try:
@@ -106,19 +103,13 @@ class TelegramErrorHandler(logging.Handler):
                             text=html.escape(error_msg),
                             parse_mode=None
                         )
-                    except TelegramError as final_e:
+                    except Exception as final_e:
                         general_logger.error(f"Final attempt to send message failed: {final_e}")
                 await asyncio.sleep(retry_delay * (attempt + 1))
 
     def format_error_message(self, record: logging.LogRecord) -> str:
         """
         Format the error message with all relevant information.
-        
-        Args:
-            record: Log record to format
-            
-        Returns:
-            str: Formatted error message
         """
         current_time = datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
         
@@ -140,23 +131,167 @@ class TelegramErrorHandler(logging.Handler):
         )
         return error_msg
 
-    def emit(self, record: logging.LogRecord) -> None:
-        """
-        Override emit to handle the log record.
-        
-        Args:
-            record: Log record to emit
-        """
+    async def emit_async(self, record):
         try:
             error_msg = self.format_error_message(record)
-            coroutine = self.send_message(error_msg)
+            now = time.time()
+            
+            if now - self.last_sent >= self.rate_limit:
+                await self.send_message(error_msg)
+                self.last_sent = now
+            else:
+                self.buffer.append(error_msg)
+        except Exception as e:
+            print(f"Error in TelegramErrorHandler: {e}")
+            self.handleError(record)
+
+    def emit(self, record):
+        try:
+            coroutine = self.emit_async(record)
             try:
                 asyncio.create_task(coroutine)
             except RuntimeError:
                 self.loop.run_until_complete(coroutine)
         except Exception as e:
-            general_logger.error(f"Error in TelegramErrorHandler.emit: {e}")
+            print(f"Error in TelegramErrorHandler.emit: {e}")
             self.handleError(record)
 
-# Initialize loggers on module import
-setup_loggers()
+# Initialize logging system
+def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger]:
+    """Set up all loggers and handlers"""
+    if not ensure_directories():
+        sys.exit(1)
+    
+    class CustomFormatter(logging.Formatter):
+        def format(self, record):
+            record.chat_id = getattr(record, 'chat_id', 'N/A')
+            record.chattitle = getattr(record, 'chattitle', 'Unknown')
+            record.username = getattr(record, 'username', 'Unknown')
+            return super().format(record)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(KyivTimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    
+    # --- General Logger ---
+    general_logger = logging.getLogger('general_logger')
+    general_logger.setLevel(logging.INFO)
+    
+    general_file_handler = RotatingFileHandler(
+        os.path.join(LOG_DIR, 'general.log'),
+        maxBytes=5*1024*1024,
+        backupCount=3,
+        encoding='utf-8'
+    )
+    general_file_handler.setFormatter(CustomFormatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s - %(chattitle)s - %(username)s - %(message)s'))
+    general_file_handler.setLevel(logging.INFO)
+    
+    general_logger.addHandler(console_handler)
+    general_logger.addHandler(general_file_handler)
+    general_logger.propagate = False
+    
+    # --- Chat Logger ---
+    chat_logger = logging.getLogger('chat_logger')
+    chat_logger.setLevel(logging.INFO)
+    
+    chat_file_handler = RotatingFileHandler(
+        os.path.join(LOG_DIR, 'chat.log'),
+        maxBytes=5*1024*1024,
+        backupCount=3,
+        encoding='utf-8'
+    )
+    chat_file_handler.setFormatter(CustomFormatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s - %(chattitle)s - %(username)s - %(message)s'))
+    
+    daily_handler = DailyLogHandler()
+    daily_handler.setLevel(logging.INFO)
+    daily_handler.setFormatter(CustomFormatter('%(asctime)s - %(name)s - %(levelname)s - %(chat_id)s - %(chattitle)s - %(username)s - %(message)s'))
+    
+    chat_logger.addHandler(console_handler)
+    chat_logger.addHandler(chat_file_handler)
+    chat_logger.addHandler(daily_handler)
+    chat_logger.propagate = False
+    
+    # --- Error Logger ---
+    error_logger = logging.getLogger('error_logger')
+    error_logger.setLevel(logging.ERROR)
+    
+    error_file_handler = RotatingFileHandler(
+        os.path.join(LOG_DIR, 'error.log'),
+        maxBytes=5*1024*1024,
+        backupCount=3,
+        encoding='utf-8'
+    )
+    error_file_handler.setFormatter(KyivTimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    
+    error_logger.addHandler(console_handler)
+    error_logger.addHandler(error_file_handler)
+    error_logger.propagate = False
+    
+    # Suppress other library logs
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    
+    # Log initialization success
+    general_logger.info("Logging system initialized successfully")
+    chat_logger.info("Chat logging system initialized successfully")
+    error_logger.info("Error logging system initialized successfully")
+    
+    print(f"Log files are being written to: {LOG_DIR}")
+    
+    return general_logger, chat_logger, error_logger
+
+# Initialize telegram error handler
+def init_error_handler(bot, ERROR_CHANNEL_ID):
+    """Initialize error handler with bot instance"""
+    if not bot or not bot.is_connected():
+        logging.getLogger('general_logger').warning("Telegram bot is not connected")
+        return
+        
+    error_logger = logging.getLogger('error_logger')
+    handler = TelegramErrorHandler(bot, ERROR_CHANNEL_ID)
+    handler.setFormatter(KyivTimezoneFormatter(
+        '%(asctime)s - %(name)s - %(levelname)s\nFile: %(pathname)s:%(lineno)d\nFunction: %(funcName)s\nMessage: %(message)s'
+    ))
+    error_logger.addHandler(handler)
+
+def get_daily_log_path(chat_id: str, date: Optional[datetime] = None, chat_title: Optional[str] = None) -> str:
+    """
+    Generate the path for a daily log file.
+    
+    Args:
+        chat_id: Chat ID
+        date: Date for the log file, defaults to current date
+        chat_title: Optional chat title to save
+        
+    Returns:
+        str: Path to the log file
+    """
+    if date is None:
+        date = datetime.now(KYIV_TZ)
+    log_dir = os.path.join(LOG_DIR, f"chat_{chat_id}")
+    os.makedirs(log_dir, exist_ok=True)  # Ensure directory exists
+    
+    if chat_title:
+        chat_name_file = os.path.join(log_dir, "chat_name.txt")
+        with open(chat_name_file, 'w', encoding='utf-8') as f:
+            f.write(chat_title)
+    
+    return os.path.join(log_dir, f"chat_{date.strftime('%Y-%m-%d')}.log")
+
+def read_last_n_lines(file_path: str, n: int) -> list:
+    """
+    Read the last n lines of a file.
+    
+    Args:
+        file_path: Path to the file
+        n: Number of lines to read
+        
+    Returns:
+        list: List of lines
+    """
+    with open(file_path, 'r', encoding='utf-8') as file:
+        lines = file.readlines()
+        return lines[-n:]  # Return the last n lines
+
+# Initialize logging when this module is imported
+general_logger, chat_logger, error_logger = initialize_logging()

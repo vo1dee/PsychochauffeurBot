@@ -11,36 +11,28 @@ import pyshorteners
 from typing import List, Optional
 from urllib.parse import urlparse, urlunparse
 
-from modules.keyboards import create_link_keyboard, button_callback
-from utils import (
-    remove_links, screenshot_command, schedule_task, cat_command, ScreenshotManager,
-    game_state, game_command, end_game_command, clear_words_command, hint_command,
-    load_game_state, extract_urls
-)
-from const import domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID, VideoPlatforms
-from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
-from modules.weather import weather
-from modules.file_manager import general_logger, chat_logger, get_daily_log_path, error_logger
-from modules.user_management import restrict_user
-from modules.video_downloader import VideoDownloader, setup_video_handlers
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
     CallbackContext, CallbackQueryHandler, ContextTypes
 )
 
-from const import (
-    TOKEN, ALIEXPRESS_STICKER_ID, DATA_DIR,
+from modules.keyboards import create_link_keyboard, button_callback
+from modules.utils import (
+    remove_links, screenshot_command, cat_command, ScreenshotManager,
+    extract_urls, ensure_directory, init_directories
+)
+from modules.const import (
+    domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID, DATA_DIR,
     VideoPlatforms, LinkModification, Config
 )
-from utils import ensure_directory, init_directories, screenshot_command, ScreenshotManager, cat_command
-from modules.logger import general_logger, chat_logger, error_logger
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
-from modules.keyboards import create_link_keyboard, button_callback
 from modules.weather import weather
-from modules.video_downloader import setup_video_handlers
+from modules.logger import general_logger, chat_logger, error_logger, get_daily_log_path
 from modules.user_management import restrict_user
-# Apply nest_asyncio patch for nested event loops
+from modules.video_downloader import VideoDownloader, setup_video_handlers
+
+
 nest_asyncio.apply()
 
 class MessageCounter:

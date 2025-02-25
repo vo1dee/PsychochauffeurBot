@@ -63,7 +63,7 @@ Simply send a video link from any supported platform, and the bot will:
    ```
 3. Run the bot:
    ```bash
-   python bot.py
+   python main.py
    ```
 
 ## ⚠️ Limitations
