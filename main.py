@@ -8,6 +8,7 @@ import logging
 import nest_asyncio
 import re
 import pyshorteners
+import random
 from typing import List, Optional
 from urllib.parse import urlparse, urlunparse
 
@@ -28,7 +29,7 @@ from modules.const import (
 )
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import weather
-from modules.logger import general_logger, chat_logger, error_logger, get_daily_log_path
+from modules.logger import general_logger, chat_logger, error_logger, get_daily_log_path,  init_error_handler
 from modules.user_management import restrict_user
 from modules.video_downloader import VideoDownloader, setup_video_handlers
 
@@ -214,7 +215,7 @@ async def process_urls(
             logger.info(f"Attempting video download for URLs: {urls}")
             await video_downloader.handle_video_link(update, context)
         else:
-            logger.error("Video downloader not initialized properly")
+            error_logger.error("Video downloader not initialized properly")
 
 def sanitize_url(url: str, replace_domain: Optional[str] = None) -> str:
     """Sanitize a URL by keeping scheme, netloc, and path only."""
@@ -223,7 +224,7 @@ def sanitize_url(url: str, replace_domain: Optional[str] = None) -> str:
         netloc = replace_domain if replace_domain else parsed_url.netloc
         return urlunparse((parsed_url.scheme, netloc, parsed_url.path, '', '', ''))
     except Exception as e:
-        logger.error(f"Failed to sanitize URL {url}: {e}")
+        error_logger.error(f"Failed to sanitize URL {url}: {e}")
         return url
 
 async def shorten_url(url: str) -> str:
@@ -231,7 +232,7 @@ async def shorten_url(url: str) -> str:
     try:
         return pyshorteners.Shortener().tinyurl.short(url)
     except Exception as e:
-        logger.error(f"Error shortening URL {url}: {e}")
+        error_logger.error(f"Error shortening URL {url}: {e}")
         return url
 
 def remove_links(text: str) -> str:
@@ -267,7 +268,7 @@ async def construct_and_send_message(
         )
         general_logger.info(f"Sent message with keyboard. Link hash: {link_hash}")
     except Exception as e:
-        general_logger.error(f"Error in construct_and_send_message: {e}")
+        error_logger.error(f"Error in construct_and_send_message: {e}")
         await update.message.reply_text("Sorry, an error occurred.")
 
 async def handle_sticker(update: Update, context: CallbackContext) -> None:
@@ -320,7 +321,7 @@ async def main() -> None:
             extract_urls_func=extract_urls
         )
         application.bot_data['video_downloader'] = video_downloader
-
+        init_error_handler(application, Config.ERROR_CHANNEL_ID)
         # Start screenshot scheduler
         screenshot_manager = ScreenshotManager()
         asyncio.create_task(screenshot_manager.schedule_task())
@@ -330,7 +331,7 @@ async def main() -> None:
         await application.run_polling()
 
     except Exception as e:
-        logger.error(f"Bot failed to start: {e}")
+        error_logger.error(f"Bot failed to start: {e}")
         raise
 
 if __name__ == '__main__':
@@ -338,6 +339,6 @@ if __name__ == '__main__':
         asyncio.run(main())
     except RuntimeError as e:
         if "Cannot close a running event loop" in str(e):
-            logger.error("Event loop is already running. Please check your environment.")
+            error_logger.error("Event loop is already running. Please check your environment.")
         else:
             raise
