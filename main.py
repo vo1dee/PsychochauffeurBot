@@ -325,6 +325,9 @@ async def main() -> None:
         # Initialize error handler with await
         await init_error_handler(application, Config.ERROR_CHANNEL_ID)
         
+        # Test error logger
+        error_logger.error("Test error message - If you see this in the Telegram channel, error logging is working!")
+        
         # Start screenshot scheduler
         screenshot_manager = ScreenshotManager()
         asyncio.create_task(screenshot_manager.schedule_task())
