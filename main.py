@@ -321,7 +321,10 @@ async def main() -> None:
             extract_urls_func=extract_urls
         )
         application.bot_data['video_downloader'] = video_downloader
-        init_error_handler(application, Config.ERROR_CHANNEL_ID)
+        
+        # Initialize error handler with await
+        await init_error_handler(application, Config.ERROR_CHANNEL_ID)
+        
         # Start screenshot scheduler
         screenshot_manager = ScreenshotManager()
         asyncio.create_task(screenshot_manager.schedule_task())
