@@ -11,6 +11,7 @@ from datetime import datetime
 import pytz
 import time
 from modules.const import Config
+from telegram.ext import Application
 
 # Timezone constants
 KYIV_TZ = pytz.timezone('Europe/Kyiv')
@@ -241,18 +242,32 @@ def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger
     return general_logger, chat_logger, error_logger
 
 # Initialize telegram error handler
-def init_error_handler(bot, ERROR_CHANNEL_ID):
-    """Initialize error handler with bot instance"""
-    if not bot or not bot.is_connected():
-        logging.getLogger('general_logger').warning("Telegram bot is not connected")
+async def init_error_handler(application: Application, ERROR_CHANNEL_ID: str) -> None:
+    """Initialize error handler with application instance"""
+    general_logger = logging.getLogger('general_logger')
+    
+    if not application:
+        general_logger.error("Application instance is None")
+        return
+        
+    if not application.bot:
+        general_logger.error("Bot instance is not available")
+        return
+        
+    if not ERROR_CHANNEL_ID:
+        general_logger.error("ERROR_CHANNEL_ID is not set")
         return
         
     error_logger = logging.getLogger('error_logger')
-    handler = TelegramErrorHandler(bot, ERROR_CHANNEL_ID)
+    handler = TelegramErrorHandler(application.bot, ERROR_CHANNEL_ID)
     handler.setFormatter(KyivTimezoneFormatter(
-        '%(asctime)s - %(name)s - %(levelname)s\nFile: %(pathname)s:%(lineno)d\nFunction: %(funcName)s\nMessage: %(message)s'
+        '%(asctime)s - %(name)s - %(levelname)s\n'
+        'File: %(pathname)s:%(lineno)d\n'
+        'Function: %(funcName)s\n'
+        'Message: %(message)s'
     ))
     error_logger.addHandler(handler)
+    general_logger.info(f"Error handler initialized successfully with channel ID: {ERROR_CHANNEL_ID}")
 
 def get_daily_log_path(chat_id: str, date: Optional[datetime] = None, chat_title: Optional[str] = None) -> str:
     """
