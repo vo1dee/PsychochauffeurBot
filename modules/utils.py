@@ -137,29 +137,83 @@ def get_city_translation(city: str) -> str:
     normalized = city.lower().replace(" ", "")
     return city_translations.get(normalized, city)
 
-def get_last_used_city(user_id: int) -> Optional[str]:
+def get_last_used_city(user_id: int, chat_id: int = None) -> Optional[str]:
     """
     Retrieve user's last used city.
     
     Args:
         user_id: User ID
+        chat_id: Optional chat ID for group-specific cities
         
     Returns:
         str: City name or None if not found
     """
+    # Define a simple function to ensure CSV headers exist
+    def ensure_headers(file_path: str, headers: list) -> None:
+        """Ensure CSV file has required headers"""
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        if not os.path.exists(file_path):
+            with open(file_path, mode='w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+            return
+        
+        try:
+            with open(file_path, mode='r', newline='', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                first_row = next(reader, None)
+                
+                if not first_row or set(first_row) != set(headers):
+                    # Read all existing data
+                    f.seek(0)
+                    all_data = list(reader)
+                    
+                    # Write back with headers
+                    with open(file_path, mode='w', newline='', encoding='utf-8') as wf:
+                        writer = csv.writer(wf)
+                        writer.writerow(headers)
+                        writer.writerows(all_data)
+        except Exception as e:
+            print(f"Error checking CSV headers: {e}")
+    
+    # Ensure csv file has the correct headers
+    ensure_headers(CITY_DATA_FILE, ["user_id", "city", "timestamp", "chat_id"])
+    
     try:
         with open(CITY_DATA_FILE, mode='r', newline='', encoding='utf-8') as f:
             reader = csv.DictReader(f)
+            
+            # First try to find a match with the specific chat_id if provided
+            if chat_id:
+                for row in reader:
+                    if ('user_id' in row and row['user_id'] == str(user_id) and
+                        'chat_id' in row and row['chat_id'] == str(chat_id)):
+                        if 'city' in row:
+                            city = row['city']
+                            # Always return "Kyiv" for "kiev"
+                            return "Kyiv" if city.lower() == "kiev" else city
+                
+                # Reset file position to try again for user's default city
+                f.seek(0)
+                # Skip header row
+                next(reader)
+            
+            # Look for user's default city
             for row in reader:
-                if row['user_id'] == str(user_id):
-                    city = row['city']
-                    return "Kyiv" if city.lower() == "kiev" else city
+                if 'user_id' in row and row['user_id'] == str(user_id):
+                    if 'city' in row:
+                        city = row['city']
+                        # Always return "Kyiv" for "kiev"
+                        return "Kyiv" if city.lower() == "kiev" else city
+                        
     except FileNotFoundError:
         general_logger.warning(f"City data file not found: {CITY_DATA_FILE}")
         return None
     except Exception as e:
         general_logger.error(f"Error reading city data: {e}")
         return None
+    
     return None
 
 # Cat API command
