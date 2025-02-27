@@ -79,10 +79,24 @@ async def log_user_response(update, response_text):
     await update.message.reply_text(response_text)
 
 async def handle_error(e, update, return_text):
-    general_logger.error(f"Error in ask_gpt_command: {e}")
-    if not return_text and update and update.message:
-        await update.message.reply_text("Вибачте, сталася помилка.")
-    raise
+    from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
+    
+    # Create context with relevant information
+    context = {
+        "function": "ask_gpt_command",
+        "return_text": return_text,
+        "user_id": update.effective_user.id if update and update.effective_user else None,
+        "chat_id": update.effective_chat.id if update and update.effective_chat else None,
+    }
+    
+    # Handle the error with our standardized system
+    await ErrorHandler.handle_error(
+        error=e,
+        update=update,
+        context=None,  # No need for context.bot in this case
+        feedback_message="Вибачте, сталася помилка при зверненні до GPT.",
+        propagate=True  # We still want to propagate this error
+    )
 
 async def gpt_summary_function(messages):
     try:
