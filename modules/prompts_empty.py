@@ -4,6 +4,5 @@
 GPT_PROMPTS = {
     "gpt_response": "",
     "gpt_response_return_text": "",
-    "gpt_summary": "",
-    "get_word_from_gpt": ""
+    "gpt_summary": ""
 }
