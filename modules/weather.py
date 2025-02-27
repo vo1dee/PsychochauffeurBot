@@ -125,13 +125,16 @@ class WeatherCommand:
     async def __call__(self, update: Update, context: CallbackContext) -> None:
         """Handle /weather command."""
         user_id = update.effective_user.id
+        chat_id = update.effective_chat.id if update.effective_chat else None
         
         try:
             if context.args:
                 city = " ".join(context.args)
-                save_user_location(user_id, city)
+                # Save with chat_id for group chats
+                save_user_location(user_id, city, chat_id)
             else:
-                city = get_last_used_city(user_id)
+                # Try to get city for this specific chat first, then fallback to user's default
+                city = get_last_used_city(user_id, chat_id)
                 if not city:
                     await update.message.reply_text(
                         "Будь ласка, вкажіть назву міста або задайте його спочатку."

@@ -4,7 +4,6 @@ import logging
 import asyncio
 import html
 from logging.handlers import RotatingFileHandler
-from modules.file_manager import ensure_directories
 import threading
 from typing import Set, Optional, Tuple
 from datetime import datetime
@@ -12,6 +11,30 @@ import pytz
 import time
 from modules.const import Config
 from telegram.ext import Application
+
+# Define ensure_directories function here to avoid circular imports
+def ensure_directories():
+    """Ensure all required directories exist with proper permissions."""
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    log_dir = os.path.join(project_root, 'logs')
+    data_dir = os.path.join(project_root, 'data')
+    analytics_dir = os.path.join(log_dir, 'analytics')
+    
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(analytics_dir, exist_ok=True)
+        
+        # Verify write permissions
+        test_log_path = os.path.join(log_dir, 'test.log')
+        with open(test_log_path, 'w') as f:
+            f.write('Test log write\n')
+        os.remove(test_log_path)
+        print("Write permission verified for log directory")
+        return True
+    except Exception as e:
+        print(f"Error setting up directories: {e}")
+        return False
 
 # Timezone constants
 KYIV_TZ = pytz.timezone('Europe/Kyiv')
@@ -88,18 +111,17 @@ class TelegramErrorHandler(logging.Handler):
         
         for attempt in range(max_retries):
             try:
-                escaped_msg = error_msg.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`')
-                await self.bot.bot.send_message(
+                await self.bot.send_message(
                     chat_id=self.channel_id,
-                    text=escaped_msg,
-                    parse_mode='MarkdownV2'
+                    text=error_msg,
+                    parse_mode='HTML'
                 )
                 return
             except Exception as e:
                 if attempt == max_retries - 1:
                     general_logger.error(f"Failed to send error message to Telegram after {max_retries} attempts: {e}")
                     try:
-                        await self.bot.bot.send_message(
+                        await self.bot.send_message(
                             chat_id=self.channel_id,
                             text=html.escape(error_msg),
                             parse_mode=None
@@ -110,7 +132,7 @@ class TelegramErrorHandler(logging.Handler):
 
     def format_error_message(self, record: logging.LogRecord) -> str:
         """
-        Format the error message with all relevant information.
+        Format the error message with all relevant information using HTML.
         """
         current_time = datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
         
@@ -118,17 +140,20 @@ class TelegramErrorHandler(logging.Handler):
         username = getattr(record, 'username', 'N/A')
         chat_title = getattr(record, 'chattitle', 'N/A')
         
+        # HTML escaping is handled by html.escape
+        safe_message = html.escape(self.format(record))
+        
         error_msg = (
-            f"🚨 *Error Report*\n"
-            f"*Time:* {current_time}\n"
-            f"*Level:* {record.levelname}\n"
-            f"*Location:* {record.pathname}:{record.lineno}\n"
-            f"*Function:* {record.funcName}\n"
-            f"*Chat ID:* {chat_id}\n"
-            f"*Username:* {username}\n"
-            f"*Chat Title:* {chat_title}\n"
-            f"*Message:*\n"
-            f"```\n{self.format(record)}\n```"
+            f"🚨 <b>Error Report</b>\n"
+            f"<b>Time:</b> {current_time}\n"
+            f"<b>Level:</b> {record.levelname}\n"
+            f"<b>Location:</b> {html.escape(f'{record.pathname}:{record.lineno}')}\n"
+            f"<b>Function:</b> {html.escape(record.funcName)}\n"
+            f"<b>Chat ID:</b> {html.escape(str(chat_id))}\n"
+            f"<b>Username:</b> {html.escape(str(username))}\n"
+            f"<b>Chat Title:</b> {html.escape(str(chat_title))}\n"
+            f"<b>Message:</b>\n"
+            f"<pre>{safe_message}</pre>"
         )
         return error_msg
 
@@ -158,7 +183,7 @@ class TelegramErrorHandler(logging.Handler):
             self.handleError(record)
 
 # Initialize logging system
-def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger]:
+def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger, logging.Logger]:
     """Set up all loggers and handlers"""
     if not ensure_directories():
         sys.exit(1)
@@ -191,6 +216,22 @@ def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger
     general_logger.addHandler(console_handler)
     general_logger.addHandler(general_file_handler)
     general_logger.propagate = False
+    
+    # --- Analytics Logger ---
+    analytics_logger = logging.getLogger('analytics_logger')
+    analytics_logger.setLevel(logging.INFO)
+    
+    analytics_file_handler = RotatingFileHandler(
+        os.path.join(LOG_DIR, 'analytics.log'),
+        maxBytes=5*1024*1024,
+        backupCount=3,
+        encoding='utf-8'
+    )
+    analytics_file_handler.setFormatter(KyivTimezoneFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    
+    analytics_logger.addHandler(console_handler)
+    analytics_logger.addHandler(analytics_file_handler)
+    analytics_logger.propagate = False
     
     # --- Chat Logger ---
     chat_logger = logging.getLogger('chat_logger')
@@ -239,7 +280,7 @@ def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger
     
     print(f"Log files are being written to: {LOG_DIR}")
     
-    return general_logger, chat_logger, error_logger
+    return general_logger, chat_logger, error_logger, analytics_logger
 
 # Initialize telegram error handler
 async def init_error_handler(application: Application, ERROR_CHANNEL_ID: str) -> None:
@@ -309,4 +350,4 @@ def read_last_n_lines(file_path: str, n: int) -> list:
         return lines[-n:]  # Return the last n lines
 
 # Initialize logging when this module is imported
-general_logger, chat_logger, error_logger = initialize_logging()
+general_logger, chat_logger, error_logger, analytics_logger = initialize_logging()

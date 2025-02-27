@@ -9,8 +9,14 @@ import nest_asyncio
 import re
 import pyshorteners
 import random
-from typing import List, Optional
+import sys
+from datetime import datetime
+from typing import List, Optional, Dict, Any
 from urllib.parse import urlparse, urlunparse
+import pytz
+
+# Define timezone constant
+KYIV_TZ = pytz.timezone('Europe/Kyiv')
 
 from telegram import Update
 from telegram.ext import (
@@ -32,6 +38,7 @@ from modules.weather import weather
 from modules.logger import general_logger, chat_logger, error_logger, get_daily_log_path,  init_error_handler
 from modules.user_management import restrict_user
 from modules.video_downloader import VideoDownloader, setup_video_handlers
+from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
 
 
 nest_asyncio.apply()
@@ -110,8 +117,9 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
     return (mentioned or (is_private_chat and 
             not (contains_video_platform or contains_modified_domain)))
 
+@handle_errors(feedback_message="An error occurred while processing your message.")
 async def handle_message(update: Update, context: CallbackContext) -> None:
-    """Handle incoming text messages."""
+    """Handle incoming text messages with standardized error handling."""
     if not update.message or not update.message.text:
         return
 
@@ -149,8 +157,9 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Random GPT response
     await handle_random_gpt_response(update, context)
 
+@handle_errors(feedback_message="An error occurred while processing GPT response.")
 async def handle_random_gpt_response(update: Update, context: CallbackContext) -> None:
-    """Handle random GPT responses based on message count."""
+    """Handle random GPT responses based on message count with error handling."""
     message_text = update.message.text
     chat_id = update.message.chat_id
 
@@ -166,13 +175,14 @@ async def handle_random_gpt_response(update: Update, context: CallbackContext) -
         await answer_from_gpt(message_text, update, context)
         message_counter.reset(chat_id)
 
+@handle_errors(feedback_message="An error occurred while processing your links.")
 async def process_urls(
     update: Update,
     context: CallbackContext,
     urls: List[str],
     message_text: str
 ) -> None:
-    """Process URLs for modification or video downloading."""
+    """Process URLs for modification or video downloading with standardized error handling."""
     modified_links = []
     needs_video_download = any(
         platform in url.lower() 
@@ -215,7 +225,17 @@ async def process_urls(
             logger.info(f"Attempting video download for URLs: {urls}")
             await video_downloader.handle_video_link(update, context)
         else:
-            error_logger.error("Video downloader not initialized properly")
+            # Use standardized error handler
+            error = ErrorHandler.create_error(
+                message="Video downloader not initialized properly",
+                severity=ErrorSeverity.HIGH,
+                category=ErrorCategory.RESOURCE,
+                context={
+                    "urls": urls,
+                    "chat_id": update.effective_chat.id if update and update.effective_chat else None
+                }
+            )
+            await ErrorHandler.handle_error(error, update, context)
 
 def sanitize_url(url: str, replace_domain: Optional[str] = None) -> str:
     """Sanitize a URL by keeping scheme, netloc, and path only."""
@@ -224,7 +244,17 @@ def sanitize_url(url: str, replace_domain: Optional[str] = None) -> str:
         netloc = replace_domain if replace_domain else parsed_url.netloc
         return urlunparse((parsed_url.scheme, netloc, parsed_url.path, '', '', ''))
     except Exception as e:
-        error_logger.error(f"Failed to sanitize URL {url}: {e}")
+        # Create standardized error
+        error = ErrorHandler.create_error(
+            message=f"Failed to sanitize URL",
+            severity=ErrorSeverity.LOW,
+            category=ErrorCategory.PARSING,
+            context={"url": url},
+            original_exception=e
+        )
+        # Log error with structured format
+        error_message = ErrorHandler.format_error_message(error)
+        error_logger.error(error_message)
         return url
 
 async def shorten_url(url: str) -> str:
@@ -232,7 +262,17 @@ async def shorten_url(url: str) -> str:
     try:
         return pyshorteners.Shortener().tinyurl.short(url)
     except Exception as e:
-        error_logger.error(f"Error shortening URL {url}: {e}")
+        # Create standardized error
+        error = ErrorHandler.create_error(
+            message="Failed to shorten URL",
+            severity=ErrorSeverity.LOW,
+            category=ErrorCategory.NETWORK,
+            context={"url": url},
+            original_exception=e
+        )
+        # Log error with structured format
+        error_message = ErrorHandler.format_error_message(error)
+        error_logger.error(error_message)
         return url
 
 def remove_links(text: str) -> str:
@@ -252,6 +292,8 @@ async def construct_and_send_message(
     context: CallbackContext
 ) -> None:
     """Construct and send a message with modified links."""
+    from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
+    
     try:
         modified_message = " ".join(modified_links)
         final_message = f"@{username}💬: {cleaned_message_text}\nWants to share: {modified_message}"
@@ -268,8 +310,21 @@ async def construct_and_send_message(
         )
         general_logger.info(f"Sent message with keyboard. Link hash: {link_hash}")
     except Exception as e:
-        error_logger.error(f"Error in construct_and_send_message: {e}")
-        await update.message.reply_text("Sorry, an error occurred.")
+        # Create error context
+        error_context = {
+            "username": username,
+            "cleaned_message": cleaned_message_text,
+            "modified_links": modified_links,
+            "chat_id": chat_id
+        }
+        
+        # Use standardized error handling
+        await ErrorHandler.handle_error(
+            error=e,
+            update=update,
+            context=context,
+            feedback_message="Sorry, an error occurred while processing your message."
+        )
 
 async def handle_sticker(update: Update, context: CallbackContext) -> None:
     """Handle incoming stickers."""
@@ -283,6 +338,8 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
 
 async def main() -> None:
     """Initialize and run the bot."""
+    from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
+    
     try:
         # Initialize required directories and state
         init_directories()
@@ -290,6 +347,9 @@ async def main() -> None:
         # Build application
         application = ApplicationBuilder().token(TOKEN).build()
 
+        # Import error analytics report command
+        from modules.error_analytics import error_report_command
+        
         # Register command handlers
         commands = {
             'start': start,
@@ -298,7 +358,8 @@ async def main() -> None:
             'analyze': analyze_command,
             'flares': screenshot_command,
             'weather': weather,
-            'blya': translate_last_message
+            'blya': translate_last_message,
+            'errors': error_report_command  # New command for error analytics
         }
         
         for command, handler in commands.items():
@@ -337,7 +398,26 @@ async def main() -> None:
         await application.run_polling()
 
     except Exception as e:
-        error_logger.error(f"Bot failed to start: {e}")
+        # Create a critical error for bot startup failure
+        standard_error = ErrorHandler.create_error(
+            message="Bot failed to start",
+            severity=ErrorSeverity.CRITICAL,
+            category=ErrorCategory.GENERAL,
+            context={
+                "system_info": {
+                    "python_version": sys.version,
+                    "event_loop": str(asyncio.get_event_loop()),
+                },
+                "time": datetime.now(KYIV_TZ).isoformat()
+            },
+            original_exception=e
+        )
+        
+        # Log with detailed context
+        error_message = ErrorHandler.format_error_message(standard_error, prefix="💥")
+        error_logger.critical(error_message)
+        
+        # Still raise to prevent silent failures
         raise
 
 if __name__ == '__main__':

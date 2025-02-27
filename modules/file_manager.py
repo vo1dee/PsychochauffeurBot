@@ -3,7 +3,7 @@ import csv
 import logging
 from logging.handlers import RotatingFileHandler
 import threading
-from typing import Set, Optional
+from typing import Set, Optional, Dict, List
 from datetime import datetime
 import pytz
 from pathlib import Path
@@ -13,6 +13,7 @@ import sys
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
+ANALYTICS_DIR = os.path.join(LOG_DIR, 'analytics')
 CSV_FILE = os.path.join(DATA_DIR, "user_locations.csv")
 USED_WORDS_FILE = os.path.join(DATA_DIR, "used_words.csv")
 KYIV_TZ = pytz.timezone('Europe/Kyiv')
@@ -24,6 +25,7 @@ def ensure_directories():
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
         os.makedirs(DATA_DIR, exist_ok=True)
+        os.makedirs(ANALYTICS_DIR, exist_ok=True)
         
         # Verify write permissions
         test_log_path = os.path.join(LOG_DIR, 'test.log')
@@ -48,43 +50,106 @@ class KyivTimezoneFormatter(logging.Formatter):
 
 
 
+# CSV file management
+def ensure_csv_headers(file_path: str, headers: List[str]) -> None:
+    """Ensure CSV file exists and has the proper headers.
+    
+    Args:
+        file_path (str): Path to the CSV file
+        headers (List[str]): List of column headers
+    """
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    
+    # Check if file exists
+    if not os.path.exists(file_path):
+        # Create new file with headers
+        with open(file_path, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+        print(f"Created new CSV file with headers: {file_path}")
+        return
+    
+    # File exists, check if it has headers
+    try:
+        with open(file_path, mode='r', newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            first_row = next(reader, None)
+            
+            # If file is empty or headers don't match, add headers
+            if not first_row or set(first_row) != set(headers):
+                # Read all existing data
+                f.seek(0)
+                all_data = list(reader)
+                
+                # Write back with headers
+                with open(file_path, mode='w', newline='', encoding='utf-8') as wf:
+                    writer = csv.writer(wf)
+                    writer.writerow(headers)
+                    writer.writerows(all_data)
+                print(f"Added or corrected headers in CSV file: {file_path}")
+    except Exception as e:
+        print(f"Error checking CSV headers: {e}")
+
 # Data management functions
-def save_user_location(user_id, city):
+def save_user_location(user_id, city, chat_id=None):
     """Save user's location to a CSV file.
     
     Args:
         user_id (int): User ID
         city (str): City name
+        chat_id (int, optional): Chat ID for group-specific cities
     """
     # Use the constant instead of hardcoded path
     file_path = CSV_FILE
     
-    # Ensure directory exists
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    # Always use "Kyiv" instead of "kiev"
+    if city and city.lower() == "kiev":
+        city = "Kyiv"
+    
+    # Ensure CSV file has proper headers
+    ensure_csv_headers(file_path, ["user_id", "city", "timestamp", "chat_id"])
     
     # Read existing data first
     existing_data = []
     try:
         with open(file_path, mode='r', newline='', encoding='utf-8') as f:
             reader = csv.reader(f)
+            headers = next(reader, None)  # Skip header row
             existing_data = list(reader)
     except FileNotFoundError:
-        pass  # File doesn't exist yet, that's fine
+        headers = ["user_id", "city", "timestamp", "chat_id"]
+        existing_data = []
     
     # Update or add new entry
     timestamp = datetime.now().isoformat()
     updated = False
     
     for i, row in enumerate(existing_data):
-        if len(row) > 0 and row[0] == str(user_id):
-            existing_data[i] = [str(user_id), city, timestamp]
-            updated = True
-            break
+        # Check if we're updating a chat-specific entry
+        if chat_id and len(row) >= 4:
+            if row[0] == str(user_id) and row[3] == str(chat_id):
+                existing_data[i] = [str(user_id), city, timestamp, str(chat_id)]
+                updated = True
+                break
+        # Or a user-specific entry (no chat_id provided)
+        elif not chat_id and (len(row) < 4 or not row[3]):
+            if row[0] == str(user_id):
+                # Preserve or update row based on length
+                if len(row) >= 4:
+                    existing_data[i] = [str(user_id), city, timestamp, row[3]]
+                else:
+                    existing_data[i] = [str(user_id), city, timestamp, ""]
+                updated = True
+                break
     
     if not updated:
-        existing_data.append([str(user_id), city, timestamp])
+        # Add the new entry with appropriate chat_id
+        entry = [str(user_id), city, timestamp, str(chat_id) if chat_id else ""]
+        existing_data.append(entry)
     
-    # Write back to file - ensure exact parameter naming to match the test
+    # Write back to file with headers
     with open(file_path, mode='w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
+        writer.writerow(headers)  # Write headers first
         writer.writerows(existing_data)
