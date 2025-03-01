@@ -144,6 +144,11 @@ class ErrorHandler:
             parts.append(f"Type: {error.category.value}")
             parts.append(f"Severity: {error.severity.value}")
             parts.append(f"Message: {error.message}")
+            
+            # Include context from StandardError
+            if error.context:
+                for key, value in error.context.items():
+                    parts.append(f"{key}: {value}")
         else:
             parts.append(f"Type: {type(error).__name__}")
             parts.append(f"Message: {str(error)}")
