@@ -1,5 +1,6 @@
 import unittest
 import os
+import sys
 import tempfile
 import csv
 import json
@@ -9,6 +10,10 @@ import pytz
 from unittest.mock import mock_open, patch, MagicMock, AsyncMock, call
 from telegram import Update
 from telegram.ext import CallbackContext
+
+# Add the project root to the Python path so we can import modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from modules.utils import (
     extract_urls, ensure_directory, init_directories, 
     remove_links, country_code_to_emoji, get_weather_emoji,
@@ -434,7 +439,7 @@ class TestEdgeCases(unittest.TestCase):
             # Test with mock file that raises exception during reading
             with patch('modules.utils.CITY_DATA_FILE', test_file):
                 with patch('modules.utils.open', side_effect=Exception("Test error")):
-                    with patch('modules.utils.general_logger') as mock_logger:
+                    with patch('modules.utils.error_logger') as mock_logger:
                         result = get_last_used_city(123)
                         self.assertIsNone(result)
                         mock_logger.error.assert_called_once()

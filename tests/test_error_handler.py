@@ -1,11 +1,15 @@
 import unittest
 import os
+import sys
 import asyncio
 from unittest.mock import patch, MagicMock, AsyncMock, call
 from telegram import Update, Chat, User, Message
 from telegram.ext import ContextTypes
 from datetime import datetime
 import pytz
+
+# Add the project root to the Python path so we can import modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from modules.error_handler import (
     ErrorSeverity, ErrorCategory, StandardError, 
