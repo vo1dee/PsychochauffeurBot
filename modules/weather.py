@@ -40,7 +40,7 @@ class WeatherData:
             advice = await ask_gpt_command(prompt, update, context, return_text=True)
             return f"\n👕 {advice}"
         except Exception as e:
-            general_logger.error(f"Error getting clothing advice: {e}")
+            error_logger.error(f"Error getting clothing advice: {e}")
             return ""
 
     async def format_message(self, update: Update = None, context: CallbackContext = None) -> str:
@@ -86,7 +86,7 @@ class WeatherAPI:
                 data = response.json()
 
             if data.get("cod") != 200:
-                general_logger.error(f"Weather API error response: {data}")
+                error_logger.error(f"Weather API error response: {data}")
                 raise ValueError(f"API Error: {data.get('message', 'Unknown error')}")
 
             weather = data.get("weather", [{}])[0]
@@ -102,10 +102,10 @@ class WeatherAPI:
             )
             
         except httpx.HTTPStatusError as e:
-            general_logger.error(f"HTTP error fetching weather data: {e}")
+            error_logger.error(f"HTTP error fetching weather data: {e}")
             return None
         except Exception as e:
-            general_logger.error(f"Error fetching weather data: {e}")
+            error_logger.error(f"Error fetching weather data: {e}")
             return None
 
 
@@ -148,7 +148,7 @@ class WeatherCommand:
                 await update.message.reply_text(weather_info)
                 
         except Exception as e:
-            general_logger.error(f"Error in weather command: {e}")
+            error_logger.error(f"Error in weather command: {e}")
             await update.message.reply_text(
                 "Виникла помилка при отриманні погоди. Спробуйте пізніше."
             )

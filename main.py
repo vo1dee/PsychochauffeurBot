@@ -279,10 +279,6 @@ def remove_links(text: str) -> str:
     """Remove URLs from text."""
     return re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', text)
 
-def extract_urls(text: str) -> List[str]:
-    """Extract URLs from text."""
-    return re.findall(r'https?://[^\s]+', text)
-
 async def construct_and_send_message(
     chat_id: int,
     username: str,
