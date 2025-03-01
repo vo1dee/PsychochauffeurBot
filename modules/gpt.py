@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timedelta
 import pytz
 from typing import Optional
-from modules.logger import general_logger, chat_logger, get_daily_log_path, read_last_n_lines
+from modules.logger import general_logger, error_logger, get_daily_log_path
 from modules.const import OPENAI_API_KEY, USED_WORDS_FILE
 if os.getenv("USE_EMPTY_PROMPTS", "false").lower() == "true":
     from modules.prompts_empty import GPT_PROMPTS  # Use empty prompts in GitHub Actions
@@ -121,7 +121,7 @@ async def gpt_summary_function(messages):
         summary = response.choices[0].message.content.strip()  # Adjust based on actual response structure
         return summary
     except Exception as e:
-        logging.error(f"Error in GPT summarization: {e}")
+        error_logger.error(f"Error in GPT summarization: {e}")
         return "Не вдалось згенерувати підсумок."
     
 
@@ -131,7 +131,7 @@ async def summarize_messages(messages):
         summary = await gpt_summary_function(messages)
         return summary
     except Exception as e:
-        logging.error(f"Error summarizing messages: {e}")
+        error_logger.error(f"Error summarizing messages: {e}")
         return "Could not generate summary."
 
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

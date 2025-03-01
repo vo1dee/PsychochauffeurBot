@@ -119,7 +119,7 @@ class TelegramErrorHandler(logging.Handler):
                 return
             except Exception as e:
                 if attempt == max_retries - 1:
-                    general_logger.error(f"Failed to send error message to Telegram after {max_retries} attempts: {e}")
+                    error_logger.error(f"Failed to send error message to Telegram after {max_retries} attempts: {e}")
                     try:
                         await self.bot.send_message(
                             chat_id=self.channel_id,
@@ -127,7 +127,7 @@ class TelegramErrorHandler(logging.Handler):
                             parse_mode=None
                         )
                     except Exception as final_e:
-                        general_logger.error(f"Final attempt to send message failed: {final_e}")
+                        error_logger.error(f"Final attempt to send message failed: {final_e}")
                 await asyncio.sleep(retry_delay * (attempt + 1))
 
     def format_error_message(self, record: logging.LogRecord) -> str:
@@ -288,15 +288,15 @@ async def init_error_handler(application: Application, ERROR_CHANNEL_ID: str) ->
     general_logger = logging.getLogger('general_logger')
     
     if not application:
-        general_logger.error("Application instance is None")
+        error_logger.error("Application instance is None")
         return
         
     if not application.bot:
-        general_logger.error("Bot instance is not available")
+        error_logger.error("Bot instance is not available")
         return
         
     if not ERROR_CHANNEL_ID:
-        general_logger.error("ERROR_CHANNEL_ID is not set")
+        error_logger.error("ERROR_CHANNEL_ID is not set")
         return
         
     error_logger = logging.getLogger('error_logger')

@@ -211,7 +211,7 @@ def get_last_used_city(user_id: int, chat_id: int = None) -> Optional[str]:
         general_logger.warning(f"City data file not found: {CITY_DATA_FILE}")
         return None
     except Exception as e:
-        general_logger.error(f"Error reading city data: {e}")
+        error_logger.error(f"Error reading city data: {e}")
         return None
     
     return None
@@ -235,7 +235,7 @@ async def cat_command(update: Update, context: CallbackContext) -> None:
                 else:
                     await update.message.reply_text('Sorry, I could not fetch a cat image at the moment.')
     except Exception as e:
-        general_logger.error(f"Error fetching cat image: {e}")
+        error_logger.error(f"Error fetching cat image: {e}")
         await update.message.reply_text('An error occurred while fetching a cat image.')
 
 # Screenshot functionality
@@ -330,7 +330,7 @@ class ScreenshotManager:
                 await asyncio.sleep(max(1, sleep_seconds))  # Ensure positive sleep time
                 await self.take_screenshot(WEATHER_API_URL, self.get_screenshot_path())
             except Exception as e:
-                general_logger.error(f"Error in screenshot scheduler: {e}")
+                error_logger.error(f"Error in screenshot scheduler: {e}")
                 await asyncio.sleep(300)  # Wait 5 minutes before retry on error
 
 # Command handlers
@@ -365,7 +365,7 @@ async def screenshot_command(update: Update, context: CallbackContext) -> None:
         else:
             await update.message.reply_text("Failed to generate screenshot. Please try again later.")
     except Exception as e:
-        general_logger.error(f"Error in screenshot command: {e}")
+        error_logger.error(f"Error in screenshot command: {e}")
         await update.message.reply_text("An error occurred while processing your request.")
 
 
