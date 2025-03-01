@@ -286,6 +286,7 @@ def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger
 async def init_error_handler(application: Application, ERROR_CHANNEL_ID: str) -> None:
     """Initialize error handler with application instance"""
     general_logger = logging.getLogger('general_logger')
+    error_logger = logging.getLogger('error_logger')
     
     if not application:
         error_logger.error("Application instance is None")
@@ -298,8 +299,6 @@ async def init_error_handler(application: Application, ERROR_CHANNEL_ID: str) ->
     if not ERROR_CHANNEL_ID:
         error_logger.error("ERROR_CHANNEL_ID is not set")
         return
-        
-    error_logger = logging.getLogger('error_logger')
     handler = TelegramErrorHandler(application.bot, ERROR_CHANNEL_ID)
     handler.setFormatter(KyivTimezoneFormatter(
         '%(asctime)s - %(name)s - %(levelname)s\n'
