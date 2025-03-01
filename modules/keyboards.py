@@ -2,7 +2,7 @@ import hashlib
 import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext
-from modules.file_manager import general_logger,error_logger,get_daily_log_path
+from modules.logger import general_logger,error_logger
 
 
 

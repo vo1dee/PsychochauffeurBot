@@ -6,14 +6,16 @@ import httpx
 from telegram import Update
 from telegram.ext import CallbackContext
 
-from utils import (
+from modules.utils import (
     country_code_to_emoji,
     get_weather_emoji,
     get_city_translation,
-    get_feels_like_emoji
+    get_feels_like_emoji,
+    get_last_used_city
 )
-from const import Config
-from modules.file_manager import general_logger, save_user_location, get_last_used_city
+from modules.const import Config
+from modules.logger import init_error_handler, error_logger, general_logger
+from modules.file_manager import save_user_location
 from modules.gpt import ask_gpt_command
 
 
@@ -123,13 +125,16 @@ class WeatherCommand:
     async def __call__(self, update: Update, context: CallbackContext) -> None:
         """Handle /weather command."""
         user_id = update.effective_user.id
+        chat_id = update.effective_chat.id if update.effective_chat else None
         
         try:
             if context.args:
                 city = " ".join(context.args)
-                save_user_location(user_id, city)
+                # Save with chat_id for group chats
+                save_user_location(user_id, city, chat_id)
             else:
-                city = get_last_used_city(user_id)
+                # Try to get city for this specific chat first, then fallback to user's default
+                city = get_last_used_city(user_id, chat_id)
                 if not city:
                     await update.message.reply_text(
                         "Будь ласка, вкажіть назву міста або задайте його спочатку."
