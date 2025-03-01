@@ -12,6 +12,7 @@ A versatile Telegram bot that downloads videos from social media platforms, prov
 - Twitter/X
 - Vimeo
 - Reddit
+- Twitch clips
 
 ### How to Use
 Simply send a video link from any supported platform, and the bot will:
@@ -23,7 +24,6 @@ Simply send a video link from any supported platform, and the bot will:
 
 ### Platform-Specific Features
 - **YouTube Shorts**: Bot downloads and sends the video
-- **YouTube Videos**: Bot replies with #youtube hashtag
 - **AliExpress Links**: Automatically shortens URLs, adds #aliexpress hashtag, and sends a sticker
 
 ## 🤖 GPT Integration
@@ -47,10 +47,6 @@ Simply send a video link from any supported platform, and the bot will:
 - `/cat` - Random cat pictures from thecatapi.com
 - `/blya` - Translates last message from English to Ukrainian keyboard layout
 - `/errors` - Generate error analytics report (admin only)
-- `/game` - Start word game [In Dev]
-- `/endgame` - End current game 
-- `/clearwords` - Clear game words
-- `/hint` - Get game hint
 
 ## 🔧 Technical Features
 - Comprehensive error analytics and reporting system
