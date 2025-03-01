@@ -16,7 +16,6 @@ from telegram.ext import CallbackContext, ContextTypes
 from openai import AsyncClient
 
 
-# aclient = AsyncOpenAI(api_key=OPENAI_API_KEY)
 client = AsyncClient(api_key=OPENAI_API_KEY)
 openai.api_key = OPENAI_API_KEY
 
