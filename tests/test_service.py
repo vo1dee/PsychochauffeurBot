@@ -1,8 +1,12 @@
 import aiohttp
 import asyncio
 import os
+import sys
 import unittest
 from dotenv import load_dotenv
+
+# Add the project root to the Python path so we can import modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 class TestServiceConnection(unittest.TestCase):
 
