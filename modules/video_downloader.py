@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from enum import Enum
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
-from const import VideoPlatforms
-from utils import extract_urls
-from modules.file_manager import error_logger
+from modules.const import VideoPlatforms
+from modules.utils import extract_urls
+from modules.logger import init_error_handler, error_logger
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -320,26 +320,58 @@ class VideoDownloader:
             await self.send_error_sticker(update)
 
     async def _handle_download_error(self, update: Update, url: str) -> None:
-        """Handle download errors with detailed logging."""
-        error_logger.error(
-            f"⬇️ Download Error\n"
-            f"URL: {url}\n"
-            f"User ID: {update.effective_user.id}\n"
-            f"Username: @{update.effective_user.username}\n"
-            f"Platform: {next((p for p in self.supported_platforms if p in url), 'unknown')}"
+        """Handle download errors with standardized handling."""
+        from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity, send_error_feedback
+        
+        # Create context information
+        context = {
+            "url": url,
+            "platform": next((p for p in self.supported_platforms if p in url), 'unknown'),
+            "user_id": update.effective_user.id if update and update.effective_user else None,
+            "username": update.effective_user.username if update and update.effective_user else None,
+        }
+        
+        # Create a standard error
+        error = ErrorHandler.create_error(
+            message=f"Failed to download video from {context['platform']}",
+            severity=ErrorSeverity.MEDIUM,
+            category=ErrorCategory.NETWORK,
+            context=context
         )
-        await self.send_error_sticker(update)
+        
+        # Log error with our standard format
+        error_message = ErrorHandler.format_error_message(error, update, prefix="⬇️")
+        error_logger.error(error_message)
+        
+        # Send error feedback to user
+        await send_error_feedback(
+            update=update,
+            stickers=self.ERROR_STICKERS
+        )
 
     async def _handle_processing_error(self, update: Update, error: Exception, message_text: str) -> None:
-        """Handle processing errors with detailed logging."""
-        error_logger.error(
-            f"⚠️ Processing Error\n"
-            f"Error: {str(error)}\n"
-            f"User ID: {update.effective_user.id}\n"
-            f"Username: @{update.effective_user.username}\n"
-            f"Message: {message_text}"
+        """Handle processing errors with standardized handling."""
+        from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity, send_error_feedback
+        
+        # Create a standard error with the original exception
+        std_error = ErrorHandler.create_error(
+            message="Error processing video request",
+            severity=ErrorSeverity.MEDIUM,
+            category=ErrorCategory.GENERAL,
+            context={
+                "message_text": message_text,
+                "user_id": update.effective_user.id if update and update.effective_user else None,
+                "username": update.effective_user.username if update and update.effective_user else None,
+            },
+            original_exception=error
         )
-        await self.send_error_sticker(update)
+        
+        # Use our centralized error handler
+        await ErrorHandler.handle_error(
+            error=std_error,
+            update=update,
+            user_feedback_fn=lambda u, _: send_error_feedback(u, stickers=self.ERROR_STICKERS)
+        )
 
     async def _cleanup(self, processing_msg, filename: Optional[str], update: Update) -> None:
         """Clean up resources after processing."""
