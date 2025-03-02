@@ -21,7 +21,7 @@ from modules.utils import (
 )
 from modules.file_manager import ensure_csv_headers, save_user_location
 from modules.utils import get_last_used_city
-from modules.weather import WeatherCommand, WeatherData
+from modules.weather import WeatherCommand, WeatherData, WeatherCommandHandler
 from modules.const import weather_emojis, feels_like_emojis
 
 class TestBot(unittest.TestCase):
@@ -194,8 +194,8 @@ class TestBot(unittest.TestCase):
         context = MagicMock(spec=CallbackContext)
         context.args = []  # No city provided in command
         
-        # Create WeatherCommand instance with mocked handle_weather_request
-        weather_cmd = WeatherCommand()
+        # Create WeatherCommandHandler instance with mocked handle_weather_request
+        weather_cmd = WeatherCommandHandler()
         weather_cmd.handle_weather_request = AsyncMock(return_value="Weather info for Kyiv")
         
         # Run the coroutine
@@ -224,8 +224,8 @@ class TestBot(unittest.TestCase):
         context = MagicMock(spec=CallbackContext)
         context.args = ["Odesa"]  # City provided in command
         
-        # Create WeatherCommand instance with mocked handle_weather_request
-        weather_cmd = WeatherCommand()
+        # Create WeatherCommandHandler instance with mocked handle_weather_request
+        weather_cmd = WeatherCommandHandler()
         weather_cmd.handle_weather_request = AsyncMock(return_value="Weather info for Odesa")
         
         # Run the coroutine
