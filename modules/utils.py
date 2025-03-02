@@ -347,26 +347,41 @@ async def screenshot_command(update: Update, context: CallbackContext) -> None:
         # Try to get today's existing screenshot first
         screenshot_path = manager.get_latest_screenshot()
 
+        # Get current time in Kyiv timezone
+        kyiv_now = datetime.now(pytz.timezone('Europe/Kyiv'))
+        next_screenshot = kyiv_now + timedelta(hours=6)
+
         # If no screenshot exists for today, take a new one
         if not screenshot_path:
-            await update.message.reply_text("Taking a new screenshot, please wait...")
+            status_msg = await update.message.reply_text("Роблю новий знімок, будь ласка зачекайте...")
             screenshot_path = await manager.take_screenshot(
-                WEATHER_API_URL,
-                manager.get_screenshot_path()
+            WEATHER_API_URL,
+            manager.get_screenshot_path()
             )
+            await status_msg.delete()
 
         if screenshot_path:
+            # Get file modification time
+            mod_time = datetime.fromtimestamp(os.path.getmtime(screenshot_path))
+            mod_time = mod_time.astimezone(pytz.timezone('Europe/Kyiv'))
+            
+            caption = (
+                f"Прогноз сонячних спалахів і магнітних бурь\n"
+                f"Час знімку: {mod_time.strftime('%H:%M %d.%m.%Y')}\n"
+                f"Наступний знімок: {next_screenshot.strftime('%H:%M %d.%m.%Y')}"
+            )
+            
             with open(screenshot_path, 'rb') as photo:
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=photo,
-                    caption="Weather data screenshot"
+                    caption=caption
                 )
         else:
-            await update.message.reply_text("Failed to generate screenshot. Please try again later.")
+            await update.message.reply_text("Не вдалося згенерувати знімок. Спробуйте пізніше.")
     except Exception as e:
         error_logger.error(f"Error in screenshot command: {e}")
-        await update.message.reply_text("An error occurred while processing your request.")
+        await update.message.reply_text("Під час обробки вашого запиту сталася помилка.")
 
 
 # Initialization and main functions
