@@ -116,7 +116,8 @@ class WeatherAPI:
         params = {
             "q": translated_city,
             "appid": self.api_key,
-            "units": "metric"
+            "units": "metric",
+            "lang": "uk"  # Request weather descriptions in Ukrainian
         }
         
         try:
