@@ -1,7 +1,7 @@
 """Weather module for fetching and displaying weather information."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Any
 import httpx
 from telegram import Update
 from telegram.ext import CallbackContext
@@ -18,6 +18,14 @@ from modules.logger import init_error_handler, error_logger, general_logger
 from modules.file_manager import save_user_location
 from modules.gpt import ask_gpt_command
 
+
+@dataclass
+class WeatherCommand:
+    """Weather command response data structure"""
+    temperature: float
+    feels_like: float
+    description: str
+    clothing_advice: str
 
 @dataclass
 class WeatherData:
@@ -38,16 +46,36 @@ class WeatherData:
         Відповідай тільки порадою, без додаткового тексту."""
         try:
             advice = await ask_gpt_command(prompt, update, context, return_text=True)
-            return f"\n👕 {advice}"
+            return WeatherCommand(
+                temperature=self.temperature,
+                feels_like=self.feels_like,
+                description=self.description,
+                clothing_advice=advice
+            )
         except httpx.HTTPStatusError as e:
             error_logger.error(f"HTTP status error getting clothing advice: {e}")
-            return ""
+            return WeatherCommand(
+                temperature=self.temperature,
+                feels_like=self.feels_like,
+                description=self.description,
+                clothing_advice=""
+            )
         except httpx.RequestError as e:
             error_logger.error(f"Request error getting clothing advice: {e}")
-            return ""
+            return WeatherCommand(
+                temperature=self.temperature,
+                feels_like=self.feels_like,
+                description=self.description,
+                clothing_advice=""
+            )
         except Exception as e:
             error_logger.error(f"Unexpected error getting clothing advice: {e}")
-            return ""
+            return WeatherCommand(
+                temperature=self.temperature,
+                feels_like=self.feels_like,
+                description=self.description,
+                clothing_advice=""
+            )
 
     async def format_message(self, update: Update = None, context: CallbackContext = None) -> str:
         """Format weather data into a readable message."""
@@ -63,7 +91,7 @@ class WeatherData:
             f"{weather_emoji} {self.description.capitalize()}\n"
             f"🌡 Температура: {round(self.temperature)}°C\n"
             f"{feels_like_emoji} Відчувається як: {round(self.feels_like)}°C"
-            f"{clothing_advice}"
+            f"\n👕 {clothing_advice.clothing_advice}"
         )
 
 
@@ -129,7 +157,7 @@ class WeatherAPI:
             return None
 
 
-class WeatherCommand:
+class WeatherCommandHandler:
     """Handler for weather-related telegram commands."""
     
     def __init__(self):
