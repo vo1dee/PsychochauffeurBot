@@ -165,7 +165,7 @@ class WeatherCommandHandler:
         weather_data = await self.weather_api.fetch_weather(city)
         if weather_data:
             return await weather_data.format_message(update, context)
-        return f"Не вдалося отримати дані про погоду. {e}."
+        return "Не вдалося отримати дані про погоду."
     
     async def __call__(self, update: Update, context: CallbackContext) -> None:
         """Handle /weather command."""
