@@ -78,7 +78,6 @@ class WeatherAPI:
         self.client = httpx.AsyncClient()
     
     async def fetch_weather(self, city: str) -> Optional[WeatherData]:
-    async def fetch_weather(self, city: str) -> Optional[WeatherData]:
         if city in self.cache:
             general_logger.info(f"Using cached weather data for {city}")
             return self.cache[city]
