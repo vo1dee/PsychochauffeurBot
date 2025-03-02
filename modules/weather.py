@@ -165,7 +165,7 @@ class WeatherCommandHandler:
         weather_data = await self.weather_api.fetch_weather(city)
         if weather_data:
             return await weather_data.format_message(update, context)
-        return "Не вдалося отримати дані про погоду. {e}."
+        return f"Не вдалося отримати дані про погоду. {e}."
     
     async def __call__(self, update: Update, context: CallbackContext) -> None:
         """Handle /weather command."""
@@ -195,20 +195,20 @@ class WeatherCommandHandler:
         except httpx.HTTPStatusError as e:
             error_logger.error(f"HTTP status error in weather command: {e}")
             await update.message.reply_text(
-                "Виникла помилка HTTP при отриманні погоди. {e}."
+                f"Виникла помилка HTTP при отриманні погоди. {e}."
             )
         except httpx.RequestError as e:
             error_logger.error(f"Request error in weather command: {e}")
             await update.message.reply_text(
-                "Виникла помилка запиту при отриманні погоди. {e}."
+                f"Виникла помилка запиту при отриманні погоди. {e}."
             )
         except ValueError as e:
             error_logger.error(f"Value error in weather command: {e}")
             await update.message.reply_text(
-                "Виникла помилка значення при отриманні погоди. {e}."
+                f"Виникла помилка значення при отриманні погоди. {e}."
             )
         except Exception as e:
             error_logger.error(f"Unexpected error in weather command: {e}")
             await update.message.reply_text(
-                "Виникла несподівана помилка при отриманні погоди. {e}."
+                f"Виникла несподівана помилка при отриманні погоди. {e}."
             )
