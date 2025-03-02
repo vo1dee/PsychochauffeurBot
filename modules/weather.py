@@ -123,9 +123,7 @@ class WeatherAPI:
             response = await self.client.get(self.BASE_URL, params=params)
             data = response.json()
 
-            cod = data.get("cod")
-            # Check if cod is not "200" or 200 (API can return either)
-            if str(cod) != "200":
+            if data.get("cod") != "200":
                 error_logger.error(f"Weather API error response: {data}")
                 raise ValueError(f"API Error: {data.get('message', 'Unknown error')}")
 
@@ -167,7 +165,7 @@ class WeatherCommandHandler:
         weather_data = await self.weather_api.fetch_weather(city)
         if weather_data:
             return await weather_data.format_message(update, context)
-        return "Не вдалося отримати дані про погоду."
+        return "Не вдалося отримати дані про погоду. "
     
     async def __call__(self, update: Update, context: CallbackContext) -> None:
         """Handle /weather command."""
