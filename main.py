@@ -353,7 +353,7 @@ async def main() -> None:
             'gpt': ask_gpt_command,
             'analyze': analyze_command,
             'flares': screenshot_command,
-            'weather': weather,
+            'weather': WeatherData,
             'blya': translate_last_message,
             'errors': error_report_command  # New command for error analytics
         }
