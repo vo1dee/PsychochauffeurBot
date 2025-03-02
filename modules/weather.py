@@ -171,6 +171,7 @@ class WeatherCommand:
             error_logger.error(f"Error in weather command: {e}")
             await update.message.reply_text(
                 "Виникла помилка при отриманні погоди. Спробуйте пізніше."
+            )
         except httpx.HTTPStatusError as e:
             error_logger.error(f"HTTP status error in weather command: {e}")
             await update.message.reply_text(
