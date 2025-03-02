@@ -111,6 +111,7 @@ class WeatherAPI:
             general_logger.info(f"Using cached weather data for {city}")
             return self.cache[city]
         translated_city = get_city_translation(city)
+        general_logger.info(f"Fetching weather for city: {translated_city} (original: {city})")
         
         params = {
             "q": translated_city,
@@ -123,9 +124,16 @@ class WeatherAPI:
             response = await self.client.get(self.BASE_URL, params=params)
             data = response.json()
 
-            if data.get("cod") != "200":
+            cod = data.get("cod")
+            general_logger.info(f"Weather API response code: {cod} (type: {type(cod).__name__})")
+            
+            # Check if cod is not "200" or 200 (API can return either)
+            if str(cod) != "200":
                 error_logger.error(f"Weather API error response: {data}")
                 raise ValueError(f"API Error: {data.get('message', 'Unknown error')}")
+            else:
+                # This is a successful response, should NOT be logged as an error
+                general_logger.info(f"Weather API successful response for {data.get('name', 'Unknown')} with temp {data.get('main', {}).get('temp')}°C")
 
             weather = data.get("weather", [{}])[0]
             main = data.get("main", {})
