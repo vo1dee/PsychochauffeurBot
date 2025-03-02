@@ -34,7 +34,7 @@ from modules.const import (
     VideoPlatforms, LinkModification, Config
 )
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
-from modules.weather import weather
+from modules.weather import WeatherData
 from modules.logger import general_logger, chat_logger, error_logger, get_daily_log_path,  init_error_handler
 from modules.user_management import restrict_user
 from modules.video_downloader import VideoDownloader, setup_video_handlers
