@@ -39,8 +39,14 @@ class WeatherData:
         try:
             advice = await ask_gpt_command(prompt, update, context, return_text=True)
             return f"\n👕 {advice}"
+        except httpx.HTTPStatusError as e:
+            error_logger.error(f"HTTP status error getting clothing advice: {e}")
+            return ""
+        except httpx.RequestError as e:
+            error_logger.error(f"Request error getting clothing advice: {e}")
+            return ""
         except Exception as e:
-            error_logger.error(f"Error getting clothing advice: {e}")
+            error_logger.error(f"Unexpected error getting clothing advice: {e}")
             return ""
 
     async def format_message(self, update: Update = None, context: CallbackContext = None) -> str:
@@ -67,17 +73,22 @@ class WeatherAPI:
     BASE_URL = "http://api.openweathermap.org/data/2.5/weather"
     
     def __init__(self):
+        self.cache = {}
         self.api_key = Config.OPENWEATHER_API_KEY
+        self.client = httpx.AsyncClient()
     
     async def fetch_weather(self, city: str) -> Optional[WeatherData]:
+    async def fetch_weather(self, city: str) -> Optional[WeatherData]:
+        if city in self.cache:
+            general_logger.info(f"Using cached weather data for {city}")
+            return self.cache[city]
         """Fetch weather data from OpenWeatherMap API."""
         translated_city = get_city_translation(city)
         
         params = {
             "q": translated_city,
             "appid": self.api_key,
-            "units": "metric",
-            "lang": "uk"
+            "units": "metric"
         }
         
         try:
@@ -85,14 +96,13 @@ class WeatherAPI:
                 response = await client.get(self.BASE_URL, params=params)
                 data = response.json()
 
-            if data.get("cod") != 200:
+            if data.get("cod") != "200":
                 error_logger.error(f"Weather API error response: {data}")
                 raise ValueError(f"API Error: {data.get('message', 'Unknown error')}")
 
             weather = data.get("weather", [{}])[0]
             main = data.get("main", {})
-            
-            return WeatherData(
+            weather_data = WeatherData(
                 city_name=data.get("name", "Unknown city"),
                 country_code=data.get("sys", {}).get("country", "Unknown"),
                 weather_id=weather.get("id", 0),
@@ -101,11 +111,22 @@ class WeatherAPI:
                 feels_like=main.get("feels_like", 0)
             )
             
+            self.cache[city] = weather_data
+            return weather_data
+        except httpx.RequestError as e:
+            error_logger.error(f"Network error fetching weather data: {e}")
+            return None
         except httpx.HTTPStatusError as e:
-            error_logger.error(f"HTTP error fetching weather data: {e}")
+            error_logger.error(f"HTTP status error fetching weather data: {e}")
+            return None
+        except httpx.RequestError as e:
+            error_logger.error(f"Request error fetching weather data: {e}")
+            return None
+        except ValueError as e:
+            error_logger.error(f"Value error fetching weather data: {e}")
             return None
         except Exception as e:
-            error_logger.error(f"Error fetching weather data: {e}")
+            error_logger.error(f"Unexpected error fetching weather data: {e}")
             return None
 
 
@@ -151,8 +172,23 @@ class WeatherCommand:
             error_logger.error(f"Error in weather command: {e}")
             await update.message.reply_text(
                 "Виникла помилка при отриманні погоди. Спробуйте пізніше."
+        except httpx.HTTPStatusError as e:
+            error_logger.error(f"HTTP status error in weather command: {e}")
+            await update.message.reply_text(
+                "Виникла помилка HTTP при отриманні погоди. Спробуйте пізніше."
             )
-
-
-# Initialize the weather command handler
-weather = WeatherCommand()
+        except httpx.RequestError as e:
+            error_logger.error(f"Request error in weather command: {e}")
+            await update.message.reply_text(
+                "Виникла помилка запиту при отриманні погоди. Спробуйте пізніше."
+            )
+        except ValueError as e:
+            error_logger.error(f"Value error in weather command: {e}")
+            await update.message.reply_text(
+                "Виникла помилка значення при отриманні погоди. Спробуйте пізніше."
+            )
+        except Exception as e:
+            error_logger.error(f"Unexpected error in weather command: {e}")
+            await update.message.reply_text(
+                "Виникла несподівана помилка при отриманні погоди. Спробуйте пізніше."
+            )
