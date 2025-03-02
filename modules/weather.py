@@ -123,7 +123,9 @@ class WeatherAPI:
             response = await self.client.get(self.BASE_URL, params=params)
             data = response.json()
 
-            if data.get("cod") != "200":
+            cod = data.get("cod")
+            # Check if cod is not "200" or 200 (API can return either)
+            if str(cod) != "200":
                 error_logger.error(f"Weather API error response: {data}")
                 raise ValueError(f"API Error: {data.get('message', 'Unknown error')}")
 
