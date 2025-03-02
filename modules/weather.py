@@ -1,7 +1,7 @@
 """Weather module for fetching and displaying weather information."""
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional
 import httpx
 from telegram import Update
 from telegram.ext import CallbackContext
@@ -14,7 +14,7 @@ from modules.utils import (
     get_last_used_city
 )
 from modules.const import Config
-from modules.logger import init_error_handler, error_logger, general_logger
+from modules.logger import error_logger, general_logger
 from modules.file_manager import save_user_location
 from modules.gpt import ask_gpt_command
 
@@ -106,10 +106,10 @@ class WeatherAPI:
         self.client = httpx.AsyncClient()
     
     async def fetch_weather(self, city: str) -> Optional[WeatherData]:
+        """Fetch weather data from OpenWeatherMap API."""
         if city in self.cache:
             general_logger.info(f"Using cached weather data for {city}")
             return self.cache[city]
-        """Fetch weather data from OpenWeatherMap API."""
         translated_city = get_city_translation(city)
         
         params = {
@@ -119,9 +119,9 @@ class WeatherAPI:
         }
         
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(self.BASE_URL, params=params)
-                data = response.json()
+            # Use the client from initialization instead of creating new one
+            response = await self.client.get(self.BASE_URL, params=params)
+            data = response.json()
 
             if data.get("cod") != "200":
                 error_logger.error(f"Weather API error response: {data}")
@@ -141,13 +141,10 @@ class WeatherAPI:
             self.cache[city] = weather_data
             return weather_data
         except httpx.RequestError as e:
-            error_logger.error(f"Network error fetching weather data: {e}")
+            error_logger.error(f"Network or request error fetching weather data: {e}")
             return None
         except httpx.HTTPStatusError as e:
             error_logger.error(f"HTTP status error fetching weather data: {e}")
-            return None
-        except httpx.RequestError as e:
-            error_logger.error(f"Request error fetching weather data: {e}")
             return None
         except ValueError as e:
             error_logger.error(f"Value error fetching weather data: {e}")
@@ -195,11 +192,6 @@ class WeatherCommandHandler:
             if update.message:
                 await update.message.reply_text(weather_info)
                 
-        except Exception as e:
-            error_logger.error(f"Error in weather command: {e}")
-            await update.message.reply_text(
-                "Виникла помилка при отриманні погоди. Спробуйте пізніше."
-            )
         except httpx.HTTPStatusError as e:
             error_logger.error(f"HTTP status error in weather command: {e}")
             await update.message.reply_text(
