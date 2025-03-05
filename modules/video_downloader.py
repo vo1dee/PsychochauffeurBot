@@ -291,7 +291,7 @@ class VideoDownloader:
             for url in urls:
                 filename, title = await self.download_video(url)
                 if filename and os.path.exists(filename):
-                    await self._send_video(update, filename, title)
+                    await self._send_video(update, filename, title, source_url=url)
                 else:
                     await self._handle_download_error(update, url)
 
@@ -300,7 +300,7 @@ class VideoDownloader:
         finally:
             await self._cleanup(processing_msg, filename, update)
 
-    async def _send_video(self, update: Update, filename: str, title: str) -> None:
+    async def _send_video(self, update: Update, filename: str, title: str, source_url: str = None) -> None:
         try:
             file_size = os.path.getsize(filename)
             max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
@@ -310,10 +310,19 @@ class VideoDownloader:
                 await update.message.reply_text("❌ Video file too large to send.")
                 return
 
+            # Escape special characters for Markdown V2
+            escaped_title = title.replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)')
+            caption = f"📹 {escaped_title}"
+            
+            if source_url:
+                # Format source URL as a clickable link using Markdown V2
+                caption += f"\n\n🔗 [Source]({source_url})"
+
             with open(filename, 'rb') as video_file:
                 await update.message.reply_video(
                     video=video_file,
-                    caption=f"📹 {title}"
+                    caption=caption,
+                    parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
                 )
         except Exception as e:
             error_logger.error(f"Video sending error: {str(e)}")

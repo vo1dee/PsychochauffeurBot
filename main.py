@@ -80,13 +80,31 @@ keyboard_mapping = {
 keyboard_mapping.update({k.upper(): v.upper() for k, v in keyboard_mapping.items()})
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handler for /start command."""
+    """
+    Handler for /start command.
+
+    Parameters:
+    update (Update): Incoming update object containing message details.
+    context (ContextTypes.DEFAULT_TYPE): Context object containing bot and update data.
+
+    Returns:
+    None
+    """
     welcome_text = (
-        "🤖 Video Downloader Bot\n\n"
-        "Send me a link from:\n"
+        "🤖 PsychoChauffeur Bot\n\n"
+        "🎥 Video Downloads from:\n"
         "• TikTok\n• Instagram\n• YouTube Shorts\n"
-        "• Facebook\n• Twitter\n• Vimeo\n• Reddit\n\n"
-        "I'll download and send the video directly!"
+        "• Facebook\n• Twitter\n• Vimeo\n• Reddit\n• Twitch\n"
+        "🔗 Link Processing:\n"
+        "• AliExpress link optimization\n"
+        "• Link modification for restricted domains\n\n" 
+        "🤖 Additional Features:\n"
+        "• GPT responses\n"
+        "• Weather updates -- /weather [city]\n"
+        "• Solar flares screenshot --  /flares\n"
+        "• Random cat photos -- /cat \n\n"
+        "❓ Questions or issues?\n"
+        "Contact @vo1dee"
     )
     await update.message.reply_text(welcome_text)
 
