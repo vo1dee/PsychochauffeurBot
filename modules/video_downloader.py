@@ -310,13 +310,20 @@ class VideoDownloader:
                 await update.message.reply_text("❌ Video file too large to send.")
                 return
 
-            # Escape special characters for Markdown V2
-            escaped_title = title.replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)')
+            # Escape all special characters for Markdown V2
+            special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+            escaped_title = title
+            for char in special_chars:
+                escaped_title = escaped_title.replace(char, f'\\{char}')
+
             caption = f"📹 {escaped_title}"
             
             if source_url:
-                # Format source URL as a clickable link using Markdown V2
-                caption += f"\n\n🔗 [Source]({source_url})"
+                # Escape special characters in URL
+                escaped_url = source_url
+                for char in special_chars:
+                    escaped_url = escaped_url.replace(char, f'\\{char}')
+                caption += f"\n\n🔗 [Source]({escaped_url})"
 
             with open(filename, 'rb') as video_file:
                 await update.message.reply_video(
