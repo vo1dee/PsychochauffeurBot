@@ -54,7 +54,7 @@ async def restrict_user(update: Update, context: CallbackContext) -> None:
         # Send notifications
         await update.message.reply_text(
             f"Вас запсихопаркували на {restrict_duration} хвилин. "
-            "Ви не можете надсилати повідомлення, але можете спробувати стікер або гіфку."
+            f"Ви не можете надсилати повідомлення до {until_date}."
         )
         await context.bot.send_sticker(chat_id=chat.id, sticker=RESTRICTION_STICKER)
         
