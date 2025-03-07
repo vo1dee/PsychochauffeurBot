@@ -137,8 +137,8 @@ class VideoDownloader:
             error_logger.error(f"Service health check failed with exception: {str(e)}")
             return False
 
-        async def _download_from_service(self, url: str, format: str = "best") -> Tuple[Optional[str], Optional[str]]:
-         """Download video using the local service."""
+    async def _download_from_service(self, url: str, format: str = "best") -> Tuple[Optional[str], Optional[str]]:
+        """Download video using the local service."""
         if not self.api_key:
             error_logger.warning("Skipping service download - no API key available")
             return None, None
