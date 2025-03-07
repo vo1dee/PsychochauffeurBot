@@ -137,7 +137,7 @@ class VideoDownloader:
             error_logger.error(f"Service health check failed with exception: {str(e)}")
             return False
 
-    async def _download_from_service(self, url: str, format: str = "best") -> Tuple[Optional[str], Optional[str]]:
+        async def _download_from_service(self, url: str, format: str = "best") -> Tuple[Optional[str], Optional[str]]:
         """Download video using the local service."""
         if not self.api_key:
             error_logger.warning("Skipping service download - no API key available")
@@ -166,6 +166,28 @@ class VideoDownloader:
                                         os.path.basename(service_file)
                                     )
                                     
+                                    # Get title from response or use fallback
+                                    video_title = data.get("title") 
+                                    if not video_title or video_title == "Video":
+                                        # Try description first line as fallback
+                                        description = data.get("description", "")
+                                        if description:
+                                            first_line = description.strip().split('\n')[0]
+                                            if first_line and not first_line.startswith('#'):
+                                                video_title = first_line.strip()
+                                        
+                                        # If still no good title, try using hashtags
+                                        if not video_title or video_title == "Video":
+                                            hashtags = data.get("hashtags", [])
+                                            if hashtags:
+                                                video_title = " ".join(hashtags[:3])  # Use first 3 hashtags
+                                    
+                                    # Still no title? Use generic with ID
+                                    if not video_title or video_title == "Video":
+                                        video_title = f"Video from {url.split('/')[-1]}"
+                                    
+                                    error_logger.info(f"Using video title: {video_title}")
+                                    
                                     # Transfer file
                                     async with session.get(
                                         f"{self.service_url}/files/{os.path.basename(service_file)}",
@@ -175,7 +197,7 @@ class VideoDownloader:
                                             with open(local_file, 'wb') as f:
                                                 async for chunk in file_response.content.iter_chunked(8192):
                                                     f.write(chunk)
-                                            return local_file, await self._get_video_title(url) or "Video"
+                                            return local_file, video_title
                             elif response.status == 403:
                                 error_logger.error("API key authentication failed")
                                 return None, None
