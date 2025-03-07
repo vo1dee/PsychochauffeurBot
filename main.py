@@ -5,8 +5,13 @@ Handles message processing, command registration, and bot initialization.
 import asyncio
 import hashlib
 import logging
+import os
 import nest_asyncio
 import re
+from openai import OpenAI
+
+client = OpenAI()
+import openai
 import pyshorteners
 import random
 import sys
@@ -15,15 +20,13 @@ from typing import List, Optional, Dict, Any
 from urllib.parse import urlparse, urlunparse
 import pytz
 
-# Define timezone constant
-KYIV_TZ = pytz.timezone('Europe/Kyiv')
-
+from pydub import AudioSegment
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
     CallbackContext, CallbackQueryHandler, ContextTypes
 )
-
+from modules.audio_transcription import setup_voice_handlers
 from modules.keyboards import create_link_keyboard, button_callback
 from modules.utils import (
     remove_links, screenshot_command, cat_command, ScreenshotManager,
@@ -40,6 +43,9 @@ from modules.user_management import restrict_user
 from modules.video_downloader import VideoDownloader, setup_video_handlers
 from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
 
+
+# Define timezone constant
+KYIV_TZ = pytz.timezone('Europe/Kyiv')
 
 nest_asyncio.apply()
 
@@ -108,11 +114,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     await update.message.reply_text(welcome_text)
 
+
 async def translate_last_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Convert the last message from English keyboard layout to Ukrainian."""
     user_id = update.message.from_user.id
     username = update.message.from_user.username or "User"
-    
+
     last_message = last_user_messages.get(user_id)
     if not last_message:
         await update.message.reply_text("No previous message found to convert.")
@@ -131,7 +138,7 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
                                 for platform in VideoPlatforms.SUPPORTED_PLATFORMS)
     contains_modified_domain = any(domain in message_text 
                                  for domain in LinkModification.DOMAINS)
-    
+
     return (mentioned or (is_private_chat and 
             not (contains_video_platform or contains_modified_domain)))
 
@@ -307,7 +314,7 @@ async def construct_and_send_message(
 ) -> None:
     """Construct and send a message with modified links."""
     from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
-    
+
     try:
         modified_message = " ".join(modified_links)
         final_message = f"@{username}💬: {cleaned_message_text}\nWants to share: {modified_message}"
@@ -331,7 +338,7 @@ async def construct_and_send_message(
             "modified_links": modified_links,
             "chat_id": chat_id
         }
-        
+
         # Use standardized error handling
         await ErrorHandler.handle_error(
             error=e,
@@ -353,7 +360,7 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
 async def main() -> None:
     """Initialize and run the bot."""
     from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
-    
+
     try:
         # Initialize required directories and state
         init_directories()
@@ -363,7 +370,7 @@ async def main() -> None:
 
         # Import error analytics report command
         from modules.error_analytics import error_report_command
-        
+
         # Register command handlers
         commands = {
             'start': start,
@@ -375,7 +382,7 @@ async def main() -> None:
             'blya': translate_last_message,
             'errors': error_report_command  # New command for error analytics
         }
-        
+
         for command, handler in commands.items():
             application.add_handler(CommandHandler(command, handler))
 
@@ -397,12 +404,14 @@ async def main() -> None:
         )
         application.bot_data['video_downloader'] = video_downloader
         
+        setup_voice_handlers(application)
+
         # Initialize error handler with await
         await init_error_handler(application, Config.ERROR_CHANNEL_ID)
-        
+
         # Test error logger
         error_logger.error("Test error message - If you see this in the Telegram channel, error logging is working!")
-        
+
         # Start screenshot scheduler
         screenshot_manager = ScreenshotManager()
         asyncio.create_task(screenshot_manager.schedule_task())
@@ -426,11 +435,11 @@ async def main() -> None:
             },
             original_exception=e
         )
-        
+
         # Log with detailed context
         error_message = ErrorHandler.format_error_message(standard_error, prefix="💥")
         error_logger.critical(error_message)
-        
+
         # Still raise to prevent silent failures
         raise
 
