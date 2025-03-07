@@ -253,11 +253,11 @@ async def button_callback(update: Update, context: CallbackContext):
                 reply_markup=keyboard
             )
         else:
-            error_logger.error(f"No modification performed for action: {action}")
+            general_logger.error(f"No modification performed for action: {action}")
             await query.message.edit_text("❌ Invalid action")
 
     except Exception as e:
-        error_logger.error(f"Error in button callback: {str(e)}", exc_info=True)
+        general_logger.error(f"Error in button callback: {str(e)}", exc_info=True)
         await query.message.edit_text(f"❌ Error: {str(e)}")
 
 

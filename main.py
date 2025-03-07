@@ -8,10 +8,6 @@ import logging
 import os
 import nest_asyncio
 import re
-from openai import OpenAI
-
-client = OpenAI()
-import openai
 import pyshorteners
 import random
 import sys
@@ -403,7 +399,7 @@ async def main() -> None:
             extract_urls_func=extract_urls
         )
         application.bot_data['video_downloader'] = video_downloader
-        
+
         setup_voice_handlers(application)
 
         # Initialize error handler with await
