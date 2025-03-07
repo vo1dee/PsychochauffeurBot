@@ -700,9 +700,23 @@ class VideoDownloader:
                 for file in os.listdir(self.download_path):
                     if file.endswith(('.mp4', '.webm')):
                         filepath = os.path.join(self.download_path, file)
-                        return filepath, await self._get_video_title(url)
+                        file_info = {"path": filepath, "size": os.path.getsize(filepath)}
+                        found_files.append(file_info)
                         
-            error_logger.error(f"Generic download failed: {stderr.decode()}")
+                # If files were found, use the largest one
+                if found_files:
+                    found_files.sort(key=lambda x: x["size"], reverse=True)
+                    largest_file = found_files[0]["path"]
+                    error_logger.info(f"Found {len(found_files)} files, using largest: {largest_file} ({found_files[0]['size']} bytes)")
+                    return largest_file, await self._get_video_title(url)
+                else:
+                    error_logger.error(f"No video files found in {self.download_path} after successful download")
+                        
+            if is_youtube_shorts:
+                error_logger.error(f"YouTube Shorts download failed (returncode: {process.returncode})")
+            else:
+                error_logger.error(f"Generic download failed: {stderr.decode()}")
+            
             return None, None
             
         except Exception as e:
