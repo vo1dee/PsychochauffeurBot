@@ -227,17 +227,49 @@ class VideoDownloader:
 
     async def _get_video_title(self, url: str) -> str:
         try:
-            process = await asyncio.create_subprocess_exec(
-                self.yt_dlp_path,
-                '--get-title',
-                url,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            # Add timeout
-            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=30.0)
-            return stdout.decode().strip() or "Video"
+            # For YouTube Shorts, get both title and hashtags
+            if "youtube.com/shorts" in url.lower():
+                title_process = await asyncio.create_subprocess_exec(
+                    self.yt_dlp_path,
+                    '--get-title',
+                    url,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                tags_process = await asyncio.create_subprocess_exec(
+                    self.yt_dlp_path,
+                    '--get-tags',
+                    url,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                # Get results with timeout
+                title_stdout, _ = await asyncio.wait_for(title_process.communicate(), timeout=30.0)
+                tags_stdout, _ = await asyncio.wait_for(tags_process.communicate(), timeout=30.0)
+                
+                title = title_stdout.decode().strip() or "Video"
+                tags = tags_stdout.decode().strip()
+                
+                # Add hashtags if available
+                if tags:
+                    hashtags = " ".join([f"#{tag.strip()}" for tag in tags.split(',')])
+                    return f"{title} {hashtags}"
+                return title
+            else:
+                # For other platforms, just get the title
+                process = await asyncio.create_subprocess_exec(
+                    self.yt_dlp_path,
+                    '--get-title',
+                    url,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                # Add timeout
+                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=30.0)
+                return stdout.decode().strip() or "Video"
         except asyncio.TimeoutError:
             error_logger.error(f"Title fetch timeout for URL: {url}")
             return "Video"
