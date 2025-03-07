@@ -113,16 +113,26 @@ class VideoDownloader:
 
     async def _check_service_health(self) -> bool:
         """Check if the download service is available."""
+        # Make sure we have a URL and API key first
+        if not self.service_url:
+            error_logger.error("Service health check failed: YTDL_SERVICE_URL not configured")
+            return False
+            
+        if not self.api_key:
+            error_logger.error("Service health check failed: YTDL_SERVICE_API_KEY not configured")
+            return False
+            
         try:
             error_logger.info(f"Checking service health at: {self.service_url}/health")
             async with aiohttp.ClientSession() as session:
-                headers = {"X-API-Key": self.api_key} if self.api_key else {}
+                headers = {"X-API-Key": self.api_key}
                 error_logger.info(f"Request headers: {headers}")
                 
+                # Use a shorter timeout for the health check - 2 seconds
                 async with session.get(
                     f"{self.service_url}/health",
                     headers=headers,
-                    timeout=5,
+                    timeout=2,
                     ssl=False
                 ) as response:
                     response_text = await response.text()
@@ -133,12 +143,27 @@ class VideoDownloader:
                         return True
                     error_logger.warning(f"Service health check failed with status {response.status}")
                     return False
+        except asyncio.TimeoutError:
+            error_logger.error(f"Service health check timed out - connection to {self.service_url} timed out")
+            error_logger.error("This could be due to firewall issues or the service being down")
+            return False
+        except aiohttp.ClientError as e:
+            error_logger.error(f"Service health check failed - connection error: {str(e)}")
+            error_logger.error(f"Make sure the service is running at {self.service_url} and is accessible from this machine")
+            return False
         except Exception as e:
+            import traceback
             error_logger.error(f"Service health check failed with exception: {str(e)}")
+            error_logger.error(f"Exception type: {type(e)}")
+            error_logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     async def _download_from_service(self, url: str, format: str = "best") -> Tuple[Optional[str], Optional[str]]:
         """Download video using the local service."""
+        if not self.service_url:
+            error_logger.warning("Skipping service download - no service URL configured")
+            return None, None
+            
         if not self.api_key:
             error_logger.warning("Skipping service download - no API key available")
             return None, None
@@ -146,6 +171,7 @@ class VideoDownloader:
         try:
             headers = {"X-API-Key": self.api_key}
             payload = {"url": url, "format": format}
+            error_logger.info(f"Sending download request to service for URL: {url}")
             
             async with aiohttp.ClientSession() as session:
                 for attempt in range(self.max_retries):
