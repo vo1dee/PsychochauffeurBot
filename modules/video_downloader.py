@@ -138,11 +138,11 @@ class VideoDownloader:
             return False
 
         async def _download_from_service(self, url: str, format: str = "best") -> Tuple[Optional[str], Optional[str]]:
-        """Download video using the local service."""
+         """Download video using the local service."""
         if not self.api_key:
             error_logger.warning("Skipping service download - no API key available")
             return None, None
-            
+        
         try:
             headers = {"X-API-Key": self.api_key}
             payload = {"url": url, "format": format}
