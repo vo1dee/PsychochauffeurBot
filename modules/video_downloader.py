@@ -102,7 +102,7 @@ class VideoDownloader:
                 "--geo-bypass",      # Try to bypass geo-restrictions
                 "--socket-timeout", "10"  # Shorter socket timeout
             ]
-        }
+        )
 
     def _load_api_key(self) -> Optional[str]:
         """Load API key from environment variable or file."""
