@@ -91,6 +91,18 @@ class VideoDownloader:
                 format="best[height<=720]"
             )
         }
+        
+        # Special configuration for YouTube Shorts
+        self.youtube_shorts_config = DownloadConfig(
+            format="best[ext=mp4]",  # Prioritize MP4 format for compatibility
+            extra_args=[
+                "--ignore-errors",   # Continue on errors
+                "--ignore-config",   # Ignore system-wide config
+                "--no-playlist",     # Don't download playlists
+                "--geo-bypass",      # Try to bypass geo-restrictions
+                "--socket-timeout", "10"  # Shorter socket timeout
+            ]
+        }
 
     def _load_api_key(self) -> Optional[str]:
         """Load API key from environment variable or file."""
@@ -275,54 +287,95 @@ class VideoDownloader:
 
     async def _get_video_title(self, url: str) -> str:
         try:
-            # For YouTube Shorts, get both title and hashtags
+            # For YouTube Shorts, get both title and hashtags with better error handling
             if "youtube.com/shorts" in url.lower():
-                title_process = await asyncio.create_subprocess_exec(
-                    self.yt_dlp_path,
-                    '--get-title',
-                    url,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
+                error_logger.info(f"Getting title for YouTube Shorts: {url}")
                 
-                tags_process = await asyncio.create_subprocess_exec(
-                    self.yt_dlp_path,
-                    '--get-tags',
-                    url,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
+                # Extract video ID for fallback
+                video_id = url.split("/shorts/")[1].split("?")[0] if "/shorts/" in url else "unknown"
                 
-                # Get results with timeout
-                title_stdout, _ = await asyncio.wait_for(title_process.communicate(), timeout=30.0)
-                tags_stdout, _ = await asyncio.wait_for(tags_process.communicate(), timeout=30.0)
-                
-                title = title_stdout.decode().strip() or "Video"
-                tags = tags_stdout.decode().strip()
-                
-                # Add hashtags if available
-                if tags:
-                    hashtags = " ".join([f"#{tag.strip()}" for tag in tags.split(',')])
-                    return f"{title} {hashtags}"
-                return title
+                try:
+                    # First try to get just the title (more likely to succeed)
+                    title_process = await asyncio.create_subprocess_exec(
+                        self.yt_dlp_path,
+                        '--get-title',
+                        '--no-warnings',
+                        url,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    
+                    # Get title with timeout
+                    title_stdout, title_stderr = await asyncio.wait_for(title_process.communicate(), timeout=15.0)
+                    title = title_stdout.decode().strip()
+                    
+                    if not title:
+                        error_logger.warning(f"Empty title for YouTube Shorts: {url}")
+                        error_logger.warning(f"Title stderr: {title_stderr.decode().strip()}")
+                        title = f"YouTube Short {video_id}"
+                    
+                    # Try to get tags if we have a title
+                    hashtags = ""
+                    try:
+                        tags_process = await asyncio.create_subprocess_exec(
+                            self.yt_dlp_path,
+                            '--get-tags',
+                            '--no-warnings',
+                            url,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        
+                        # Get tags with a shorter timeout
+                        tags_stdout, _ = await asyncio.wait_for(tags_process.communicate(), timeout=10.0)
+                        tags = tags_stdout.decode().strip()
+                        
+                        # Add hashtags if available
+                        if tags:
+                            hashtags = " ".join([f"#{tag.strip()}" for tag in tags.split(',')])
+                    except (asyncio.TimeoutError, Exception) as e:
+                        error_logger.warning(f"Failed to get tags for YouTube Shorts: {str(e)}")
+                    
+                    # Combine title and hashtags if we have both
+                    if hashtags:
+                        return f"{title} {hashtags}"
+                    return title
+                    
+                except (asyncio.TimeoutError, Exception) as e:
+                    error_logger.error(f"Error getting YouTube Shorts title: {str(e)}")
+                    return f"YouTube Short {video_id}"
             else:
                 # For other platforms, just get the title
+                error_logger.info(f"Getting title for URL: {url}")
                 process = await asyncio.create_subprocess_exec(
                     self.yt_dlp_path,
                     '--get-title',
+                    '--no-warnings',
                     url,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
                 
                 # Add timeout
-                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=30.0)
-                return stdout.decode().strip() or "Video"
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=15.0)
+                title = stdout.decode().strip()
+                
+                if not title:
+                    error_logger.warning(f"Empty title for URL: {url}")
+                    error_logger.warning(f"Stderr: {stderr.decode().strip()}")
+                    # Try to extract some identifier from the URL
+                    parts = url.split('/')
+                    if len(parts) > 3:
+                        return f"Video {parts[-1]}"
+                return title or "Video"
+                
         except asyncio.TimeoutError:
             error_logger.error(f"Title fetch timeout for URL: {url}")
-            return "Video"
+            return "Video from " + url.split("/")[-1]
         except Exception as e:
+            import traceback
             error_logger.error(f"Error getting title: {str(e)}")
+            error_logger.error(f"Traceback: {traceback.format_exc()}")
             return "Video"
 
     @staticmethod
@@ -592,32 +645,84 @@ class VideoDownloader:
             config = self.platform_configs.get(platform, self.platform_configs[Platform.OTHER])
             unique_filename = f"video_{uuid.uuid4()}.%(ext)s"
             output_template = os.path.join(self.download_path, unique_filename) 
-
             
+            # Add more verbose logging for YouTube Shorts
+            is_youtube_shorts = "youtube.com/shorts" in url.lower()
+            if is_youtube_shorts:
+                error_logger.info(f"YouTube Shorts direct download attempt: {url}")
+                error_logger.info(f"Using yt-dlp path: {self.yt_dlp_path}")
+                error_logger.info(f"Output template: {output_template}")
+                
+                # Use specialized YouTube Shorts config
+                special_config = self.youtube_shorts_config
+                error_logger.info(f"Format: {special_config.format}")
+                
+                # Build YouTube Shorts specific args
+                yt_dlp_args = [
+                    self.yt_dlp_path,
+                    url,
+                    '-f', special_config.format,
+                    '-o', output_template,
+                    '--verbose',  # Enable verbose output for debugging
+                ]
+                
+                # Add any extra args from the YouTube Shorts config
+                if special_config.extra_args:
+                    error_logger.info(f"Adding extra args: {special_config.extra_args}")
+                    yt_dlp_args.extend(special_config.extra_args)
+            else:
+                # Use standard args for other platforms
+                yt_dlp_args = [
+                    self.yt_dlp_path,
+                    url,
+                    '-f', config.format,
+                    '-o', output_template,
+                    '--no-warnings',
+                ]
+            
+            error_logger.info(f"Executing: {' '.join(yt_dlp_args)}")
             process = await asyncio.create_subprocess_exec(
-                self.yt_dlp_path,
-                url,
-                '-f', config.format,
-                '-o', output_template,
-                '--no-warnings',
+                *yt_dlp_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
             stdout, stderr = await process.communicate()
             
+            # Always log stdout/stderr for YouTube Shorts for debugging
+            if is_youtube_shorts:
+                error_logger.info(f"YouTube Shorts stdout: {stdout.decode()}")
+                error_logger.info(f"YouTube Shorts stderr: {stderr.decode()}")
+            
             if process.returncode == 0:
                 # Find the downloaded file
+                found_files = []
                 for file in os.listdir(self.download_path):
                     if file.endswith(('.mp4', '.webm')):
                         filepath = os.path.join(self.download_path, file)
-                        return filepath, await self._get_video_title(url)
+                        file_info = {"path": filepath, "size": os.path.getsize(filepath)}
+                        found_files.append(file_info)
                         
-            error_logger.error(f"Generic download failed: {stderr.decode()}")
+                # If files were found, use the largest one
+                if found_files:
+                    found_files.sort(key=lambda x: x["size"], reverse=True)
+                    largest_file = found_files[0]["path"]
+                    error_logger.info(f"Found {len(found_files)} files, using largest: {largest_file} ({found_files[0]['size']} bytes)")
+                    return largest_file, await self._get_video_title(url)
+                else:
+                    error_logger.error(f"No video files found in {self.download_path} after successful download")
+                        
+            if is_youtube_shorts:
+                error_logger.error(f"YouTube Shorts download failed (returncode: {process.returncode})")
+            else:
+                error_logger.error(f"Generic download failed: {stderr.decode()}")
+            
             return None, None
             
         except Exception as e:
+            import traceback
             error_logger.error(f"Generic download error: {str(e)}")
+            error_logger.error(f"Traceback: {traceback.format_exc()}")
             return None, None
 
 def setup_video_handlers(application, extract_urls_func=None):
