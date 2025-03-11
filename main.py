@@ -60,7 +60,7 @@ class MessageCounter:
 # Initialize message counter
 message_counter = MessageCounter()
 
-# Dictionary to store the last message for each user
+# Dictionary to store messages for each user with their history
 last_user_messages = {}
 
 # Initialize logging
@@ -109,16 +109,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(welcome_text)
 
 async def translate_last_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Convert the last message from English keyboard layout to Ukrainian."""
+    """Convert the last message before 'бля!' from English keyboard layout to Ukrainian."""
     user_id = update.message.from_user.id
     username = update.message.from_user.username or "User"
     
-    last_message = last_user_messages.get(user_id)
-    if not last_message:
+    # Get the previous message
+    previous_message = last_user_messages.get(user_id, {}).get('previous')
+    if not previous_message:
         await update.message.reply_text("No previous message found to convert.")
         return
 
-    converted_text = ''.join(keyboard_mapping.get(char, char) for char in last_message)
+    converted_text = ''.join(keyboard_mapping.get(char, char) for char in previous_message)
     response_text = f"@{username} хотів сказати: {converted_text}"
     await update.message.reply_text(response_text)
 
@@ -144,9 +145,15 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     message_text = update.message.text
     chat_id = update.message.chat_id
     username = update.message.from_user.username
+    user_id = update.message.from_user.id
 
-    # Store last message for translation feature
-    last_user_messages[update.message.from_user.id] = message_text
+    # Update message history
+    if user_id not in last_user_messages:
+        last_user_messages[user_id] = {'current': None, 'previous': None}
+    
+    # Store current message as previous before updating current
+    last_user_messages[user_id]['previous'] = last_user_messages[user_id]['current']
+    last_user_messages[user_id]['current'] = message_text
 
     # Log message
     chat_title = update.effective_chat.title or "Private Chat"
@@ -156,6 +163,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Handle trigger words
     if any(char in message_text for char in "ЫыЪъЭэЁё"):
         await restrict_user(update, context)
+        return
+
+    # Trigger translation if "бля!" is in the message
+    if "бля!" in message_text:
+        await translate_last_message(update, context)
         return
 
     # Process URLs if present
@@ -372,7 +384,6 @@ async def main() -> None:
             'analyze': analyze_command,
             'flares': screenshot_command,
             'weather': WeatherCommandHandler(),
-            'blya': translate_last_message,
             'errors': error_report_command  # New command for error analytics
         }
         
