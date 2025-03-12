@@ -294,6 +294,9 @@ class VideoDownloader:
                 # Fallback to direct download with appropriate config
                 config = self.youtube_clips_config if is_youtube_clips else self.youtube_shorts_config
                 return await self._download_generic(url, platform, config)
+                # Fallback to direct download with appropriate config
+                config = self.youtube_clips_config if is_youtube_clips else self.youtube_shorts_config
+                return await self._download_generic(url, platform, config)
             
             # For all other platforms or if service failed, use direct methods
             return await self._download_generic(url, platform)
@@ -658,6 +661,7 @@ class VideoDownloader:
         
         
     async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None) -> Tuple[Optional[str], Optional[str]]:
+    async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None) -> Tuple[Optional[str], Optional[str]]:
         """Generic video download using yt-dlp."""
         try:
             # Use special_config if provided, otherwise use platform-specific config
@@ -676,19 +680,33 @@ class VideoDownloader:
             if is_youtube_shorts or is_youtube_clips:
                 content_type = "Shorts" if is_youtube_shorts else "Clips"
                 error_logger.info(f"YouTube {content_type} direct download attempt: {url}")
+            # Add more verbose logging for YouTube content
+            is_youtube_shorts = "youtube.com/shorts" in url.lower()
+            is_youtube_clips = "youtube.com/clip" in url.lower()
+            
+            if is_youtube_shorts or is_youtube_clips:
+                content_type = "Shorts" if is_youtube_shorts else "Clips"
+                error_logger.info(f"YouTube {content_type} direct download attempt: {url}")
                 error_logger.info(f"Using yt-dlp path: {self.yt_dlp_path}")
                 error_logger.info(f"Output template: {output_template}")
                 error_logger.info(f"Format: {config.format}")
+                error_logger.info(f"Format: {config.format}")
                 
+                # Build args
                 # Build args
                 yt_dlp_args = [
                     self.yt_dlp_path,
                     url,
                     '-f', config.format,
+                    '-f', config.format,
                     '-o', output_template,
                     '--verbose',  # Enable verbose output for debugging
                 ]
                 
+                # Add any extra args from the config
+                if config.extra_args:
+                    error_logger.info(f"Adding extra args: {config.extra_args}")
+                    yt_dlp_args.extend(config.extra_args)
                 # Add any extra args from the config
                 if config.extra_args:
                     error_logger.info(f"Adding extra args: {config.extra_args}")
