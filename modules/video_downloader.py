@@ -103,6 +103,19 @@ class VideoDownloader:
                 "--socket-timeout", "10"  # Shorter socket timeout
             ]
         )
+        
+        # Add the new clips config here
+        self.youtube_clips_config = DownloadConfig(
+            format="best[ext=mp4]/best",  # Try best mp4 format first, then fallback to any best
+            extra_args=[
+                "--ignore-errors",
+                "--ignore-config",
+                "--no-playlist",
+                "--geo-bypass",
+                "--socket-timeout", "10",
+                "--force-generic-extractor"  # This might help with clips
+            ]
+        )
 
     def _load_api_key(self) -> Optional[str]:
         """Load API key from environment variable or file."""
@@ -258,10 +271,10 @@ class VideoDownloader:
             url = url.strip().strip('\\')
             platform = self._get_platform(url)
             
-            # Check if it's a YouTube Shorts URL
-            if "youtube.com/shorts" in url.lower():
-                error_logger.info(f"YouTube Shorts URL detected: {url}")
-                # Try service first for YouTube Shorts
+            # Check if it's a YouTube Shorts or Clips URL
+            if "youtube.com/shorts" in url.lower() or "youtube.com/clip" in url.lower():
+                error_logger.info(f"YouTube Shorts/Clips URL detected: {url}")
+                # Try service first for YouTube Shorts/Clips
                 service_healthy = await self._check_service_health()
                 error_logger.info(f"Service health check result: {service_healthy}")
                 
@@ -638,7 +651,8 @@ class VideoDownloader:
         except Exception as e:
             error_logger.error(f"TikTok download error: {str(e)}")
             return None, None
-
+        
+        
     async def _download_generic(self, url: str, platform: Platform) -> Tuple[Optional[str], Optional[str]]:
         """Generic video download using yt-dlp."""
         try:
@@ -647,7 +661,7 @@ class VideoDownloader:
             output_template = os.path.join(self.download_path, unique_filename) 
             
             # Add more verbose logging for YouTube Shorts
-            is_youtube_shorts = "youtube.com/shorts" or "youtube.com/clip" in url.lower()
+            is_youtube_shorts = "youtube.com/shorts" in url.lower() or "youtube.com/clip" in url.lower()
             if is_youtube_shorts:
                 error_logger.info(f"YouTube Shorts direct download attempt: {url}")
                 error_logger.info(f"Using yt-dlp path: {self.yt_dlp_path}")
