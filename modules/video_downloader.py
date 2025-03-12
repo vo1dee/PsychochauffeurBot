@@ -271,9 +271,12 @@ class VideoDownloader:
             url = url.strip().strip('\\')
             platform = self._get_platform(url)
             
-            # Check if it's a YouTube Shorts or Clips URL
-            if "youtube.com/shorts" in url.lower() or "youtube.com/clip" in url.lower():
-                error_logger.info(f"YouTube Shorts/Clips URL detected: {url}")
+            # Check if it's a YouTube Shorts or Clips URL separately
+            is_youtube_shorts = "youtube.com/shorts" in url.lower()
+            is_youtube_clips = "youtube.com/clip" in url.lower()
+            
+            if is_youtube_shorts or is_youtube_clips:
+                error_logger.info(f"YouTube {'Shorts' if is_youtube_shorts else 'Clips'} URL detected: {url}")
                 # Try service first for YouTube Shorts/Clips
                 service_healthy = await self._check_service_health()
                 error_logger.info(f"Service health check result: {service_healthy}")
@@ -288,8 +291,9 @@ class VideoDownloader:
                 else:
                     error_logger.warning("Service health check failed")
                 
-                # Fallback to direct download if service fails
-                error_logger.warning("Falling back to direct download")
+                # Fallback to direct download with appropriate config
+                config = self.youtube_clips_config if is_youtube_clips else self.youtube_shorts_config
+                return await self._download_generic(url, platform, config)
             
             # For all other platforms or if service failed, use direct methods
             return await self._download_generic(url, platform)
@@ -653,37 +657,37 @@ class VideoDownloader:
             return None, None
         
         
-    async def _download_generic(self, url: str, platform: Platform) -> Tuple[Optional[str], Optional[str]]:
+    async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None) -> Tuple[Optional[str], Optional[str]]:
         """Generic video download using yt-dlp."""
         try:
-            config = self.platform_configs.get(platform, self.platform_configs[Platform.OTHER])
+            config = special_config or self.platform_configs.get(platform, self.platform_configs[Platform.OTHER])
             unique_filename = f"video_{uuid.uuid4()}.%(ext)s"
             output_template = os.path.join(self.download_path, unique_filename) 
             
-            # Add more verbose logging for YouTube Shorts
-            is_youtube_shorts = "youtube.com/shorts" in url.lower() or "youtube.com/clip" in url.lower()
-            if is_youtube_shorts:
-                error_logger.info(f"YouTube Shorts direct download attempt: {url}")
+            # Add more verbose logging for YouTube content
+            is_youtube_shorts = "youtube.com/shorts" in url.lower()
+            is_youtube_clips = "youtube.com/clip" in url.lower()
+            
+            if is_youtube_shorts or is_youtube_clips:
+                content_type = "Shorts" if is_youtube_shorts else "Clips"
+                error_logger.info(f"YouTube {content_type} direct download attempt: {url}")
                 error_logger.info(f"Using yt-dlp path: {self.yt_dlp_path}")
                 error_logger.info(f"Output template: {output_template}")
+                error_logger.info(f"Format: {config.format}")
                 
-                # Use specialized YouTube Shorts config
-                special_config = self.youtube_shorts_config
-                error_logger.info(f"Format: {special_config.format}")
-                
-                # Build YouTube Shorts specific args
+                # Build args
                 yt_dlp_args = [
                     self.yt_dlp_path,
                     url,
-                    '-f', special_config.format,
+                    '-f', config.format,
                     '-o', output_template,
                     '--verbose',  # Enable verbose output for debugging
                 ]
                 
-                # Add any extra args from the YouTube Shorts config
-                if special_config.extra_args:
-                    error_logger.info(f"Adding extra args: {special_config.extra_args}")
-                    yt_dlp_args.extend(special_config.extra_args)
+                # Add any extra args from the config
+                if config.extra_args:
+                    error_logger.info(f"Adding extra args: {config.extra_args}")
+                    yt_dlp_args.extend(config.extra_args)
             else:
                 # Use standard args for other platforms
                 yt_dlp_args = [
@@ -704,9 +708,9 @@ class VideoDownloader:
             stdout, stderr = await process.communicate()
             
             # Always log stdout/stderr for YouTube Shorts for debugging
-            if is_youtube_shorts:
-                error_logger.info(f"YouTube Shorts stdout: {stdout.decode()}")
-                error_logger.info(f"YouTube Shorts stderr: {stderr.decode()}")
+            if is_youtube_shorts or is_youtube_clips:
+                error_logger.info(f"YouTube {content_type} stdout: {stdout.decode()}")
+                error_logger.info(f"YouTube {content_type} stderr: {stderr.decode()}")
             
             if process.returncode == 0:
                 # Find the downloaded file
@@ -726,8 +730,8 @@ class VideoDownloader:
                 else:
                     error_logger.error(f"No video files found in {self.download_path} after successful download")
                         
-            if is_youtube_shorts:
-                error_logger.error(f"YouTube Shorts download failed (returncode: {process.returncode})")
+            if is_youtube_shorts or is_youtube_clips:
+                error_logger.error(f"YouTube {content_type} download failed (returncode: {process.returncode})")
             else:
                 error_logger.error(f"Generic download failed: {stderr.decode()}")
             
