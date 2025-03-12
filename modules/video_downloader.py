@@ -656,7 +656,6 @@ class VideoDownloader:
             error_logger.error(f"TikTok download error: {str(e)}")
             return None, None
         
-        
     async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None) -> Tuple[Optional[str], Optional[str]]:
         """Generic video download using yt-dlp."""
         try:
