@@ -44,7 +44,7 @@ class VideoPlatforms:
     SUPPORTED_PLATFORMS = [
         'tiktok.com', 'instagram.com/reels', 'youtube.com/shorts',
         'youtu.be/shorts', 'facebook.com',
-        'vimeo.com', 'reddit.com', 'twitch.tv'
+        'vimeo.com', 'reddit.com', 'twitch.tv', 'youtube.com/clip'
     ]
 
 class Weather:
