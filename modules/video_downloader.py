@@ -55,8 +55,8 @@ class VideoDownloader:
         
         self.yt_dlp_path = self._get_yt_dlp_path()
         
-        # Service configuration - update to use environment variables
-        self.service_url = os.getenv('YTDL_SERVICE_URL')  # Add default value
+        # Service configuration - use environment variables
+        self.service_url = os.getenv('YTDL_SERVICE_URL')
         self.api_key = os.getenv('YTDL_SERVICE_API_KEY')
         self.max_retries = int(os.getenv('YTDL_MAX_RETRIES', '3'))
         self.retry_delay = int(os.getenv('YTDL_RETRY_DELAY', '1'))
@@ -104,7 +104,7 @@ class VideoDownloader:
             ]
         )
         
-        # Add the new clips config here
+        # Configuration for YouTube clips
         self.youtube_clips_config = DownloadConfig(
             format="best[ext=mp4]/best",  # Try best mp4 format first, then fallback to any best
             extra_args=[
@@ -271,7 +271,7 @@ class VideoDownloader:
             url = url.strip().strip('\\')
             platform = self._get_platform(url)
             
-            # Check if it's a YouTube Shorts or Clips URL separately
+            # Check if it's a YouTube Shorts or Clips URL
             is_youtube_shorts = "youtube.com/shorts" in url.lower()
             is_youtube_clips = "youtube.com/clip" in url.lower()
             
@@ -660,7 +660,12 @@ class VideoDownloader:
     async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None) -> Tuple[Optional[str], Optional[str]]:
         """Generic video download using yt-dlp."""
         try:
-            config = special_config or self.platform_configs.get(platform, self.platform_configs[Platform.OTHER])
+            # Use special_config if provided, otherwise use platform-specific config
+            if special_config is not None:
+                config = special_config
+            else:
+                config = self.platform_configs.get(platform, self.platform_configs[Platform.OTHER])
+                
             unique_filename = f"video_{uuid.uuid4()}.%(ext)s"
             output_template = os.path.join(self.download_path, unique_filename) 
             
@@ -707,8 +712,9 @@ class VideoDownloader:
             
             stdout, stderr = await process.communicate()
             
-            # Always log stdout/stderr for YouTube Shorts for debugging
+            # Always log stdout/stderr for YouTube Shorts or Clips for debugging
             if is_youtube_shorts or is_youtube_clips:
+                content_type = "Shorts" if is_youtube_shorts else "Clips"
                 error_logger.info(f"YouTube {content_type} stdout: {stdout.decode()}")
                 error_logger.info(f"YouTube {content_type} stderr: {stderr.decode()}")
             
@@ -731,6 +737,7 @@ class VideoDownloader:
                     error_logger.error(f"No video files found in {self.download_path} after successful download")
                         
             if is_youtube_shorts or is_youtube_clips:
+                content_type = "Shorts" if is_youtube_shorts else "Clips"
                 error_logger.error(f"YouTube {content_type} download failed (returncode: {process.returncode})")
             else:
                 error_logger.error(f"Generic download failed: {stderr.decode()}")
