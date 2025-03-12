@@ -647,7 +647,7 @@ class VideoDownloader:
             output_template = os.path.join(self.download_path, unique_filename) 
             
             # Add more verbose logging for YouTube Shorts
-            is_youtube_shorts = "youtube.com/shorts" in url.lower()
+            is_youtube_shorts = "youtube.com/shorts" or "youtube.com/clip" in url.lower()
             if is_youtube_shorts:
                 error_logger.info(f"YouTube Shorts direct download attempt: {url}")
                 error_logger.info(f"Using yt-dlp path: {self.yt_dlp_path}")
