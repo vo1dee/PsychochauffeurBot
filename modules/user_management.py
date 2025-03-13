@@ -14,8 +14,8 @@ LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 RESTRICT_DURATION_RANGE = (1, 15)  # min and max minutes
 RESTRICTION_STICKER = [
     "CAACAgQAAxkBAAEt8tNm9Wc6jYEQdAgQzvC917u3e8EKPgAC9hQAAtMUCVP4rJSNEWepBzYE", # Sticker 1
-    "CAACAgQAAxkBAAEt8tNm9Wc6jYEQdAgQzvC917u3e8EKPgAC9hQAAtMUCVP4rJSNEWepBzYE", # Sticker 2
-    "CAACAgQAAxkBAAEt8tNm9Wc6jYEQdAgQzvC917u3e8EKPgAC9hQAAtMUCVP4rJSNEWepBzYE"  # Sticker 3
+    "CAACAgIAAxkBAAEyoUxn0vCR2hi81ZEkZTuffMFmG9AexQACrBgAAk_x0Es_t_KsbxvdnTYE", # Sticker 2 zomboid
+    "CAACAgIAAxkBAAEyoTBn0vAKKx5B8fDNzKVD1WDD3A4SzgACJSsAArOEUEpDLeMUdNLVODYE"  # Sticker 3 heroes
 ]
 
 async def restrict_user(update: Update, context: CallbackContext) -> None:
