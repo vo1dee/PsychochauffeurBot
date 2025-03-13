@@ -13,8 +13,8 @@ from modules.logger import general_logger, error_logger
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 RESTRICT_DURATION_RANGE = (1, 15)  # min and max minutes
 RESTRICTION_STICKER = ["CAACAgQAAxkBAAEt8tNm9Wc6jYEQdAgQzvC917u3e8EKPgAC9hQAAtMUCVP4rJSNEWepBzYE", # Ina sticker
-                       "CAACAgIAAxkBAAEyoTBn0vAKKx5B8fDNzKVD1WDD3A4SzgACJSsAArOEUEpDLeMUdNLVODYE", # Heroes 3 sticker
-                       "CAACAgIAAxkBAAEyoUxn0vCR2hi81ZEkZTuffMFmG9AexQACrBgAAk_x0Es_t_KsbxvdnTYE"] # Zombie sticker
+                       "AAMCAgADGQEAATKhMGfS8AorHkHx8M3MpUPVYMPcDhLOAAIlKwACs4RQSkMt4xR00tU4AQAHbQADNgQ", # Heroes 3 sticker
+                       "AAMCAgADGQEAATKhTGfS8JHaGLzVkSRlO598wWYb0B7FAAKsGAACT_HQSz-38qxvG92dAQAHbQADNgQ"] # Zombie sticker
 
 async def restrict_user(update: Update, context: CallbackContext) -> None:
     """
