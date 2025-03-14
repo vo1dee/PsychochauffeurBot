@@ -473,7 +473,7 @@ class VideoDownloader:
                 escaped_url = source_url
                 for char in special_chars:
                     escaped_url = escaped_url.replace(char, f'\\{char}')
-                caption += f"\n\n🔗 [Source]({escaped_url})"
+                caption += f"\n\n🔗 [Посилання]({escaped_url})"
 
             with open(filename, 'rb') as video_file:
                 await update.message.reply_video(
