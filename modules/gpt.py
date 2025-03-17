@@ -107,7 +107,7 @@ async def gpt_summary_function(messages):
 
         # Call the OpenAI API to get the summary
         response = await client.chat.completions.create(
-            model="gpt-4-turbo",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": GPT_PROMPTS["gpt_summary"]},
                 {"role": "user", "content": prompt}
