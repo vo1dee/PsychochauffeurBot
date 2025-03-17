@@ -46,7 +46,7 @@ async def gpt_response(prompt: str, update: Update = None, context: CallbackCont
                 {"role": "user", "content": full_prompt}
             ],
             max_tokens=666,
-            temperature=0.4
+            temperature=0.8
         )
 
         response_text = response.choices[0].message.content.strip()
@@ -107,13 +107,13 @@ async def gpt_summary_function(messages):
 
         # Call the OpenAI API to get the summary
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4",
             messages=[
                 {"role": "system", "content": GPT_PROMPTS["gpt_summary"]},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=1333,  # Adjust the number of tokens for the summary as needed
-            temperature=0.6  # Adjust the creativity of the response
+            max_tokens=1000,  # Adjust the number of tokens for the summary as needed
+            temperature=0.4  # Adjust the creativity of the response
         )
 
         # Extract the summary from the response
