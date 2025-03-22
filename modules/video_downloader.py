@@ -627,7 +627,8 @@ class VideoDownloader:
         """Download TikTok video using yt-dlp."""
         try:
             config = self.platform_configs[Platform.TIKTOK]
-            unique_filename = f"video_{uuid.uuid4()}.%(ext)s"
+            # Force mp4 extension
+            unique_filename = f"video_{uuid.uuid4()}.mp4"
             output_template = os.path.join(self.download_path, unique_filename) 
 
             
@@ -636,6 +637,7 @@ class VideoDownloader:
                 url,
                 '-f', config.format,
                 '-o', output_template,
+                '--merge-output-format', 'mp4',
                 '--no-warnings',
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
@@ -666,7 +668,8 @@ class VideoDownloader:
             else:
                 config = self.platform_configs.get(platform, self.platform_configs[Platform.OTHER])
                 
-            unique_filename = f"video_{uuid.uuid4()}.%(ext)s"
+            # Force mp4 extension
+            unique_filename = f"video_{uuid.uuid4()}.mp4"
             output_template = os.path.join(self.download_path, unique_filename) 
             
             # Add more verbose logging for YouTube content
@@ -686,6 +689,7 @@ class VideoDownloader:
                     url,
                     '-f', config.format,
                     '-o', output_template,
+                    '--merge-output-format', 'mp4',
                     '--verbose',  # Enable verbose output for debugging
                 ]
                 
@@ -700,6 +704,7 @@ class VideoDownloader:
                     url,
                     '-f', config.format,
                     '-o', output_template,
+                    '--merge-output-format', 'mp4',
                     '--no-warnings',
                 ]
             
