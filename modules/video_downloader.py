@@ -73,13 +73,13 @@ class VideoDownloader:
         # Platform-specific download configurations
         self.platform_configs = {
             Platform.INSTAGRAM: DownloadConfig(
-                format="best",
+                format="best[ext=mp4]",
                 headers={
                     "User-Agent": "Instagram 219.0.0.12.117 Android"
                 }
             ),
             Platform.TIKTOK: DownloadConfig(
-                format="best",
+                format="best[ext=mp4]",
                 max_retries=3,
                 headers={
                     "User-Agent": "TikTok/26.2.0 (iPhone; iOS 14.4.2; Scale/3.00)",
@@ -88,7 +88,7 @@ class VideoDownloader:
                 }
             ),
             Platform.OTHER: DownloadConfig(
-                    format="bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"  # Prefer 1080p
+                    format="bestvideo[height<=1080][ext=mp4]+bestaudio/best[height<=1080][ext=mp4]/best[ext=mp4]"  # Prefer 1080p MP4
                 )
 
         }
@@ -184,7 +184,7 @@ class VideoDownloader:
             error_logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
-    async def _download_from_service(self, url: str, format: str = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best") -> Tuple[Optional[str], Optional[str]]:
+    async def _download_from_service(self, url: str, format: str = "bestvideo[height<=1080][ext=mp4]+bestaudio/best[height<=1080][ext=mp4]/best[ext=mp4]") -> Tuple[Optional[str], Optional[str]]:
         """Download video using the local service."""
         if not self.service_url:
             error_logger.warning("Skipping service download - no service URL configured")
