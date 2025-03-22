@@ -88,8 +88,9 @@ class VideoDownloader:
                 }
             ),
             Platform.OTHER: DownloadConfig(
-                format="best[height<=720]"
-            )
+                    format="bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"  # Prefer 1080p
+                )
+
         }
         
         # Special configuration for YouTube Shorts
@@ -106,14 +107,14 @@ class VideoDownloader:
         
         # Configuration for YouTube clips
         self.youtube_clips_config = DownloadConfig(
-            format="best[ext=mp4]/best",  # Try best mp4 format first, then fallback to any best
+            format="bestvideo[height<=1080][ext=mp4]+bestaudio/best[height<=1080][ext=mp4]/best[ext=mp4]",
             extra_args=[
                 "--ignore-errors",
                 "--ignore-config",
                 "--no-playlist",
                 "--geo-bypass",
                 "--socket-timeout", "10",
-                "--force-generic-extractor"  # This might help with clips
+                "--force-generic-extractor"
             ]
         )
 
@@ -183,7 +184,7 @@ class VideoDownloader:
             error_logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
-    async def _download_from_service(self, url: str, format: str = "best") -> Tuple[Optional[str], Optional[str]]:
+    async def _download_from_service(self, url: str, format: str = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best") -> Tuple[Optional[str], Optional[str]]:
         """Download video using the local service."""
         if not self.service_url:
             error_logger.warning("Skipping service download - no service URL configured")
