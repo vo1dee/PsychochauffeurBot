@@ -65,9 +65,10 @@ jobs:
       env:
         VM_USER: ${{ secrets.VM_USER }}
         VM_HOST: ${{ secrets.VM_HOST }}
+        APP_DIR: ${{ secrets.APP_DIR }}
       run: |
-        # Execute the existing deployment script on the server
-        ssh $VM_USER@$VM_HOST "/home/ubuntu/deployment.sh"
+        # Use the deployment script for existing installation
+        ./scripts/deploy_existing.sh $VM_USER $VM_HOST $APP_DIR
         
     - name: Verify Deployment
       env:
