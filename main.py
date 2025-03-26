@@ -172,6 +172,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await translate_last_message(update, context)
         return
 
+    if "/ping" in message_text:
+        await update.message.reply_text("pong!")
+        return
+
     # Process URLs if present
     urls = extract_urls(message_text)
     if urls:

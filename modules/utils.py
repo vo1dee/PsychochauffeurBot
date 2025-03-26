@@ -1,5 +1,4 @@
 import re
-import requests
 import imgkit
 import pytz
 import os
@@ -13,7 +12,7 @@ import logging
 from telegram import Update
 from telegram.ext import CallbackContext
 # Avoid running code at module import time
-from modules.logger import init_error_handler, error_logger, LOG_DIR, general_logger
+from modules.logger import error_logger, LOG_DIR, general_logger
 from modules.const import (
     weather_emojis, city_translations, feels_like_emojis, 
     SCREENSHOT_DIR, DATA_DIR, LOG_DIR, DOWNLOADS_DIR
@@ -234,6 +233,7 @@ async def cat_command(update: Update, context: CallbackContext) -> None:
                     await update.message.reply_photo(cat_image_url)
                 else:
                     await update.message.reply_text('Sorry, I could not fetch a cat image at the moment.')
+                    error_logger.error(f"Error fetching cat image: {e}")
     except Exception as e:
         error_logger.error(f"Error fetching cat image: {e}")
         await update.message.reply_text('An error occurred while fetching a cat image.')
