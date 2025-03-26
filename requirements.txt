@@ -20,3 +20,4 @@ pyflakes==3.2.0
 exceptiongroup==1.2.2
 iniconfig==2.0.0
 packaging==24.2
+beautifulsoup4==4.12.2
