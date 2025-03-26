@@ -1,131 +1,89 @@
 name: PsychochauffeurBot CI/CD
+
 on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches:The failure in the job logs indicates an issue with the SSH setup during the deployment process. Specifically, [ "main" ]
+    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       deploy:
-        description: 'Deploy to production'
- the error messages are:
-
-- "Warning: Identity file ***@        type: boolean
+        description: "Deploy to production"
+        type: boolean
         default: false
+
 jobs:
-*** not accessible: No such file or directory."
   test:
     runs-on: ubuntu-latest
     strategy:
-     - "hostname contains invalid characters"
-- "Process fail-fast: false
+      fail-fast: false
       matrix:
-        python-version completed with exit code 255."
+        python-version: ["3.9", "3.10", "3.11"]
 
-Here are the steps to: ["3.9", "3.10", "3.11"]
     steps:
-    - uses resolve the issue:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-1. **Ensure the SSH key file is: actions/checkout@v4
-    - name: Set up Python $ accessible:**
-   Make sure that the SSH key is correctly specified and accessible. The key should be{{ matrix.python-version }}
-      uses: actions/setup-python present in the secrets as `SSH_PRIVATE_KEY`.
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
 
-2@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-. **Fix the hostname:**
-   Ensure that `secrets.VM      run: |
-        python -m pip install --upgrade pip_HOST` does not contain invalid characters. The hostname should be a valid domain or IP address.
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install flake8 pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-3. **Specify the
-        python -m pip install flake8 pytest
-        if SSH key file correctly:**
-   The SSH key file should [ -f requirements.txt ]; then pip install -r requirements.txt; be specified correctly in the SSH command.
+      - name: Lint with flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
-Here fi
-    - name: Lint with flake8
-      run: |
-        is the updated `deploy` job section with changes to address the issues:
+      - name: Test with pytest
+        env:
+          USE_EMPTY_PROMPTS: "true"
+        run: |
+          pytest --ignore=tests/test_service.py
 
-```yaml
-deploy:
-  needs: test
- flake8 . --count --select=E9,F63,F7,F82 --show  if: github.ref == 'refs/heads/main' && (github.event_name-source --statistics
-        flake8 . --count --exit == 'push' || inputs.deploy)
-  runs-on: ubuntu-zero --max-complexity=10 --max-line-length=127 ---latest
-  
-  steps:
-  - uses: actions/checkout@v4
-  
- statistics
-    - name: Test with pytest
-      env:
-        USE_EMPTY_PROMPTS: "true"
-      run: |
-        PY - name: Set up SSH
-    uses: webfactory/ssh-agent@THONPATH=$(pwd) pytest --ignore=tests/test_service.pyv0.8.0
-    with:
-      ssh-private-key: ${{ secrets.S
   deploy:
     needs: test
-    if: github.ref == 'SH_PRIVATE_KEY }}
-  
-  - name: Add host key
-    run:refs/heads/main' && (github.event_name == 'push' || inputs |
-      mkdir -p ~/.ssh
-      ssh-keyscan ${{ secrets.V.deploy)
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.deploy)
     runs-on: ubuntu-latest
+
     steps:
-M_HOST }} >> ~/.ssh/known_hosts
-  
-  - name: Deploy to VM
-    env:
-      VM_USER: ${{ secrets.VM_USER }}
-      VM_HOST: ${{ secrets.VM_HOST }}
-      SSH_KEY    - uses: actions/checkout@v4
-    - name: Set up SSH
-      uses: webfactory/ssh-agent@: ~/.ssh/id_rsa  # Ensure this path is correct
-v0.8.0
-      with    run: |
-      # Use -i to specify the SSH key and full:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-    - name: Add host key
-      run: |
-        mkdir - path
-      ssh -i $SSH_KEY $VM_USER@$VM_HOSTp ~/.ssh
-        ssh-keyscan ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
-    - name: Deploy to "sudo /home/ubuntu/psychochauffeurbot/scripts/deploy_existing VM
-      env:
-        VM_USER: ${{ secrets.VM_USER }}
-.sh"
-  
-  - name: Verify Deployment
-    env:
-        VM_HOST: ${{ secrets.VM_HOST }}
-      run:      VM_USER: ${{ secrets.VM_USER }}
-      VM_HOST: |
-        ssh -i ~/.ssh/id_rsa $VM_USER@$VM_HOST " ${{ secrets.VM_HOST }}
-    run: |
-      # Wait a bit for the bot to start up
-      sleep 5
-      
-      #sudo /home/ubuntu/psychochauffeurbot/scripts/deploy_existing Check if the bot service is running
-      ssh $VM.sh"
-    - name: Verify Deployment
-      env:
-       _USER@$VM_HOST "bash -s" << EOF
-        if systemctl VM_USER: ${{ secrets.VM_USER }}
-        VM_HOST is-active --quiet chauffeur-bot.service; then
-          echo "Bot service is: ${{ secrets.VM_HOST }}
-      run: |
-        sleep running successfully"
-          exit 0
-        else
-          echo "Bot service 5
-        ssh -i ~/.ssh/id_rsa $VM_USER@$VM_HOST is not running!"
-          exit 1
-        fi "bash -s" << EOF
-          if systemctl is-active --
-      EOF
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add Host Key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to VM
+        env:
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+        run: |
+          ssh -o StrictHostKeyChecking=no $VM_USER@$VM_HOST "sudo /home/ubuntu/psychochauffeurbot/scripts/deploy.sh"
+
+      - name: Verify Deployment
+        env:
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+        run: |
+          sleep 5
+          ssh $VM_USER@$VM_HOST "bash -s" << EOF
+            if systemctl is-active --quiet chauffeur-bot.service; then
+              echo "Bot service is running successfully"
+              exit 0
+            else
+              echo "Bot service is not running!"
+              exit 1
+            fi
+          EOF
