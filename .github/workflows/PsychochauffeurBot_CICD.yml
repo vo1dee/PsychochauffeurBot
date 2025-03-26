@@ -70,7 +70,7 @@ jobs:
           VM_USER: ${{ secrets.VM_USER }}
           VM_HOST: ${{ secrets.VM_HOST }}
         run: |
-          ssh -o StrictHostKeyChecking=no $VM_USER@$VM_HOST "sudo /home/ubuntu/psychochauffeurbot/scripts/deploy.sh"
+          ssh -o StrictHostKeyChecking=no $VM_USER@$VM_HOST "sudo /home/ubuntu/psychochauffeurbot/scripts/deploy_existing.sh"
 
       - name: Verify Deployment
         env:
