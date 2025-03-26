@@ -67,8 +67,8 @@ jobs:
         VM_HOST: ${{ secrets.VM_HOST }}
         APP_DIR: ${{ secrets.APP_DIR }}
       run: |
-        # Use the deployment script for existing installation
-        ./scripts/deploy_existing.sh $VM_USER $VM_HOST $APP_DIR
+        # Execute the deployment script directly on the server
+        ssh $VM_USER@$VM_HOST "$APP_DIR/scripts/deploy_existing.sh"
         
     - name: Verify Deployment
       env:
