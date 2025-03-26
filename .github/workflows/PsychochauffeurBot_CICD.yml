@@ -1,5 +1,4 @@
 name: PsychochauffeurBot CI/CD
-
 on:
   push:
     branches: [ "main" ]
@@ -11,7 +10,6 @@ on:
         description: 'Deploy to production'
         type: boolean
         default: false
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -19,7 +17,6 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11"]
-
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
@@ -53,56 +50,40 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
-      
-    - name: Setup SSH
-      run: |
-        mkdir -p ~/.ssh
-        if [ -n "$VM_HOST" ]; then
-          ssh-keyscan $VM_HOST >> ~/.ssh/known_hosts
-        else
-          echo "Error: VM_HOST secret is not set"
-          exit 1
-        fi
-      env:
-        SSH_AUTH_SOCK: /tmp/ssh-olPVE8TIbqCR/agent.1871
-        SSH_AGENT_PID: 1872
+    
+    - name: Set up SSH
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
         
     - name: Add host key
       run: |
         mkdir -p ~/.ssh
-        if [ -n "${{ secrets.VM_HOST }}" ]; then
-          ssh-keyscan ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
-        else
-          echo "Error: VM_HOST secret is not set"
-          exit 1
-        fi
+        ssh-keyscan ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
         
     - name: Deploy to VM
       env:
         VM_USER: ${{ secrets.VM_USER }}
         VM_HOST: ${{ secrets.VM_HOST }}
-        APP_DIR: ${{ secrets.APP_DIR }}
       run: |
-        # Use the deployment script for existing installation
-        ./scripts/deploy_existing.sh $VM_USER $VM_HOST $APP_DIR
+        # Execute the existing deployment script on the server
+        ssh $VM_USER@$VM_HOST "/home/ubuntu/deployment.sh"
         
     - name: Verify Deployment
       env:
         VM_USER: ${{ secrets.VM_USER }}
         VM_HOST: ${{ secrets.VM_HOST }}
-        APP_DIR: ${{ secrets.APP_DIR }}
       run: |
         # Wait a bit for the bot to start up
         sleep 5
         
-        # Check if the bot is running
+        # Check if the bot service is running
         ssh $VM_USER@$VM_HOST "bash -s" << EOF
-          cd $APP_DIR
-          if [ -f bot.pid ] && ps -p \$(cat bot.pid) > /dev/null; then
-            echo "Bot is running with PID \$(cat bot.pid)"
+          if systemctl is-active --quiet chauffeur-bot.service; then
+            echo "Bot service is running successfully"
             exit 0
           else
-            echo "Bot is not running!"
+            echo "Bot service is not running!"
             exit 1
           fi
         EOF
