@@ -5,6 +5,9 @@ newenv/
 env/
 .env/
 .venv/
+Lib/
+Scripts/
+share/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

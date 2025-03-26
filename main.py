@@ -39,6 +39,7 @@ from modules.logger import general_logger, chat_logger, error_logger, get_daily_
 from modules.user_management import restrict_user
 from modules.video_downloader import VideoDownloader, setup_video_handlers
 from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
+from modules.geomagnetic import GeomagneticCommandHandler
 
 
 nest_asyncio.apply()
@@ -102,6 +103,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• GPT responses\n"
         "• Weather updates -- /weather [city]\n"
         "• Solar flares screenshot --  /flares\n"
+        "• Geomagnetic activity -- /gm\n"
         "• Random cat photos -- /cat \n\n"
         "❓ Questions or issues?\n"
         "Contact @vo1dee"
@@ -384,7 +386,8 @@ async def main() -> None:
             'analyze': analyze_command,
             'flares': screenshot_command,
             'weather': WeatherCommandHandler(),
-            'errors': error_report_command  # New command for error analytics
+            'errors': error_report_command,  # New command for error analytics
+            'gm': GeomagneticCommandHandler()  # Geomagnetic activity command
         }
         
         for command, handler in commands.items():
