@@ -233,7 +233,6 @@ async def cat_command(update: Update, context: CallbackContext) -> None:
                     await update.message.reply_photo(cat_image_url)
                 else:
                     await update.message.reply_text('Sorry, I could not fetch a cat image at the moment.')
-                    error_logger.error(f"Error fetching cat image: {e}")
     except Exception as e:
         error_logger.error(f"Error fetching cat image: {e}")
         await update.message.reply_text('An error occurred while fetching a cat image.')
