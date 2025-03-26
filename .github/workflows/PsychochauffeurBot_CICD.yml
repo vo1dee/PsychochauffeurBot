@@ -53,11 +53,19 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Set up SSH
-      uses: webfactory/ssh-agent@v0.8.0
-      with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        if [ -n "$VM_HOST" ]; then
+          ssh-keyscan $VM_HOST >> ~/.ssh/known_hosts
+        else
+          echo "Error: VM_HOST secret is not set"
+          exit 1
+        fi
+      env:
+        SSH_AUTH_SOCK: /tmp/ssh-olPVE8TIbqCR/agent.1871
+        SSH_AGENT_PID: 1872
         
     - name: Add host key
       run: |
