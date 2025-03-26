@@ -62,7 +62,12 @@ jobs:
     - name: Add host key
       run: |
         mkdir -p ~/.ssh
-        ssh-keyscan ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+        if [ -n "${{ secrets.VM_HOST }}" ]; then
+          ssh-keyscan ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+        else
+          echo "Error: VM_HOST secret is not set"
+          exit 1
+        fi
         
     - name: Deploy to VM
       env:
@@ -93,4 +98,3 @@ jobs:
             exit 1
           fi
         EOF
-
