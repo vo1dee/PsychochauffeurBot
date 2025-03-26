@@ -65,10 +65,9 @@ jobs:
       env:
         VM_USER: ${{ secrets.VM_USER }}
         VM_HOST: ${{ secrets.VM_HOST }}
-        APP_DIR: ${{ secrets.APP_DIR }}
       run: |
-        # Execute the deployment script directly on the server
-        ssh $VM_USER@$VM_HOST "$APP_DIR/scripts/deploy_existing.sh"
+        # Use -i to specify the SSH key and full path
+        ssh -i $SSH_KEY $VM_USER@$VM_HOST "sudo /home/ubuntu/psychochauffeurbot/scripts/deploy_existing.sh"
         
     - name: Verify Deployment
       env:
