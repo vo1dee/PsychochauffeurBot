@@ -1,0 +1,89 @@
+name: PsychochauffeurBot CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy to production"
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install flake8 pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Lint with flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Test with pytest
+        env:
+          USE_EMPTY_PROMPTS: "true"
+        run: |
+          pytest --ignore=tests/test_service.py
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.deploy)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add Host Key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to VM
+        env:
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+        run: |
+          ssh -o StrictHostKeyChecking=no $VM_USER@$VM_HOST "sudo /home/ubuntu/psychochauffeurbot/scripts/deploy_existing.sh"
+
+      - name: Verify Deployment
+        env:
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+        run: |
+          sleep 5
+          ssh $VM_USER@$VM_HOST "bash -s" << EOF
+            if systemctl is-active --quiet chauffeur-bot.service; then
+              echo "Bot service is running successfully"
+              exit 0
+            else
+              echo "Bot service is not running!"
+              exit 1
+            fi
+          EOF
