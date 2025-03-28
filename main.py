@@ -13,10 +13,6 @@ import sys
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from urllib.parse import urlparse, urlunparse
-import pytz
-
-# Define timezone constant
-KYIV_TZ = pytz.timezone('Europe/Kyiv')
 
 from telegram import Update
 from telegram.ext import (
@@ -26,12 +22,11 @@ from telegram.ext import (
 
 from modules.keyboards import create_link_keyboard, button_callback
 from modules.utils import (
-    remove_links, screenshot_command, cat_command, ScreenshotManager,
+    ScreenshotManager, MessageCounter, remove_links, screenshot_command, cat_command, 
     extract_urls, init_directories
 )
 from modules.const import (
-    domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID, DATA_DIR,
-    VideoPlatforms, LinkModification, Config
+     TOKEN, KYIV_TZ, ALIEXPRESS_STICKER_ID, VideoPlatforms, LinkModification, Config
 )
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import WeatherCommandHandler
@@ -44,19 +39,7 @@ from modules.geomagnetic import GeomagneticCommandHandler
 
 nest_asyncio.apply()
 
-class MessageCounter:
-    """Manages message counts per chat for random GPT responses."""
-    def __init__(self):
-        self.counts = {}
 
-    def increment(self, chat_id: int) -> int:
-        """Increment message count for a chat and return new count."""
-        self.counts[chat_id] = self.counts.get(chat_id, 0) + 1
-        return self.counts[chat_id]
-
-    def reset(self, chat_id: int) -> None:
-        """Reset message count for a chat."""
-        self.counts[chat_id] = 0
 
 # Initialize message counter
 message_counter = MessageCounter()
@@ -159,7 +142,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     # Log message
     chat_title = update.effective_chat.title or "Private Chat"
-    log_path = get_daily_log_path(chat_id, chat_title=chat_title)
     chat_logger.info(f"User message: {message_text}", extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
 
     # Handle trigger words
@@ -225,20 +207,28 @@ async def process_urls(
     for url in urls:
         sanitized_link = sanitize_url(url)
         if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
-            modified_link = await shorten_url(sanitized_link) if len(sanitized_link) > 60 else sanitized_link
+            modified_link = await shorten_url(sanitized_link) 
             modified_links.append(f"{modified_link} #aliexpress")
             await context.bot.send_sticker(
                 chat_id=update.effective_chat.id,
                 sticker=ALIEXPRESS_STICKER_ID
             )
         else:
+            processed = False
             for domain, modified_domain in LinkModification.DOMAINS.items():
                 if domain in sanitized_link and modified_domain not in sanitized_link:
-                    modified_links.append(sanitized_link.replace(domain, modified_domain))
+                    modified_link = sanitized_link.replace(domain, modified_domain)
+                    modified_links.append(await shorten_url(modified_link))
+                    processed = True
                     break
                 elif modified_domain in sanitized_link:
-                    modified_links.append(sanitized_link)
+                    modified_links.append(await shorten_url(sanitized_link))
+                    processed = True
                     break
+            
+            # If no domain rules matched, still check if we need to shorten
+            if not processed:
+                modified_links.append(await shorten_url(sanitized_link))
 
     if modified_links:
         cleaned_message_text = remove_links(message_text).strip()
@@ -290,9 +280,14 @@ def sanitize_url(url: str, replace_domain: Optional[str] = None) -> str:
         return url
 
 async def shorten_url(url: str) -> str:
-    """Shorten a URL using TinyURL service."""
+    """Shorten a URL if it exceeds 60 characters using TinyURL service."""
+    if len(url) <= 60:
+        return url
+        
     try:
-        return pyshorteners.Shortener().tinyurl.short(url)
+        shortened = pyshorteners.Shortener().tinyurl.short(url)
+        general_logger.info(f"Shortened URL: {url} -> {shortened}")
+        return shortened
     except Exception as e:
         # Create standardized error
         error = ErrorHandler.create_error(

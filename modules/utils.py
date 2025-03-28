@@ -38,8 +38,20 @@ IMGKIT_OPTIONS = {
     ]
 }
 
-# Game state
-game_state: Dict[int, str] = {}
+class MessageCounter:
+    """Manages message counts per chat for random GPT responses."""
+    def __init__(self):
+        self.counts = {}
+
+    def increment(self, chat_id: int) -> int:
+        """Increment message count for a chat and return new count."""
+        self.counts[chat_id] = self.counts.get(chat_id, 0) + 1
+        return self.counts[chat_id]
+
+    def reset(self, chat_id: int) -> None:
+        """Reset message count for a chat."""
+        self.counts[chat_id] = 0
+
 
 def ensure_directory(path: str) -> None:
     """
