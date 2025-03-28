@@ -325,7 +325,8 @@ async def construct_and_send_message(
             chat_id=chat_id,
             text=final_message,
             reply_markup=keyboard,
-            reply_to_message_id=update.message.reply_to_message.message_id if update.message.reply_to_message else None
+            reply_to_message_id=(update.message.reply_to_message.message_id 
+                               if update.message.reply_to_message else None)
         )
         general_logger.info(f"Sent message with keyboard. Link hash: {link_hash}")
     except Exception as e:
