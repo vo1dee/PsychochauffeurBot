@@ -27,7 +27,7 @@ from telegram.ext import (
 from modules.keyboards import create_link_keyboard, button_callback
 from modules.utils import (
     remove_links, screenshot_command, cat_command, ScreenshotManager,
-    extract_urls, ensure_directory, init_directories
+    extract_urls, init_directories
 )
 from modules.const import (
     domain_modifications, TOKEN, ALIEXPRESS_STICKER_ID, DATA_DIR,
@@ -37,7 +37,7 @@ from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import WeatherCommandHandler
 from modules.logger import general_logger, chat_logger, error_logger, get_daily_log_path,  init_error_handler
 from modules.user_management import restrict_user
-from modules.video_downloader import VideoDownloader, setup_video_handlers
+from modules.video_downloader import setup_video_handlers
 from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
 from modules.geomagnetic import GeomagneticCommandHandler
 
@@ -170,10 +170,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Trigger translation if "бля!" is in the message
     if "бля!" in message_text:
         await translate_last_message(update, context)
-        return
-
-    if "/ping" in message_text:
-        await update.message.reply_text("pong!")
         return
 
     # Process URLs if present
@@ -391,7 +387,8 @@ async def main() -> None:
             'flares': screenshot_command,
             'weather': WeatherCommandHandler(),
             'errors': error_report_command,  # New command for error analytics
-            'gm': GeomagneticCommandHandler()  # Geomagnetic activity command
+            'gm': GeomagneticCommandHandler(),  # Geomagnetic activity command
+            'ping': lambda update, context: update.message.reply_text("🏓 Bot is online!")
         }
         
         for command, handler in commands.items():
