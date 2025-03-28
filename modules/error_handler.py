@@ -1,8 +1,7 @@
 import asyncio
 import traceback
-import logging
 from enum import Enum
-from typing import Dict, Optional, Any, Type, Callable, Awaitable, Union, List, Tuple
+from typing import Dict, Optional, Any, Type, Callable, Awaitable, Union, List
 from datetime import datetime
 import pytz
 from telegram import Update
@@ -33,7 +32,7 @@ class ErrorCategory(Enum):
 class StandardError(Exception):
     """
     Standard error class for consistent handling across the application.
-    
+
     Attributes:
         message: Primary error message
         severity: Error severity level
@@ -41,24 +40,26 @@ class StandardError(Exception):
         context: Additional contextual information
         original_exception: The original exception that was caught
     """
-    def __init__(self, 
-                message: str, 
-                severity: ErrorSeverity = ErrorSeverity.MEDIUM,
-                category: ErrorCategory = ErrorCategory.GENERAL,
-                context: Optional[Dict[str, Any]] = None,
-                original_exception: Optional[Exception] = None):
+    def __init__(
+            self,
+            message: str,
+            severity: ErrorSeverity = ErrorSeverity.MEDIUM,
+            category: ErrorCategory = ErrorCategory.GENERAL,
+            context: Optional[Dict[str, Any]] = None,
+            original_exception: Optional[Exception] = None
+    ):
         self.message = message
         self.severity = severity
         self.category = category
         self.context = context or {}
         self.original_exception = original_exception
         self.timestamp = datetime.now(KYIV_TZ)
-        
+
         # Format the error message for the parent Exception
         formatted_message = f"{message}"
         if original_exception:
             formatted_message += f" | Original error: {str(original_exception)}"
-        
+
         super().__init__(formatted_message)
 
     def __str__(self):
@@ -173,26 +174,29 @@ class ErrorHandler:
         return "\n".join(parts)
     
     @staticmethod
-    async def handle_error(error: Exception,
-                         update: Optional[Update] = None,
-                         context: Optional[ContextTypes.DEFAULT_TYPE] = None,
-                         feedback_message: Optional[str] = None,
-                         user_feedback_fn: Optional[Callable[[Update, str], Awaitable[None]]] = None,
-                         propagate: bool = False) -> Optional[StandardError]:
-        """
-        Handle an exception with consistent logging and user feedback.
-        
+    async def handle_error(
+            error: Exception,
+            update: Optional[Update] = None,
+            context: Optional[ContextTypes.DEFAULT_TYPE] = None,
+            feedback_message: Optional[str] = None,
+            user_feedback_fn: Optional[Callable[[Update, str], Awaitable[None]]] = None,
+            context_data: Optional[Dict[str, Any]] = None,
+            propagate: bool = False
+    ) -> Optional[StandardError]:
+        """Handle an exception with consistent logging and user feedback.
+
         Args:
             error: The exception to handle
             update: Optional Telegram update for context
             context: Optional callback context
             feedback_message: Custom message to send to the user
             user_feedback_fn: Custom function to handle user feedback
+            context_data: Additional context data to include with the error
             propagate: Whether to re-raise the exception after handling
-            
+
         Returns:
             StandardError: The standardized error object
-            
+
         Raises:
             Exception: The original exception if propagate is True
         """
@@ -206,15 +210,22 @@ class ErrorHandler:
                 type(error), ErrorCategory.GENERAL
             )
             
+            # Create base context
+            base_context = {
+                "update_id": update.update_id if update else None,
+                "chat_id": update.effective_chat.id if update and update.effective_chat else None,
+                "user_id": update.effective_user.id if update and update.effective_user else None,
+            }
+            
+            # Merge with additional context if provided
+            if context_data:
+                base_context.update(context_data)
+            
             # Create standardized error
             std_error = StandardError(
                 message=str(error),
                 category=category,
-                context={
-                    "update_id": update.update_id if update else None,
-                    "chat_id": update.effective_chat.id if update and update.effective_chat else None,
-                    "user_id": update.effective_user.id if update and update.effective_user else None,
-                },
+                context=base_context,
                 original_exception=error
             )
         else:
@@ -279,15 +290,18 @@ class ErrorHandler:
         )
 
 # Common error handling decorators
-def handle_errors(feedback_message: str = "An error occurred. Please try again later.",
-                propagate: bool = False):
-    """
-    Decorator for handling errors in async functions with consistent patterns.
-    
+def handle_errors(
+        feedback_message: str = "An error occurred. Please try again later.",
+        propagate: bool = False,
+        context_data: Optional[Dict[str, Any]] = None
+):
+    """Decorator for handling errors in async functions with consistent patterns.
+
     Args:
         feedback_message: Message to send to user on error
         propagate: Whether to re-raise exceptions after handling
-        
+        context_data: Additional context data to include with the error
+
     Returns:
         Decorated function
     """
@@ -300,10 +314,14 @@ def handle_errors(feedback_message: str = "An error occurred. Please try again l
                 update = next((arg for arg in args if isinstance(arg, Update)), None)
                 context = next((arg for arg in args if isinstance(arg, ContextTypes.DEFAULT_TYPE)), None)
                 
+                # Use provided context_data or create one with function name
+                error_context = context_data or {"function": func.__name__}
+                
                 await ErrorHandler.handle_error(
                     error=e,
                     update=update,
                     context=context,
+                    context_data=error_context,
                     feedback_message=feedback_message,
                     propagate=propagate
                 )
@@ -314,12 +332,13 @@ def handle_errors(feedback_message: str = "An error occurred. Please try again l
     return decorator
 
 # Helper to send error stickers or messages
-async def send_error_feedback(update: Update, 
-                             stickers: Optional[List[str]] = None, 
-                             message: Optional[str] = None) -> None:
-    """
-    Send error feedback to the user with either a sticker or message.
-    
+async def send_error_feedback(
+        update: Update,
+        stickers: Optional[List[str]] = None,
+        message: Optional[str] = None
+) -> None:
+    """Send error feedback to the user with either a sticker or message.
+
     Args:
         update: Telegram update object
         stickers: List of sticker IDs to choose from randomly
