@@ -2,7 +2,7 @@
 Constants and configuration settings for the PsychoChauffeur bot.
 """
 import os
-from typing import Dict, Union, List
+from typing import Dict
 from dotenv import load_dotenv
 import pytz
 
@@ -15,8 +15,8 @@ DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
 DOWNLOADS_DIR = os.path.join(PROJECT_ROOT, 'downloads')
 
-# Timezone
-KYIV_TZ = pytz.timezone('Europe/Kiev')
+# Define timezone constant
+KYIV_TZ = pytz.timezone('Europe/Kyiv')
 
 class Config:
     """Bot configuration and API keys."""
