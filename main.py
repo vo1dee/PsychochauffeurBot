@@ -11,7 +11,7 @@ import pyshorteners
 import random
 import sys
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from urllib.parse import urlparse, urlunparse
 
 from telegram import Update
@@ -30,7 +30,7 @@ from modules.const import (
 )
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import WeatherCommandHandler
-from modules.logger import general_logger, chat_logger, error_logger, get_daily_log_path,  init_error_handler
+from modules.logger import general_logger, chat_logger, error_logger, init_error_handler
 from modules.user_management import restrict_user
 from modules.video_downloader import setup_video_handlers
 from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
@@ -302,10 +302,6 @@ async def shorten_url(url: str) -> str:
         error_logger.error(error_message)
         return url
 
-def remove_links(text: str) -> str:
-    """Remove URLs from text."""
-    return re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', text)
-
 async def construct_and_send_message(
     chat_id: int,
     username: str,
@@ -346,6 +342,7 @@ async def construct_and_send_message(
             error=e,
             update=update,
             context=context,
+            context_data=error_context,
             feedback_message="Sorry, an error occurred while processing your message."
         )
 

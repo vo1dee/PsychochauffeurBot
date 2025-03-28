@@ -17,7 +17,6 @@ from modules.const import (
     weather_emojis, city_translations, feels_like_emojis, 
     SCREENSHOT_DIR, DATA_DIR, LOG_DIR, DOWNLOADS_DIR
 )
-from modules.gpt import ask_gpt_command
 
 # Constants
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -409,16 +408,16 @@ def setup_bot():
     # Log startup
     general_logger.info("Bot initialized successfully")
 
-async def start_background_tasks():
-    """
-    Start all background tasks.
+# async def start_background_tasks():
+#     """
+#     Start all background tasks.
     
-    This should be called when the bot starts.
-    """
-    # Start screenshot scheduler
-    manager = ScreenshotManager()
-    asyncio.create_task(manager.schedule_task())
-    general_logger.info("Background tasks started")
+#     This should be called when the bot starts.
+#     """
+#     # Start screenshot scheduler
+#     manager = ScreenshotManager()
+#     asyncio.create_task(manager.schedule_task())
+#     general_logger.info("Background tasks started")
 
 def ensure_city_data_file():
     """Ensure the city data file exists in the root/data directory."""
