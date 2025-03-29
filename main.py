@@ -198,12 +198,35 @@ async def process_urls(
 ) -> None:
     """Process URLs for modification or video downloading with standardized error handling."""
     modified_links = []
+    
+    # Check if any URLs are from supported video platforms
     needs_video_download = any(
         platform in url.lower() 
         for url in urls 
         for platform in VideoPlatforms.SUPPORTED_PLATFORMS
     )
+    
+    # If this is a video download request, handle it directly without modifying links
+    if needs_video_download:
+        video_downloader = context.bot_data.get('video_downloader')
+        if video_downloader and hasattr(video_downloader, 'handle_video_link'):
+            logger.info(f"Attempting video download for URLs: {urls}")
+            await video_downloader.handle_video_link(update, context)
+        else:
+            # Use standardized error handler
+            error = ErrorHandler.create_error(
+                message="Video downloader not initialized properly",
+                severity=ErrorSeverity.HIGH,
+                category=ErrorCategory.RESOURCE,
+                context={
+                    "urls": urls,
+                    "chat_id": update.effective_chat.id if update and update.effective_chat else None
+                }
+            )
+            await ErrorHandler.handle_error(error, update, context)
+        return  # Exit early as we've handled the video download
 
+    # For non-video links, continue with link modification
     for url in urls:
         sanitized_link = sanitize_url(url)
         if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
@@ -240,24 +263,6 @@ async def process_urls(
             update,
             context
         )
-
-    if needs_video_download:
-        video_downloader = context.bot_data.get('video_downloader')
-        if video_downloader and hasattr(video_downloader, 'handle_video_link'):
-            logger.info(f"Attempting video download for URLs: {urls}")
-            await video_downloader.handle_video_link(update, context)
-        else:
-            # Use standardized error handler
-            error = ErrorHandler.create_error(
-                message="Video downloader not initialized properly",
-                severity=ErrorSeverity.HIGH,
-                category=ErrorCategory.RESOURCE,
-                context={
-                    "urls": urls,
-                    "chat_id": update.effective_chat.id if update and update.effective_chat else None
-                }
-            )
-            await ErrorHandler.handle_error(error, update, context)
 
 def sanitize_url(url: str, replace_domain: Optional[str] = None) -> str:
     """Sanitize a URL by keeping scheme, netloc, and path only."""
