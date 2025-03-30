@@ -249,8 +249,8 @@ async def process_urls(
                     processed = True
                     break
             
-            # If no domain rules matched, still check if we need to shorten
-            if not processed:
+            # Only add links if they were modified (from LinkModification) or shortened
+            if not processed and len(sanitized_link) > 60:
                 modified_links.append(await shorten_url(sanitized_link))
 
     if modified_links:
