@@ -250,7 +250,7 @@ async def process_urls(
                     break
             
             # Only add links if they were modified (from LinkModification) or shortened
-            if not processed and len(sanitized_link) > 60:
+            if not processed and len(sanitized_link) > 110:
                 modified_links.append(await shorten_url(sanitized_link))
 
     if modified_links:
@@ -285,8 +285,8 @@ def sanitize_url(url: str, replace_domain: Optional[str] = None) -> str:
         return url
 
 async def shorten_url(url: str) -> str:
-    """Shorten a URL if it exceeds 60 characters using TinyURL service."""
-    if len(url) <= 60:
+    """Shorten a URL if it exceeds 110 characters using TinyURL service."""
+    if len(url) <= 110:
         return url
         
     try:
