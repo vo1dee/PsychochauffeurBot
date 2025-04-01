@@ -3,9 +3,6 @@ import datetime
 import pytz
 import re
 import os
-from openai import OpenAI
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 from modules.const import KYIV_TZ
 from telegram.ext import CallbackContext
 from telegram import Update
@@ -542,12 +539,22 @@ class ReminderManager:
         self.conn.commit()
 
     def parse_natural_language_date(self, text):
-         # Ensure API key is set in environment variables.
-        prompt = f"Convert the following natural language date/time to ISO 8601 format: {text}"
         try:
-            response = client.completions.create(engine="text-davinci-003",
-            prompt=prompt,
-            max_tokens=50)
+            # Initialize OpenAI client only when method is called
+            from openai import OpenAI
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                error_logger.error("OpenAI API key not set in environment variables")
+                return None
+                
+            client = OpenAI(api_key=api_key)
+            
+            prompt = f"Convert the following natural language date/time to ISO 8601 format: {text}"
+            response = client.completions.create(
+                model="gpt-3.5-turbo-instruct",  # Updated model name
+                prompt=prompt,
+                max_tokens=50
+            )
             iso_date = response.choices[0].text.strip()
             return datetime.datetime.fromisoformat(iso_date).astimezone(KYIV_TZ)
         except Exception as e:
@@ -570,6 +577,15 @@ class ReminderManager:
         """
 
         try:
+            # Initialize OpenAI client only when method is called
+            from openai import OpenAI
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                error_logger.error("OpenAI API key not set in environment variables")
+                return None
+                
+            client = OpenAI(api_key=api_key)
+            
             system_prompt = """You are a reminder parser that extracts the core reminder task and timing information.
             Analyze the text and extract:
             1. The actual reminder task (without timing info)
@@ -605,12 +621,14 @@ class ReminderManager:
             user_prompt = f"Parse this reminder request: {reminder_text}"
 
             # Use ChatGPT API
-            response = client.chat.completions.create(model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.1)
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.1
+            )
 
             result = response.choices[0].message.content
 
