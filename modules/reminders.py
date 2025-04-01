@@ -106,34 +106,27 @@ class Reminder:
             else:
                 next_month_year = now.year
                 next_month_num = now.month + 1
-                
-            # Create datetime with explicit timezone
+            
+            # Create datetime with explicit timezone, always using day 1
             # Preserve the original time if it exists
             if self.next_execution:
                 original_hour = self.next_execution.hour
                 original_minute = self.next_execution.minute
-                self.next_execution = datetime.datetime(
-                    year=next_month_year,
-                    month=next_month_num,
-                    day=1,  # First day of month
-                    hour=original_hour,
-                    minute=original_minute,
-                    second=0,
-                    microsecond=0,
-                    tzinfo=KYIV_TZ
-                )
             else:
                 # Default to 9 AM if no previous time
-                self.next_execution = datetime.datetime(
-                    year=next_month_year,
-                    month=next_month_num,
-                    day=1,  # First day of month
-                    hour=9,
-                    minute=0,
-                    second=0,
-                    microsecond=0,
-                    tzinfo=KYIV_TZ
-                )
+                original_hour = 9
+                original_minute = 0
+            
+            self.next_execution = datetime.datetime(
+                year=next_month_year,
+                month=next_month_num,
+                day=1,  # Always set to first day
+                hour=original_hour,
+                minute=original_minute,
+                second=0,
+                microsecond=0,
+                tzinfo=KYIV_TZ
+            )
                     
         elif self.date_modifier == 'last day of every month':
             # Current month's last day
