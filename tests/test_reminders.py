@@ -82,6 +82,13 @@ class TestReminders(unittest.TestCase):
                     expected_month = now.month + 1
                     expected_year = now.year
                 
+                # Debug prints to help diagnose the issue
+                print(f"Test debug - Pattern: {pattern}")
+                print(f"Test debug - Now: {now}")
+                print(f"Test debug - Next execution: {reminder.next_execution}")
+                print(f"Test debug - Expected day: 1, Actual day: {reminder.next_execution.day}")
+                print(f"Test debug - Expected month: {expected_month}, Actual month: {reminder.next_execution.month}")
+                
                 self.assertEqual(reminder.next_execution.day, 1)
                 self.assertEqual(reminder.next_execution.month, expected_month)
                 self.assertEqual(reminder.next_execution.year, expected_year)
