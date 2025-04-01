@@ -6,12 +6,21 @@ import pytz
 import sqlite3
 import tempfile
 from unittest.mock import patch, MagicMock, AsyncMock
+import pytest
 
 # Add the project root to the Python path so we can import modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from modules.reminders import Reminder, ReminderManager
 from modules.const import KYIV_TZ
+
+@pytest.fixture
+def reminder_manager():
+    with patch('openai.OpenAI') as mock_openai:
+        # Mock the OpenAI client
+        mock_openai.return_value = MagicMock()
+        manager = ReminderManager()
+        return manager
 
 class TestReminders(unittest.TestCase):
 
