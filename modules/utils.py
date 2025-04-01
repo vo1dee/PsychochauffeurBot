@@ -6,7 +6,7 @@ import asyncio
 import aiohttp
 import csv
 from datetime import datetime, time as dt_time, timedelta
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List
 import logging
 
 from telegram import Update
@@ -407,17 +407,6 @@ def setup_bot():
     
     # Log startup
     general_logger.info("Bot initialized successfully")
-
-# async def start_background_tasks():
-#     """
-#     Start all background tasks.
-    
-#     This should be called when the bot starts.
-#     """
-#     # Start screenshot scheduler
-#     manager = ScreenshotManager()
-#     asyncio.create_task(manager.schedule_task())
-#     general_logger.info("Background tasks started")
 
 def ensure_city_data_file():
     """Ensure the city data file exists in the root/data directory."""
