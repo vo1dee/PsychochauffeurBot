@@ -383,6 +383,83 @@ class ReminderManager:
             error_logger.error(f"Error parsing date with OpenAI: {e}", exc_info=True)
             return None
             
+    def parse_reminder_with_ai(self, reminder_text):
+        """
+        Use OpenAI GPT to parse reminder text into structured parameters.
+        This handles flexible natural language formats including:
+        - Different variations of "first/last day of month"
+        - Different time specifications
+        - Different frequency patterns
+        
+        Returns a dict with the parsed parameters:
+        - task: The actual reminder task
+        - frequency: daily, weekly, monthly, or None for one-time
+        - date_modifier: Special date patterns like "first day of month", "last day of month"
+        - time: Specific time if provided (HH:MM)
+        """
+        openai.api_key = os.getenv("OPENAI_API_KEY")
+        
+        try:
+            system_prompt = """You are a reminder parser that extracts the core reminder task and timing information.
+            Analyze the text and extract:
+            1. The actual reminder task (without timing info)
+            2. Frequency (daily, weekly, monthly, or none for one-time)
+            3. Special date patterns: detect if this is for "first day of month" or "last day of month"
+            4. Time specification (HH:MM format if present)
+            
+            Return a JSON object with these fields:
+            {
+                "task": "string", 
+                "frequency": "daily|weekly|monthly|null",
+                "date_modifier": "first day of every month|last day of every month|null",
+                "time": "HH:MM|null"
+            }
+            
+            Examples:
+            For "Увімкнути кешбек every first day of month" return:
+            {
+                "task": "Увімкнути кешбек",
+                "frequency": "monthly",
+                "date_modifier": "first day of every month",
+                "time": null
+            }
+            
+            For "Pay rent on last day of month at 15:00" return:
+            {
+                "task": "Pay rent",
+                "frequency": "monthly",
+                "date_modifier": "last day of every month",
+                "time": "15:00"
+            }"""
+            
+            user_prompt = f"Parse this reminder request: {reminder_text}"
+            
+            # Use ChatGPT API
+            response = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.1,
+            )
+            
+            result = response.choices[0].message.content
+            
+            # Try to parse JSON response
+            import json
+            try:
+                parsed_data = json.loads(result)
+                error_logger.info(f"AI parsed reminder: {parsed_data}")
+                return parsed_data
+            except json.JSONDecodeError:
+                error_logger.error(f"Failed to parse AI response as JSON: {result}")
+                return None
+            
+        except Exception as e:
+            error_logger.error(f"Error parsing reminder with OpenAI: {e}", exc_info=True)
+            return None
+            
     async def remind(self, update, context):
         """
         Handle the /remind command to create, list, or delete reminders.
@@ -405,6 +482,8 @@ class ReminderManager:
                 "/remind add <task> every 5 seconds - Add a quick repeating reminder\n"
                 "/remind list - Show your reminders\n"
                 "/remind delete <id> - Delete a reminder\n\n"
+                "💡 NEW: AI-powered natural language parsing!\n"
+                "Just describe your reminder in natural language, and the bot will understand.\n\n"
                 "Time formats supported:\n"
                 "• in X seconds (e.g., in 5 seconds)\n"
                 "• in X minutes (e.g., in 30 minutes)\n" 
@@ -418,6 +497,7 @@ class ReminderManager:
                 "/remind add Take a break in 30 minutes\n"
                 "/remind add Team meeting every Monday at 10:00\n"
                 "/remind add Pay rent on first day of every month\n"
+                "/remind add Увімкнути кешбек every first day of month\n"
                 "/remind add Play Wordle (https://www.nytimes.com/games/wordle) everyday at 16:20\n"
                 "Note: URLs in reminders will be automatically converted to clickable links!"
             )
@@ -439,86 +519,132 @@ class ReminderManager:
             delay = None
             date_modifier = None
             
-            # Parse frequency and timing from the text
-            if "every day" in reminder_text or "daily" in reminder_text or "everyday" in reminder_text:
-                frequency = "daily"
-            elif "every week" in reminder_text or "weekly" in reminder_text:
-                frequency = "weekly"
-            elif "every month" in reminder_text or "monthly" in reminder_text:
-                frequency = "monthly"
-            elif "every second" in reminder_text or "every seconds" in reminder_text:
-                frequency = "seconds"
+            # First, try to parse the reminder using AI
+            ai_parsed = self.parse_reminder_with_ai(reminder_text)
+            
+            if ai_parsed:
+                # Extract values from AI parsing
+                task = ai_parsed.get("task", reminder_text)
+                frequency = ai_parsed.get("frequency")
+                date_modifier = ai_parsed.get("date_modifier")
+                time_str = ai_parsed.get("time")
                 
-            # Initialize date_modifier
-            date_modifier = None
-            
-            # Parse date modifiers
-            reminder_text_lower = reminder_text.lower()
-            print(f"Checking for date modifiers in: {reminder_text_lower}")
-            
-            # Common patterns for last day of month
-            last_day_patterns = [
-                "last day of every month",
-                "on the last day of every month",
-                "on last day of every month",
-                "on the last day of month",
-                "last day of month",
-                "last day of the month"
-            ]
-            
-            # Common patterns for first day of month
-            first_day_patterns = [
-                "first day of every month",
-                "first of every month", 
-                "1st day of every month",
-                "1st of every month",
-                "1th of every month",
-                "1th of the month",
-                "on the first day of every month",
-                "on first day of every month",
-                "on the first of every month",
-                "on first of every month",
-                "on the 1st of every month",
-                "on 1st of every month",
-                "on the 1st day of every month"
-            ]
-            
-            # Check for any last day pattern
-            if any(pattern in reminder_text_lower for pattern in last_day_patterns):
-                print("Found 'last day of month' pattern")
-                date_modifier = "last day of every month"
-                frequency = "monthly"  # Make sure it's recurring
-            # Check for any first day pattern
-            elif any(pattern in reminder_text_lower for pattern in first_day_patterns):
-                print("Found 'first day of month' pattern")
-                date_modifier = "first day of every month"
-                frequency = "monthly"  # Make sure it's recurring
-                
-            print(f"Date modifier after parsing: {date_modifier}")
-            
-            # Look for specific time pattern "at HH:MM"
-            specific_time = None
-            time_at_pattern = re.compile(r'at\s+(\d{1,2}):(\d{2})')
-            time_match = time_at_pattern.search(reminder_text)
-            
-            # Extract hours and minutes if there's a time specification
-            specified_hour = None
-            specified_minute = None
-            if time_match:
-                specified_hour = int(time_match.group(1))
-                specified_minute = int(time_match.group(2))
-                
-                # If no date modifier, calculate next occurrence of this time
-                if not date_modifier:
-                    now = datetime.datetime.now(KYIV_TZ)
-                    target_time = now.replace(hour=specified_hour, minute=specified_minute, second=0, microsecond=0)
+                # If AI didn't find a task, use the original text
+                if not task or task.strip() == "":
+                    task = reminder_text
                     
-                    # If the time is already past for today, move to tomorrow
-                    if target_time <= now:
-                        target_time += datetime.timedelta(days=1)
+                # Parse time if provided by AI
+                specified_hour = None
+                specified_minute = None
+                specific_time = None
+                
+                if time_str:
+                    try:
+                        hour_str, minute_str = time_str.split(":")
+                        specified_hour = int(hour_str)
+                        specified_minute = int(minute_str)
                         
-                    # Store it for later use
-                    specific_time = target_time
+                        # Calculate next occurrence of this time
+                        now = datetime.datetime.now(KYIV_TZ)
+                        target_time = now.replace(hour=specified_hour, minute=specified_minute, second=0, microsecond=0)
+                        
+                        # If the time is already past for today, move to tomorrow
+                        if target_time <= now and not date_modifier:
+                            target_time += datetime.timedelta(days=1)
+                            
+                        # Store it for later use
+                        specific_time = target_time
+                    except (ValueError, TypeError):
+                        specified_hour = None
+                        specified_minute = None
+                
+                # Use the task as the reminder text for further processing
+                reminder_text = task
+                
+                print(f"AI parsed reminder: task='{task}', frequency='{frequency}', date_modifier='{date_modifier}', time='{time_str}'")
+                
+            else:
+                # Fall back to rule-based parsing if AI fails
+                print("AI parsing failed, falling back to rule-based parsing")
+                
+                # Parse frequency and timing from the text
+                if "every day" in reminder_text or "daily" in reminder_text or "everyday" in reminder_text:
+                    frequency = "daily"
+                elif "every week" in reminder_text or "weekly" in reminder_text:
+                    frequency = "weekly"
+                elif "every month" in reminder_text or "monthly" in reminder_text:
+                    frequency = "monthly"
+                elif "every second" in reminder_text or "every seconds" in reminder_text:
+                    frequency = "seconds"
+                    
+                # Parse date modifiers
+                reminder_text_lower = reminder_text.lower()
+                print(f"Checking for date modifiers in: {reminder_text_lower}")
+                
+                # Common patterns for last day of month
+                last_day_patterns = [
+                    "last day of every month",
+                    "on the last day of every month",
+                    "on last day of every month",
+                    "on the last day of month",
+                    "last day of month",
+                    "last day of the month"
+                ]
+                
+                # Common patterns for first day of month
+                first_day_patterns = [
+                    "first day of every month",
+                    "first of every month", 
+                    "1st day of every month",
+                    "1st of every month",
+                    "1th of every month",
+                    "1th of the month",
+                    "on the first day of every month",
+                    "on first day of every month",
+                    "on the first of every month",
+                    "on first of every month",
+                    "on the 1st of every month",
+                    "on 1st of every month",
+                    "on the 1st day of every month",
+                    "every first day of month"
+                ]
+                
+                # Check for any last day pattern
+                if any(pattern in reminder_text_lower for pattern in last_day_patterns):
+                    print("Found 'last day of month' pattern")
+                    date_modifier = "last day of every month"
+                    frequency = "monthly"  # Make sure it's recurring
+                # Check for any first day pattern
+                elif any(pattern in reminder_text_lower for pattern in first_day_patterns):
+                    print("Found 'first day of month' pattern")
+                    date_modifier = "first day of every month"
+                    frequency = "monthly"  # Make sure it's recurring
+                    
+                print(f"Date modifier after parsing: {date_modifier}")
+                
+                # Look for specific time pattern "at HH:MM"
+                specific_time = None
+                time_at_pattern = re.compile(r'at\s+(\d{1,2}):(\d{2})')
+                time_match = time_at_pattern.search(reminder_text)
+                
+                # Extract hours and minutes if there's a time specification
+                specified_hour = None
+                specified_minute = None
+                if time_match:
+                    specified_hour = int(time_match.group(1))
+                    specified_minute = int(time_match.group(2))
+                    
+                    # If no date modifier, calculate next occurrence of this time
+                    if not date_modifier:
+                        now = datetime.datetime.now(KYIV_TZ)
+                        target_time = now.replace(hour=specified_hour, minute=specified_minute, second=0, microsecond=0)
+                        
+                        # If the time is already past for today, move to tomorrow
+                        if target_time <= now:
+                            target_time += datetime.timedelta(days=1)
+                            
+                        # Store it for later use
+                        specific_time = target_time
             
             # Parse delay using regex for more flexibility
             time_pattern = re.compile(r'(in\s+(\d+)\s+(?:second|minute|hour|day|month)s?)')
