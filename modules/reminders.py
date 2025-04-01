@@ -528,14 +528,28 @@ class ReminderManager:
         except Exception as e:
             error_logger.error(f"Critical error in send_reminder: {e}", exc_info=True)
 
-
     def update_reminder(self, reminder):
         cursor = self.conn.cursor()
         cursor.execute('''
-            UPDATE reminders
-            SET task = ?, frequency = ?, delay = ?, date_modifier = ?, next_execution = ?, user_id = ?, chat_id = ?
+            UPDATE reminders 
+            SET task = ?, 
+                frequency = ?, 
+                delay = ?, 
+                date_modifier = ?, 
+                next_execution = ?, 
+                user_id = ?, 
+                chat_id = ?
             WHERE reminder_id = ?
-        ''', (reminder.task, reminder.frequency, reminder.delay, reminder.date_modifier, reminder.next_execution.isoformat() if isinstance(reminder.next_execution, datetime.datetime) else None, reminder.user_id, reminder.chat_id, reminder.reminder_id))
+        ''', (
+            reminder.task,
+            reminder.frequency,
+            reminder.delay,
+            reminder.date_modifier,
+            reminder.next_execution.isoformat() if isinstance(reminder.next_execution, datetime.datetime) else None,
+            reminder.user_id,
+            reminder.chat_id,
+            reminder.reminder_id
+        ))
         self.conn.commit()
 
     def parse_natural_language_date(self, text):
@@ -649,7 +663,6 @@ class ReminderManager:
     async def remind(self, update, context):
         """
         Handle the /remind command to create, list, or delete reminders.
-        
         Usage:
         /remind add <task> [frequency] [delay] - Add a new reminder
         /remind list - List all reminders for this chat
@@ -678,8 +691,8 @@ class ReminderManager:
                 "• daily/weekly/monthly\n"
                 "• first/last day of month\n\n"
                 "Examples:\n"
-                "/remind add Buy milk in 2 hours\n"
-                "/remind add Take a break in 30 minutes\n"
+                "/remind add Buy milk in 2 hrs\n"
+                "/remind add Take a break in 30 min\n"
                 "/remind add Team meeting every Monday at 10:00\n"
                 "/remind add Pay rent on first day of every month\n"
                 "/remind add Увімкнути кешбек every first day of month\n"
@@ -833,6 +846,7 @@ class ReminderManager:
                         specific_time = target_time
 
             # Parse delay using regex for more flexibility
+            reminder_text = self.normalize_time_unit(reminder_text)  # Normalize time units first
             time_pattern = re.compile(r'(in\s+(\d+)\s+(?:second|minute|hour|day|month)s?)')
             time_match = time_pattern.search(reminder_text)
             if time_match:
@@ -878,7 +892,6 @@ class ReminderManager:
                             return
 
                         # Normal "in X seconds" case (one-time)
-                        # Override next_execution calculation
                         now = datetime.datetime.now(KYIV_TZ)
                         next_execution = now + datetime.timedelta(seconds=seconds)
 
@@ -909,7 +922,7 @@ class ReminderManager:
                         time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M:%S")
                         await update.message.reply_text(f"✅ Reminder set for {time_str} (Kyiv time)")
                         return
-                    except (ValueError, IndexError):
+                    except (ValueError, IndexError):            
                         pass  # Continue with normal processing if parsing fails
 
             elif "in 1 hour" in reminder_text:
@@ -1092,7 +1105,7 @@ class ReminderManager:
                 time_str = r.next_execution.strftime("%d.%m.%Y %H:%M") if r.next_execution else "Unknown"
 
                 # Add to the appropriate section
-                if r in upcoming_reminders:
+                if r in upcoming_reminders:    
                     upcoming_reminders.remove(r)
                     upcoming_reminders.append((r, f"ID: {r.reminder_id} - {r.task} ({status}, Next: {time_str} Kyiv time)\n"))
                 elif r in recurring_reminders:
@@ -1158,7 +1171,7 @@ class ReminderManager:
                 
                 # Find the reminder by ID
                 reminder_to_delete = next((r for r in self.reminders if r.reminder_id == reminder_id and r.chat_id == chat_id), None)
-                
+
                 if not reminder_to_delete:
                     await update.message.reply_text(f"Reminder ID {reminder_id} not found.")
                     return
@@ -1171,4 +1184,12 @@ class ReminderManager:
                 await update.message.reply_text("Invalid reminder ID. Please provide a valid number or use 'all' to delete all reminders.")
 
         else:
-            await update.message.reply_text("Unknown command. Use /remind add, /remind list, or /remind delete.")
+            help_text = (
+                "❌ Unknown command\n\n"
+                "Available commands:\n"
+                "/remind add <task> - Add a reminder\n"
+                "/remind list - Show your reminders\n"
+                "/remind delete <id> - Delete a reminder\n\n"
+                "Type /remind for full usage instructions"
+            )
+            await update.message.reply_text(help_text)
