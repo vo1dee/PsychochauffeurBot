@@ -22,7 +22,70 @@ class Reminder:
     def calculate_next_execution(self):
         now = datetime.datetime.now(KYIV_TZ)
         
-        # Handle recurring frequencies first
+        # Check for date modifiers first as they have specific handling
+        if self.date_modifier == 'first day of every month':
+            # Process this first, regardless of frequency
+            # Always calculate first day of next month
+            if now.month == 12:
+                next_month_year = now.year + 1
+                next_month_num = 1
+            else:
+                next_month_year = now.year
+                next_month_num = now.month + 1
+            
+            # Create datetime with explicit timezone, always using day 1
+            # Preserve the original time if it exists
+            if self.next_execution:
+                original_hour = self.next_execution.hour
+                original_minute = self.next_execution.minute
+            else:
+                # Default to 9 AM if no previous time
+                original_hour = 9
+                original_minute = 0
+            
+            # Create a new datetime object with explicit first day of month
+            self.next_execution = datetime.datetime(
+                year=next_month_year,
+                month=next_month_num,
+                day=1,  # Explicitly set to first day of month
+                hour=original_hour,
+                minute=original_minute,
+                second=0,
+                microsecond=0,
+                tzinfo=KYIV_TZ
+            )
+            return
+        elif self.date_modifier == 'last day of every month':
+            # Process this first, regardless of frequency
+            # Current month's last day
+            if now.month == 12:
+                next_month = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ)
+            else:
+                next_month = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ)
+            
+            # Get last day of current month
+            last_day_current = next_month - datetime.timedelta(days=1)
+            
+            # We always want the next month's last day when recalculating
+            # Get the last day of next month
+            if next_month.month == 12:
+                next_next_month = datetime.datetime(next_month.year + 1, 1, 1, tzinfo=KYIV_TZ)
+            else:
+                next_next_month = datetime.datetime(next_month.year, next_month.month + 1, 1, tzinfo=KYIV_TZ)
+            
+            last_day = next_next_month - datetime.timedelta(days=1)
+            
+            # Preserve the original time
+            if self.next_execution:
+                original_hour = self.next_execution.hour
+                original_minute = self.next_execution.minute
+                self.next_execution = last_day.replace(hour=original_hour, minute=original_minute, second=0, microsecond=0)
+            else:
+                # Default to 9 AM if no previous time
+                self.next_execution = last_day.replace(hour=9, minute=0, second=0, microsecond=0)
+            return
+            
+        # Handle recurring frequencies if no date modifier was processed
         if self.frequency:
             if self.frequency == "daily":
                 if self.next_execution and self.next_execution <= now:
@@ -97,64 +160,7 @@ class Reminder:
             elif self.delay == 'in 1 month':
                 self.next_execution = now + datetime.timedelta(days=30)  # approximate month
         
-        # Handle specific date modifiers
-        if self.date_modifier == 'first day of every month':
-            # Always calculate first day of next month
-            if now.month == 12:
-                next_month_year = now.year + 1
-                next_month_num = 1
-            else:
-                next_month_year = now.year
-                next_month_num = now.month + 1
-            
-            # Create datetime with explicit timezone, always using day 1
-            # Preserve the original time if it exists
-            if self.next_execution:
-                original_hour = self.next_execution.hour
-                original_minute = self.next_execution.minute
-            else:
-                # Default to 9 AM if no previous time
-                original_hour = 9
-                original_minute = 0
-            
-            self.next_execution = datetime.datetime(
-                year=next_month_year,
-                month=next_month_num,
-                day=1,  # Always set to first day
-                hour=original_hour,
-                minute=original_minute,
-                second=0,
-                microsecond=0,
-                tzinfo=KYIV_TZ
-            )
-                    
-        elif self.date_modifier == 'last day of every month':
-            # Current month's last day
-            if now.month == 12:
-                next_month = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ)
-            else:
-                next_month = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ)
-            
-            # Get last day of current month
-            last_day_current = next_month - datetime.timedelta(days=1)
-            
-            # We always want the next month's last day when recalculating
-            # Get the last day of next month
-            if next_month.month == 12:
-                next_next_month = datetime.datetime(next_month.year + 1, 1, 1, tzinfo=KYIV_TZ)
-            else:
-                next_next_month = datetime.datetime(next_month.year, next_month.month + 1, 1, tzinfo=KYIV_TZ)
-            
-            last_day = next_next_month - datetime.timedelta(days=1)
-            
-            # Preserve the original time
-            if self.next_execution:
-                original_hour = self.next_execution.hour
-                original_minute = self.next_execution.minute
-                self.next_execution = last_day.replace(hour=original_hour, minute=original_minute, second=0, microsecond=0)
-            else:
-                # Default to 9 AM if no previous time
-                self.next_execution = last_day.replace(hour=9, minute=0, second=0, microsecond=0)
+        # Date modifiers are now handled at the top of the calculate_next_execution method
 
     def to_tuple(self):
         return (self.reminder_id, self.task, self.frequency, self.delay, self.date_modifier, self.next_execution.isoformat() if isinstance(self.next_execution, datetime.datetime) else None, self.user_id, self.chat_id)
