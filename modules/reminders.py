@@ -22,7 +22,15 @@ class Reminder:
     def calculate_next_execution(self):
         now = datetime.datetime.now(KYIV_TZ)
         
-        # Handle recurring frequencies first
+        # If this is a special date modifier, handle it first
+        if self.date_modifier:
+            # These date modifiers are handled specially and take precedence
+            if self.date_modifier == 'first day of every month':
+                return self._calculate_first_day_of_month(now)
+            elif self.date_modifier == 'last day of every month':
+                return self._calculate_last_day_of_month(now)
+        
+        # Handle recurring frequencies next
         if self.frequency:
             if self.frequency == "daily":
                 if self.next_execution and self.next_execution <= now:
@@ -69,6 +77,156 @@ class Reminder:
                 # For testing - every few seconds
                 self.next_execution = now + datetime.timedelta(seconds=5)
             return
+    
+    def _calculate_first_day_of_month(self, now):
+        """Calculate the next first day of month from the given time"""
+        # If current date is already the first day of the month AND it's after the reminder time,
+        # schedule for first day of next month
+        if now.day == 1:
+            # If we already have a next_execution, use its time
+            if self.next_execution:
+                hour = self.next_execution.hour
+                minute = self.next_execution.minute
+                
+                # Check if we're past the time today
+                today_execution = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if now > today_execution:
+                    # We're past today's time, go to next month
+                    if now.month == 12:
+                        next_month_year = now.year + 1
+                        next_month = 1
+                    else:
+                        next_month_year = now.year
+                        next_month = now.month + 1
+                else:
+                    # Still early enough today, use today
+                    self.next_execution = today_execution
+                    return
+            else:
+                # Default to 9 AM
+                hour = 9
+                minute = 0
+                
+                # If we're past 9 AM, we need the next month
+                if now.hour >= 9:
+                    if now.month == 12:
+                        next_month_year = now.year + 1
+                        next_month = 1
+                    else:
+                        next_month_year = now.year
+                        next_month = now.month + 1
+                else:
+                    # Still before 9 AM, use today
+                    self.next_execution = now.replace(hour=9, minute=0, second=0, microsecond=0)
+                    return
+        else:
+            # Not the first day, go to next month
+            if now.month == 12:
+                next_month_year = now.year + 1
+                next_month = 1
+            else:
+                next_month_year = now.year
+                next_month = now.month + 1
+                
+            # Use time from existing reminder if available
+            if self.next_execution:
+                hour = self.next_execution.hour
+                minute = self.next_execution.minute
+            else:
+                hour = 9  # Default to 9 AM
+                minute = 0
+                
+        # Set the next execution to the first day of next month
+        self.next_execution = datetime.datetime(
+            year=next_month_year,
+            month=next_month,
+            day=1,
+            hour=hour,
+            minute=minute, 
+            second=0,
+            microsecond=0,
+            tzinfo=KYIV_TZ
+        )
+    
+    def _calculate_last_day_of_month(self, now):
+        """Calculate the next last day of month from the given time"""
+        # Find the last day of current month
+        if now.month == 12:
+            next_month = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ)
+        else:
+            next_month = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ)
+            
+        last_day_of_month = next_month - datetime.timedelta(days=1)
+        
+        # Check if today is the last day of the month
+        if now.day == last_day_of_month.day:
+            # If we already have a next_execution, use its time
+            if self.next_execution:
+                hour = self.next_execution.hour
+                minute = self.next_execution.minute
+                
+                # Check if we're past the time today
+                today_execution = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if now > today_execution:
+                    # We've passed the time today, calculate last day of next month
+                    if now.month == 12:
+                        year = now.year + 1
+                        month = 2  # February of next year
+                    elif now.month == 11:
+                        year = now.year + 1
+                        month = 1  # January of next year
+                    else:
+                        year = now.year
+                        month = now.month + 2  # Two months ahead
+                        
+                    # Get first day of month after next
+                    first_day = datetime.datetime(year, month, 1, tzinfo=KYIV_TZ)
+                    
+                    # Subtract one day to get last day of next month
+                    next_last_day = first_day - datetime.timedelta(days=1)
+                    
+                    self.next_execution = next_last_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                else:
+                    # Still early enough today
+                    self.next_execution = today_execution
+            else:
+                # Default time is 9 AM
+                hour = 9
+                minute = 0
+                
+                # Check if we're past default time
+                if now.hour >= 9:
+                    # Calculate last day of next month
+                    if now.month == 12:
+                        year = now.year + 1
+                        month = 2  # February of next year
+                    elif now.month == 11:
+                        year = now.year + 1
+                        month = 1  # January of next year
+                    else:
+                        year = now.year
+                        month = now.month + 2  # Two months ahead
+                        
+                    # Get first day of month after next
+                    first_day = datetime.datetime(year, month, 1, tzinfo=KYIV_TZ)
+                    
+                    # Subtract one day to get last day of next month
+                    next_last_day = first_day - datetime.timedelta(days=1)
+                    
+                    self.next_execution = next_last_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                else:
+                    # Still early enough today
+                    self.next_execution = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        else:
+            # Not the last day, aim for this month's last day
+            if self.next_execution:
+                hour = self.next_execution.hour
+                minute = self.next_execution.minute
+            else:
+                hour = 9  # Default
+                minute = 0
+                
+            self.next_execution = last_day_of_month.replace(hour=hour, minute=minute, second=0, microsecond=0)
         
         # Handle specific time delays for one-time reminders
         if self.delay:
@@ -260,9 +418,11 @@ class ReminderManager:
 
             bot = context.bot
             now = datetime.datetime.now(KYIV_TZ)
+            error_logger.info(f"Checking reminders at {now.isoformat()}")
             
             # First, load the latest reminders from the database
             self.reminders = self.load_reminders()
+            error_logger.info(f"Loaded {len(self.reminders)} reminders from database")
             
             # Process reminders that need to be sent
             reminders_to_send = []
@@ -272,8 +432,13 @@ class ReminderManager:
                     if reminder.next_execution.tzinfo is None:
                         reminder.next_execution = KYIV_TZ.localize(reminder.next_execution)
                     
+                    # Log time difference for debugging
+                    time_diff = (reminder.next_execution - now).total_seconds()
+                    error_logger.info(f"Reminder {reminder.reminder_id}: '{reminder.task}' scheduled for {reminder.next_execution.isoformat()}, diff: {time_diff:.1f}s, freq: {reminder.frequency}")
+                    
                     # Check if it's time to send
                     if reminder.next_execution <= now:
+                        error_logger.info(f"Reminder {reminder.reminder_id} is due, adding to send queue")
                         reminders_to_send.append(reminder)
                 
             # Send reminders and update them
@@ -292,21 +457,27 @@ class ReminderManager:
                     
                     # Calculate next time if this is a recurring reminder
                     if reminder.frequency:
+                        error_logger.info(f"Recalculating next time for recurring reminder {reminder.reminder_id}")
+                        old_time = reminder.next_execution
                         reminder.calculate_next_execution()
+                        error_logger.info(f"Updated reminder {reminder.reminder_id} from {old_time.isoformat()} to {reminder.next_execution.isoformat()}")
                         self.update_reminder(reminder)
                         
                         # Special case for seconds frequency - reschedule immediately
                         if reminder.frequency == "seconds" and context.job_queue:
+                            # This is intentional for testing - creates a separate job outside the normal checking
                             job = context.job_queue.run_once(
                                 self.send_reminder, 
                                 when=5,  # Fixed 5 seconds interval for testing
                                 data=reminder
                             )
+                            error_logger.info(f"Created special testing job for seconds-based reminder {reminder.reminder_id}")
                     else:
                         # One-time reminder, remove it
+                        error_logger.info(f"Removing one-time reminder {reminder.reminder_id} after execution")
                         self.remove_reminder(reminder)
                 except Exception as e:
-                    error_logger.error(f"Error processing reminder {reminder.reminder_id}: {e}")
+                    error_logger.error(f"Error processing reminder {reminder.reminder_id}: {e}", exc_info=True)
         
         except Exception as e:
             error_logger.error(f"Error in check_reminders: {e}", exc_info=True)
@@ -745,89 +916,37 @@ class ReminderManager:
             else:
                 next_execution = now + datetime.timedelta(minutes=5)  # Default to 5 minutes
             
-            # Override next_execution with date_modifier calculation if set
-            if date_modifier == "last day of every month":
-                print(f"Date modifier is 'last day of every month'")
-                now = datetime.datetime.now(KYIV_TZ)
-                print(f"Current date: {now}")
-                
-                # Calculate the last day of the current month
-                current_month = now.month
-                current_year = now.year
-                
-                # First day of next month
-                if current_month == 12:
-                    next_month_year = current_year + 1
-                    next_month = 1
-                else:
-                    next_month_year = current_year
-                    next_month = current_month + 1
-                
-                first_of_next_month = datetime.datetime(
-                    year=next_month_year,
-                    month=next_month,
-                    day=1,
-                    tzinfo=KYIV_TZ
+            # Special handling for date modifiers
+            if date_modifier:
+                # For first or last day of month reminders, we'll use our helper methods
+                # to calculate the proper next execution date
+                reminder = Reminder(
+                    task=reminder_text,
+                    frequency="monthly",  # Always monthly for these special date modifiers
+                    delay=delay,
+                    date_modifier=date_modifier,
+                    next_execution=None,  # Will be calculated by helper methods
+                    user_id=user_id,
+                    chat_id=chat_id
                 )
-                print(f"First day of next month: {first_of_next_month}")
                 
-                # Last day of current month is one day before first of next month
-                last_day_of_current_month = first_of_next_month - datetime.timedelta(days=1)
-                print(f"Last day of current month: {last_day_of_current_month}")
-                
-                # If current day is already the last day of month, move to next month
-                if now.day == last_day_of_current_month.day:
-                    print("Today is already the last day of month, calculating for next month")
-                    # Calculate first day of month after next
-                    if next_month == 12:
-                        month_after_next_year = next_month_year + 1
-                        month_after_next = 1
-                    else:
-                        month_after_next_year = next_month_year
-                        month_after_next = next_month + 1
+                # Calculate the next execution based on date modifier
+                if date_modifier == "first day of every month":
+                    reminder._calculate_first_day_of_month(now)
+                    print(f"Calculated first day of month: {reminder.next_execution}")
+                elif date_modifier == "last day of every month":
+                    reminder._calculate_last_day_of_month(now)
+                    print(f"Calculated last day of month: {reminder.next_execution}")
                     
-                    first_of_month_after_next = datetime.datetime(
-                        year=month_after_next_year,
-                        month=month_after_next,
-                        day=1,
-                        tzinfo=KYIV_TZ
-                    )
-                    # Last day of next month
-                    target_day = first_of_month_after_next - datetime.timedelta(days=1)
-                else:
-                    print("Using last day of current month")
-                    target_day = last_day_of_current_month
-                
-                print(f"Target day before time adjustment: {target_day}")
-                
-                # Use specified time if provided, otherwise default to 9:00 AM
-                # Create a completely new datetime with explicit timezone to avoid tzinfo issues
+                # Use specified time if provided
                 if specified_hour is not None and specified_minute is not None:
-                    next_execution = datetime.datetime(
-                        year=target_day.year,
-                        month=target_day.month,
-                        day=target_day.day,
+                    reminder.next_execution = reminder.next_execution.replace(
                         hour=specified_hour,
-                        minute=specified_minute,
-                        second=0,
-                        microsecond=0,
-                        tzinfo=KYIV_TZ  # Use KYIV_TZ explicitly
+                        minute=specified_minute
                     )
-                    print(f"Using specified time with explicit timezone: {next_execution}")
-                else:
-                    next_execution = datetime.datetime(
-                        year=target_day.year,
-                        month=target_day.month,
-                        day=target_day.day,
-                        hour=9,
-                        minute=0,
-                        second=0,
-                        microsecond=0,
-                        tzinfo=KYIV_TZ  # Use KYIV_TZ explicitly
-                    )
-                    print(f"Using default time with explicit timezone: {next_execution}")
-                
-                print(f"Final last day of month calculation: {next_execution}")
+                    
+                # Set the next_execution for later use
+                next_execution = reminder.next_execution
                 
             # Ensure the timezone is set
             if next_execution.tzinfo is None:
@@ -861,46 +980,32 @@ class ReminderManager:
             # Print actual reminder execution time for debugging
             print(f"Final reminder next_execution: {reminder.next_execution}")
             
-            # For last day of month, we'll calculate the correct day and month explicitly
-            if date_modifier == "last day of every month":
-                # Calculate the last day of current month correctly
-                now = datetime.datetime.now(KYIV_TZ)
-                if now.month == 12:
-                    next_month = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ)
-                else:
-                    next_month = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ)
-                last_day = next_month - datetime.timedelta(days=1)
-                
-                # Get the correct month name and day
-                month_name = last_day.strftime("%B")
-                day = last_day.day
-                
-                # Format time only
-                time_str = reminder.next_execution.strftime("%H:%M")
-                
-                # Use explicit formatting to avoid timezone confusion
-                await update.message.reply_text(
-                    f"✅ Reminder set for the last day of {month_name} ({day}.{last_day.month}.{last_day.year} {time_str} Kyiv time)\n"
-                    f"Will repeat monthly on the last day of each month."
-                )
-            elif date_modifier == "first day of every month":
-                # Calculate the first day of next month correctly
-                now = datetime.datetime.now(KYIV_TZ)
-                if now.month == 12:
-                    next_month = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ)
-                else:
-                    next_month = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ)
-                
-                # Get the correct month name
-                month_name = next_month.strftime("%B")
-                
-                # Format time for display
-                time_str = reminder.next_execution.strftime("%H:%M")
-                
-                await update.message.reply_text(
-                    f"✅ Reminder set for the first day of {month_name} (1.{next_month.month}.{next_month.year} {time_str} Kyiv time)\n"
-                    f"Will repeat monthly on the first day of each month."
-                )
+            # For date modifiers, use a standardized display format
+            if date_modifier:
+                # Calculate the execution date based on modifier
+                if date_modifier == "last day of every month":
+                    # Extract date components
+                    month_name = reminder.next_execution.strftime("%B")
+                    day = reminder.next_execution.day
+                    month = reminder.next_execution.month
+                    year = reminder.next_execution.year
+                    time_str = reminder.next_execution.strftime("%H:%M")
+                    
+                    await update.message.reply_text(
+                        f"✅ Reminder set for the last day of {month_name} ({day}.{month}.{year} {time_str} Kyiv time)\n"
+                        f"Will repeat monthly on the last day of each month."
+                    )
+                elif date_modifier == "first day of every month":
+                    # Extract date components
+                    month_name = reminder.next_execution.strftime("%B")
+                    month = reminder.next_execution.month
+                    year = reminder.next_execution.year
+                    time_str = reminder.next_execution.strftime("%H:%M")
+                    
+                    await update.message.reply_text(
+                        f"✅ Reminder set for the first day of {month_name} (1.{month}.{year} {time_str} Kyiv time)\n"
+                        f"Will repeat monthly on the first day of each month."
+                    )
             elif frequency:
                 # Calculate formatted time string here
                 time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M")
