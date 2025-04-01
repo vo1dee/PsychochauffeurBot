@@ -29,14 +29,31 @@ class GeomagneticData:
     def format_message(self) -> str:
         """Format geomagnetic data into a readable message."""
         if not self.current_value or not self.current_description:
-            return "Не вдалося отримати дані про геомагнітну активність."
+            return "Не вдалося отримати дані про геомагнітну активність\\."
         
-        # Format the current geomagnetic state
-        message = [
-            f"🧲 Геомагнітна активність у Києві:",
-            f"Поточний стан: {self.current_value} - {self.current_description}",
-            ""
-        ]
+        # Define special characters that need escaping for Markdown V2
+        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        
+        def escape_text(text: str) -> str:
+            """Helper function to escape special characters."""
+            for char in special_chars:
+                text = text.replace(char, f"\\{char}")
+            return text
+        
+        # Calculate activity level
+        def get_activity_level(value: int) -> str:
+            if value <= 4:
+                return "Невеликі збурення"
+            elif value == 5:
+                return "Слабка буря"
+            elif value == 6:
+                return "Помірна буря"
+            elif value == 7:
+                return "Сильна буря"
+            elif value == 8:
+                return "Шторм"
+            else:
+                return "Екстремальний шторм"
         
         # Group forecast by dates
         dates = {}
@@ -46,21 +63,53 @@ class GeomagneticData:
                 dates[date] = []
             dates[date].append(item)
         
+        # Calculate averages for today and tomorrow
+        today_avg = tomorrow_avg = 0
+        today_values = []
+        tomorrow_values = []
+        
+        date_keys = list(dates.keys())
+        if len(date_keys) >= 1:
+            today_values = [item.get('value', 0) for item in dates[date_keys[0]]]
+            today_avg = round(sum(today_values) / len(today_values)) if today_values else 0
+            
+        if len(date_keys) >= 2:
+            tomorrow_values = [item.get('value', 0) for item in dates[date_keys[1]]]
+            tomorrow_avg = round(sum(tomorrow_values) / len(tomorrow_values)) if tomorrow_values else 0
+        
+        # Format the current geomagnetic state with averages
+        message = [
+            "🧲 Геомагнітна активність у Києві:",
+            f"Поточний стан: {self.current_value} \\- {escape_text(self.current_description)}",
+            f"Середнє сьогодні: {today_avg} \\- {escape_text(get_activity_level(today_avg))}",
+        ]
+        
+        if tomorrow_avg > 0:
+            message.append(f"Середнє завтра: {tomorrow_avg} \\- {escape_text(get_activity_level(tomorrow_avg))}")
+        
+        message.append("")
+        
         # Format forecast by date
         if dates:
-            message.append("📅 Прогноз:")
+            message.append("📅 Детальний прогноз:")
             for date, items in dates.items():
-                message.append(f"\n{date}:")
+                message.append(f"\n{escape_text(date)}:")
                 for item in items:
-                    time = item.get('time', '')
+                    time = escape_text(item.get('time', ''))
                     value = item.get('value', '')
-                    description = self.legend.get(str(value), "")
-                    past_indicator = "(минуле)" if item.get('isPast', False) else ""
-                    message.append(f"  {time}: {value} - {description} {past_indicator}")
+                    description = escape_text(self.legend.get(str(value), ""))
+                    activity_level = escape_text(get_activity_level(value))
+                    past_indicator = "\\(минуле\\)" if item.get('isPast', False) else ""
+                    message.append(f"  {time}: {value} \\- {description} {activity_level} {past_indicator}")
         
         # Add last updated time
-        message.append(f"\nОновлено: {self.timestamp.strftime('%H:%M %d.%m.%Y')}")
-            
+        timestamp = self.timestamp.strftime('%H:%M %d.%m.%Y')
+        message.append(f"\nОновлено: {escape_text(timestamp)}")
+        
+        # Add source with properly escaped URL
+        source_url = "https://meteofor\\.com\\.ua/weather\\-kyiv\\-4944/gm/"
+        message.append(f"Джерело: [METEOFOR]({source_url})")
+        
         return "\n".join(message)
 
 
@@ -128,7 +177,7 @@ class GeomagneticAPI:
                 
                 # Process forecast data
                 for i, date in enumerate(dates):
-                    offset = len(times)
+                    offset = len(times)  # Keep the offset to limit data to today and tomorrow
                     for j in range(len(times)):
                         value_index = i * len(times) + j + offset
                         if value_index < len(values):
@@ -189,11 +238,15 @@ class GeomagneticCommandHandler:
             data = await self.geomagnetic_api.fetch_geomagnetic_data()
             
             if data:
-                # Send formatted message
-                await update.message.reply_text(data.format_message())
+                # Send formatted message with Markdown V2
+                await update.message.reply_text(
+                    data.format_message(),
+                    parse_mode='MarkdownV2'
+                )
             else:
                 await update.message.reply_text(
-                    "Не вдалося отримати дані про геомагнітну активність. Спробуйте пізніше."
+                    "Не вдалося отримати дані про геомагнітну активність\\. Спробуйте пізніше\\.",
+                    parse_mode='MarkdownV2'
                 )
                 
         except Exception as e:
