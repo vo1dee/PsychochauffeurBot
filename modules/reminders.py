@@ -193,6 +193,15 @@ class ReminderManager:
             CREATE TABLE IF NOT EXISTS reminders (
                 reminder_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 task TEXT,
+        self.create_table()
+        self.reminders = self.load_reminders()
+
+    def create_table(self):
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reminders (
+                reminder_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task TEXT,
                 frequency TEXT,
                 delay TEXT,
                 date_modifier TEXT,
@@ -343,10 +352,10 @@ class ReminderManager:
                         disable_web_page_preview=False  # Allow link previews
                     )
                 else:
-                    # No URLs, send regular message
-                    await context.bot.send_message(
-                        chat_id=reminder.chat_id, 
-                        text=f"⏰ REMINDER: {task_text}"
+                    # No URLs, send regular messager message
+                    await context.bot.send_message(sage(
+                        chat_id=reminder.chat_id,         chat_id=reminder.chat_id, 
+                        text=f"⏰ REMINDER: {task_text}""⏰ REMINDER: {task_text}"
                     )
             except Exception as e:
                 error_logger.error(f"Failed to send reminder {reminder.reminder_id}: {e}", exc_info=True)
@@ -362,10 +371,10 @@ class ReminderManager:
     def update_reminder(self, reminder):
         cursor = self.conn.cursor()
         cursor.execute('''
-            UPDATE reminders
-            SET task = ?, frequency = ?, delay = ?, date_modifier = ?, next_execution = ?, user_id = ?, chat_id = ?
+            UPDATE remindersUPDATE reminders
+            SET task = ?, frequency = ?, delay = ?, date_modifier = ?, next_execution = ?, user_id = ?, chat_id = ? ?, date_modifier = ?, next_execution = ?, user_id = ?, chat_id = ?
             WHERE reminder_id = ?
-        ''', (reminder.task, reminder.frequency, reminder.delay, reminder.date_modifier, reminder.next_execution.isoformat() if isinstance(reminder.next_execution, datetime.datetime) else None, reminder.user_id, reminder.chat_id, reminder.reminder_id))
+        ''', (reminder.task, reminder.frequency, reminder.delay, reminder.date_modifier, reminder.next_execution.isoformat() if isinstance(reminder.next_execution, datetime.datetime) else None, reminder.user_id, reminder.chat_id, reminder.reminder_id))eminder.frequency, reminder.delay, reminder.date_modifier, reminder.next_execution.isoformat() if isinstance(reminder.next_execution, datetime.datetime) else None, reminder.user_id, reminder.chat_id, reminder.reminder_id))
         self.conn.commit()
 
     def parse_natural_language_date(self, text):
@@ -378,18 +387,18 @@ class ReminderManager:
                 max_tokens=50
             )
             iso_date = response.choices[0].text.strip()
-            return datetime.datetime.fromisoformat(iso_date).astimezone(KYIV_TZ)
-        except Exception as e:
+            return datetime.datetime.fromisoformat(iso_date).astimezone(KYIV_TZ)    iso_date = response.choices[0].text.strip()
+        except Exception as e:turn datetime.datetime.fromisoformat(iso_date).astimezone(KYIV_TZ)
             error_logger.error(f"Error parsing date with OpenAI: {e}", exc_info=True)
             return None
             
     async def remind(self, update, context):
         """
         Handle the /remind command to create, list, or delete reminders.
-        
+        Handle the /remind command to create, list, or delete reminders.
         Usage:
         /remind add <task> [frequency] [delay] - Add a new reminder
-        /remind list - List all reminders for this chat
+        /remind list - List all reminders for this chatay] - Add a new reminder
         /remind delete <id> - Delete a reminder by ID
         """
         chat_id = update.effective_chat.id
@@ -397,8 +406,8 @@ class ReminderManager:
         
         if not context.args:
             help_text = (
-                "📅 Reminder Commands:\n\n"
-                "/remind add <task> - Add a one-time reminder\n"
+                "📅 Reminder Commands:\n\n"(
+                "/remind add <task> - Add a one-time reminder\n"         "📅 Reminder Commands:\n\n"
                 "/remind add <task> daily - Add a daily reminder\n"
                 "/remind add <task> weekly - Add a weekly reminder\n"
                 "/remind add <task> monthly - Add a monthly reminder\n"
@@ -416,7 +425,7 @@ class ReminderManager:
                 "Examples:\n"
                 "/remind add Buy milk in 2 hours\n"
                 "/remind add Take a break in 30 minutes\n"
-                "/remind add Team meeting every Monday at 10:00\n"
+                "/remind add Team meeting every Monday at 10:00\n"H:MM (e.g., at 16:30)\n"
                 "/remind add Pay rent on first day of every month\n"
                 "/remind add Play Wordle (https://www.nytimes.com/games/wordle) everyday at 16:20\n"
                 "Note: URLs in reminders will be automatically converted to clickable links!"
@@ -436,7 +445,7 @@ class ReminderManager:
             
             # Default values
             frequency = None
-            delay = None
+            delay = None# Extract the reminder text from args
             date_modifier = None
             
             # Parse frequency and timing from the text
@@ -522,8 +531,8 @@ class ReminderManager:
             
             # Parse delay using regex for more flexibility
             time_pattern = re.compile(r'(in\s+(\d+)\s+(?:second|minute|hour|day|month)s?)')
-            time_match = time_pattern.search(reminder_text)
-            if time_match:
+            time_match = time_pattern.search(reminder_text)e
+            if time_match:    specific_time = target_time
                 delay = time_match.group(1)
                 
                 # Direct handling for "seconds" specifically
@@ -553,12 +562,12 @@ class ReminderManager:
                             
                             # Schedule directly with run_repeating, which is designed for this
                             if context.job_queue:
-                                # This creates a job that runs every 5 seconds
-                                context.job_queue.run_repeating(
+                                # This creates a job that runs every 5 secondsing info)
+                                context.job_queue.run_repeating(onds?', '', reminder_text).strip()
                                     callback=test_reminder_callback,
-                                    interval=5,  # Every 5 seconds
-                                    first=1,     # Start after 1 second
-                                    data=task_only
+                                    interval=5,  # Every 5 secondsth run_repeating, which is designed for this
+                                    first=1,     # Start after 1 secondntext.job_queue:
+                                    data=task_only    # This creates a job that runs every 5 seconds
                                 )
                             
                             # Confirm to user - don't store in database since it's just a test feature
@@ -566,19 +575,19 @@ class ReminderManager:
                             return
                         
                         # Normal "in X seconds" case (one-time)
-                        # Override next_execution calculation
-                        now = datetime.datetime.now(KYIV_TZ)
+                        # Override next_execution calculation just a test feature
+                        now = datetime.datetime.now(KYIV_TZ)    await update.message.reply_text(f"⚠️ TEST MODE: '{task_only}' reminder will repeat every 5 seconds")
                         next_execution = now + datetime.timedelta(seconds=seconds)
                         
                         # Create reminder object with direct execution time
                         reminder = Reminder(
-                            task=reminder_text,
-                            frequency=None,  # One-time reminder
+                            task=reminder_text,atetime.now(KYIV_TZ)
+                            frequency=None,  # One-time remindertimedelta(seconds=seconds)
                             delay=delay,
-                            date_modifier=date_modifier,
-                            next_execution=next_execution,
-                            user_id=user_id,
-                            chat_id=chat_id
+                            date_modifier=date_modifier,ject with direct execution time
+                            next_execution=next_execution,(
+                            user_id=user_id,   task=reminder_text,
+                            chat_id=chat_id    frequency=None,  # One-time reminder
                         )
                         
                         # Add to database
@@ -594,16 +603,16 @@ class ReminderManager:
                             )
                         
                         # Confirm to user
-                        time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M:%S")
+                        time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M:%S")  when=seconds,  # Use seconds directly for scheduling
                         await update.message.reply_text(f"✅ Reminder set for {time_str} (Kyiv time)")
                         return
-                    except (ValueError, IndexError):
+                    except (ValueError, IndexError):            
                         pass  # Continue with normal processing if parsing fails
             
             elif "in 1 hour" in reminder_text:
                 delay = "in 1 hour"
-            elif "in 1 day" in reminder_text:
-                delay = "in 1 day"
+            elif "in 1 day" in reminder_text:ror):
+                delay = "in 1 day"inue with normal processing if parsing fails
             elif "in 1 month" in reminder_text:
                 delay = "in 1 month"
                 
@@ -704,17 +713,17 @@ class ReminderManager:
                 print(f"Final last day of month calculation: {next_execution}")
                 
             # Ensure the timezone is set
-            if next_execution.tzinfo is None:
+            if next_execution.tzinfo is None:    print(f"Using default time with explicit timezone: {next_execution}")
                 next_execution = KYIV_TZ.localize(next_execution)
             
             # Create reminder object
             reminder = Reminder(
                 task=reminder_text,
-                frequency=frequency,
+                frequency=frequency,ze(next_execution)
                 delay=delay,
                 date_modifier=date_modifier,
                 next_execution=next_execution,
-                user_id=user_id,
+                user_id=user_id,t,
                 chat_id=chat_id
             )
             
@@ -727,9 +736,9 @@ class ReminderManager:
             # Schedule the reminder
             if context.job_queue:
                 context.job_queue.run_once(
-                    self.send_reminder, 
+                    self.send_reminder, )
                     when=reminder.next_execution, 
-                    data=reminder
+                    data=remindere the reminder
                 )
             
             # Print actual reminder execution time for debugging
@@ -777,14 +786,14 @@ class ReminderManager:
                 )
             elif frequency:
                 # Calculate formatted time string here
-                time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M")
-                await update.message.reply_text(
-                    f"✅ Recurring reminder set for {time_str} (Kyiv time)\n"
+                time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M")ay of {month_name} (1.{next_month.month}.{next_month.year} {time_str} Kyiv time)\n"
+                await update.message.reply_text(monthly on the first day of each month."
+                    f"✅ Recurring reminder set for {time_str} (Kyiv time)\n")
                     f"Frequency: {frequency}"
                 )
-            else:
+            else:time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M")
                 # Calculate formatted time string here
-                time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M")
+                time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M")or {time_str} (Kyiv time)\n"
                 await update.message.reply_text(f"✅ One-time reminder set for {time_str} (Kyiv time)")
             
         elif command == "list":
@@ -801,27 +810,27 @@ class ReminderManager:
             
             # Group reminders by status
             past_reminders = []
-            upcoming_reminders = []
+            upcoming_reminders = []nder_list = "📝 Your reminders:\n\n"
             recurring_reminders = []
             
             for r in chat_reminders:
-                # Determine status based on next_execution time and frequency
-                if not r.next_execution:
+                # Determine status based on next_execution time and frequencyreminders = []
+                if not r.next_execution:ers = []
                     status = "⚠️ Unknown"
                 elif r.frequency:
                     if r.frequency == "seconds":
-                        status = "🔄 Testing (every 5s)"
+                        status = "🔄 Testing (every 5s)"y
                     else:
-                        status = "🔁 Recurring"
-                    recurring_reminders.append(r)
+                        status = "🔁 Recurring"   status = "⚠️ Unknown"
+                    recurring_reminders.append(r)lif r.frequency:
                 elif r.next_execution <= now:
                     status = "✅ Completed"
                     past_reminders.append(r)
-                else:
-                    minutes_remaining = (r.next_execution - now).total_seconds() / 60
-                    if minutes_remaining < 5:
+                else:            status = "🔁 Recurring"
+                    minutes_remaining = (r.next_execution - now).total_seconds() / 60eminders.append(r)
+                    if minutes_remaining < 5:now:
                         status = "⏳ Soon (<5 min)"
-                    else:
+                    else:        past_reminders.append(r)
                         status = "⏰ Scheduled"
                     upcoming_reminders.append(r)
                 
@@ -829,9 +838,9 @@ class ReminderManager:
                 time_str = r.next_execution.strftime("%d.%m.%Y %H:%M") if r.next_execution else "Unknown"
                 
                 # Add to the appropriate section
-                if r in upcoming_reminders:
+                if r in upcoming_reminders:    
                     upcoming_reminders.remove(r)
-                    upcoming_reminders.append((r, f"ID: {r.reminder_id} - {r.task} ({status}, Next: {time_str} Kyiv time)\n"))
+                    upcoming_reminders.append((r, f"ID: {r.reminder_id} - {r.task} ({status}, Next: {time_str} Kyiv time)\n"))xt_execution.strftime("%d.%m.%Y %H:%M") if r.next_execution else "Unknown"
                 elif r in recurring_reminders:
                     recurring_reminders.remove(r)
                     recurring_reminders.append((r, f"ID: {r.reminder_id} - {r.task} ({status}, Next: {time_str} Kyiv time)\n"))
@@ -845,15 +854,15 @@ class ReminderManager:
             past_reminders.sort(key=lambda x: x[0].next_execution or datetime.datetime.min, reverse=True)
             
             # Add upcoming reminders first
-            if upcoming_reminders:
-                reminder_list += "📅 UPCOMING:\n"
-                for _, reminder_str in upcoming_reminders:
+            if upcoming_reminders:a x: x[0].next_execution or datetime.datetime.max)
+                reminder_list += "📅 UPCOMING:\n"ambda x: x[0].next_execution or datetime.datetime.max)
+                for _, reminder_str in upcoming_reminders:: x[0].next_execution or datetime.datetime.min, reverse=True)
                     reminder_list += reminder_str
                 reminder_list += "\n"
             
             # Add recurring reminders next
-            if recurring_reminders:
-                reminder_list += "🔁 RECURRING:\n"
+            if recurring_reminders:minder_str in upcoming_reminders:
+                reminder_list += "🔁 RECURRING:\n"str
                 for _, reminder_str in recurring_reminders:
                     reminder_list += reminder_str
                 reminder_list += "\n"
@@ -878,9 +887,9 @@ class ReminderManager:
                 
                 # Find the reminder by ID
                 reminder_to_delete = next((r for r in self.reminders if r.reminder_id == reminder_id and r.chat_id == chat_id), None)
-                
+
                 if not reminder_to_delete:
-                    await update.message.reply_text(f"Reminder ID {reminder_id} not found.")
+                    await update.message.reply_text(f"Reminder ID {reminder_id} not found.")text.args[1])
                     return
                     
                 # Delete the reminder
