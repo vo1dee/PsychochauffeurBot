@@ -94,13 +94,27 @@ class GeomagneticData:
             message.append("📅 Детальний прогноз:")
             for date, items in dates.items():
                 message.append(f"\n{escape_text(date)}:")
+                # Track previous activity levels
+                last_activity_level = None
+                
                 for item in items:
                     time = escape_text(item.get('time', ''))
                     value = item.get('value', '')
                     description = escape_text(self.legend.get(str(value), ""))
-                    activity_level = escape_text(get_activity_level(value))
-                    past_indicator = "\\(минуле\\)" if item.get('isPast', False) else ""
-                    message.append(f"  {time}: {value} \\- {description} {activity_level} {past_indicator}")
+                    activity_level = get_activity_level(value)
+                    
+                    # Only add indicator for past items
+                    indicator = ""
+                    if item.get('isPast', False):
+                        indicator = "\\(минуле\\)"
+                    
+                    # Only show activity level if it changed or is the first occurrence
+                    display_activity = ""
+                    if activity_level != last_activity_level:
+                        display_activity = escape_text(activity_level)
+                        last_activity_level = activity_level
+                        
+                    message.append(f"  {time}: {value} \\- {description} {display_activity} {indicator}")
         
         # Add last updated time
         timestamp = self.timestamp.strftime('%H:%M %d.%m.%Y')
