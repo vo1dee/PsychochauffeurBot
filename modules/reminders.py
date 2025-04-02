@@ -1,894 +1,629 @@
+# Install necessary library if you haven't already:
+# pip install python-telegram-bot python-dateutil pytz
+
 import sqlite3
 import datetime
 import pytz
 import re
 import os
-import openai
-from modules.const import KYIV_TZ
+from dateutil.relativedelta import relativedelta # For easier date math
+from dateutil import rrule # Potentially useful for complex recurrence
 from telegram.ext import CallbackContext
 from telegram import Update
-from modules.logger import error_logger
+from modules.logger import error_logger # Assuming this logger is configured
+from modules.const import KYIV_TZ # Assuming this is defined e.g., KYIV_TZ = pytz.timezone('Europe/Kyiv')
+
+# --- Reminder Class ---
 class Reminder:
     def __init__(self, task, frequency, delay, date_modifier, next_execution, user_id, chat_id, reminder_id=None):
         self.reminder_id = reminder_id
         self.task = task
-        self.frequency = frequency
-        self.delay = delay
-        self.date_modifier = date_modifier
-        self.next_execution = next_execution
+        self.frequency = frequency # e.g., "daily", "weekly", "monthly", None
+        self.delay = delay # Store the original delay string if needed, e.g., "in 5 minutes"
+        self.date_modifier = date_modifier # e.g., "first day of month", "last day of month", None
+        
+        # Ensure next_execution is timezone-aware
+        if isinstance(next_execution, datetime.datetime):
+            if next_execution.tzinfo is None:
+                self.next_execution = KYIV_TZ.localize(next_execution)
+            else:
+                self.next_execution = next_execution.astimezone(KYIV_TZ)
+        else:
+             self.next_execution = None # Should ideally always be a datetime after initial setup
+             
         self.user_id = user_id
         self.chat_id = chat_id
+        
+        # Store original time components if set explicitly (for recurring)
+        self._original_hour = next_execution.hour if next_execution else None
+        self._original_minute = next_execution.minute if next_execution else None
+        self._original_day = next_execution.day if next_execution else None # Used for specific day-of-month monthly
+
 
     def calculate_next_execution(self):
-        now = datetime.datetime.now(KYIV_TZ)
+        """
+        Calculate the next execution time AFTER the current one has passed.
+        Assumes self.next_execution holds the time that just triggered.
+        Updates self.next_execution to the next scheduled time.
+        Returns True if successfully calculated, False otherwise (e.g., for one-off reminders).
+        """
+        if not self.frequency and not self.date_modifier:
+            # This is likely a one-off reminder based on delay or specific time, 
+            # no further execution calculation needed here.
+            return False
+
+        # Use the time that just triggered as the base for the next calculation
+        # If next_execution wasn't set somehow, default to now
+        base_time = self.next_execution if self.next_execution else datetime.datetime.now(KYIV_TZ)
+        now = datetime.datetime.now(KYIV_TZ) # Get current time for comparison logic
+
+        # --- Handle Special Date Modifiers ---
+        if self.date_modifier == 'first day of month':
+            # Find the first day of the month *after* the base_time's month
+            next_month_first_day = (base_time.replace(day=1) + relativedelta(months=1))
+            target_hour = self._original_hour if self._original_hour is not None else 9 # Default time
+            target_minute = self._original_minute if self._original_minute is not None else 0
+            self.next_execution = next_month_first_day.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+            return True
+            
+        elif self.date_modifier == 'last day of month':
+            # Find the first day of the month *after* next month, then subtract one day
+            next_next_month_first_day = (base_time.replace(day=1) + relativedelta(months=2))
+            next_month_last_day = next_next_month_first_day - datetime.timedelta(days=1)
+            target_hour = self._original_hour if self._original_hour is not None else 9 # Default time
+            target_minute = self._original_minute if self._original_minute is not None else 0
+            self.next_execution = next_month_last_day.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+            return True
+
+        # --- Handle Standard Recurring Frequencies ---
+        if not self.frequency:
+             return False # Should have been caught by date_modifier or earlier check
         
-        # Handle recurring frequencies first
-        if self.frequency:
-            if self.frequency == "daily":
-                if self.next_execution and self.next_execution <= now:
-                    # For daily recurring events, preserve the hour and minute
-                    hour = self.next_execution.hour
-                    minute = self.next_execution.minute
-                    
-                    # Move to next day but keep the same time
-                    next_day = now + datetime.timedelta(days=1)
-                    self.next_execution = next_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                elif not self.next_execution:
-                    self.next_execution = now + datetime.timedelta(days=1)
-            elif self.frequency == "weekly":
-                if self.next_execution and self.next_execution <= now:
-                    # For weekly events, preserve hour, minute, and weekday
-                    hour = self.next_execution.hour
-                    minute = self.next_execution.minute
-                    
-                    # Add 7 days from the last execution
-                    self.next_execution = self.next_execution + datetime.timedelta(days=7)
-                else:
-                    self.next_execution = now + datetime.timedelta(days=7)
-            elif self.frequency == "monthly":
-                if self.next_execution and self.next_execution <= now:
-                    # For monthly events, preserve day of month, hour, and minute
-                    day = min(self.next_execution.day, 28)  # Handle month variations
-                    hour = self.next_execution.hour
-                    minute = self.next_execution.minute
-                    
-                    # Calculate next month's date
-                    next_month = now.replace(day=1) + datetime.timedelta(days=32)
-                    next_month = next_month.replace(day=1)  # First day of next month
-                    
-                    # Try to keep same day of month, clamping to month end if needed
-                    try:
-                        self.next_execution = next_month.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
-                    except ValueError:  # Day doesn't exist in target month
-                        # Get last day of month
-                        last_day = (next_month.replace(day=1) + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
-                        self.next_execution = last_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                else:
-                    self.next_execution = now + datetime.timedelta(days=30)
-            elif self.frequency == "seconds":
-                # For testing - every few seconds
-                self.next_execution = now + datetime.timedelta(seconds=5)
-            return
-        
-        # Handle specific time delays for one-time reminders
-        if self.delay:
-            # Check for patterns like "in X seconds/minutes/hours/days/months"
-            time_pattern = re.compile(r'in\s+(\d+)\s+(second|minute|hour|day|month)s?')
-            match = time_pattern.search(self.delay)
+        if self.frequency == "daily":
+             # Add one day to the last execution time
+            self.next_execution = base_time + relativedelta(days=1)
+            # Ensure time components are preserved if they were set
+            if self._original_hour is not None and self._original_minute is not None:
+                 self.next_execution = self.next_execution.replace(hour=self._original_hour, minute=self._original_minute, second=0, microsecond=0)
+            return True
             
-            if match:
-                amount = int(match.group(1))
-                unit = match.group(2)
-                
-                if unit == 'second':
-                    self.next_execution = now + datetime.timedelta(seconds=amount)
-                elif unit == 'minute':
-                    self.next_execution = now + datetime.timedelta(minutes=amount)
-                elif unit == 'hour':
-                    self.next_execution = now + datetime.timedelta(hours=amount)
-                elif unit == 'day':
-                    self.next_execution = now + datetime.timedelta(days=amount)
-                elif unit == 'month':
-                    self.next_execution = now + datetime.timedelta(days=amount*30)  # approximate
-            elif self.delay == 'in 1 hour':
-                self.next_execution = now + datetime.timedelta(hours=1)
-            elif self.delay == 'in 1 day':
-                self.next_execution = now + datetime.timedelta(days=1)
-            elif self.delay == 'in 1 month':
-                self.next_execution = now + datetime.timedelta(days=30)  # approximate month
-        
-        # Handle specific date modifiers
-        if self.date_modifier == 'first day of every month':
-            # Always calculate first day of next month
-            if now.month == 12:
-                next_month_year = now.year + 1
-                next_month_num = 1
-            else:
-                next_month_year = now.year
-                next_month_num = now.month + 1
-                
-            # Create datetime with explicit timezone
-            # Preserve the original time if it exists
-            if self.next_execution:
-                original_hour = self.next_execution.hour
-                original_minute = self.next_execution.minute
-                self.next_execution = datetime.datetime(
-                    year=next_month_year,
-                    month=next_month_num,
-                    day=1,  # First day of month
-                    hour=original_hour,
-                    minute=original_minute,
-                    second=0,
-                    microsecond=0,
-                    tzinfo=KYIV_TZ
-                )
-            else:
-                # Default to 9 AM if no previous time
-                self.next_execution = datetime.datetime(
-                    year=next_month_year,
-                    month=next_month_num,
-                    day=1,  # First day of month
-                    hour=9,
-                    minute=0,
-                    second=0,
-                    microsecond=0,
-                    tzinfo=KYIV_TZ
-                )
-                    
-        elif self.date_modifier == 'last day of every month':
-            # Current month's last day
-            if now.month == 12:
-                next_month = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ)
-            else:
-                next_month = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ)
+        elif self.frequency == "weekly":
+            # Add one week to the last execution time
+            self.next_execution = base_time + relativedelta(weeks=1)
+            # Time components are inherently preserved by adding weeks
+            return True
             
-            # Get last day of current month
-            last_day_current = next_month - datetime.timedelta(days=1)
+        elif self.frequency == "monthly":
+            # Add one month to the last execution time
+            # relativedelta handles month length variations gracefully
+            self.next_execution = base_time + relativedelta(months=1)
             
-            # We always want the next month's last day when recalculating
-            # Get the last day of next month
-            if next_month.month == 12:
-                next_next_month = datetime.datetime(next_month.year + 1, 1, 1, tzinfo=KYIV_TZ)
-            else:
-                next_next_month = datetime.datetime(next_month.year, next_month.month + 1, 1, tzinfo=KYIV_TZ)
+            # If original day was > 28, ensure we didn't roll over incorrectly
+            # e.g. if scheduled for 31st Jan, next should be 28/29th Feb, then 31st Mar
+            # Try setting day back if it was specific, otherwise relativedelta handles it well.
+            if self._original_day and self._original_day > 28:
+                try:
+                    test_date = self.next_execution.replace(day=self._original_day)
+                    # Check if replacing day changed the month (meaning day is invalid for new month)
+                    if test_date.month == self.next_execution.month:
+                         self.next_execution = test_date
+                    # else: keep the date from relativedelta (end of month)
+                except ValueError: 
+                     # Day doesn't exist in the new month, relativedelta would have put it at the end, which is fine.
+                     pass 
+            return True
             
-            last_day = next_next_month - datetime.timedelta(days=1)
+        elif self.frequency == "seconds": # Test mode - run 5 seconds after the *last* execution
+            self.next_execution = base_time + datetime.timedelta(seconds=5)
+            return True
             
-            # Preserve the original time
-            if self.next_execution:
-                original_hour = self.next_execution.hour
-                original_minute = self.next_execution.minute
-                self.next_execution = last_day.replace(hour=original_hour, minute=original_minute, second=0, microsecond=0)
-            else:
-                # Default to 9 AM if no previous time
-                self.next_execution = last_day.replace(hour=9, minute=0, second=0, microsecond=0)
+        else:
+             error_logger.warning(f"Unknown frequency '{self.frequency}' for reminder {self.reminder_id}")
+             return False
 
     def to_tuple(self):
-        return (self.reminder_id, self.task, self.frequency, self.delay, self.date_modifier, self.next_execution.isoformat() if isinstance(self.next_execution, datetime.datetime) else None, self.user_id, self.chat_id)
+        """Convert reminder to tuple for database storage"""
+        next_execution_iso = self.next_execution.isoformat() if isinstance(self.next_execution, datetime.datetime) else None
+        return (
+            self.reminder_id,
+            self.task,
+            self.frequency,
+            self.delay,
+            self.date_modifier,
+            next_execution_iso,
+            self.user_id,
+            self.chat_id
+        )
 
     @classmethod
     def from_tuple(cls, data):
-        reminder_id, task, frequency, delay, date_modifier, next_execution_str, user_id, chat_id = data
-        # Parse datetime and ensure timezone is set
+        """Create reminder from database tuple"""
+        (reminder_id, task, frequency, delay, date_modifier, 
+         next_execution_str, user_id, chat_id) = data
+        
+        next_execution = None
         if next_execution_str:
-            next_execution = datetime.datetime.fromisoformat(next_execution_str)
-            # Add timezone if not present
-            if next_execution.tzinfo is None:
-                next_execution = KYIV_TZ.localize(next_execution)
-        else:
-            next_execution = None
-            
+            try:
+                # Use fromisoformat, handles timezone info if present
+                dt_naive_or_aware = datetime.datetime.fromisoformat(next_execution_str)
+                if dt_naive_or_aware.tzinfo is None:
+                    # If loaded string had no timezone, assume it was stored in KYIV_TZ
+                    # and make it aware. Crucial for comparisons.
+                    next_execution = KYIV_TZ.localize(dt_naive_or_aware)
+                else:
+                    # If it had timezone info, ensure it's converted to KYIV_TZ
+                    next_execution = dt_naive_or_aware.astimezone(KYIV_TZ)
+            except ValueError as e:
+                 error_logger.error(f"Error parsing date '{next_execution_str}' for reminder {reminder_id}: {e}")
+                 next_execution = None # Or handle differently? Maybe reschedule?
+
         return cls(task, frequency, delay, date_modifier, next_execution, user_id, chat_id, reminder_id)
 
+    def __repr__(self):
+        return (f"<Reminder id={self.reminder_id} task='{self.task[:20]}...' "
+                f"freq='{self.frequency}' mod='{self.date_modifier}' "
+                f"next='{self.next_execution.isoformat() if self.next_execution else 'None'}' "
+                f"chat={self.chat_id}>")
+
+
+# --- Reminder Manager Class ---
 class ReminderManager:
     def __init__(self, db_file='reminders.db'):
         self.db_file = db_file
-        self.conn = sqlite3.connect(self.db_file)
+        # Ensure connection is thread-safe for use with PTB's async nature
+        self.conn = sqlite3.connect(self.db_file, check_same_thread=False) 
         self.create_table()
-        self.reminders = self.load_reminders()
+        
+        # No need to load all reminders into memory constantly if using JobQueue properly
+        # self.reminders = self.load_reminders() 
+        
+        # Store patterns directly here
+        self.patterns = {
+            "last_day": [
+                "last day of every month", "on the last day of every month",
+                "on last day of every month", "on the last day of month",
+                "last day of month", "last day of the month"
+            ],
+            "first_day": [
+                "first day of every month", "first of every month", 
+                "1st day of every month", "1st of every month",
+                "on the first day of every month", "on first day of every month",
+                "on the first of every month", "on first of every month",
+                "every first day of month"
+            ],
+            "daily": ["every day", "daily", "everyday"],
+            "weekly": ["every week", "weekly"],
+            "monthly": ["every month", "monthly"],
+            "seconds": ["every second", "every 5 seconds"], # Testing
+            "time_at": re.compile(r'at\s+(\d{1,2}):(\d{2})\b', re.IGNORECASE),
+            "delay_in": re.compile(r'in\s+(\d+)\s+(second|minute|hour|day|week|month)s?\b', re.IGNORECASE)
+        }
 
     def create_table(self):
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS reminders (
-                reminder_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task TEXT,
-                frequency TEXT,
-                delay TEXT,
-                date_modifier TEXT,
-                next_execution TEXT,
-                user_id INTEGER,
-                chat_id INTEGER
-            )
-        ''')
-        self.conn.commit()
+        """Create reminders table if it doesn't exist"""
+        with self.conn: # Use context manager for automatic commit/rollback
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS reminders (
+                    reminder_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task TEXT NOT NULL,
+                    frequency TEXT,
+                    delay TEXT,
+                    date_modifier TEXT,
+                    next_execution TEXT, -- Store as ISO 8601 string
+                    user_id INTEGER NOT NULL,
+                    chat_id INTEGER NOT NULL
+                )
+            ''')
+            # Consider adding indexes for performance if the table grows large
+            # self.conn.execute('CREATE INDEX IF NOT EXISTS idx_next_execution ON reminders(next_execution);')
+            # self.conn.execute('CREATE INDEX IF NOT EXISTS idx_chat_id ON reminders(chat_id);')
 
-    def add_reminder(self, reminder):
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT INTO reminders (task, frequency, delay, date_modifier, next_execution, user_id, chat_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', reminder.to_tuple()[1:]) # Skip reminder_id
-        self.conn.commit()
-        reminder.reminder_id = cursor.lastrowid
-        self.reminders.append(reminder)
-        return reminder
+    def add_reminder(self, reminder: Reminder) -> Reminder:
+        """Add a reminder to the database and return it with its ID."""
+        with self.conn:
+            cursor = self.conn.cursor()
+            next_execution_iso = reminder.next_execution.isoformat() if reminder.next_execution else None
+            cursor.execute('''
+                INSERT INTO reminders (task, frequency, delay, date_modifier, next_execution, user_id, chat_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (reminder.task, reminder.frequency, reminder.delay, reminder.date_modifier, 
+                  next_execution_iso, reminder.user_id, reminder.chat_id))
+            reminder.reminder_id = cursor.lastrowid
+            error_logger.info(f"Added reminder to DB: {reminder}")
+            return reminder
 
-    def remove_reminder(self, reminder):
-        cursor = self.conn.cursor()
-        cursor.execute('DELETE FROM reminders WHERE reminder_id = ?', (reminder.reminder_id,))
-        self.conn.commit()
-        self.reminders = [r for r in self.reminders if r.reminder_id != reminder.reminder_id]
+    def remove_reminder(self, reminder_id: int):
+        """Remove a reminder from the database by ID."""
+        with self.conn:
+            cursor = self.conn.cursor()
+            cursor.execute('DELETE FROM reminders WHERE reminder_id = ?', (reminder_id,))
+            if cursor.rowcount > 0:
+                error_logger.info(f"Removed reminder ID {reminder_id} from DB.")
+                return True
+            else:
+                error_logger.warning(f"Attempted to remove non-existent reminder ID {reminder_id}.")
+                return False
+
+    def update_reminder(self, reminder: Reminder):
+        """Update a reminder in the database."""
+        if not reminder.reminder_id:
+            error_logger.error("Cannot update reminder without an ID.")
+            return False
+            
+        with self.conn:
+            next_execution_iso = reminder.next_execution.isoformat() if reminder.next_execution else None
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                UPDATE reminders 
+                SET task = ?, frequency = ?, delay = ?, date_modifier = ?, 
+                    next_execution = ?, user_id = ?, chat_id = ?
+                WHERE reminder_id = ?
+            ''', (
+                reminder.task, reminder.frequency, reminder.delay, reminder.date_modifier,
+                next_execution_iso, reminder.user_id, reminder.chat_id,
+                reminder.reminder_id
+            ))
+            if cursor.rowcount > 0:
+                 error_logger.info(f"Updated reminder ID {reminder.reminder_id} in DB. Next exec: {next_execution_iso}")
+                 return True
+            else:
+                 error_logger.warning(f"Attempted to update non-existent reminder ID {reminder.reminder_id}")
+                 return False
+
 
     def get_reminders(self, chat_id=None):
-        if chat_id:
-            return [r for r in self.reminders if r.chat_id == chat_id]
-        return self.reminders
-
-    def load_reminders(self):
+        """Get reminders, optionally filtered by chat_id. Returns a list of Reminder objects."""
         cursor = self.conn.cursor()
-        cursor.execute('SELECT * FROM reminders')
+        if chat_id:
+            cursor.execute('SELECT * FROM reminders WHERE chat_id = ? ORDER BY next_execution', (chat_id,))
+        else:
+            # Generally avoid loading ALL reminders unless necessary (e.g., for recovery)
+            error_logger.warning("Loading all reminders from DB. Consider filtering.")
+            cursor.execute('SELECT * FROM reminders ORDER BY next_execution')
+            
         data = cursor.fetchall()
         return [Reminder.from_tuple(r) for r in data]
 
-    def schedule_reminders(self, bot, job_queue):
+    def get_reminder_by_id(self, reminder_id: int) -> Reminder | None:
+         """Fetch a single reminder by its ID."""
+         cursor = self.conn.cursor()
+         cursor.execute('SELECT * FROM reminders WHERE reminder_id = ?', (reminder_id,))
+         data = cursor.fetchone()
+         return Reminder.from_tuple(data) if data else None
+
+
+    async def send_reminder_callback(self, context: CallbackContext):
+        """
+        Callback executed by the JobQueue. Sends the message and reschedules if necessary.
+        """
+        job = context.job
+        if not job or not job.data or not isinstance(job.data, dict) or 'reminder_id' not in job.data:
+            error_logger.error(f"Invalid job data in send_reminder_callback: {job.data if job else 'No Job'}")
+            return
+
+        reminder_id = job.data['reminder_id']
+        error_logger.info(f"Job triggered for reminder ID {reminder_id}")
+
+        # Fetch the latest reminder state from DB
+        reminder = self.get_reminder_by_id(reminder_id)
+
+        if not reminder:
+            error_logger.warning(f"Reminder ID {reminder_id} not found in DB for sending. Job might be stale.")
+            # Optionally remove the job if it persists? Be careful with race conditions.
+            return
+            
+        if not reminder.next_execution:
+             error_logger.warning(f"Reminder ID {reminder_id} has no next_execution time. Skipping send.")
+             return
+
+        # Double check if it's actually due (e.g., bot restarted, job triggered slightly late)
         now = datetime.datetime.now(KYIV_TZ)
-        
-        for reminder in self.reminders:
-            try:
-                # Make sure next_execution has proper timezone
-                if reminder.next_execution:
-                    # Ensure timezone information is present
-                    if reminder.next_execution.tzinfo is None:
-                        reminder.next_execution = KYIV_TZ.localize(reminder.next_execution)
-                    
-                    # Handle reminders based on their time
-                    if reminder.next_execution > now:
-                        # Future reminder - schedule it
-                        when_utc = reminder.next_execution.astimezone(pytz.UTC)
-                        job = job_queue.run_once(self.send_reminder, when=when_utc, data=reminder)
-                    else:
-                        # Past reminder - handle immediately
-                        job = job_queue.run_once(self.send_reminder, when=1, data=reminder)
-            except Exception as e:
-                error_logger.error(f"Error scheduling reminder {reminder.reminder_id}: {e}")
+        # Allow a small grace period (e.g., 5 minutes) for late jobs
+        grace_period = datetime.timedelta(minutes=5) 
+        if reminder.next_execution > now + grace_period:
+             error_logger.warning(f"Reminder ID {reminder_id} job triggered too early? Expected: {reminder.next_execution}, Now: {now}. Rescheduling.")
+             # Reschedule for the correct time
+             context.job_queue.run_once(
+                 self.send_reminder_callback,
+                 when=reminder.next_execution,
+                 data={'reminder_id': reminder.reminder_id},
+                 name=f"reminder_{reminder.reminder_id}"
+             )
+             return # Stop processing this early trigger
 
-    async def check_reminders(self, context: CallbackContext):
+
         try:
-            if context is None:
-                return
+            # --- Send the message ---
+            url_pattern = r'https?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+            has_urls = bool(re.search(url_pattern, reminder.task))
 
-            bot = context.bot
-            now = datetime.datetime.now(KYIV_TZ)
-            
-            # First, load the latest reminders from the database
-            self.reminders = self.load_reminders()
-            
-            # Process reminders that need to be sent
-            reminders_to_send = []
-            for reminder in self.reminders:
-                if reminder.next_execution:
-                    # Ensure timezone is set
-                    if reminder.next_execution.tzinfo is None:
-                        reminder.next_execution = KYIV_TZ.localize(reminder.next_execution)
-                    
-                    # Check if it's time to send
-                    if reminder.next_execution <= now:
-                        reminders_to_send.append(reminder)
-                
-            # Send reminders and update them
-            for reminder in reminders_to_send:
-                # Create a simulated context with the reminder data
-                try:
-                    class MockJob:
-                        def __init__(self, data):
-                            self.data = data
-                    
-                    # Make a copy of the existing context and add our job
-                    mock_context = context
-                    mock_context.job = MockJob(data=reminder)
-                    
-                    await self.send_reminder(mock_context)
-                    
-                    # Calculate next time if this is a recurring reminder
-                    if reminder.frequency:
-                        reminder.calculate_next_execution()
-                        self.update_reminder(reminder)
-                        
-                        # Special case for seconds frequency - reschedule immediately
-                        if reminder.frequency == "seconds" and context.job_queue:
-                            job = context.job_queue.run_once(
-                                self.send_reminder, 
-                                when=5,  # Fixed 5 seconds interval for testing
-                                data=reminder
-                            )
-                    else:
-                        # One-time reminder, remove it
-                        self.remove_reminder(reminder)
-                except Exception as e:
-                    error_logger.error(f"Error processing reminder {reminder.reminder_id}: {e}")
-        
-        except Exception as e:
-            error_logger.error(f"Error in check_reminders: {e}", exc_info=True)
-
-    async def send_reminder(self, context: CallbackContext):
-        try:
-            if context is None:
-                error_logger.error("send_reminder: Context is None")
-                return
-                
-            if context.job is None:
-                error_logger.error("send_reminder: Context.job is None")
-                return
-                
-            if not hasattr(context.job, 'data') or context.job.data is None:
-                error_logger.error("send_reminder: Context.job.data is None")
-                return
-                
-            reminder = context.job.data
-            
-            # Format message properly with links
-            try:
-                task_text = reminder.task
-                url_pattern = r'https?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
-                urls = re.findall(url_pattern, task_text)
-                
-                # This reminder contains URLs
-                if urls:
-                    # Use HTML formatting for proper link display 
-                    await context.bot.send_message(
-                        chat_id=reminder.chat_id, 
-                        text=f"⏰ REMINDER: {task_text}",
-                        parse_mode=None,  # Let Telegram auto-format
-                        disable_web_page_preview=False  # Allow link previews
-                    )
-                else:
-                    # No URLs, send regular message
-                    await context.bot.send_message(
-                        chat_id=reminder.chat_id, 
-                        text=f"⏰ REMINDER: {task_text}"
-                    )
-            except Exception as e:
-                error_logger.error(f"Failed to send reminder {reminder.reminder_id}: {e}", exc_info=True)
-                
-            # Remove one-time reminders after execution
-            if reminder.frequency is None:
-                self.remove_reminder(reminder)
-                
-        except Exception as e:
-            error_logger.error(f"Critical error in send_reminder: {e}", exc_info=True)
-
-
-    def update_reminder(self, reminder):
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE reminders
-            SET task = ?, frequency = ?, delay = ?, date_modifier = ?, next_execution = ?, user_id = ?, chat_id = ?
-            WHERE reminder_id = ?
-        ''', (reminder.task, reminder.frequency, reminder.delay, reminder.date_modifier, reminder.next_execution.isoformat() if isinstance(reminder.next_execution, datetime.datetime) else None, reminder.user_id, reminder.chat_id, reminder.reminder_id))
-        self.conn.commit()
-
-    def parse_natural_language_date(self, text):
-        openai.api_key = os.getenv("OPENAI_API_KEY") # Ensure API key is set in environment variables.
-        prompt = f"Convert the following natural language date/time to ISO 8601 format: {text}"
-        try:
-            response = openai.Completion.create(
-                engine="text-davinci-003",
-                prompt=prompt,
-                max_tokens=50
+            await context.bot.send_message(
+                chat_id=reminder.chat_id,
+                text=f"⏰ REMINDER: {reminder.task}",
+                parse_mode=None, # Let Telegram auto-detect links etc.
+                disable_web_page_preview=not has_urls
             )
-            iso_date = response.choices[0].text.strip()
-            return datetime.datetime.fromisoformat(iso_date).astimezone(KYIV_TZ)
+            error_logger.info(f"Sent reminder ID {reminder_id} to chat {reminder.chat_id}")
+
+            # --- Reschedule or Remove ---
+            is_recurring = bool(reminder.frequency or reminder.date_modifier)
+
+            if is_recurring:
+                if reminder.calculate_next_execution(): # Calculate the *next* time
+                    if self.update_reminder(reminder): # Save the new time to DB
+                        # Schedule the next occurrence
+                        context.job_queue.run_once(
+                            self.send_reminder_callback,
+                            when=reminder.next_execution,
+                            data={'reminder_id': reminder.reminder_id},
+                            name=f"reminder_{reminder.reminder_id}" # Use name for potential management
+                        )
+                        error_logger.info(f"Rescheduled reminder ID {reminder.reminder_id} for {reminder.next_execution.isoformat()}")
+                    else:
+                         error_logger.error(f"Failed to update reminder {reminder.reminder_id} after execution. It will not run again.")
+                else:
+                     error_logger.info(f"Reminder {reminder.reminder_id} finished its recurrence or failed calculation.")
+                     self.remove_reminder(reminder.reminder_id) # Clean up if calculation failed for recurring
+            else:
+                # One-time reminder, remove it
+                self.remove_reminder(reminder.reminder_id)
+                error_logger.info(f"Removed one-time reminder ID {reminder.reminder_id} after sending.")
+
         except Exception as e:
-            error_logger.error(f"Error parsing date with OpenAI: {e}", exc_info=True)
-            return None
-            
-    async def remind(self, update, context):
+            # Log error specific to this reminder ID
+            error_logger.error(f"Error processing reminder ID {reminder_id}: {e}", exc_info=True)
+            # Decide if you want to retry or remove the reminder after errors
+            # For now, we let it potentially get rescheduled if it was recurring and calculation succeeded before error.
+
+
+    def parse_reminder(self, text: str) -> dict:
         """
-        Handle the /remind command to create, list, or delete reminders.
+        Parse reminder text to extract task, frequency, date modifier, time, and delay.
+        Tries to remove matched patterns from the task text.
+        """
+        original_text = text
+        text_lower = text.lower()
         
-        Usage:
-        /remind add <task> [frequency] [delay] - Add a new reminder
-        /remind list - List all reminders for this chat
-        /remind delete <id> - Delete a reminder by ID
-        """
+        result = {
+            'task': original_text.strip(), # Start with original, clean later
+            'frequency': None,
+            'date_modifier': None,
+            'time': None, # Tuple (hour, minute)
+            'delay': None, # Tuple (amount, unit)
+        }
+
+        # --- Extract Time (at HH:MM) ---
+        time_match = self.patterns['time_at'].search(text_lower)
+        if time_match:
+            hour = int(time_match.group(1))
+            minute = int(time_match.group(2))
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                 result['time'] = (hour, minute)
+                 # Remove the matched part from the task
+                 result['task'] = self.patterns['time_at'].sub('', result['task']).strip()
+                 text_lower = result['task'].lower() # Update lower text for next matches
+
+        # --- Extract Delay (in X unit) ---
+        # Run this *before* frequency as "daily in 5 minutes" should prioritize delay
+        delay_match = self.patterns['delay_in'].search(text_lower)
+        if delay_match:
+            amount = int(delay_match.group(1))
+            unit = delay_match.group(2).lower()
+            result['delay'] = (amount, unit)
+            # Remove matched part
+            result['task'] = self.patterns['delay_in'].sub('', result['task']).strip()
+            text_lower = result['task'].lower()
+            # If delay is found, frequency/date modifiers usually don't apply to *first* execution
+            result['frequency'] = None 
+            result['date_modifier'] = None
+            return result # Prioritize delay
+
+        # --- Extract Date Modifiers (First/Last day) ---
+        for pattern in self.patterns['last_day']:
+            if pattern in text_lower:
+                result['date_modifier'] = "last day of month"
+                result['frequency'] = "monthly" # Implied frequency
+                result['task'] = result['task'].lower().replace(pattern, '').strip()
+                text_lower = result['task'].lower()
+                break # Found modifier
+        if not result['date_modifier']: # Only check if not already found
+             for pattern in self.patterns['first_day']:
+                if pattern in text_lower:
+                    result['date_modifier'] = "first day of month"
+                    result['frequency'] = "monthly"
+                    result['task'] = result['task'].lower().replace(pattern, '').strip()
+                    text_lower = result['task'].lower()
+                    break
+
+        # --- Extract Frequency (daily, weekly, monthly, seconds) ---
+        # Only if delay wasn't found and date modifier wasn't 'first/last day' specific
+        if not result['delay'] and not result['date_modifier']: 
+            freq_map = {
+                 "daily": self.patterns["daily"],
+                 "weekly": self.patterns["weekly"],
+                 "monthly": self.patterns["monthly"],
+                 "seconds": self.patterns["seconds"] # Test
+             }
+            found_freq = False
+            for freq_key, patterns in freq_map.items():
+                for pattern in patterns:
+                    # Use regex word boundary to avoid matching parts of words
+                    if re.search(r'\b' + re.escape(pattern) + r'\b', text_lower):
+                        result['frequency'] = freq_key
+                        result['task'] = re.sub(r'\b' + re.escape(pattern) + r'\b', '', result['task'], flags=re.IGNORECASE).strip()
+                        text_lower = result['task'].lower()
+                        found_freq = True
+                        break
+                if found_freq:
+                    break
+                    
+        # Final task cleanup (remove extra spaces, capitalize)
+        result['task'] = ' '.join(result['task'].split())
+        if result['task']:
+             result['task'] = result['task'][0].upper() + result['task'][1:]
+
+        return result
+
+    def _calculate_initial_next_execution(self, parsed_data: dict) -> datetime.datetime | None:
+        """Calculates the *first* next_execution time based on parsed user input."""
+        now = datetime.datetime.now(KYIV_TZ)
+        target_dt = None
+
+        delay = parsed_data.get('delay')
+        time_tuple = parsed_data.get('time')
+        frequency = parsed_data.get('frequency')
+        date_modifier = parsed_data.get('date_modifier')
+        
+        # 1. Priority: Delay ("in X units")
+        if delay:
+            amount, unit = delay
+            delta = relativedelta()
+            if unit == 'second': delta = relativedelta(seconds=amount)
+            elif unit == 'minute': delta = relativedelta(minutes=amount)
+            elif unit == 'hour': delta = relativedelta(hours=amount)
+            elif unit == 'day': delta = relativedelta(days=amount)
+            elif unit == 'week': delta = relativedelta(weeks=amount)
+            elif unit == 'month': delta = relativedelta(months=amount)
+            target_dt = now + delta
+            # Delay usually implies one-off, clear frequency/modifier for initial calculation
+            frequency = None
+            date_modifier = None
+            
+        # 2. Specific Time ("at HH:MM") potentially combined with frequency/modifier
+        elif time_tuple:
+            hour, minute = time_tuple
+            target_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+            # If the specified time is in the past *today*...
+            if target_dt <= now:
+                # ...and it's NOT a specific date modifier (like first/last day)
+                if not date_modifier:
+                     # ...move to the next day (or next week/month if frequency specified)
+                    if frequency == 'weekly':
+                         target_dt += relativedelta(weeks=1)
+                    elif frequency == 'monthly':
+                          # This gets tricky if time is past today but day is e.g. 31st.
+                          # Let's just advance one day and rely on calculate_next_execution for subsequent.
+                          # Or, more robustly, set to the correct day next month.
+                          target_dt += relativedelta(months=1) 
+                          # Try to keep original day, fallback to end of month
+                          original_day = target_dt.day # Day from adding month
+                          try:
+                               target_dt = target_dt.replace(day=original_day) # Keep day if valid
+                          except ValueError: 
+                               pass # Keep end of month if day invalid
+                    else: # Includes daily or no frequency
+                         target_dt += relativedelta(days=1)
+                # else: If it *is* a date modifier, we handle the date part below, keep time.
+
+        # 3. Handle Date Modifiers (First/Last Day) - Calculate the *date* part
+        if date_modifier == 'first day of month':
+            first_of_this_month = now.replace(day=1, hour=9, minute=0, second=0, microsecond=0) # Default time 9:00
+            if time_tuple: # If time was specified, use it
+                first_of_this_month = first_of_this_month.replace(hour=time_tuple[0], minute=time_tuple[1])
+                
+            if first_of_this_month > now: # If 1st@time is still in the future this month
+                 target_dt = first_of_this_month
+            else: # Otherwise, use the first day of *next* month
+                 target_dt = (now.replace(day=1) + relativedelta(months=1))
+                 if time_tuple:
+                      target_dt = target_dt.replace(hour=time_tuple[0], minute=time_tuple[1], second=0, microsecond=0)
+                 else: # Default time
+                      target_dt = target_dt.replace(hour=9, minute=0, second=0, microsecond=0)
+
+        elif date_modifier == 'last day of month':
+            # Calculate last day of *current* month
+            next_month_first_day = (now.replace(day=1) + relativedelta(months=1))
+            last_of_this_month = next_month_first_day - datetime.timedelta(days=1)
+            last_of_this_month = last_of_this_month.replace(hour=9, minute=0, second=0, microsecond=0) # Default time
+            if time_tuple:
+                 last_of_this_month = last_of_this_month.replace(hour=time_tuple[0], minute=time_tuple[1])
+
+            if last_of_this_month > now: # If last_day@time is still in the future this month
+                 target_dt = last_of_this_month
+            else: # Otherwise, use the last day of *next* month
+                 next_next_month_first_day = (now.replace(day=1) + relativedelta(months=2))
+                 last_of_next_month = next_next_month_first_day - datetime.timedelta(days=1)
+                 if time_tuple:
+                     target_dt = last_of_next_month.replace(hour=time_tuple[0], minute=time_tuple[1], second=0, microsecond=0)
+                 else: # Default time
+                     target_dt = last_of_next_month.replace(hour=9, minute=0, second=0, microsecond=0)
+
+        # 4. Frequency only (daily, weekly, monthly) - no specific time/delay/modifier
+        elif frequency and not target_dt: # Target not set by time/modifier yet
+            target_dt = now.replace(hour=9, minute=0, second=0, microsecond=0) # Default to 9:00 AM
+            if target_dt <= now: # If 9 AM already passed today
+                if frequency == 'daily': target_dt += relativedelta(days=1)
+                elif frequency == 'weekly': target_dt += relativedelta(weeks=1)
+                elif frequency == 'monthly': target_dt += relativedelta(months=1)
+                elif frequency == 'seconds': target_dt = now + relativedelta(seconds=5) # Immediate start for testing
+
+        # 5. No time/delay/freq/modifier specified - one-off, default? Error?
+        elif not target_dt:
+             # Option 1: Error - require time info
+             # return None 
+             # Option 2: Default (e.g., 5 mins from now) - less explicit
+             target_dt = now + datetime.timedelta(minutes=5)
+             error_logger.info("No time specified for reminder, defaulting to 5 minutes from now.")
+
+        return target_dt
+
+
+    async def remind(self, update: Update, context: CallbackContext):
+        """Handle the /remind command (add, list, delete)."""
+        if not update.effective_chat or not update.effective_user:
+            error_logger.warning("Cannot process remind command without chat/user.")
+            return
+            
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
-        
+
         if not context.args:
+            # Show help text (minor updates to examples)
             help_text = (
-                "📅 Reminder Commands:\n\n"
-                "/remind add <task> - Add a one-time reminder\n"
-                "/remind add <task> daily - Add a daily reminder\n"
-                "/remind add <task> weekly - Add a weekly reminder\n"
-                "/remind add <task> monthly - Add a monthly reminder\n"
-                "/remind add <task> every 5 seconds - Add a quick repeating reminder\n"
-                "/remind list - Show your reminders\n"
-                "/remind delete <id> - Delete a reminder\n\n"
-                "Time formats supported:\n"
-                "• in X seconds (e.g., in 5 seconds)\n"
-                "• in X minutes (e.g., in 30 minutes)\n" 
-                "• in X hours (e.g., in 2 hours)\n"
-                "• in X days (e.g., in 3 days)\n"
-                "• in X months (e.g., in 1 month)\n"
-                "• at HH:MM (e.g., at 16:30)\n"
-                "• every 5 seconds (special testing mode)\n\n"
-                "Examples:\n"
-                "/remind add Buy milk in 2 hours\n"
-                "/remind add Take a break in 30 minutes\n"
-                "/remind add Team meeting every Monday at 10:00\n"
-                "/remind add Pay rent on first day of every month\n"
-                "/remind add Play Wordle (https://www.nytimes.com/games/wordle) everyday at 16:20\n"
-                "Note: URLs in reminders will be automatically converted to clickable links!"
+                 "📅 **Reminder Commands:**\n\n"
+                 "`/remind add <task details>` - Add reminder\n"
+                 "`/remind list` - Show your reminders\n"
+                 "`/remind delete <id>` - Delete a reminder\n"
+                 "`/remind delete all` - Delete all reminders\n\n"
+                 "**How to specify time for `add`:**\n"
+                 "• `in 5 minutes`, `in 2 hours`, `in 1 day`...\n"
+                 "• `at 16:30`, `at 9:00`\n"
+                 "• `daily`, `weekly`, `monthly` (defaults to 9:00 AM if no time)\n"
+                 "• `every day at 14:00`\n"
+                 "• `first day of month` (at 9:00 or specified time)\n"
+                 "• `last day of month at 17:00`\n\n"
+                 "**Examples:**\n"
+                 "`/remind add Buy milk in 2 hours`\n"
+                 "`/remind add Team meeting weekly at 10:00`\n"
+                 "`/remind add Pay rent first day of month`\n"
+                 "`/remind add Submit report last day of month at 17:30`"
             )
-            await update.message.reply_text(help_text)
+            await update.message.reply_text(help_text, parse_mode='Markdown')
             return
 
         command = context.args[0].lower()
-        
+
+        # --- ADD Command ---
         if command == "add":
             if len(context.args) < 2:
-                await update.message.reply_text("Please specify a task for your reminder.")
+                await update.message.reply_text("Please specify the task and time for your reminder. Example: `/remind add Call John in 1 hour`")
                 return
-                
-            # Extract the reminder text from args
+
             reminder_text = " ".join(context.args[1:])
-            
-            # Default values
-            frequency = None
-            delay = None
-            date_modifier = None
-            
-            # Parse frequency and timing from the text
-            if "every day" in reminder_text or "daily" in reminder_text or "everyday" in reminder_text:
-                frequency = "daily"
-            elif "every week" in reminder_text or "weekly" in reminder_text:
-                frequency = "weekly"
-            elif "every month" in reminder_text or "monthly" in reminder_text:
-                frequency = "monthly"
-            elif "every second" in reminder_text or "every seconds" in reminder_text:
-                frequency = "seconds"
-                
-            # Initialize date_modifier
-            date_modifier = None
-            
-            # Parse date modifiers
-            reminder_text_lower = reminder_text.lower()
-            print(f"Checking for date modifiers in: {reminder_text_lower}")
-            
-            # Common patterns for last day of month
-            last_day_patterns = [
-                "last day of every month",
-                "on the last day of every month",
-                "on last day of every month",
-                "on the last day of month",
-                "last day of month",
-                "last day of the month"
-            ]
-            
-            # Common patterns for first day of month
-            first_day_patterns = [
-                "first day of every month",
-                "first of every month", 
-                "1st day of every month",
-                "1st of every month",
-                "1th of every month",
-                "1th of the month",
-                "on the first day of every month",
-                "on first day of every month",
-                "on the first of every month",
-                "on first of every month",
-                "on the 1st of every month",
-                "on 1st of every month",
-                "on the 1st day of every month"
-            ]
-            
-            # Check for any last day pattern
-            if any(pattern in reminder_text_lower for pattern in last_day_patterns):
-                print("Found 'last day of month' pattern")
-                date_modifier = "last day of every month"
-                frequency = "monthly"  # Make sure it's recurring
-            # Check for any first day pattern
-            elif any(pattern in reminder_text_lower for pattern in first_day_patterns):
-                print("Found 'first day of month' pattern")
-                date_modifier = "first day of every month"
-                frequency = "monthly"  # Make sure it's recurring
-                
-            print(f"Date modifier after parsing: {date_modifier}")
-            
-            # Look for specific time pattern "at HH:MM"
-            specific_time = None
-            time_at_pattern = re.compile(r'at\s+(\d{1,2}):(\d{2})')
-            time_match = time_at_pattern.search(reminder_text)
-            
-            # Extract hours and minutes if there's a time specification
-            specified_hour = None
-            specified_minute = None
-            if time_match:
-                specified_hour = int(time_match.group(1))
-                specified_minute = int(time_match.group(2))
-                
-                # If no date modifier, calculate next occurrence of this time
-                if not date_modifier:
-                    now = datetime.datetime.now(KYIV_TZ)
-                    target_time = now.replace(hour=specified_hour, minute=specified_minute, second=0, microsecond=0)
-                    
-                    # If the time is already past for today, move to tomorrow
-                    if target_time <= now:
-                        target_time += datetime.timedelta(days=1)
-                        
-                    # Store it for later use
-                    specific_time = target_time
-            
-            # Parse delay using regex for more flexibility
-            time_pattern = re.compile(r'(in\s+(\d+)\s+(?:second|minute|hour|day|month)s?)')
-            time_match = time_pattern.search(reminder_text)
-            if time_match:
-                delay = time_match.group(1)
-                
-                # Direct handling for "seconds" specifically
-                if "second" in delay:
-                    try:
-                        seconds = int(time_match.group(2))
-                        
-                        # Special handling for "every X seconds" case
-                        if "every" in reminder_text:
-                            # Define a separate callback function for testing reminders
-                            async def test_reminder_callback(context):
-                                # Get the data from the context
-                                reminder_data = context.job.data
-                                
-                                # Process the text for links
-                                task_text = reminder_data
-                                
-                                # Direct link support - just send the message with the URL
-                                # Telegram will auto-detect the URL and make it clickable
-                                await context.bot.send_message(
-                                    chat_id=chat_id,
-                                    text=f"⏰ TEST REMINDER: {task_text}"
-                                )
-                            
-                            # Extract just the task part (remove timing info)
-                            task_only = re.sub(r'every\s+\d+\s+seconds?', '', reminder_text).strip()
-                            
-                            # Schedule directly with run_repeating, which is designed for this
-                            if context.job_queue:
-                                # This creates a job that runs every 5 seconds
-                                context.job_queue.run_repeating(
-                                    callback=test_reminder_callback,
-                                    interval=5,  # Every 5 seconds
-                                    first=1,     # Start after 1 second
-                                    data=task_only
-                                )
-                            
-                            # Confirm to user - don't store in database since it's just a test feature
-                            await update.message.reply_text(f"⚠️ TEST MODE: '{task_only}' reminder will repeat every 5 seconds")
-                            return
-                        
-                        # Normal "in X seconds" case (one-time)
-                        # Override next_execution calculation
-                        now = datetime.datetime.now(KYIV_TZ)
-                        next_execution = now + datetime.timedelta(seconds=seconds)
-                        
-                        # Create reminder object with direct execution time
-                        reminder = Reminder(
-                            task=reminder_text,
-                            frequency=None,  # One-time reminder
-                            delay=delay,
-                            date_modifier=date_modifier,
-                            next_execution=next_execution,
-                            user_id=user_id,
-                            chat_id=chat_id
-                        )
-                        
-                        # Add to database
-                        self.add_reminder(reminder)
-                        
-                        # Schedule execution based on time
-                        if context.job_queue:
-                            # Always use direct seconds for short times
-                            context.job_queue.run_once(
-                                self.send_reminder, 
-                                when=seconds,  # Use seconds directly for scheduling
-                                data=reminder
-                            )
-                        
-                        # Confirm to user
-                        time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M:%S")
-                        await update.message.reply_text(f"✅ Reminder set for {time_str} (Kyiv time)")
-                        return
-                    except (ValueError, IndexError):
-                        pass  # Continue with normal processing if parsing fails
-            
-            elif "in 1 hour" in reminder_text:
-                delay = "in 1 hour"
-            elif "in 1 day" in reminder_text:
-                delay = "in 1 day"
-            elif "in 1 month" in reminder_text:
-                delay = "in 1 month"
-                
-            # This section was replaced with more comprehensive pattern matching above
-                
-            # Calculate next execution time
-            now = datetime.datetime.now(KYIV_TZ)
-            
-            # Use specific time if it was captured, otherwise default to 5 minutes
-            if specific_time:
-                next_execution = specific_time
-                print(f"Using specific time: {next_execution}")
-            else:
-                next_execution = now + datetime.timedelta(minutes=5)  # Default to 5 minutes
-            
-            # Override next_execution with date_modifier calculation if set
-            if date_modifier == "last day of every month":
-                print(f"Date modifier is 'last day of every month'")
-                now = datetime.datetime.now(KYIV_TZ)
-                print(f"Current date: {now}")
-                
-                # Calculate the last day of the current month
-                current_month = now.month
-                current_year = now.year
-                
-                # First day of next month
-                if current_month == 12:
-                    next_month_year = current_year + 1
-                    next_month = 1
-                else:
-                    next_month_year = current_year
-                    next_month = current_month + 1
-                
-                first_of_next_month = datetime.datetime(
-                    year=next_month_year,
-                    month=next_month,
-                    day=1,
-                    tzinfo=KYIV_TZ
-                )
-                print(f"First day of next month: {first_of_next_month}")
-                
-                # Last day of current month is one day before first of next month
-                last_day_of_current_month = first_of_next_month - datetime.timedelta(days=1)
-                print(f"Last day of current month: {last_day_of_current_month}")
-                
-                # If current day is already the last day of month, move to next month
-                if now.day == last_day_of_current_month.day:
-                    print("Today is already the last day of month, calculating for next month")
-                    # Calculate first day of month after next
-                    if next_month == 12:
-                        month_after_next_year = next_month_year + 1
-                        month_after_next = 1
-                    else:
-                        month_after_next_year = next_month_year
-                        month_after_next = next_month + 1
-                    
-                    first_of_month_after_next = datetime.datetime(
-                        year=month_after_next_year,
-                        month=month_after_next,
-                        day=1,
-                        tzinfo=KYIV_TZ
-                    )
-                    # Last day of next month
-                    target_day = first_of_month_after_next - datetime.timedelta(days=1)
-                else:
-                    print("Using last day of current month")
-                    target_day = last_day_of_current_month
-                
-                print(f"Target day before time adjustment: {target_day}")
-                
-                # Use specified time if provided, otherwise default to 9:00 AM
-                # Create a completely new datetime with explicit timezone to avoid tzinfo issues
-                if specified_hour is not None and specified_minute is not None:
-                    next_execution = datetime.datetime(
-                        year=target_day.year,
-                        month=target_day.month,
-                        day=target_day.day,
-                        hour=specified_hour,
-                        minute=specified_minute,
-                        second=0,
-                        microsecond=0,
-                        tzinfo=KYIV_TZ  # Use KYIV_TZ explicitly
-                    )
-                    print(f"Using specified time with explicit timezone: {next_execution}")
-                else:
-                    next_execution = datetime.datetime(
-                        year=target_day.year,
-                        month=target_day.month,
-                        day=target_day.day,
-                        hour=9,
-                        minute=0,
-                        second=0,
-                        microsecond=0,
-                        tzinfo=KYIV_TZ  # Use KYIV_TZ explicitly
-                    )
-                    print(f"Using default time with explicit timezone: {next_execution}")
-                
-                print(f"Final last day of month calculation: {next_execution}")
-                
-            # Ensure the timezone is set
-            if next_execution.tzinfo is None:
-                next_execution = KYIV_TZ.localize(next_execution)
-            
-            # Create reminder object
-            reminder = Reminder(
-                task=reminder_text,
-                frequency=frequency,
-                delay=delay,
-                date_modifier=date_modifier,
-                next_execution=next_execution,
-                user_id=user_id,
-                chat_id=chat_id
-            )
-            
-            # Calculate actual next execution time based on parameters
-            reminder.calculate_next_execution()
-            
-            # Add to database
-            self.add_reminder(reminder)
-            
-            # Schedule the reminder
-            if context.job_queue:
-                context.job_queue.run_once(
-                    self.send_reminder, 
-                    when=reminder.next_execution, 
-                    data=reminder
-                )
-            
-            # Print actual reminder execution time for debugging
-            print(f"Final reminder next_execution: {reminder.next_execution}")
-            
-            # For last day of month, we'll calculate the correct day and month explicitly
-            if date_modifier == "last day of every month":
-                # Calculate the last day of current month correctly
-                now = datetime.datetime.now(KYIV_TZ)
-                if now.month == 12:
-                    next_month = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ)
-                else:
-                    next_month = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ)
-                last_day = next_month - datetime.timedelta(days=1)
-                
-                # Get the correct month name and day
-                month_name = last_day.strftime("%B")
-                day = last_day.day
-                
-                # Format time only
-                time_str = reminder.next_execution.strftime("%H:%M")
-                
-                # Use explicit formatting to avoid timezone confusion
-                await update.message.reply_text(
-                    f"✅ Reminder set for the last day of {month_name} ({day}.{last_day.month}.{last_day.year} {time_str} Kyiv time)\n"
-                    f"Will repeat monthly on the last day of each month."
-                )
-            elif date_modifier == "first day of every month":
-                # Calculate the first day of next month correctly
-                now = datetime.datetime.now(KYIV_TZ)
-                if now.month == 12:
-                    next_month = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ)
-                else:
-                    next_month = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ)
-                
-                # Get the correct month name
-                month_name = next_month.strftime("%B")
-                
-                # Format time for display
-                time_str = reminder.next_execution.strftime("%H:%M")
-                
-                await update.message.reply_text(
-                    f"✅ Reminder set for the first day of {month_name} (1.{next_month.month}.{next_month.year} {time_str} Kyiv time)\n"
-                    f"Will repeat monthly on the first day of each month."
-                )
-            elif frequency:
-                # Calculate formatted time string here
-                time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M")
-                await update.message.reply_text(
-                    f"✅ Recurring reminder set for {time_str} (Kyiv time)\n"
-                    f"Frequency: {frequency}"
-                )
-            else:
-                # Calculate formatted time string here
-                time_str = reminder.next_execution.strftime("%d.%m.%Y %H:%M")
-                await update.message.reply_text(f"✅ One-time reminder set for {time_str} (Kyiv time)")
-            
-        elif command == "list":
-            # Get reminders for this chat
-            chat_reminders = self.get_reminders(chat_id)
-            
-            if not chat_reminders:
-                await update.message.reply_text("You don't have any reminders set.")
-                return
-                
-            # Format the list of reminders
-            reminder_list = "📝 Your reminders:\n\n"
-            now = datetime.datetime.now(KYIV_TZ)
-            
-            # Group reminders by status
-            past_reminders = []
-            upcoming_reminders = []
-            recurring_reminders = []
-            
-            for r in chat_reminders:
-                # Determine status based on next_execution time and frequency
-                if not r.next_execution:
-                    status = "⚠️ Unknown"
-                elif r.frequency:
-                    if r.frequency == "seconds":
-                        status = "🔄 Testing (every 5s)"
-                    else:
-                        status = "🔁 Recurring"
-                    recurring_reminders.append(r)
-                elif r.next_execution <= now:
-                    status = "✅ Completed"
-                    past_reminders.append(r)
-                else:
-                    minutes_remaining = (r.next_execution - now).total_seconds() / 60
-                    if minutes_remaining < 5:
-                        status = "⏳ Soon (<5 min)"
-                    else:
-                        status = "⏰ Scheduled"
-                    upcoming_reminders.append(r)
-                
-                # Format the time
-                time_str = r.next_execution.strftime("%d.%m.%Y %H:%M") if r.next_execution else "Unknown"
-                
-                # Add to the appropriate section
-                if r in upcoming_reminders:
-                    upcoming_reminders.remove(r)
-                    upcoming_reminders.append((r, f"ID: {r.reminder_id} - {r.task} ({status}, Next: {time_str} Kyiv time)\n"))
-                elif r in recurring_reminders:
-                    recurring_reminders.remove(r)
-                    recurring_reminders.append((r, f"ID: {r.reminder_id} - {r.task} ({status}, Next: {time_str} Kyiv time)\n"))
-                elif r in past_reminders:
-                    past_reminders.remove(r)
-                    past_reminders.append((r, f"ID: {r.reminder_id} - {r.task} ({status}, Ran at: {time_str} Kyiv time)\n"))
-            
-            # Sort each group
-            upcoming_reminders.sort(key=lambda x: x[0].next_execution or datetime.datetime.max)
-            recurring_reminders.sort(key=lambda x: x[0].next_execution or datetime.datetime.max)
-            past_reminders.sort(key=lambda x: x[0].next_execution or datetime.datetime.min, reverse=True)
-            
-            # Add upcoming reminders first
-            if upcoming_reminders:
-                reminder_list += "📅 UPCOMING:\n"
-                for _, reminder_str in upcoming_reminders:
-                    reminder_list += reminder_str
-                reminder_list += "\n"
-            
-            # Add recurring reminders next
-            if recurring_reminders:
-                reminder_list += "🔁 RECURRING:\n"
-                for _, reminder_str in recurring_reminders:
-                    reminder_list += reminder_str
-                reminder_list += "\n"
-            
-            # Add past reminders last
-            if past_reminders:
-                reminder_list += "✅ COMPLETED:\n"
-                for _, reminder_str in past_reminders[:5]:  # Only show last 5 completed reminders
-                    reminder_list += reminder_str
-                if len(past_reminders) > 5:
-                    reminder_list += f"...and {len(past_reminders) - 5} more\n"
-                
-            await update.message.reply_text(reminder_list)
-            
-        elif command == "delete":
-            if len(context.args) < 2:
-                await update.message.reply_text("Please specify a reminder ID to delete.")
-                return
-                
-            try:
-                reminder_id = int(context.args[1])
-                
-                # Find the reminder by ID
-                reminder_to_delete = next((r for r in self.reminders if r.reminder_id == reminder_id and r.chat_id == chat_id), None)
-                
-                if not reminder_to_delete:
-                    await update.message.reply_text(f"Reminder ID {reminder_id} not found.")
-                    return
-                    
-                # Delete the reminder
-                self.remove_reminder(reminder_to_delete)
-                await update.message.reply_text(f"✅ Reminder deleted.")
-                
-            except ValueError:
-                await update.message.reply_text("Invalid reminder ID. Please provide a valid number.")
-        
-        else:
-            await update.message.reply_text("Unknown command. Use /remind add, /remind list, or /remind delete.")
+            parsed = self.parse_reminder(reminder_text)
+
+            if not parsed.get('task'):
+                 await update.message.reply_text("Could not extract a task description from your reminder.")
+                 return
+
+            initial_next_execution = self._calculate_initial_next_execution(parsed)
+
+            if not initial_next_execution:
+                 await update.message.reply_text("❌ Could not determine a time for the reminder. Please specify like 'in 5 minutes', 'at 14:30', 'daily', etc.")
+                 return
+                 
+            # Store original parsed components for the Reminder object
+            delay_str = f"in {parsed['delay'][0]} {parsed['delay'][1]}" if parsed.get('delay') else None
+
+            reminder
