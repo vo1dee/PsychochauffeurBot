@@ -264,10 +264,11 @@ async def main() -> None:
             'errors': error_report_command,
             'gm': GeomagneticCommandHandler(),
             'ping': lambda update, context: update.message.reply_text("🏓 Bot is online!"),
-            'remind': remind
+            'remind': reminder_manager.remind
         }
         for command, handler in commands.items():
             application.add_handler(CommandHandler(command, handler))
+
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
         application.add_handler(CallbackQueryHandler(button_callback))
@@ -278,11 +279,6 @@ async def main() -> None:
         screenshot_manager = ScreenshotManager()
         asyncio.create_task(screenshot_manager.schedule_task())
         reminder_manager.schedule_reminders(application.bot, application.job_queue)
-        application.job_queue.run_repeating(
-            callback=reminder_manager.check_reminders,
-            interval=60,
-            first=1
-        )
         logger.info("Bot is starting...")
         await application.run_polling()
     except Exception as e:
