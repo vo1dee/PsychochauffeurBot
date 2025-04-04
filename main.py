@@ -247,8 +247,12 @@ async def remind(update: Update, context: CallbackContext) -> None:
 async def main() -> None:
     """Initialize and run the bot."""
     try:
-        init_directories()
-        application = ApplicationBuilder().token(TOKEN).build()
+        try:
+            init_directories()
+            application = ApplicationBuilder().token(TOKEN).build()
+        except Exception as e:
+            error_logger.error(f"Failed to initialize directories or application: {e}")
+            raise
         from modules.error_analytics import error_report_command
         commands = {
             'start': start,

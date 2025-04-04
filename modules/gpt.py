@@ -17,7 +17,6 @@ from openai import AsyncClient
 
 
 client = AsyncClient(api_key=OPENAI_API_KEY)
-openai.api_key = OPENAI_API_KEY
 
 KYIV_TZ = pytz.timezone('Europe/Kiev')
 
@@ -35,7 +34,7 @@ async def gpt_response(prompt: str, update: Update = None, context: CallbackCont
             if os.path.exists(log_path):
                 with open(log_path, 'r', encoding='utf-8') as f:
                     last_messages = f.readlines()[-3:]
-        
+
         context_prompt = ' '.join(last_messages)
         full_prompt = context_prompt + prompt
 
@@ -79,7 +78,7 @@ async def log_user_response(update, response_text):
 
 async def handle_error(e, update, return_text):
     from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
-    
+
     # Create context with relevant information
     context = {
         "function": "ask_gpt_command",
@@ -87,7 +86,7 @@ async def handle_error(e, update, return_text):
         "user_id": update.effective_user.id if update and update.effective_user else None,
         "chat_id": update.effective_chat.id if update and update.effective_chat else None,
     }
-    
+
     # Handle the error with our standardized system
     await ErrorHandler.handle_error(
         error=e,
@@ -122,7 +121,7 @@ async def gpt_summary_function(messages):
     except Exception as e:
         error_logger.error(f"Error in GPT summarization: {e}")
         return "Не вдалось згенерувати підсумок."
-    
+
 
 # Function to summarize the messages using GPT
 async def summarize_messages(messages):
