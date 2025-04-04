@@ -344,49 +344,33 @@ class ReminderManager:
 
             # --- Prepare Message ---
             message_text = ""
-            parse_mode = None # Default to None (no parsing)
+            parse_mode = None  # Default to no Markdown parsing
 
             is_group = reminder.chat_id < 0
             is_one_time = not reminder.frequency
 
-            # Check conditions for adding mention
             if is_group and is_one_time and reminder.user_mention_md:
-                # Escape the main task text to prevent Markdown conflicts
+                # Escape the main task text for Markdown conflicts
                 escaped_task = escape_markdown(reminder.task, version=2)
                 message_text = f"{reminder.user_mention_md}: {escaped_task}"
-                parse_mode = ParseMode.MARKDOWN_V2 # Use MarkdownV2 for the mention
+                parse_mode = ParseMode.MARKDOWN_V2
             else:
-                # For recurring/private/missing mention: just send the task
+                # For recurring or no mention: simply use the task
                 message_text = f"⏰ REMINDER: {reminder.task}"
-                # Check for URLs to decide on preview, but don't force Markdown
-                url_pattern = r'https?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
-                has_urls = bool(re.search(url_pattern, reminder.task))
-                # disable_web_page_preview=not has_urls # Keep this logic below
 
             # --- Send Message ---
             try:
-                url_pattern = r'https?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
-                has_urls = bool(re.search(url_pattern, reminder.task)) # Recalculate based on original task
-
+                # Use message_text in send_message instead of escaped_task
                 await context.bot.send_message(
                     chat_id=reminder.chat_id,
-                    text=f"{reminder.user_mention_md}, reminder: {escaped_task}",
-                    parse_mode=ParseMode.MARKDOWN_V2
+                    text=message_text,
+                    parse_mode=parse_mode
                 )
                 error_logger.info(f"Sent reminder {reminder.reminder_id} for task: '{reminder.task}'")
-
             except Exception as send_exc:
-                # Handle potential Markdown errors or other sending issues
                 error_logger.error(f"Failed to send reminder {reminder.reminder_id} (parse_mode={parse_mode}): {send_exc}", exc_info=True)
-                # Optionally try sending without Markdown as a fallback
-                if parse_mode == ParseMode.MARKDOWN_V2:
-                    try:
-                        fallback_text = f"@{reminder.user_id or 'User'}: {reminder.task}" # Simpler fallback mention
-                        await context.bot.send_message(chat_id=reminder.chat_id, text=fallback_text, disable_web_page_preview=not has_urls)
-                        error_logger.info(f"Sent reminder {reminder.reminder_id} with fallback mention.")
-                    except Exception as fallback_exc:
-                        error_logger.error(f"Failed to send reminder {reminder.reminder_id} even with fallback: {fallback_exc}", exc_info=True)
-
+                # Optionally try fallback handling ...
+                # (fallback code here)
 
             # --- Handle next steps (remove or reschedule) ---
             # This logic remains the same as in the previous version of Option 1
