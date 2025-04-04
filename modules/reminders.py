@@ -9,6 +9,7 @@ from modules.const import KYIV_TZ
 from telegram.ext import CallbackContext
 from telegram import Update
 from modules.logger import error_logger
+from dateutil import parser
 
 class Reminder:
     def __init__(self, task, frequency, delay, date_modifier, next_execution, user_id, chat_id, user_mention_md=None, reminder_id=None):
@@ -186,6 +187,7 @@ class ReminderManager:
         self.conn = sqlite3.connect(self.db_file)
         self.create_table()
         self.reminders = self.load_reminders()
+        pass
         
         # Common patterns for date modifier detection
         self.last_day_patterns = [
@@ -418,51 +420,112 @@ class ReminderManager:
             error_logger.error(f"Error in send_reminder for ID {reminder_id}: {e}", exc_info=True)
 
 
+        def parse_reminder(self, text):
+            import re
+            import datetime
+            from dateutil import parser
 
-    def parse_reminder(self, reminder_text):
-        """Parse reminder text to extract frequency, date modifier, and time"""
-        reminder_text_lower = reminder_text.lower()
-        result = {
-            'task': reminder_text,
-            'frequency': None,
-            'date_modifier': None,
-            'time': None,
-            'delay': None
-        }
-        
-        # Extract time pattern "at HH:MM"
-        time_at_pattern = re.compile(r'at\s+(\d{1,2}):(\d{2})')
-        time_match = time_at_pattern.search(reminder_text_lower)
-        if time_match:
-            result['time'] = (int(time_match.group(1)), int(time_match.group(2)))
-            
-        # Parse frequency
-        if any(word in reminder_text_lower for word in ["every day", "daily", "everyday"]):
-            result['frequency'] = "daily"
-        elif any(word in reminder_text_lower for word in ["every week", "weekly"]):
-            result['frequency'] = "weekly"
-        elif any(word in reminder_text_lower for word in ["every month", "monthly"]):
-            result['frequency'] = "monthly"
-        elif "every second" in reminder_text_lower:
-            result['frequency'] = "seconds"
-            
-        # Parse date modifiers
-        if any(pattern in reminder_text_lower for pattern in self.last_day_patterns):
-            result['date_modifier'] = "last day of every month"
-            result['frequency'] = "monthly"
-        elif any(pattern in reminder_text_lower for pattern in self.first_day_patterns):
-            result['date_modifier'] = "first day of every month"
-            result['frequency'] = "monthly"
-            
-        # Parse delay
-        time_pattern = re.compile(r'in\s+(\d+)\s+(second|minute|hour|day|month)s?')
-        delay_match = time_pattern.search(reminder_text_lower)
-        if delay_match:
-            amount = int(delay_match.group(1))
-            unit = delay_match.group(2)
-            result['delay'] = f"in {amount} {unit}"
-            
-        return result
+            KYIV_TZ = datetime.timezone(datetime.timedelta(hours=3))
+
+            print(f"DEBUG: Received reminder text: {text}")  # Debug log
+
+            date_match = None
+            time_match = None
+            date_modifier = None
+
+            # Date patterns to match (e.g., "10 April", "April 10", "2025-04-10")
+            date_patterns = [
+                r'\b(\d{4}-\d{2}-\d{2})\b',  # YYYY-MM-DD
+                r'\b(\d{1,2} [A-Za-z]+)\b',  # "10 April"
+                r'\b([A-Za-z]+ \d{1,2})\b'    # "April 10"
+            ]
+
+            for pattern in date_patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    date_match = match.group(1)
+                    print(f"DEBUG: Found date match -> {date_match}")  # Debug log
+                    break
+
+            # Try finding a specific time (e.g., "at 15:30", "at 3 PM")
+            time_patterns = [
+                r'\b(?:at|@)\s*(\d{1,2}:\d{2})\b',  # 24-hour format: "at 15:30"
+                r'\b(?:at|@)\s*(\d{1,2} ?[APap][Mm])\b',  # "at 3 PM"
+            ]
+
+            for pattern in time_patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    time_match = match.group(1)
+                    break
+
+            # Convert extracted date & time into a datetime object
+            if date_match:
+                try:
+                    parsed_date = parser.parse(date_match, fuzzy=True).date()
+                    print(f"DEBUG: Parsed date -> {parsed_date}")  # Debug log
+                except ValueError:
+                    print("DEBUG: Failed to parse date!")  # Debug log
+                    return None
+            else:
+                print("DEBUG: No date match found!")  # Debug log
+                return None
+
+            # If no time is matched, default to 10:00 AM
+            if time_match:
+                try:
+                    parsed_time = parser.parse(time_match, fuzzy=True).time()
+                except ValueError:
+                    parsed_time = datetime.time(10, 0)  # Default to 10:00 AM
+            else:
+                parsed_time = datetime.time(10, 0)  # Default to 10:00 AM
+
+            # Combine date and time into a full datetime object
+            final_datetime = datetime.datetime.combine(parsed_date, parsed_time, tzinfo=KYIV_TZ)
+
+            # If the parsed date is in the past, move it to the next year
+            now = datetime.datetime.now(KYIV_TZ)
+            if final_datetime < now:
+                final_datetime = final_datetime.replace(year=now.year + 1)
+
+            # Handle frequency (e.g., "every day", "weekly", "monthly")
+            frequency_patterns = {
+                r'\bevery day\b': 'daily',
+                r'\bweekly\b': 'weekly',
+                r'\bmonthly\b': 'monthly'
+            }
+
+            parsed_frequency = None
+            for pattern, value in frequency_patterns.items():
+                if re.search(pattern, text, re.IGNORECASE):
+                    parsed_frequency = value
+                    break
+
+            # Handle date modifier (e.g., "next week", "next month")
+            date_modifier_patterns = {
+                r'\bnext week\b': 'next_week',
+                r'\bnext month\b': 'next_month',
+                r'\bnext year\b': 'next_year',
+                r'\bevery week\b': 'weekly',
+                r'\bevery month\b': 'monthly'
+            }
+
+            for pattern, value in date_modifier_patterns.items():
+                if re.search(pattern, text, re.IGNORECASE):
+                    date_modifier = value
+                    break
+
+            # Return the parsed reminder information
+            return {
+                'task': text, 
+                'date': final_datetime, 
+                'frequency': parsed_frequency, 
+                'date_modifier': date_modifier,
+                'time': parsed_time  # Add the parsed time to the return value
+            }
+
+
+
 
     async def remind(self, update: Update, context: CallbackContext):
         """Handle the /remind command"""
@@ -508,7 +571,14 @@ class ReminderManager:
             reminder_text = " ".join(context.args[1:])
 
             # Parse reminder parameters
-            parsed = self.parse_reminder(reminder_text) # Assumes parse_reminder extracts task, freq, etc.
+            parsed = self.add_reminder(reminder_text)
+
+            if parsed is None:
+                await update.message.reply_text("❌ Could not understand the reminder date. Please specify a valid date/time.")
+                return
+
+            task = parsed['task']  # Only accessed if `parsed` is valid
+
             task = parsed['task']
             frequency = parsed['frequency']
             date_modifier = parsed['date_modifier']
