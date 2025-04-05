@@ -96,30 +96,40 @@ class Reminder:
 class ReminderManager:
     def __init__(self, db_file='reminders.db'):
         self.db_file = db_file
-        self._init_db()
+        self.conn = sqlite3.connect(self.db_file)
+        self._create_table()  # Note: changed to _create_table (private method)
         self.reminders = self.load_reminders()
 
-    def _init_db(self):
-        with sqlite3.connect(self.db_file) as conn:
-            c = conn.cursor()
-            c.execute('''CREATE TABLE IF NOT EXISTS reminders (
+    def _create_table(self):
+        """Create reminders table if it doesn't exist"""
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reminders (
                 reminder_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task TEXT, frequency TEXT, delay TEXT, date_modifier TEXT,
-                next_execution TEXT, user_id INTEGER, chat_id INTEGER, user_mention_md TEXT)''')
-            try:
-                c.execute('SELECT user_mention_md FROM reminders LIMIT 1')
-            except sqlite3.OperationalError:
-                c.execute('ALTER TABLE reminders ADD COLUMN user_mention_md TEXT')
-            conn.commit()
+                task TEXT NOT NULL,
+                frequency TEXT,
+                delay TEXT,
+                date_modifier TEXT,
+                next_execution TEXT,
+                user_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                user_mention_md TEXT
+            )
+        ''')
+        self.conn.commit()
 
     def get_connection(self):
         return sqlite3.connect(self.db_file, check_same_thread=False)
 
-    def load_reminders(self):
-        with self.get_connection() as conn:
-            c = conn.cursor()
-            c.execute("SELECT * FROM reminders")
-            return [Reminder.from_tuple(row) for row in c.fetchall()]
+    def load_reminders(self, chat_id=None):
+        """Load all reminders from the database, optionally filtered by chat_id"""
+        cursor = self.conn.cursor()
+        if chat_id:
+            cursor.execute('SELECT * FROM reminders WHERE chat_id = ?', (chat_id,))
+        else:
+            cursor.execute('SELECT * FROM reminders')
+        data = cursor.fetchall()
+        return [Reminder.from_tuple(r) for r in data]
 
     def save_reminder(self, rem):
         with self.get_connection() as conn:
@@ -141,12 +151,20 @@ class ReminderManager:
         self.reminders = self.load_reminders()
         return rem
 
-    def delete_reminder(self, rid, chat_id):
-        with self.get_connection() as conn:
-            c = conn.cursor()
-            c.execute("DELETE FROM reminders WHERE reminder_id=? AND chat_id=?", (rid, chat_id))
-            conn.commit()
-        self.reminders = self.load_reminders()
+    def remove_reminder(self, reminder):
+        """Remove a reminder from the database"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('DELETE FROM reminders WHERE reminder_id = ?', (reminder.reminder_id,))
+            self.conn.commit()
+            # Update the in-memory list
+            self.reminders = [r for r in self.reminders if r.reminder_id != reminder.reminder_id]
+        except Exception as e:
+            error_logger.error(f"Error removing reminder {reminder.reminder_id}: {e}", exc_info=True)
+            raise
+
+    # Add an alias for backward compatibility if needed
+    delete_reminder = remove_reminder
 
     def parse(self, text):
         r = {'task': text, 'frequency': None, 'date_modifier': None, 'time': None, 'delay': None}
@@ -254,13 +272,17 @@ class ReminderManager:
             what = args[1].lower()
             if what == 'all':
                 chat_rems = [r for r in self.reminders if r.chat_id == chat_id]
-                for r in chat_rems: self.delete_reminder(r.reminder_id, chat_id)
+                for r in chat_rems: self.delete_reminder(r)
                 await update.message.reply_text("Deleted all reminders.")
             else:
                 try:
                     rid = int(what)
-                    self.delete_reminder(rid, chat_id)
-                    await update.message.reply_text(f"Deleted reminder {rid}")
+                    rem = next((r for r in self.reminders if r.reminder_id == rid and r.chat_id == chat_id), None)
+                    if rem:
+                        self.delete_reminder(rem)
+                        await update.message.reply_text(f"Deleted reminder {rid}")
+                    else:
+                        await update.message.reply_text("Invalid ID.")
                 except:
                     await update.message.reply_text("Invalid ID.")
 
@@ -357,7 +379,7 @@ class ReminderManager:
             delay = seconds_until(rem.next_execution)
             context.job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
         else:
-            self.delete_reminder(rem.reminder_id, rem.chat_id)
+            self.delete_reminder(rem)
 
     def schedule_startup(self, job_queue):
         now = datetime.datetime.now(KYIV_TZ)

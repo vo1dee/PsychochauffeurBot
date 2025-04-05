@@ -16,27 +16,50 @@ from modules.const import KYIV_TZ
 
 @pytest.fixture
 def reminder_manager():
-    with patch('openai.OpenAI') as mock_openai:
-        # Mock the OpenAI client
-        mock_openai.return_value = MagicMock()
-        manager = ReminderManager()
-        return manager
+    """Fixture for creating a ReminderManager instance with a temporary database."""
+    # Create a temporary database file
+    temp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+    temp_db_path = temp_db.name
+    temp_db.close()
+    
+    # Create and yield the manager
+    try:
+        manager = ReminderManager(db_file=temp_db_path)
+        yield manager
+    finally:
+        # Clean up
+        if hasattr(manager, 'conn'):
+            manager.conn.close()
+        if os.path.exists(temp_db_path):
+            os.unlink(temp_db_path)
 
 class TestReminders(unittest.TestCase):
-
     def setUp(self):
+        """Set up test environment before each test."""
         # Create a temporary db file for testing
         self.temp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         self.temp_db_path = self.temp_db.name
         self.temp_db.close()
         
         # Initialize reminder manager with temp db
-        self.reminder_manager = ReminderManager(db_file=self.temp_db_path)
+        try:
+            self.reminder_manager = ReminderManager(db_file=self.temp_db_path)
+        except Exception as e:
+            self.fail(f"Failed to initialize ReminderManager: {e}")
     
     def tearDown(self):
-        # Clean up temp db after tests
-        if os.path.exists(self.temp_db_path):
-            os.unlink(self.temp_db_path)
+        """Clean up after each test."""
+        try:
+            if hasattr(self, 'reminder_manager') and hasattr(self.reminder_manager, 'conn'):
+                self.reminder_manager.conn.close()
+        except Exception as e:
+            print(f"Warning: Error closing database connection: {e}")
+            
+        try:
+            if hasattr(self, 'temp_db_path') and os.path.exists(self.temp_db_path):
+                os.unlink(self.temp_db_path)
+        except Exception as e:
+            print(f"Warning: Error removing temporary database file: {e}")
 
     def test_parse_first_day_of_month(self):
         """Test parsing 'first day of month' patterns."""
@@ -147,10 +170,10 @@ class TestReminders(unittest.TestCase):
         )
         
         # Add to database
-        self.reminder_manager.add_reminder(reminder)
+        self.reminder_manager.save_reminder(reminder)
         
         # Retrieve reminders for this chat
-        reminders = self.reminder_manager.get_reminders(chat_id)
+        reminders = self.reminder_manager.load_reminders(chat_id)
         
         # Verify we got our reminder back
         self.assertEqual(len(reminders), 1)
@@ -167,9 +190,9 @@ class TestReminders(unittest.TestCase):
         self.assertEqual(retrieved.next_execution.replace(microsecond=0), 
                          next_execution.replace(microsecond=0))
         
-        # Test reminder removal
+        # Test reminder removal using remove_reminder
         self.reminder_manager.remove_reminder(retrieved)
-        reminders = self.reminder_manager.get_reminders(chat_id)
+        reminders = self.reminder_manager.load_reminders(chat_id)
         self.assertEqual(len(reminders), 0)
 
 if __name__ == '__main__':
