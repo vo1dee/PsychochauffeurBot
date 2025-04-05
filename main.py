@@ -36,7 +36,7 @@ from modules.user_management import restrict_user
 from modules.video_downloader import setup_video_handlers
 from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
 from modules.geomagnetic import GeomagneticCommandHandler
-from modules.reminders import Reminder, ReminderManager
+from modules.reminders.reminders import ReminderManager
 
 nest_asyncio.apply()
 
@@ -278,7 +278,7 @@ async def main() -> None:
         error_logger.error("Test notification message - If you see this in the Telegram channel, error logging is working!")
         screenshot_manager = ScreenshotManager()
         asyncio.create_task(screenshot_manager.schedule_task())
-        reminder_manager.schedule_reminders(application.bot, application.job_queue)
+        reminder_manager.schedule_startup(application.job_queue)
         logger.info("Bot is starting...")
         await application.run_polling()
     except Exception as e:
