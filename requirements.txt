@@ -25,3 +25,9 @@ python-dateutil==2.9.0
 # Development tools
 autopep8==2.3.2
 black==25.1.0
+
+
+# API-specific
+fastapi>=0.103.1
+uvicorn>=0.23.2
+pydantic>=2.3.0
