@@ -26,6 +26,7 @@ from modules.utils import (
     ScreenshotManager, MessageCounter, remove_links, screenshot_command, cat_command,
     extract_urls, init_directories
 )
+from modules.image_downloader import ImageDownloader
 from modules.const import (
     TOKEN, KYIV_TZ, ALIEXPRESS_STICKER_ID, VideoPlatforms, LinkModification, Config
 )
@@ -127,7 +128,9 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     urls = extract_urls(message_text)
     if urls:
         logger.info(f"Processing URLs: {urls}")
+        context.bot_data['update_override'] = update
         await process_urls(update, context, urls, message_text)
+        context.bot_data.pop('update_override', None)
         return
     if needs_gpt_response(update, context, message_text):
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
@@ -153,42 +156,150 @@ async def handle_random_gpt_response(update: Update, context: CallbackContext) -
         message_counter.reset(chat_id)
 
 @handle_errors(feedback_message="An error occurred while processing your links.")
+
 async def process_urls(update: Update, context: CallbackContext, urls: List[str], message_text: str) -> None:
-    """Process URLs for modification or video downloading with standardized error handling."""
+    """Process URLs for video download OR link modification, with fallback image downloader."""
+
     modified_links = []
-    needs_video_download = any(platform in url.lower() for url in urls for platform in VideoPlatforms.SUPPORTED_PLATFORMS)
-    if needs_video_download:
-        video_downloader = context.bot_data.get('video_downloader')
-        if video_downloader and hasattr(video_downloader, 'handle_video_link'):
-            logger.info(f"Attempting video download for URLs: {urls}")
-            await video_downloader.handle_video_link(update, context)
-        else:
-            error = ErrorHandler.create_error(message="Video downloader not initialized properly", severity=ErrorSeverity.HIGH, category=ErrorCategory.RESOURCE, context={"urls": urls, "chat_id": update.effective_chat.id if update and update.effective_chat else None})
-            await ErrorHandler.handle_error(error, update, context)
-        return
+    tried_video = False
+    sent_media = False
+
+    needs_video_download = any(
+        platform in url.lower() for url in urls for platform in VideoPlatforms.SUPPORTED_PLATFORMS
+    )
+
+    # Attempt video download first if relevant links detected and downloader present
+    vd = context.bot_data.get('video_downloader')
+    if needs_video_download and vd:
+        try:
+            tried_video = True
+            await vd.handle_video_link(update, context)
+            sent_media = True  # assume it handled sending media on success internally
+        except Exception as e:
+            logger.warning(f"Video downloading failed: {e}")
+
+    # Fallback to Instagram/TikTok image extraction 
+    im_dl = context.bot_data.get('image_downloader')
+    if im_dl:
+        try:
+            for url in urls:
+                imgs = []
+
+                u_low = url.lower()
+                if 'instagram.com' in u_low:
+                    imgs = await im_dl.fetch_links(url)
+
+                elif 'tiktok.com' in u_low:
+                    imgs = await im_dl.fetch_tiktok_image(url)
+
+                if imgs:
+                    await update.message.reply_text("ℹ️ No video found; sending photo(s).")
+                    saved_paths = await im_dl.download_images_from_urls(imgs)
+                    chat_id = update.effective_chat.id
+
+                    # Send max 10 images per post to avoid spammy output
+                    count_sent=0
+                    for pth in saved_paths:
+                        with open(pth,'rb') as fobj:
+                            await context.bot.send_photo(chat_id,fobj)
+                        count_sent+=1
+                        sent_media=True
+                        if count_sent>=10:
+                            break
+
+        except Exception as e:
+            logger.warning(f"Image extracting/downloading failed: {e}")
+
+    # If neither videos nor images were processed/sent successfully → do link processing & modifications.
+    # Or always do this part anyway - depends on desired flow.
+    
+    links_modified_in_this_pass=[]
+    
     for url in urls:
-        sanitized_link = sanitize_url(url)
-        if re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link):
-            modified_link = await shorten_url(sanitized_link)
+
+        sanitized_link=sanitize_url(url)
+
+        # Aliexpress shortening + sticker case
+        
+        ali_match=re.search(r'(?:aliexpress|a\.aliexpress)\.(?:[a-z]{2,3})/(?:item/)?', sanitized_link)
+        
+        if ali_match:
+
+            modified_link=await shorten_url(sanitized_link)
+
             modified_links.append(f"{modified_link} #aliexpress")
-            await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=ALIEXPRESS_STICKER_ID)
+
+            try:
+
+                await context.bot.send_sticker(chat_id=update.effective_chat.id,
+                                               sticker=ALIEXPRESS_STICKER_ID)
+                                               
+            except Exception as e:
+
+                logger.warning(f"Sending AliExpress sticker failed: {e}")
+            
         else:
-            processed = False
-            for domain, modified_domain in LinkModification.DOMAINS.items():
-                if domain in sanitized_link and modified_domain not in sanitized_link:
-                    modified_link = sanitized_link.replace(domain, modified_domain)
-                    modified_links.append(await shorten_url(modified_link))
-                    processed = True
+
+            processed=False
+            
+            for domain, mod_domain in LinkModification.DOMAINS.items():
+
+                if domain in sanitized_link and mod_domain not in sanitized_link:
+
+                    mlink=sanitized_link.replace(domain,mod_domain)
+
+                    modified_links.append(await shorten_url(mlink))
+
+                    processed=True
+
                     break
-                elif modified_domain in sanitized_link:
+                    
+                elif mod_domain in sanitized_link:
+
                     modified_links.append(await shorten_url(sanitized_link))
-                    processed = True
+
+                    processed=True
+                    
                     break
-            if not processed and len(sanitized_link) > 110:
+                    
+            if not processed and len(sanitized_link)>110:
+
                 modified_links.append(await shorten_url(sanitized_link))
+                
+    
+
+    # Compose reply message with cleaned original text + all modified short links (if any)
+    
     if modified_links:
-        cleaned_message_text = remove_links(message_text).strip()
-        await construct_and_send_message(update.effective_chat.id, update.message.from_user.username, cleaned_message_text, modified_links, update, context)
+
+        cleaned_message_text=remove_links(message_text).strip()
+
+        username=update.message.from_user.username
+
+        chat_id=update.effective_chat.id
+
+        try:
+
+            final_message=f"@{username}💬: {cleaned_message_text}\nWants to share: {' '.join(modified_links)}"
+
+            link_hash=hashlib.md5(modified_links[0].encode()).hexdigest()[:8]
+
+            context.bot_data[link_hash]=modified_links[0]
+
+            keyboard=create_link_keyboard(modified_links[0])
+
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=final_message,
+                reply_markup=keyboard,
+                reply_to_message_id=(update.message.reply_to_message.message_id 
+                                     if update.message.reply_to_message else None)
+            )
+            
+        except Exception as e:
+
+            error_logger.error(f"Failed to send modified link message: {e}")
+            
 
 def sanitize_url(url: str, replace_domain: Optional[str] = None) -> str:
     """Sanitize a URL by keeping scheme, netloc, and path only."""
@@ -272,6 +383,7 @@ async def main() -> None:
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
         application.add_handler(CallbackQueryHandler(button_callback))
+        application.bot_data['image_downloader']=ImageDownloader()
         video_downloader = setup_video_handlers(application, extract_urls_func=extract_urls)
         application.bot_data['video_downloader'] = video_downloader
         await init_error_handler(application, Config.ERROR_CHANNEL_ID)

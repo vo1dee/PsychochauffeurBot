@@ -22,6 +22,8 @@ iniconfig==2.0.0
 packaging==24.2
 beautifulsoup4==4.12.2
 python-dateutil==2.9.0
+aiofiles>=23.0.0
+
 # Development tools
 autopep8==2.3.2
 black==25.1.0
