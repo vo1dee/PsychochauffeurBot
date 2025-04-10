@@ -6,10 +6,7 @@ import pytz
 from typing import Optional
 from modules.logger import general_logger, error_logger, get_daily_log_path
 from modules.const import OPENAI_API_KEY, USED_WORDS_FILE
-if os.getenv("USE_EMPTY_PROMPTS", "false").lower() == "true":
-    from modules.prompts_empty import GPT_PROMPTS  # Use empty prompts in GitHub Actions
-else:
-    from modules.prompts import GPT_PROMPTS  # Use actual prompts on the server
+from config.config_manager import ConfigManager
 
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
@@ -38,10 +35,15 @@ async def gpt_response(prompt: str, update: Update = None, context: CallbackCont
         context_prompt = ' '.join(last_messages)
         full_prompt = context_prompt + prompt
 
+        # Get appropriate prompts for this chat
+        chat_id = str(chat_id) if chat_id != "unknown" else None
+        chat_type = 'private' if update and update.effective_chat and update.effective_chat.type == 'private' else 'group'
+        prompts = ConfigManager.get_config("gpt_prompts", chat_id, chat_type)
+        
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": GPT_PROMPTS["gpt_response"] if not return_text else GPT_PROMPTS["gpt_response_return_text"]},
+                {"role": "system", "content": prompts["gpt_response"] if not return_text else prompts["gpt_response_return_text"]},
                 {"role": "user", "content": full_prompt}
             ],
             max_tokens=666,
@@ -105,10 +107,29 @@ async def gpt_summary_function(messages):
         prompt = f"Підсумуйте наступні повідомлення:\n\n{messages_text}\n\nПідсумок:"
 
         # Call the OpenAI API to get the summary
+        # Get chat-specific or default prompts
+        chat_id = None
+        chat_type = 'group'  # Default to group for summaries
+        
+        if len(messages) > 0:
+            # Try to extract chat_id from log messages if present
+            if "chat_id:" in ' '.join(messages):
+                try:
+                    chat_id_info = [m for m in messages if "chat_id:" in m][0]
+                    chat_id = chat_id_info.split("chat_id:")[1].strip().split()[0]
+                except (IndexError, ValueError):
+                    chat_id = None
+            
+            # Try to determine chat type from messages
+            if "private chat" in ' '.join(messages).lower():
+                chat_type = 'private'
+        
+        prompts = ConfigManager.get_config("gpt_prompts", chat_id, chat_type)
+        
         response = await client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": GPT_PROMPTS["gpt_summary"]},
+                {"role": "system", "content": prompts["gpt_summary"]},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=1000,  # Adjust the number of tokens for the summary as needed

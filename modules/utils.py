@@ -14,9 +14,9 @@ from telegram.ext import CallbackContext
 # Avoid running code at module import time
 from modules.logger import error_logger, LOG_DIR, general_logger
 from modules.const import (
-    weather_emojis, city_translations, feels_like_emojis, 
     SCREENSHOT_DIR, DATA_DIR, LOG_DIR, DOWNLOADS_DIR
 )
+from config.config_manager import ConfigManager
 
 # Constants
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -116,8 +116,16 @@ def get_weather_emoji(weather_id: int) -> str:
     Returns:
         str: Appropriate emoji for the weather condition
     """
-    return next((emoji for id_range, emoji in weather_emojis.items()
-                if weather_id in id_range), '🌈')
+    from config.config_manager import ConfigManager
+    
+    # Get weather configuration
+    weather_config = ConfigManager.get_config("weather_config", None, None)
+    condition_emojis = weather_config.get("CONDITION_EMOJIS", {})
+    
+    for id_range, emoji in condition_emojis.items():
+        if weather_id in id_range:
+            return emoji
+    return '🌈'
 
 def get_feels_like_emoji(feels_like: float) -> str:
     """
@@ -129,6 +137,12 @@ def get_feels_like_emoji(feels_like: float) -> str:
     Returns:
         str: Appropriate emoji for the temperature
     """
+    from config.config_manager import ConfigManager
+    
+    # Get weather configuration
+    weather_config = ConfigManager.get_config("weather_config", None, None)
+    feels_like_emojis = weather_config.get("FEELS_LIKE_EMOJIS", {})
+    
     for temp_range, emoji in feels_like_emojis.items():
         if feels_like >= temp_range.start and feels_like < temp_range.stop:
             return emoji
@@ -144,6 +158,12 @@ def get_city_translation(city: str) -> str:
     Returns:
         str: Translated city name or original if not found
     """
+    from config.config_manager import ConfigManager
+    
+    # Get weather configuration
+    weather_config = ConfigManager.get_config("weather_config", None, None)
+    city_translations = weather_config.get("CITY_TRANSLATIONS", {})
+    
     normalized = city.lower().replace(" ", "")
     return city_translations.get(normalized, city)
 

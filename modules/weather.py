@@ -13,6 +13,7 @@ from modules.utils import (
     get_feels_like_emoji,
     get_last_used_city
 )
+from config.config_manager import ConfigManager
 from modules.const import Config
 from modules.logger import error_logger, general_logger
 from modules.file_manager import save_user_location
@@ -171,6 +172,9 @@ class WeatherCommandHandler:
     
     async def handle_weather_request(self, city: str, update: Update = None, context: CallbackContext = None) -> str:
         """Process weather request and return formatted message."""
+        chat_type = 'private' if update and update.effective_chat and update.effective_chat.type == 'private' else 'group'
+        chat_id = str(update.effective_chat.id) if update and update.effective_chat else None
+        
         weather_data = await self.weather_api.fetch_weather(city)
         if weather_data:
             return await weather_data.format_message(update, context)
