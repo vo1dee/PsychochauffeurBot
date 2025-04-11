@@ -7,12 +7,7 @@ from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
 from modules.const import KYIV_TZ
 from modules.logger import error_logger
-
-# Dummy timefhuman function for tests
-def timefhuman(text):
-    """Dummy implementation for tests that need this method."""
-    # Just return current time plus 1 hour
-    return datetime.datetime.now(KYIV_TZ) + datetime.timedelta(hours=1)
+from timefhuman import timefhuman
 
 from telegram import Update
 from telegram.ext import CallbackContext
@@ -225,6 +220,8 @@ class ReminderManager:
             r'\bevery second\b',
             r'\bin \d+ (seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|months?)\b',
             r'\bat \d{1,2}:\d{2}\b',
+            r'\btomorrow\b', r'\bnext week\b', r'\bnext month\b',
+            r'\bon [a-zA-Z]+ \d+\b', r'\bon [a-zA-Z]+\b',  # On Monday, On July 15
         ]
         
         # Try to find the task and time by looking for time patterns
@@ -246,8 +243,8 @@ class ReminderManager:
 
     def parse(self, text):
         """Parse reminder text using timefhuman for date/time extraction"""
-        # Extract task using our enhanced method
-        task, _ = self.extract_task_and_time(text)
+        # Extract task and time expression
+        task, time_expr = self.extract_task_and_time(text)
         r = {'task': task, 'frequency': None, 'date_modifier': None, 'time': None, 'delay': None}
         
         # Extract frequency and date modifier information
@@ -289,10 +286,29 @@ class ReminderManager:
             else: norm_display = norm + 's'  # Fallback
             r['delay'] = f"in {amt} {norm_display}"
             
-        # Extract time information (at HH:MM)
-        time_match = re.search(r'at\s+(\d{1,2}):(\d{2})', txt_lower)
-        if time_match:
-            r['time'] = (int(time_match.group(1)), int(time_match.group(2)))
+        # Extract time information using timefhuman if there's a time expression
+        if time_expr:
+            try:
+                # Try parsing with timefhuman
+                parsed_time = timefhuman(time_expr)
+                
+                # If we got a valid time object, extract hour/minute for 'time' key
+                if parsed_time:
+                    # Localize the datetime object to the KYIV_TZ timezone
+                    if parsed_time.tzinfo is None:
+                        parsed_time = KYIV_TZ.localize(parsed_time)
+                    
+                    # Store the hour and minute if we have specific time
+                    if 'at' in time_expr.lower() or any(t in time_expr.lower() for t in ['tomorrow', 'next', 'on']):
+                        r['time'] = (parsed_time.hour, parsed_time.minute)
+                        
+                    # For future time calculations, we'll use the full datetime
+                    r['parsed_datetime'] = parsed_time
+            except Exception as e:
+                # Fallback to regex parsing for specific time formats 
+                time_match = re.search(r'at\s+(\d{1,2}):(\d{2})', time_expr.lower())
+                if time_match:
+                    r['time'] = (int(time_match.group(1)), int(time_match.group(2)))
             
         return r
 
@@ -313,22 +329,34 @@ class ReminderManager:
             now = datetime.datetime.now(KYIV_TZ)
             next_exec = None
 
-            delay = parsed.get('delay')
-            if delay:
-                m = re.match(r'in\s+(\d+)\s+(\w+)', delay)
+            # Use parsed datetime from timefhuman if available
+            if 'parsed_datetime' in parsed and parsed['parsed_datetime']:
+                next_exec = parsed['parsed_datetime']
+                # Make sure it's in the future
+                if next_exec <= now:
+                    # If it's a time-of-day without specific date, move to tomorrow
+                    if 'time' in parsed and parsed['time']:
+                        next_exec = next_exec + datetime.timedelta(days=1)
+                    else:
+                        next_exec = now + datetime.timedelta(minutes=5)
+            
+            # If no parsed datetime, handle delay patterns
+            if not next_exec and parsed.get('delay'):
+                m = re.match(r'in\s+(\d+)\s+(\w+)', parsed['delay'])
                 if m:
                     n, unit = int(m.group(1)), m.group(2)
-                    if unit == 'second':
+                    if unit == 'seconds':
                         next_exec = now + datetime.timedelta(seconds=n)
-                    elif unit == 'minute':
+                    elif unit == 'minutes':
                         next_exec = now + datetime.timedelta(minutes=n)
-                    elif unit == 'hour':
+                    elif unit == 'hours':
                         next_exec = now + datetime.timedelta(hours=n)
-                    elif unit == 'day':
+                    elif unit == 'days':
                         next_exec = now + datetime.timedelta(days=n)
-                    elif unit == 'month':
+                    elif unit == 'months':
                         next_exec = now + relativedelta(months=+n)
 
+            # If still no next_exec but we have time, use that
             if not next_exec and parsed.get('time'):
                 h, mnt = parsed['time']
                 tmp = now.replace(hour=h, minute=mnt, second=0, microsecond=0)
@@ -336,6 +364,7 @@ class ReminderManager:
                     tmp += datetime.timedelta(days=1)
                 next_exec = tmp
 
+            # Default to tomorrow morning if nothing else is specified
             if not next_exec:
                 tmp = now.replace(hour=9, minute=0, second=0, microsecond=0)
                 if tmp <= now:
@@ -410,20 +439,31 @@ class ReminderManager:
             now = datetime.datetime.now(KYIV_TZ)
             next_exec = None
 
-            delay = parsed.get('delay')
-            if delay:
-                m = re.match(r'in\s+(\d+)\s+(\w+)', delay)
+            # Use parsed datetime from timefhuman if available
+            if 'parsed_datetime' in parsed and parsed['parsed_datetime']:
+                next_exec = parsed['parsed_datetime']
+                # Make sure it's in the future
+                if next_exec <= now:
+                    # If it's a time-of-day without specific date, move to tomorrow
+                    if 'time' in parsed and parsed['time']:
+                        next_exec = next_exec + datetime.timedelta(days=1)
+                    else:
+                        next_exec = now + datetime.timedelta(minutes=5)
+                        
+            # Process delay pattern if no datetime from timefhuman
+            if not next_exec and parsed.get('delay'):
+                m = re.match(r'in\s+(\d+)\s+(\w+)', parsed['delay'])
                 if m:
                     n, unit = int(m.group(1)), m.group(2)
-                    if unit == 'second':
+                    if unit == 'seconds':
                         next_exec = now + datetime.timedelta(seconds=n)
-                    elif unit == 'minute':
+                    elif unit == 'minutes':
                         next_exec = now + datetime.timedelta(minutes=n)
-                    elif unit == 'hour':
+                    elif unit == 'hours':
                         next_exec = now + datetime.timedelta(hours=n)
-                    elif unit == 'day':
+                    elif unit == 'days':
                         next_exec = now + datetime.timedelta(days=n)
-                    elif unit == 'month':
+                    elif unit == 'months':
                         next_exec = now + relativedelta(months=+n)
 
             if not next_exec and parsed.get('time'):
