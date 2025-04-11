@@ -45,7 +45,7 @@ async def gpt_response(prompt: str, update: Update = None, context: CallbackCont
                 {"role": "user", "content": full_prompt}
             ],
             max_tokens=666,
-            temperature=0.8
+            temperature=0.6
         )
 
         response_text = response.choices[0].message.content.strip()
