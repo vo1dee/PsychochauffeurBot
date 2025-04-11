@@ -240,10 +240,6 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         logging.info(f"Matched specific sticker from {username}, restricting user.")
         await restrict_user(update, context)
 
-async def remind(update: Update, context: CallbackContext) -> None:
-    """Handle the /remind command."""
-    await reminder_manager.remind(update,context)
-
 async def main() -> None:
     """Initialize and run the bot."""
     try:
@@ -274,12 +270,7 @@ async def main() -> None:
         error_logger.error("Test notification message - If you see this in the Telegram channel, error logging is working!")
         screenshot_manager = ScreenshotManager()
         asyncio.create_task(screenshot_manager.schedule_task())
-        reminder_manager.schedule_reminders(application.bot, application.job_queue)
-        application.job_queue.run_repeating(
-            callback=reminder_manager.check_reminders,
-            interval=60,
-            first=1
-        )
+        reminder_manager.schedule_startup(application.job_queue)
         logger.info("Bot is starting...")
         await application.run_polling()
     except Exception as e:
