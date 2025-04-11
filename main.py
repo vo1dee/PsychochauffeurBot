@@ -36,7 +36,7 @@ from modules.user_management import restrict_user
 from modules.video_downloader import setup_video_handlers
 from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
 from modules.geomagnetic import GeomagneticCommandHandler
-from modules.reminders import Reminder, ReminderManager
+from modules.reminders.reminders import ReminderManager
 
 nest_asyncio.apply()
 
@@ -247,12 +247,8 @@ async def remind(update: Update, context: CallbackContext) -> None:
 async def main() -> None:
     """Initialize and run the bot."""
     try:
-        try:
-            init_directories()
-            application = ApplicationBuilder().token(TOKEN).build()
-        except Exception as e:
-            error_logger.error(f"Failed to initialize directories or application: {e}")
-            raise
+        init_directories()
+        application = ApplicationBuilder().token(TOKEN).build()
         from modules.error_analytics import error_report_command
         commands = {
             'start': start,
@@ -279,6 +275,11 @@ async def main() -> None:
         screenshot_manager = ScreenshotManager()
         asyncio.create_task(screenshot_manager.schedule_task())
         reminder_manager.schedule_reminders(application.bot, application.job_queue)
+        application.job_queue.run_repeating(
+            callback=reminder_manager.check_reminders,
+            interval=60,
+            first=1
+        )
         logger.info("Bot is starting...")
         await application.run_polling()
     except Exception as e:
