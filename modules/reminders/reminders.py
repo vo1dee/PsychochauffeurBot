@@ -406,22 +406,34 @@ class ReminderManager:
                 
                 # If we got a valid time object, extract hour/minute for 'time' key
                 if parsed_time:
-                    # Handle timezone conversion properly
-                    # If the datetime is timezone-naive, assume it's in KYIV_TZ
+                    # --- Extract H:M from original expression BEFORE conversion ---
+                    original_hour_minute = None
+                    time_match_hm = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', time_expr, re.IGNORECASE)
+                    time_match_ampm = re.search(r'\bat\s+(\d{1,2})\s*(am|pm)\b', time_expr, re.IGNORECASE)
+                    if time_match_hm:
+                        original_hour_minute = (int(time_match_hm.group(1)), int(time_match_hm.group(2)))
+                    elif time_match_ampm:
+                        hour = int(time_match_ampm.group(1))
+                        am_pm = time_match_ampm.group(2).lower()
+                        if am_pm == 'pm' and hour < 12: hour += 12
+                        if am_pm == 'am' and hour == 12: hour = 0
+                        original_hour_minute = (hour, 0)
+                        
+                    if original_hour_minute:
+                        r['time'] = original_hour_minute # Store the originally specified H:M
+                        logging.debug(f"Extracted time tuple (from input): {r['time']}")
+                    # --- End H:M extraction ---
+
+                    # Now perform the timezone conversion for the full datetime object
                     if parsed_time.tzinfo is None:
-                        # ASSUMPTION: timefhuman returns naive datetime representing UTC for delays/future points.
-                        # Localize as UTC first, then convert to KYIV_TZ.
-                        logging.debug(f"timefhuman returned naive: {parsed_time}. Assuming UTC.")
-                        # Ensure pytz is imported if not already available here
                         import pytz
                         parsed_time = pytz.utc.localize(parsed_time).astimezone(KYIV_TZ)
                     else:
-                        # If it's already aware (e.g., UTC or other offset), just convert it to KYIV_TZ
-                        logging.debug(f"timefhuman returned aware: {parsed_time}. Converting to KYIV.")
                         parsed_time = parsed_time.astimezone(KYIV_TZ)
 
                     logging.debug(f"Correctly timezone-adjusted parsed time: {parsed_time}")
-                    r['parsed_datetime'] = parsed_time # Store the correctly converted time
+                    r['parsed_datetime'] = parsed_time
+
 
                     # Keep the logic for extracting 'time' tuple if needed, operating on the now-correct parsed_time
                     if 'at' in time_expr.lower() or any(t in time_expr.lower() for t in ['tomorrow', 'next', 'on']):
