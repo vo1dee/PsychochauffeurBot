@@ -240,19 +240,11 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         logging.info(f"Matched specific sticker from {username}, restricting user.")
         await restrict_user(update, context)
 
-async def remind(update: Update, context: CallbackContext) -> None:
-    """Handle the /remind command."""
-    await reminder_manager.remind(update,context)
-
 async def main() -> None:
     """Initialize and run the bot."""
     try:
-        try:
-            init_directories()
-            application = ApplicationBuilder().token(TOKEN).build()
-        except Exception as e:
-            error_logger.error(f"Failed to initialize directories or application: {e}")
-            raise
+        init_directories()
+        application = ApplicationBuilder().token(TOKEN).build()
         from modules.error_analytics import error_report_command
         commands = {
             'start': start,
