@@ -426,13 +426,19 @@ class ReminderManager:
 
                     # Now perform the timezone conversion for the full datetime object
                     if parsed_time.tzinfo is None:
-                        import pytz
-                        parsed_time = pytz.utc.localize(parsed_time).astimezone(KYIV_TZ)
+                        # ASSUMPTION REVISED: Naive datetime from timefhuman likely represents the intended LOCAL time.
+                        # Localize directly to KYIV_TZ.
+                        logging.debug(f"timefhuman returned naive: {parsed_time}. Assuming KYIV_TZ wall time.")
+                        parsed_time = KYIV_TZ.localize(parsed_time)
                     else:
+                        # If timefhuman returned an *aware* object (e.g., maybe it returns UTC for absolute dates?),
+                        # convert it to KYIV_TZ.
+                        logging.debug(f"timefhuman returned aware: {parsed_time}. Converting to KYIV.")
                         parsed_time = parsed_time.astimezone(KYIV_TZ)
 
-                    logging.debug(f"Correctly timezone-adjusted parsed time: {parsed_time}")
+                    logging.debug(f"Timezone-adjusted parsed time (should be KYIV): {parsed_time}")
                     r['parsed_datetime'] = parsed_time
+
 
 
                     # Keep the logic for extracting 'time' tuple if needed, operating on the now-correct parsed_time
