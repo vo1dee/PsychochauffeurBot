@@ -39,7 +39,7 @@ async def gpt_response(prompt: str, update: Update = None, context: CallbackCont
         full_prompt = context_prompt + prompt
 
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1",
             messages=[
                 {"role": "system", "content": GPT_PROMPTS["gpt_response"] if not return_text else GPT_PROMPTS["gpt_response_return_text"]},
                 {"role": "user", "content": full_prompt}
@@ -106,7 +106,7 @@ async def gpt_summary_function(messages):
 
         # Call the OpenAI API to get the summary
         response = await client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4.1",
             messages=[
                 {"role": "system", "content": GPT_PROMPTS["gpt_summary"]},
                 {"role": "user", "content": prompt}
