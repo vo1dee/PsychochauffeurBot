@@ -21,7 +21,7 @@ from modules.utils import (
 )
 from modules.file_manager import ensure_csv_headers, save_user_location
 from modules.utils import get_last_used_city
-from modules.weather import WeatherCommandHandler
+from modules.weather import WeatherCommand, WeatherData, WeatherCommandHandler
 from modules.const import weather_emojis, feels_like_emojis
 
 class TestBot(unittest.TestCase):
