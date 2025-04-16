@@ -17,7 +17,7 @@ from modules.const import (
     weather_emojis, city_translations, feels_like_emojis,
     SCREENSHOT_DIR, DATA_DIR, LOG_DIR, DOWNLOADS_DIR
 )
-from modules.file_manager import get_last_used_city
+import modules.file_manager as file_manager
 
 # Constants
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -148,7 +148,22 @@ def get_city_translation(city: str) -> str:
     normalized = city.lower().replace(" ", "")
     return city_translations.get(normalized, city)
 
-# get_last_used_city has been moved to modules/file_manager for consolidation
+# get_last_used_city wrapper to use local CITY_DATA_FILE
+def get_last_used_city(user_id: int, chat_id: Optional[int] = None) -> Optional[str]:
+    """
+    Retrieve the last city set by a user, preferring chat-specific entry.
+    Uses CITY_DATA_FILE for data storage.
+    """
+    # Check for errors opening the data file
+    try:
+        with open(CITY_DATA_FILE, mode='r', newline='', encoding='utf-8'):
+            pass
+    except Exception as e:
+        error_logger.error(f"Error reading city data: {e}")
+        return None
+    # Override file_manager's CSV_FILE to use local CITY_DATA_FILE
+    file_manager.CSV_FILE = CITY_DATA_FILE
+    return file_manager.get_last_used_city(user_id, chat_id)
 
 # Cat API command
 async def cat_command(update: Update, context: CallbackContext) -> None:
