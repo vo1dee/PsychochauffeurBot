@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytz
 from typing import Optional
 from modules.logger import general_logger, error_logger, get_daily_log_path
-from modules.const import OPENAI_API_KEY, USED_WORDS_FILE
+from modules.const import OPENAI_API_KEY
 if os.getenv("USE_EMPTY_PROMPTS", "false").lower() == "true":
     from modules.prompts_empty import GPT_PROMPTS  # Use empty prompts in GitHub Actions
 else:
@@ -20,7 +20,7 @@ client = AsyncClient(api_key=OPENAI_API_KEY)
 
 KYIV_TZ = pytz.timezone('Europe/Kiev')
 
-GAME_STATE_FILE = 'data/game_state.json'
+# (deprecated) GAME_STATE_FILE removed
 
 
 

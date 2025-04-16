@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext
 from modules.logger import general_logger,error_logger
@@ -133,12 +134,25 @@ async def button_callback(update: Update, context: CallbackContext):
     await query.answer()
     
     try:
-        general_logger.info(f"Received callback data: {query.data}")
+        data = query.data or ''
+        # Validate format: action:hash
+        if ':' not in data:
+            await query.message.edit_text("Invalid callback data.")
+            return
+        action, link_hash = data.split(':', 1)
+        # Validate action
+        valid_actions = {btn['action'] for btn in BUTTONS_CONFIG + LANGUAGE_OPTIONS_CONFIG}
+        valid_actions.update({'download_video', 'download_instagram_video'})
+        if action not in valid_actions:
+            await query.message.edit_text("Unknown action.")
+            return
+        # Validate hash: 8 hex chars
+        if not re.fullmatch(r"[0-9a-f]{8}", link_hash):
+            await query.message.edit_text("Invalid callback identifier.")
+            return
+        general_logger.info(f"Received callback action: {action}, hash: {link_hash}")
         chat_id = query.message.chat_id
         message_id = query.message.message_id
-        
-        # Split action and hash from callback data
-        action, link_hash = query.data.split(':', 1)
         original_link = context.bot_data.get(link_hash)
         
         general_logger.info(f"Action: {action}, Hash: {link_hash}, Original link: {original_link}")
