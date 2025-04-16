@@ -46,6 +46,7 @@ class WeatherData:
         """
         try:
             advice = await ask_gpt_command(prompt, update, context, return_text=True)
+            general_logger.info(f"Clothing advice: {advice}")
             return WeatherCommand(
                 temperature=self.temperature,
                 feels_like=self.feels_like,
