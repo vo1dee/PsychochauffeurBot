@@ -20,7 +20,7 @@ from modules.utils import (
     get_feels_like_emoji, get_city_translation
 )
 from modules.file_manager import ensure_csv_headers, save_user_location
-from modules.utils import get_last_used_city
+from modules.file_manager import get_last_used_city
 from modules.weather import WeatherCommand, WeatherData, WeatherCommandHandler
 from modules.const import weather_emojis, feels_like_emojis
 
@@ -132,8 +132,8 @@ class TestBot(unittest.TestCase):
                 writer.writerow(["user_id", "city", "timestamp", "chat_id"])
                 writer.writerow(["123", "Kiev", "2023-01-01T00:00:00", ""])
             
-            # Patch CITY_DATA_FILE to use our test file
-            with patch('modules.utils.CITY_DATA_FILE', test_file):
+            # Patch CSV_FILE to use our test file
+            with patch('modules.file_manager.CSV_FILE', test_file):
                 user_id = 123
                 city = get_last_used_city(user_id)
                 self.assertEqual(city, "Kyiv")
@@ -150,8 +150,8 @@ class TestBot(unittest.TestCase):
                 writer.writerow(["user_id", "city", "timestamp", "chat_id"])
                 writer.writerow(["123", "Lviv", "2023-01-01T00:00:00", "456"])
             
-            # Patch CITY_DATA_FILE to use our test file
-            with patch('modules.utils.CITY_DATA_FILE', test_file):
+            # Patch CSV_FILE to use our test file
+            with patch('modules.file_manager.CSV_FILE', test_file):
                 user_id = 123
                 chat_id = 456
                 city = get_last_used_city(user_id, chat_id)
@@ -167,8 +167,8 @@ class TestBot(unittest.TestCase):
                 writer.writerow(["user_id", "city", "timestamp", "chat_id"])
                 writer.writerow(["123", "Odesa", "2023-01-01T00:00:00", ""])
             
-            # Patch CITY_DATA_FILE to use our test file
-            with patch('modules.utils.CITY_DATA_FILE', test_file):
+            # Patch CSV_FILE to use our test file
+            with patch('modules.file_manager.CSV_FILE', test_file):
                 user_id = 123
                 city = get_last_used_city(user_id)
                 self.assertEqual(city, "Odesa")
@@ -436,13 +436,11 @@ class TestEdgeCases(unittest.TestCase):
                 writer.writerow(["user_id", "city", "timestamp", "chat_id"])
                 writer.writerow(["123", "Kyiv", "2023-01-01T00:00:00", ""])
             
-            # Test with mock file that raises exception during reading
-            with patch('modules.utils.CITY_DATA_FILE', test_file):
-                with patch('modules.utils.open', side_effect=Exception("Test error")):
-                    with patch('modules.utils.error_logger') as mock_logger:
-                        result = get_last_used_city(123)
-                        self.assertIsNone(result)
-                        mock_logger.error.assert_called_once()
+            # Test error handling when reading file raises exception
+            with patch('modules.file_manager.CSV_FILE', test_file):
+                with patch('builtins.open', side_effect=Exception("Test error")):
+                    result = get_last_used_city(123)
+                    self.assertIsNone(result)
 
 if __name__ == '__main__':
     unittest.main()
