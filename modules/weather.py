@@ -38,7 +38,7 @@ class WeatherData:
     feels_like: float
 
     async def get_clothing_advice(self, update: Update = None, context: CallbackContext = None) -> WeatherCommand:
-        prompt = f"""Дай коротку пораду (1-2 речення) щодо того, що краще вдягнути при такій погоді:
+        prompt = f"""Дай коротку пораду, що краще вдягнути при такій погоді. 1-2 речення.:
         Температура: {round(self.temperature)}°C
         Відчувається як: {round(self.feels_like)}°C
         Погода: {self.description}
