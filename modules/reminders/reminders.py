@@ -113,6 +113,12 @@ class Reminder:
 
         elif self.frequency == 'seconds':
             self.next_execution = now + datetime.timedelta(seconds=5)
+        elif self.frequency == 'yearly':
+            # For yearly reminders, advance by one year
+            if self.next_execution and self.next_execution <= now:
+                self.next_execution += relativedelta(years=1)
+            elif not self.next_execution:
+                self.next_execution = now + relativedelta(years=1)
 
     def _calc_first_month(self, now):
         if now.month == 12:
@@ -300,10 +306,14 @@ class ReminderManager:
             r'\bevery day\b', r'\bdaily\b', r'\beveryday\b',
             r'\bevery week\b', r'\bweekly\b',
             r'\bevery month\b', r'\bmonthly\b',
+            r'\bevery year\b', r'\byearly\b',
+            r'\bevery year\b', r'\byearly\b',
             r'\bevery second\b',
             r'\bin \d+ (seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|months?|month)\b',
             r'\bat \d{1,2}:\d{2}\b',
             r'\bat \d{1,2}\s*(am|pm)\b',  # at 11 PM
+            # support month/day dates e.g. at Sep 27
+            r'\b(?:at|on) [A-Za-z]+ \d{1,2}(?:st|nd|rd|th)?\b',
             r'\btomorrow at\b', r'\btomorrow\b', r'\bnext week\b', r'\bnext month\b',
             r'\bon [a-zA-Z]+ \d+\b', r'\bon [a-zA-Z]+\b',  # On Monday, On July 15
             r'\bthe (first|last) day of (the|every) month\b',
@@ -349,6 +359,8 @@ class ReminderManager:
             r['frequency'] = 'monthly'
         elif "every second" in txt_lower:
             r['frequency'] = 'seconds'
+        elif any(pattern in txt_lower for pattern in ["every year", "yearly"]):
+            r['frequency'] = 'yearly'
             
         # Extract special date modifiers
         if any(pattern in txt_lower for pattern in ['last day of every month', 'last day of month', 'the last day of the month']):
@@ -392,7 +404,27 @@ class ReminderManager:
             
         # Extract time information using timefhuman if there's a time expression
         parsed_time = None
+        # Clean up the time expression: remove frequency words and leading "at"/"on"
         if time_expr:
+            # Strip frequency tokens from start of time_expr
+            if r['frequency']:
+                freq = r['frequency']
+                freq_patterns = {
+                    'daily': r'^(every\s+day|daily|everyday)',
+                    'weekly': r'^(every\s+week|weekly)',
+                    'monthly': r'^(every\s+month|monthly)',
+                    'yearly': r'^(every\s+year|yearly)',
+                    'seconds': r'^(every\s+second)'
+                }
+                pat = freq_patterns.get(freq)
+                if pat:
+                    time_expr = re.sub(pat, '', time_expr, flags=re.IGNORECASE).strip()
+            # Strip leading "at" or "on"
+            time_expr = re.sub(r'^(?:at|on)\s+', '', time_expr, flags=re.IGNORECASE).strip()
+            # If time_expr is a bare HH:MM, extract it directly
+            m_bare = re.match(r'^(\d{1,2}):(\d{2})$', time_expr)
+            if m_bare:
+                r['time'] = (int(m_bare.group(1)), int(m_bare.group(2)))
             try:
                 # Try parsing with timefhuman
                 parsed_time_result = timefhuman(time_expr)
@@ -619,22 +651,14 @@ class ReminderManager:
                     logging.debug(f"Time is in the past, adjusted to tomorrow: {tmp}")
                 next_exec = tmp
 
-            # Default to tomorrow morning if nothing else is specified
+            # If parser couldn't determine a schedule, report error and exit
             if not next_exec:
-                logging.debug("No time information extracted, using default (tomorrow 9 AM)")
-                tmp = now.replace(hour=9, minute=0, second=0, microsecond=0)
-                if tmp <= now:
-                    # Create a new datetime object with the same time but 1 day later
-                    tmp = datetime.datetime(
-                        tmp.year,
-                        tmp.month,
-                        tmp.day + 1,
-                        tmp.hour,
-                        tmp.minute,
-                        tmp.second,
-                        tzinfo=tmp.tzinfo
-                    )
-                next_exec = tmp
+                error_logger.error(f"Failed to parse reminder command: '{reminder_text}'")
+                await update.message.reply_text(
+                    f"Sorry, I couldn't understand your reminder: '{reminder_text}'.\n"
+                    "Example: /remind to pay rent every month on the 1st at 9AM"
+                )
+                return
 
             is_one_time = not parsed['frequency'] and not parsed['date_modifier']
             if is_one_time and next_exec <= now:
