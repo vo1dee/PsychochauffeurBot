@@ -406,6 +406,14 @@ class ReminderManager:
                 
                 # If we got a valid time object, extract hour/minute for 'time' key
                 if parsed_time:
+                    # Add handling for "morning" specifically
+                    if 'morning' in time_expr.lower():
+                        # Override the time to 9 AM if it was early morning (before 8 AM)
+                        if parsed_time.hour < 8:
+                            parsed_time = parsed_time.replace(hour=9, minute=0)
+                            r['time'] = (9, 0)  # Also update the time tuple
+                            logging.debug(f"Adjusted 'morning' time to 9 AM: {parsed_time}")
+                    
                     # --- Extract H:M from original expression BEFORE conversion ---
                     original_hour_minute = None
                     time_match_hm = re.search(r'\bat\s+(\d{1,2}):(\d{2})\b', time_expr, re.IGNORECASE)
