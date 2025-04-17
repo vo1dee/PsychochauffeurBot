@@ -24,6 +24,10 @@ beautifulsoup4==4.12.2
 python-dateutil==2.9.0
 aiofiles>=23.0.0
 
+# Configuration API
+fastapi>=0.95.0
+uvicorn[standard]>=0.20.0
+
 # Development tools
 autopep8==2.3.2
 black==25.1.0

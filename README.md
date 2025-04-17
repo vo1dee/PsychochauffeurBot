@@ -89,16 +89,41 @@ Simply send a video or image link from any supported platform, and the bot will:
    OPENAI_API_KEY=your_openai_api_key
    OPENWEATHER_API_KEY=your_openweather_api_key
    ```
-3. Create chat-specific configurations (optional):
-   ```bash
-   # Create a chat-specific GPT prompt configuration
-   mkdir -p config/chat_config/{chat_id}
-   # Add custom configuration files in this directory
-   ```
+3. Manage configurations (optional):
+   - Use the REST API (see above) to retrieve or update configurations.
+   - Configuration scopes:
+     - `global` (applies when no specific config is set)
+     - `private` (per private chat)
+     - `group` (per group chat)
+   - Default configurations are loaded from `config/default/*.py`.
 4. Run the bot:
    ```bash
    python main.py
    ```
+
+## 🌐 Configuration API
+
+A REST API for managing dynamic configurations.
+
+### Running the API Server
+
+Install FastAPI and Uvicorn (already included in requirements), then:
+```bash
+uvicorn config_api:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Endpoints
+- GET /config/{config_name}?chat_id={chat_id}&chat_type={chat_type}
+  Retrieve a configuration (returns JSON with `config_data`).
+- POST /config/{config_name}
+  Update a configuration. JSON body parameters:
+  ```json
+  {
+    "chat_id": "<chat_id or null>",
+    "chat_type": "global|private|group",
+    "config_data": { ... }
+  }
+  ```
 
 ## ⚠️ Limitations
 - 50MB maximum video size for Telegram uploads
