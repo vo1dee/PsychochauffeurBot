@@ -5,6 +5,11 @@ from datetime import datetime, timedelta
 import pytz
 from typing import Optional
 from modules.logger import general_logger, error_logger, get_daily_log_path
+from modules.const import OPENAI_API_KEY
+if os.getenv("USE_EMPTY_PROMPTS", "false").lower() == "true":
+    from modules.prompts_empty import GPT_PROMPTS  # Use empty prompts in GitHub Actions
+else:
+    from modules.prompts import GPT_PROMPTS  # Use actual prompts on the server
 from modules.const import OPENAI_API_KEY, USED_WORDS_FILE
 from config.config_manager import ConfigManager
 
@@ -17,7 +22,7 @@ client = AsyncClient(api_key=OPENAI_API_KEY)
 
 KYIV_TZ = pytz.timezone('Europe/Kiev')
 
-GAME_STATE_FILE = 'data/game_state.json'
+# (deprecated) GAME_STATE_FILE removed
 
 
 
@@ -41,13 +46,13 @@ async def gpt_response(prompt: str, update: Update = None, context: CallbackCont
         prompts = ConfigManager.get_config("gpt_prompts", chat_id, chat_type)
         
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1",
             messages=[
                 {"role": "system", "content": prompts["gpt_response"] if not return_text else prompts["gpt_response_return_text"]},
                 {"role": "user", "content": full_prompt}
             ],
             max_tokens=666,
-            temperature=0.8
+            temperature=0.6
         )
 
         response_text = response.choices[0].message.content.strip()
@@ -127,7 +132,7 @@ async def gpt_summary_function(messages):
         prompts = ConfigManager.get_config("gpt_prompts", chat_id, chat_type)
         
         response = await client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4.1",
             messages=[
                 {"role": "system", "content": prompts["gpt_summary"]},
                 {"role": "user", "content": prompt}

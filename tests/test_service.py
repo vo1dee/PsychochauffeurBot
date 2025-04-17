@@ -32,8 +32,8 @@ class TestServiceConnection(unittest.TestCase):
                         ssl=False  # Add this if you're using self-signed certificates
                     ) as response:
                         self.assertEqual(response.status, 200)
-                except aiohttp.ClientError:
-                    self.skipTest("Service not available")
+                except (aiohttp.ClientError, asyncio.TimeoutError):
+                    self.skipTest("Service not available or timed out")
 
         # Run the async test
         asyncio.run(run_test())
