@@ -109,43 +109,38 @@ def country_code_to_emoji(country_code: str) -> str:
 def get_weather_emoji(weather_id: int) -> str:
     """
     Get weather emoji based on weather ID.
-    
-    Args:
-        weather_id: Weather condition ID
-        
-    Returns:
-        str: Appropriate emoji for the weather condition
     """
     from config.config_manager import ConfigManager
-    
-    # Get weather configuration
+    # Load configuration JSON
     weather_config = ConfigManager.get_config("weather_config", None, None)
-    condition_emojis = weather_config.get("CONDITION_EMOJIS", {})
-    
-    for id_range, emoji in condition_emojis.items():
-        if weather_id in id_range:
-            return emoji
+    # Expect CONDITION_EMOJIS as a list of {min, max, emoji}
+    for item in weather_config.get("CONDITION_EMOJIS", []):
+        try:
+            mn = item.get("min")
+            mx = item.get("max")
+            em = item.get("emoji")
+        except AttributeError:
+            continue
+        if mn is not None and mx is not None and em and mn <= weather_id < mx:
+            return em
     return '🌈'
 
 def get_feels_like_emoji(feels_like: float) -> str:
     """
     Get emoji based on 'feels like' temperature.
-    
-    Args:
-        feels_like: Temperature in Celsius
-        
-    Returns:
-        str: Appropriate emoji for the temperature
     """
     from config.config_manager import ConfigManager
-    
-    # Get weather configuration
     weather_config = ConfigManager.get_config("weather_config", None, None)
-    feels_like_emojis = weather_config.get("FEELS_LIKE_EMOJIS", {})
-    
-    for temp_range, emoji in feels_like_emojis.items():
-        if feels_like >= temp_range.start and feels_like < temp_range.stop:
-            return emoji
+    # Expect FEELS_LIKE_EMOJIS as a list of {min, max, emoji}
+    for item in weather_config.get("FEELS_LIKE_EMOJIS", []):
+        try:
+            mn = item.get("min")
+            mx = item.get("max")
+            em = item.get("emoji")
+        except AttributeError:
+            continue
+        if mn is not None and mx is not None and em and mn <= feels_like < mx:
+            return em
     return '🌈'
 
 def get_city_translation(city: str) -> str:
