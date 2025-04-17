@@ -43,7 +43,7 @@ KYIV_TZ = pytz.timezone('Europe/Kyiv')
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
-USED_WORDS_FILE = os.path.join(DATA_DIR, "used_words.csv")
+# (deprecated) used_words.csv removed
 
 
 # Custom formatter for Kyiv timezone

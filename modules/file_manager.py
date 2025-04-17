@@ -15,7 +15,7 @@ DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
 ANALYTICS_DIR = os.path.join(LOG_DIR, 'analytics')
 CSV_FILE = os.path.join(DATA_DIR, "user_locations.csv")
-USED_WORDS_FILE = os.path.join(DATA_DIR, "used_words.csv")
+# (deprecated: used_words.csv removed)
 KYIV_TZ = pytz.timezone('Europe/Kyiv')
 
 
@@ -32,10 +32,10 @@ def ensure_directories():
         with open(test_log_path, 'w') as f:
             f.write('Test log write\n')
         os.remove(test_log_path)
-        print("Write permission verified for log directory")
+        logging.getLogger(__name__).info("Write permission verified for log directory")
         return True
     except Exception as e:
-        print(f"Error setting up directories: {e}")
+        logging.getLogger(__name__).error(f"Error setting up directories: {e}")
         return False
 
 # Custom formatter for Kyiv timezone
@@ -64,10 +64,13 @@ def ensure_csv_headers(file_path: str, headers: List[str]) -> None:
     # Check if file exists
     if not os.path.exists(file_path):
         # Create new file with headers
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(headers)
-        print(f"Created new CSV file with headers: {file_path}")
+        logging.getLogger(__name__).info(
+            f"Created new CSV file with headers: {file_path}"
+        )
         return
     
     # File exists, check if it has headers
@@ -87,9 +90,9 @@ def ensure_csv_headers(file_path: str, headers: List[str]) -> None:
                     writer = csv.writer(wf)
                     writer.writerow(headers)
                     writer.writerows(all_data)
-                print(f"Added or corrected headers in CSV file: {file_path}")
+        logging.getLogger(__name__).info(f"Added or corrected headers in CSV file: {file_path}")
     except Exception as e:
-        print(f"Error checking CSV headers: {e}")
+        logging.getLogger(__name__).error(f"Error checking CSV headers: {e}")
 
 # Data management functions
 def save_user_location(user_id, city, chat_id=None):
@@ -153,3 +156,38 @@ def save_user_location(user_id, city, chat_id=None):
         writer = csv.writer(f)
         writer.writerow(headers)  # Write headers first
         writer.writerows(existing_data)
+    
+def get_last_used_city(user_id: int, chat_id: Optional[int] = None) -> Optional[str]:
+    """
+    Retrieve the last city set by a user, preferring chat-specific entry.
+    Returns None if no city is found.
+    """
+    headers = ["user_id", "city", "timestamp", "chat_id"]
+    # Use CSV_FILE for data storage
+    file_path = CSV_FILE
+    # Ensure CSV file and headers exist
+    ensure_csv_headers(file_path, headers)
+    try:
+        with open(file_path, mode='r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            # First, look for a chat-specific entry
+            if chat_id is not None:
+                for row in reader:
+                    if row.get('user_id') == str(user_id) and row.get('chat_id') == str(chat_id):
+                        city = row.get('city')
+                        if city:
+                            return 'Kyiv' if city.lower() == 'kiev' else city
+                # rewind reader to search default
+                f.seek(0)
+                next(reader, None)
+            # Next, look for a user default entry
+            for row in reader:
+                if row.get('user_id') == str(user_id) and not row.get('chat_id'):
+                    city = row.get('city')
+                    if city:
+                        return 'Kyiv' if city.lower() == 'kiev' else city
+    except FileNotFoundError:
+        logging.getLogger(__name__).warning(f"City data file not found: {file_path}")
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Error reading city data: {e}")
+    return None

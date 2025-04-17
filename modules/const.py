@@ -75,9 +75,8 @@ class Weather:
         range(30, 100): '🥵',  # Very hot
     }
 
-# Files
-GAME_STATE_FILE = os.path.join(DATA_DIR, 'game_state.json')
-USED_WORDS_FILE = os.path.join(DATA_DIR, 'used_words.csv')
+# Files (deprecated: game and word‑game features removed)
+# GAME_STATE_FILE and USED_WORDS_FILE no longer used
 
 # For backwards compatibility
 TOKEN = Config.TELEGRAM_BOT_TOKEN

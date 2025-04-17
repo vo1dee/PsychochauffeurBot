@@ -4,6 +4,7 @@ Handles message processing, command registration, and bot initialization.
 """
 import asyncio
 import hashlib
+import ipaddress
 import logging
 import nest_asyncio
 import re
@@ -13,7 +14,9 @@ import sys
 import telegram
 import os
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
+import time
+from collections import deque
 
 from telegram import Update
 from telegram.ext import (
@@ -27,7 +30,8 @@ from modules.utils import (
     extract_urls, init_directories
 )
 from modules.const import (
-    TOKEN, KYIV_TZ, ALIEXPRESS_STICKER_ID, VideoPlatforms, LinkModification, Config
+    TOKEN, OPENAI_API_KEY, KYIV_TZ, ALIEXPRESS_STICKER_ID,
+    VideoPlatforms, LinkModification, Config
 )
 from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
 from modules.weather import WeatherCommandHandler
@@ -40,6 +44,10 @@ from modules.reminders.reminders import ReminderManager
 
 nest_asyncio.apply()
 
+# URL shortener cache and rate limiter
+_url_shortener_cache: Dict[str, str] = {}
+_shortener_calls: deque = deque()
+_SHORTENER_MAX_CALLS_PER_MINUTE: int = int(os.getenv('SHORTENER_MAX_CALLS_PER_MINUTE', '30'))
 # Initialize global objects
 message_counter = MessageCounter()
 last_user_messages = {}
@@ -61,8 +69,8 @@ keyboard_mapping = {
 }
 keyboard_mapping.update({k.upper(): v.upper() for k, v in keyboard_mapping.items()})
 
+@handle_errors(feedback_message="An error occurred in /start command.")
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handler for /start command."""
     welcome_text = (
         "🤖 PsychoChauffeur Bot\n\n"
         "🎥 Video Downloads from:\n"
@@ -83,8 +91,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     await update.message.reply_text(welcome_text)
 
+@handle_errors(feedback_message="An error occurred while translating the last message.")
 async def translate_last_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Convert the last message before 'бля!' from English keyboard layout to Ukrainian."""
     user_id = update.message.from_user.id
     username = update.message.from_user.username or "User"
     previous_message = last_user_messages.get(user_id, {}).get('previous')
@@ -184,7 +192,8 @@ async def process_urls(update: Update, context: CallbackContext, urls: List[str]
                     modified_links.append(await shorten_url(sanitized_link))
                     processed = True
                     break
-            if not processed and len(sanitized_link) > 110:
+            # If original URL is very long, shorten the sanitized link
+            if not processed and len(url) > 110:
                 modified_links.append(await shorten_url(sanitized_link))
     if modified_links:
         cleaned_message_text = remove_links(message_text).strip()
@@ -194,25 +203,64 @@ def sanitize_url(url: str, replace_domain: Optional[str] = None) -> str:
     """Sanitize a URL by keeping scheme, netloc, and path only."""
     try:
         from urllib.parse import urlparse, urlunparse
-        parsed_url = urlparse(url)
-        netloc = replace_domain if replace_domain else parsed_url.netloc
-        return urlunparse((parsed_url.scheme, netloc, parsed_url.path, '', '', ''))
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ''
+        # Reject IP addresses for safety
+        try:
+            ipaddress.ip_address(hostname)
+            return ''
+        except ValueError:
+            pass
+        # Disallow credentials or weird hostnames
+        if parsed.username or parsed.password:
+            return ''
+        # Only allow hostnames with letters, digits, hyphens or dots
+        if not re.match(r'^[a-zA-Z0-9.-]+$', hostname):
+            return ''
+        # Reconstruct netloc (hostname[:port])
+        port = f":{parsed.port}" if parsed.port else ''
+        netloc = replace_domain if replace_domain else hostname + port
+        return urlunparse((parsed.scheme, netloc, parsed.path, '', '', ''))
     except Exception as e:
-        error = ErrorHandler.create_error(message=f"Failed to sanitize URL", severity=ErrorSeverity.LOW, category=ErrorCategory.PARSING, context={"url": url}, original_exception=e)
+        error = ErrorHandler.create_error(
+            message="Failed to sanitize URL", severity=ErrorSeverity.LOW,
+            category=ErrorCategory.PARSING, context={"url": url}, original_exception=e
+        )
         error_message = ErrorHandler.format_error_message(error)
         error_logger.error(error_message)
         return url
 
 async def shorten_url(url: str) -> str:
-    """Shorten a URL if it exceeds 110 characters using TinyURL service."""
+    """Shorten a URL if it exceeds 110 characters using TinyURL service with caching and rate limiting."""
+    # Quick return for short URLs
     if len(url) <= 110:
+        return url
+    now = time.time()
+    # Purge old timestamps older than 60 sec
+    while _shortener_calls and now - _shortener_calls[0] > 60:
+        _shortener_calls.popleft()
+    # Return cached result if exists
+    if url in _url_shortener_cache:
+        return _url_shortener_cache[url]
+    # Enforce rate limit
+    if len(_shortener_calls) >= _SHORTENER_MAX_CALLS_PER_MINUTE:
+        general_logger.warning(f"URL shortener rate limit reached; skipping shorten for {url}")
         return url
     try:
         shortened = pyshorteners.Shortener().tinyurl.short(url)
+        # Cache and record call
+        _url_shortener_cache[url] = shortened
+        _shortener_calls.append(now)
         general_logger.info(f"Shortened URL: {url} -> {shortened}")
         return shortened
     except Exception as e:
-        error = ErrorHandler.create_error(message="Failed to shorten URL", severity=ErrorSeverity.LOW, category=ErrorCategory.NETWORK, context={"url": url}, original_exception=e)
+        error = ErrorHandler.create_error(
+            message="Failed to shorten URL",
+            severity=ErrorSeverity.LOW,
+            category=ErrorCategory.NETWORK,
+            context={"url": url},
+            original_exception=e
+        )
         error_message = ErrorHandler.format_error_message(error)
         error_logger.error(error_message)
         return url
@@ -231,6 +279,7 @@ async def construct_and_send_message(chat_id: int, username: str, cleaned_messag
         error_context = {"username": username, "cleaned_message": cleaned_message_text, "modified_links": modified_links, "chat_id": chat_id}
         await ErrorHandler.handle_error(error=e, update=update, context=context, context_data=error_context, feedback_message="Sorry, an error occurred while processing your message.")
 
+@handle_errors(feedback_message="An error occurred handling sticker.")
 async def handle_sticker(update: Update, context: CallbackContext) -> None:
     """Handle incoming stickers."""
     sticker_id = update.message.sticker.file_unique_id
@@ -240,19 +289,18 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         logging.info(f"Matched specific sticker from {username}, restricting user.")
         await restrict_user(update, context)
 
-async def remind(update: Update, context: CallbackContext) -> None:
-    """Handle the /remind command."""
-    await reminder_manager.remind(update,context)
-
 async def main() -> None:
     """Initialize and run the bot."""
+    # Validate required environment variables
+    if not TOKEN:
+        logger.critical("TELEGRAM_BOT_TOKEN is not set. Exiting.")
+        sys.exit(1)
+    if not OPENAI_API_KEY:
+        logger.critical("OPENAI_API_KEY is not set. Exiting.")
+        sys.exit(1)
     try:
-        try:
-            init_directories()
-            application = ApplicationBuilder().token(TOKEN).build()
-        except Exception as e:
-            error_logger.error(f"Failed to initialize directories or application: {e}")
-            raise
+        init_directories()
+        application = ApplicationBuilder().token(TOKEN).build()
         from modules.error_analytics import error_report_command
         commands = {
             'start': start,
