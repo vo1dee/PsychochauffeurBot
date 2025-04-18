@@ -330,7 +330,7 @@ async def shorten_url(url: str) -> str:
         _shortener_calls.append(now)
         general_logger.info(f"Shortened URL: {url} -> {shortened}")
         return shortened
-    except pyshorteners.exceptions.ShorteningErrorException as e:
+    except Exception as e:
          error_logger.error(f"TinyURL API error shortening {url}: {e}", exc_info=True)
          return url # Return original on API error
     except Exception as e: # Catch other potential errors like timeouts
