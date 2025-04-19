@@ -233,20 +233,21 @@ async def process_urls(update: Update, context: CallbackContext, urls: List[str]
             for domain, modified_domain in LinkModification.DOMAINS.items():
                 parsed_sanitized = urlparse(sanitized_link)
                 hostname_sanitized = parsed_sanitized.hostname or ''
-                # Check if the *original* domain needs modification, modify the *sanitized* link
-                if domain in hostname_sanitized: # Check against sanitized hostname
-                    # Reconstruct with modified domain
-                    modified_netloc = hostname_sanitized.replace(domain, modified_domain)
+                
+                # Use exact hostname matching or .domain.com matching
+                if hostname_sanitized == domain or hostname_sanitized.endswith('.' + domain):
+                    # If it's a subdomain, preserve the subdomain part
+                    if hostname_sanitized.endswith('.' + domain):
+                        subdomain_part = hostname_sanitized[:-len('.' + domain)]
+                        modified_netloc = f"{subdomain_part}.{modified_domain}"
+                    else:
+                        modified_netloc = modified_domain
+                        
                     port = f":{parsed_sanitized.port}" if parsed_sanitized.port else ''
-                    modified_sanitized_link = urlunparse((parsed_sanitized.scheme, modified_netloc + port, parsed_sanitized.path, '', '', ''))
-                    modified_links.append(await shorten_url(modified_sanitized_link)) # Shorten modified link
+                    modified_sanitized_link = urlunparse((parsed_sanitized.scheme, modified_netloc + port, parsed_sanitized.path, parsed_sanitized.params, parsed_sanitized.query, parsed_sanitized.fragment))
+                    modified_links.append(await shorten_url(modified_sanitized_link))
                     processed = True
                     break
-                # Check if link *already* has the modified domain (no action needed, just shorten)
-                elif modified_domain in hostname_sanitized:
-                     modified_links.append(await shorten_url(sanitized_link)) # Shorten existing modified link
-                     processed = True
-                     break
 
         # If not processed by specific rules and original URL is long, shorten the sanitized link
         if not processed and len(url) > 110: # Check original length
@@ -260,7 +261,7 @@ async def process_urls(update: Update, context: CallbackContext, urls: List[str]
 # Import urlparse and urlunparse here if not imported globally
 from urllib.parse import urlparse, urlunparse
 
-def sanitize_url(url: str) -> str: # Removed replace_domain argument, seemed unused
+def sanitize_url(url: str) -> str:
     """Sanitize a URL by keeping scheme, netloc, and path only."""
     try:
         parsed = urlparse(url)
@@ -293,12 +294,13 @@ def sanitize_url(url: str) -> str: # Removed replace_domain argument, seemed unu
              general_logger.warning(f"Rejected URL with invalid scheme: {url}")
              return ''
 
-        # Reconstruct the sanitized URL
-        return urlunparse((parsed.scheme, netloc, parsed.path, '', '', ''))
+        # Reconstruct the sanitized URL - PRESERVE query and fragment parts
+        return urlunparse((parsed.scheme, netloc, parsed.path, '', parsed.query, parsed.fragment))
     except Exception as e:
         # Log the error using the configured error logger
         error_logger.error(f"Failed to sanitize URL '{url}': {e}", exc_info=True)
-        return url # Return original URL on failure, maybe reconsider this? Maybe return ''?
+        return url
+
 
 async def shorten_url(url: str) -> str:
     # ... (logic looks fine, uses general_logger and error_logger correctly)
