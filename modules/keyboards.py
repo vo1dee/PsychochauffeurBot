@@ -99,7 +99,6 @@ def is_instagram_video(link):
 
 # Then update your BUTTONS_CONFIG:
 BUTTONS_CONFIG = [
-    # Keep your existing translation and description buttons
     {
         'action': 'translate',
         'text': '🌍 Translate',
@@ -124,17 +123,16 @@ BUTTONS_CONFIG = [
         'check': lambda link: link.startswith('https://d.'),
         'modify': lambda link: link.replace('https://d.', 'https://')
     },
-    # Update the video download buttons to use the new check functions
     {
         'action': 'download_video',
         'text': '⬇️ Download Video',
-        'check': lambda link: ('x.com' in link or 'fixupx.com' in link) and is_twitter_video(link),
+        'check': lambda link: ('x.com' in link or 'fixupx.com' in link) and '/status/' in link,
         'modify': lambda link: link
     },
     {
         'action': 'download_instagram_video',
         'text': '⬇️ Download Instagram Video',
-        'check': lambda link: 'instagram.com' in link and is_instagram_video(link),
+        'check': lambda link: 'instagram.com' in link and any(part in link for part in ['/reel/', '/p/', '/tv/']),
         'modify': lambda link: link
     },
 ]
