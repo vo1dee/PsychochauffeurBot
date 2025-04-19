@@ -59,7 +59,7 @@ async def test_shorten_url_long_and_cache(monkeypatch):
     url = base + path
     # prepare a dummy shortener mapping this URL to 'tiny'
     dummy = DummyShortener({url: "tiny"})
-    monkeypatch.setattr('pyshorteners.Shortener', lambda: dummy)
+    monkeypatch.setattr('pyshorteners.Shortener', lambda timeout=None: dummy)
     # first call should shorten using dummy mapping
     result1 = await shorten_url(url)
     assert result1 == "tiny"
@@ -82,7 +82,7 @@ async def test_shorten_url_rate_limit(monkeypatch):
     long2 = base + "b" * 200
     # patch shortener mapping
     dummy = DummyShortener({long1: "s1", long2: "s2"})
-    monkeypatch.setattr('pyshorteners.Shortener', lambda: dummy)
+    monkeypatch.setattr('pyshorteners.Shortener', lambda timeout=None: dummy)
     # first long URL shortened
     r1 = await main.shorten_url(long1)
     assert r1 == "s1"
