@@ -4,6 +4,7 @@ import re
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext
 from modules.logger import general_logger,error_logger
+from urllib.parse import urlparse, urlunparse
 
 
 
@@ -68,7 +69,37 @@ Note:
     Telegram's size limits.
 """
 
+def is_twitter_video(link):
+    """Check if a Twitter/X link contains a video"""
+    # Twitter video URLs typically contain '/video/' in the path or have certain indicators
+    parsed = urlparse(link)
+    path_parts = parsed.path.split('/')
+    
+    # Check for /status/ posts that might contain video
+    if len(path_parts) >= 3 and path_parts[1] == 'status':
+        # This is a basic check - ideally you would verify the content type
+        # You might need API access or scraping to determine this with certainty
+        return True
+    
+    # Add more specific checks if you have patterns for identifying video tweets
+    return False
+
+def is_instagram_video(link):
+    """Check if an Instagram link contains a video"""
+    # Instagram video URLs typically have /reel/ or /tv/ in them
+    parsed = urlparse(link)
+    path_parts = parsed.path.split('/')
+    
+    # Check for reels or IGTV
+    if len(path_parts) >= 2 and path_parts[1] in ['reel', 'reels', 'tv', 'p']:
+        # For /p/ posts, you'd need to verify it's a video, but we're making a basic assumption
+        return True
+    
+    return False
+
+# Then update your BUTTONS_CONFIG:
 BUTTONS_CONFIG = [
+    # Keep your existing translation and description buttons
     {
         'action': 'translate',
         'text': '🌍 Translate',
@@ -93,19 +124,21 @@ BUTTONS_CONFIG = [
         'check': lambda link: link.startswith('https://d.'),
         'modify': lambda link: link.replace('https://d.', 'https://')
     },
+    # Update the video download buttons to use the new check functions
     {
         'action': 'download_video',
         'text': '⬇️ Download Video',
-        'check': lambda link: 'x.com' in link or 'fixupx.com' in link,
+        'check': lambda link: ('x.com' in link or 'fixupx.com' in link) and is_twitter_video(link),
         'modify': lambda link: link
     },
     {
         'action': 'download_instagram_video',
         'text': '⬇️ Download Instagram Video',
-        'check': lambda link: 'instagram.com' in link,
+        'check': lambda link: 'instagram.com' in link and is_instagram_video(link),
         'modify': lambda link: link
     },
 ]
+
 
 LANGUAGE_OPTIONS_CONFIG = [
     {
@@ -218,8 +251,12 @@ async def button_callback(update: Update, context: CallbackContext):
                 return
         
         # Convert x.com to fixupx.com if needed (only once)
-        if 'x.com' in original_link and 'fixupx.com' not in original_link:
-            original_link = original_link.replace('x.com', 'fixupx.com')
+        # Only replace if the domain is exactly x.com (not as a substring of another domain)
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(original_link)
+        if parsed.netloc == 'x.com':
+            parsed = parsed._replace(netloc='fixupx.com')
+            original_link = urlunparse(parsed)
 
         # Handle translate action (language menu)
         if action == 'translate':
@@ -282,8 +319,12 @@ def create_link_keyboard(link):
     buttons = []
     
     # Ensure link is using fixupx.com domain
-    if 'x.com' in link:
-        link = link.replace('x.com', 'fixupx.com')
+    # Only replace if the domain is exactly x.com (not as a substring of another domain)
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(link)
+    if parsed.netloc == 'x.com':
+        parsed = parsed._replace(netloc='fixupx.com')
+        link = urlunparse(parsed)
     
     general_logger.info(f"Creating keyboard for link: {link}")
     
