@@ -29,7 +29,7 @@ class Config:
 
 class Stickers:
     """Telegram sticker IDs."""
-    ALIEXPRESS: str = 'CAACAgQAAxkBAAEuNplnAqatdmo-G7S_065k9AXXnqUn4QACwhQAAlKL8FNCof7bbA2jAjYE'
+    ALIEXPRESS: str = 'CAACAgQAAxkBAAEz68ZoA3ZmvEtE8gkXYQUf9T4FToQcggAC9BwAAlW6GVDc_WkMgxhxJzYE'
 
 class LinkModification:
     """Domain modifications for various social media platforms."""
