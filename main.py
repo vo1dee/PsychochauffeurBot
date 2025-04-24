@@ -34,7 +34,7 @@ from modules.const import (
     TOKEN, OPENAI_API_KEY, KYIV_TZ, ALIEXPRESS_STICKER_ID,
     VideoPlatforms, LinkModification, Config # Ensure Config.ERROR_CHANNEL_ID is valid
 )
-from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt
+from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt, analyze_image
 from modules.weather import WeatherCommandHandler
 # Updated logger imports
 from modules.logger import (
@@ -124,6 +124,48 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
     contains_modified_domain = any(domain in message_text for domain in LinkModification.DOMAINS)
     return (mentioned or (is_private_chat and not (contains_video_platform or contains_modified_domain)))
 
+
+@handle_errors(feedback_message="An error occurred while analyzing the image.")
+async def handle_photo(update: Update, context: CallbackContext) -> None:
+    """Handle photos sent to the bot and log analysis without replying."""
+    if not update.message or not update.message.photo:
+        return
+    
+    chat_id = update.effective_chat.id
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username or f"ID:{user_id}"
+    chat_title = update.effective_chat.title or f"Private_{chat_id}"
+    
+    general_logger.info(
+        f"Received photo from user {username}",
+        extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username}
+    )
+    
+    # Get the largest photo (highest quality)
+    photo = update.message.photo[-1]
+    
+    try:
+        # Download the photo
+        photo_file = await context.bot.get_file(photo.file_id)
+        photo_bytes = await photo_file.download_as_bytearray()
+        
+        # Process the image with GPT-4o-mini (silently)
+        await analyze_image(photo_bytes, update, context)
+        
+    except Exception as e:
+        # Still log errors but don't send error message to chat
+        error_context = {
+            "user_id": user_id,
+            "chat_id": chat_id,
+            "file_id": photo.file_id
+        }
+        await ErrorHandler.handle_error(
+            error=e,
+            update=update, 
+            context=context,
+            context_data=error_context,
+            feedback_message=None  # No feedback message to the user
+        )
 
 @handle_errors(feedback_message="An error occurred while processing your message.")
 async def handle_message(update: Update, context: CallbackContext) -> None:
@@ -445,6 +487,8 @@ async def main() -> None:
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
         application.add_handler(CallbackQueryHandler(button_callback)) # Ensure button_callback is async
+        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        general_logger.info("Registered photo handler.")
 
         # --- Module Setups ---
         video_downloader = setup_video_handlers(application, extract_urls_func=extract_urls)

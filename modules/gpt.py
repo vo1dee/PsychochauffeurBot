@@ -1,10 +1,11 @@
 import openai
 import logging
 import os
+import base64
 from datetime import datetime, timedelta
 import pytz
 from typing import Optional
-from modules.logger import general_logger, error_logger, get_daily_log_path
+from modules.logger import general_logger, error_logger, get_daily_log_path, chat_logger
 from modules.const import OPENAI_API_KEY
 if os.getenv("USE_EMPTY_PROMPTS", "false").lower() == "true":
     from modules.prompts_empty import GPT_PROMPTS  # Use empty prompts in GitHub Actions
@@ -14,6 +15,10 @@ else:
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
 from openai import AsyncClient
+from io import BytesIO
+from PIL import Image
+
+
 
 
 client = AsyncClient(api_key=OPENAI_API_KEY)
@@ -22,6 +27,71 @@ KYIV_TZ = pytz.timezone('Europe/Kiev')
 
 # (deprecated) GAME_STATE_FILE removed
 
+async def analyze_image(image_bytes, update: Update = None, context: CallbackContext = None, return_text: bool = False):
+    """
+    Analyze an image using GPT-4o-mini and log a brief description to chat logs without replying.
+    """
+    try:
+        # Resize and compress image to optimize for API
+        img = Image.open(BytesIO(image_bytes))
+        max_size = 1024  # Max dimension
+        
+        # Resize if needed
+        if max(img.size) > max_size:
+            ratio = max_size / max(img.size)
+            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+        
+        # Save to BytesIO with compression
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=80)
+        buffer.seek(0)
+        
+        # Encode image to base64
+        base64_image = base64.b64encode(buffer.read()).decode('utf-8')
+        
+        # Call GPT-4o-mini with the image
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Generate a brief 2-3 sentence description of the image provided. Focus on main elements, objects, people, and context. Be concise and informative."},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "What's in this image? Please describe briefly in 2-3 sentences."},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]}
+            ],
+            max_tokens=150,
+            temperature=0.2
+        )
+        
+        description = response.choices[0].message.content.strip()
+        
+        # Only log to chat log, don't reply to user
+        if update and update.effective_chat:
+            chat_id = update.effective_chat.id
+            user_id = update.message.from_user.id if update.message.from_user else "unknown"
+            username = update.message.from_user.username or f"ID:{user_id}" 
+            
+            # Add a prefix to make it clear this is an image description in the logs
+            log_description = f"[IMAGE DESCRIPTION]: {description}"
+            
+            # Log to chat_logger so it appears in chat logs
+            chat_logger.info(
+                log_description,
+                extra={'chat_id': chat_id, 'chattitle': update.effective_chat.title or f"Private_{chat_id}", 'username': username}
+            )
+            
+            general_logger.info(f"Logged image description for user {username} in chat {chat_id}")
+        
+        # Still return the description if requested
+        if return_text:
+            return description
+            
+        return description
+        
+    except Exception as e:
+        await handle_error(e, update, return_text)
+        return "Error analyzing image."
 
 
 async def gpt_response(prompt: str, update: Update = None, context: CallbackContext = None, return_text: bool = False):
