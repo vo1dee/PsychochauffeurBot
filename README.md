@@ -45,7 +45,7 @@ Simply send a video link from any supported platform, and the bot will:
 ## 🛠 Commands
 - `/start` - Welcome message and bot info
 - `/cat` - Random cat pictures from thecatapi.com
-- `/blya` - Translates last message from English to Ukrainian keyboard layout
+- `бля!` - Translates last message from English to Ukrainian keyboard layout
 - `/errors` - Generate error analytics report (admin only)
 
 ## 🔧 Technical Features
@@ -88,6 +88,16 @@ Simply send a video link from any supported platform, and the bot will:
    ```bash
    python main.py
    ```
+
+## 🧪 Running Tests
+To run the test suite (excluding integration/service tests):
+```bash
+pytest --ignore=tests/test_service.py
+```
+To run all tests:
+```bash
+pytest
+```
 
 ## ⚠️ Limitations
 - 50MB maximum video size for Telegram uploads
