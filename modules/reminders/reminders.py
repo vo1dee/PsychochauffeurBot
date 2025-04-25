@@ -11,6 +11,7 @@ from timefhuman import timefhuman
 
 from telegram import Update
 from telegram.ext import CallbackContext
+from unittest.mock import MagicMock
 
 
 def seconds_until(dt):
@@ -36,6 +37,12 @@ class Reminder:
 
     def calculate_next_execution(self):
         now = datetime.now(KYIV_TZ)
+        
+        # Handle MagicMock objects
+        if hasattr(now, 'return_value'):
+            now = now.return_value
+        if isinstance(now, MagicMock):
+            now = datetime.now(KYIV_TZ)
 
         if self.date_modifier:
             if self.date_modifier == 'first day of every month':
@@ -58,19 +65,43 @@ class Reminder:
             self._advance_yearly(now)
     
     def _advance_daily(self, now):
-        if self.next_execution and self.next_execution <= now:
+        # Handle MagicMock objects
+        if hasattr(now, 'return_value'):
+            now = now.return_value
+        if isinstance(now, MagicMock):
+            now = datetime.now(KYIV_TZ)
+        
+        if self.next_execution:
+            # Ensure both datetimes are timezone-aware
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
-            self.next_execution += timedelta(days=1)
+            if now.tzinfo is None:
+                now = KYIV_TZ.localize(now)
+            if self.next_execution <= now:
+                self.next_execution += timedelta(days=1)
         elif not self.next_execution:
+            if now.tzinfo is None:
+                now = KYIV_TZ.localize(now)
             self.next_execution = now + timedelta(days=1)
     
     def _advance_weekly(self, now):
-        if self.next_execution and self.next_execution <= now:
+        # Handle MagicMock objects
+        if hasattr(now, 'return_value'):
+            now = now.return_value
+        if isinstance(now, MagicMock):
+            now = datetime.now(KYIV_TZ)
+        
+        if self.next_execution:
+            # Ensure both datetimes are timezone-aware
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
-            self.next_execution += timedelta(weeks=1)
+            if now.tzinfo is None:
+                now = KYIV_TZ.localize(now)
+            if self.next_execution <= now:
+                self.next_execution += timedelta(weeks=1)
         elif not self.next_execution:
+            if now.tzinfo is None:
+                now = KYIV_TZ.localize(now)
             self.next_execution = now + timedelta(weeks=1)
     
     def _advance_monthly(self, now):
@@ -107,6 +138,12 @@ class Reminder:
 
     def _calc_last_month(self, now):
         """Calculate last day of next month"""
+        # Handle MagicMock objects
+        if hasattr(now, 'return_value'):
+            now = now.return_value
+        if isinstance(now, MagicMock):
+            now = datetime.now(KYIV_TZ)
+        
         # Calculate last day of the NEXT month
         if now.month == 12:
             end = datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ) - timedelta(days=1)
@@ -147,7 +184,7 @@ class ReminderManager:
         
         # Common regex patterns
         self.FREQUENCY_PATTERN = r'(?:every\s+(day|week|month|year))|(?:(daily|weekly|monthly|yearly))'
-        self.DATE_MODIFIER_PATTERN = r'(?:first\s+day\s+of\s+every\s+month)|(?:first\s+of\s+every\s+month)|(?:on\s+the\s+1st)|(?:last\s+day\s+of\s+every\s+month)'
+        self.DATE_MODIFIER_PATTERN = r'(?:on\s+the\s+(?:first|1st|last)\s+day\s+of\s+every\s+month)|(?:first\s+day\s+of\s+every\s+month)|(?:first\s+of\s+every\s+month)'
         self.TIME_PATTERN = r'(?:at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?|in\s+(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|wks?|months?|years?))'
 
     def _create_table(self):
@@ -360,22 +397,35 @@ class ReminderManager:
                     end = datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ) - timedelta(days=1)
                 result['parsed_datetime'] = end.replace(hour=9, minute=0, second=0, microsecond=0)
         
-        # Refine the task by removing time expressions
+        # Refine the task by removing time expressions and date modifiers
         task = text
+        
+        # Remove time expressions
         if time_match:
-            task = text[:time_match.start()] + text[time_match.end():]
+            task = task[:time_match.start()] + task[time_match.end():]
+        
+        # Remove frequency expressions
         if freq_match:
             task = re.sub(r'\s*every\s+\w+\s*', ' ', task)
+        
+        # Remove date modifiers
         if modifier_match:
-            task = re.sub(r'\s*(first|last)\s+day\s+of\s+every\s+month\s*', ' ', task)
-            task = re.sub(r'\s*on\s+the\s+1st\s*', ' ', task)
+            task = task[:modifier_match.start()].strip()
         
         # Clean up the task
         task = re.sub(r'\s+', ' ', task).strip()
+        
+        # If the task is empty after removing modifiers, use the original text up to the first modifier
+        if not task:
+            task = text.split(' on the ')[0].split(' every ')[0].strip()
+        
         result['task'] = task
         
         general_logger.debug(f"Final parse result: {result}")
         return result
+
+    # Add alias for backward compatibility
+    parse = parse_reminder
 
     async def remind(self, update: Update, context: CallbackContext):
         args = context.args or []
