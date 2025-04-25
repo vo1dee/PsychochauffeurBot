@@ -513,7 +513,28 @@ class ReminderManager:
     async def remind(self, update: Update, context: CallbackContext):
         args = context.args or []
         if not args:
-            await update.message.reply_text("/remind to <text> ... | list | delete ID/all | edit ID <text>")
+            await update.message.reply_text(
+                "📝 *Reminder Bot Help*\n\n"
+                "🔹 *Commands:*\n"
+                "`/remind to <text> \.\.\.` \- Create a new reminder\n"
+                "`/remind list` \- Show all active reminders\n"
+                "`/remind delete <id>` \- Delete a specific reminder\n"
+                "`/remind delete all` \- Delete all reminders\n"
+                "`/remind edit <id> <new text>` \- Edit an existing reminder\n\n"
+                "🔹 *Examples:*\n"
+                "• `/remind to pay rent every month on the 1st at 9AM`\n"
+                "• `/remind to call mom in 2 hours`\n"
+                "• `/remind to water plants every day at 8PM`\n"
+                "• `/remind to submit report on the last day of every month`\n\n"
+                "🔹 *Supported time formats:*\n"
+                "• `in X minutes/hours/days/weeks/months`\n"
+                "• `at HH\:MM` or `at HH AM/PM`\n"
+                "• `every day/week/month`\n"
+                "• `first/last day of every month`\n"
+                "• `tomorrow at HH\:MM`\n"
+                "• `on Monday` or `on July 15`",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
             return
 
         command = args[0].lower()
