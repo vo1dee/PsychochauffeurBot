@@ -27,6 +27,20 @@ class Config:
     ERROR_CHANNEL_ID: str = os.getenv('ERROR_CHANNEL_ID', '')
     SCREENSHOT_DIR: str = 'python-web-screenshots'
 
+    @classmethod
+    def validate(cls) -> bool:
+        """Validate required configuration."""
+        required = {
+            'TELEGRAM_BOT_TOKEN': cls.TELEGRAM_BOT_TOKEN,
+            'OPENAI_API_KEY': cls.OPENAI_API_KEY
+        }
+        
+        missing = [key for key, value in required.items() if not value]
+        if missing:
+            error_logger.error(f"Missing required configuration: {', '.join(missing)}")
+            return False
+        return True
+
 class Stickers:
     """Telegram sticker IDs."""
     ALIEXPRESS: str = 'CAACAgQAAxkBAAEz68ZoA3ZmvEtE8gkXYQUf9T4FToQcggAC9BwAAlW6GVDc_WkMgxhxJzYE'
