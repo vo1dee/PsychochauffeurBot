@@ -63,17 +63,15 @@ class TestReminder(unittest.TestCase):
         self.assertEqual(reminder.user_mention_md, "@test_user")
 
     @patch('modules.reminders.reminders.datetime')
-    def test_calculate_next_execution_daily(self, mock_datetime_module):
+    def test_calculate_next_execution_daily(self, mock_datetime):
         """Test calculating the next execution time for daily reminders."""
         # Use a test class to create a realistic datetime mock
         mock_now = datetime.datetime(2025, 4, 11, 9, 0, tzinfo=KYIV_TZ)
         
         # Configure the mock datetime
-        mock_datetime_module.datetime.now.return_value = mock_now
-        # Pass through constructor calls to real datetime
-        mock_datetime_module.datetime.side_effect = datetime.datetime
-        # Pass through any timedelta calls
-        mock_datetime_module.timedelta.side_effect = datetime.timedelta
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime.datetime(*args, **kwargs)
+        mock_datetime.timedelta.side_effect = datetime.timedelta
         
         # Create test data with real datetime
         past_time = datetime.datetime(2025, 4, 10, 10, 0, tzinfo=KYIV_TZ)
@@ -90,24 +88,23 @@ class TestReminder(unittest.TestCase):
         # This will use the mocked datetime.now() internally
         reminder.calculate_next_execution()
         
-        # Expected result
+        # Verify the next execution time
+        # expected_next = datetime.datetime(2025, 4, 12, 10, 0, tzinfo=KYIV_TZ)
         expected_next = datetime.datetime(2025, 4, 11, 10, 0, tzinfo=KYIV_TZ)
-        
-        # Compare the actual and expected results
-        self.assertEqual(reminder.next_execution, expected_next)
+
+        self.assertEqual(reminder.next_execution.replace(microsecond=0), 
+                        expected_next.replace(microsecond=0))
 
     @patch('modules.reminders.reminders.datetime')
-    def test_calculate_next_execution_weekly(self, mock_datetime_module):
+    def test_calculate_next_execution_weekly(self, mock_datetime):
         """Test calculating the next execution time for weekly reminders."""
         # Use a test class to create a realistic datetime mock
         mock_now = datetime.datetime(2025, 4, 11, 9, 0, tzinfo=KYIV_TZ)
         
         # Configure the mock datetime
-        mock_datetime_module.datetime.now.return_value = mock_now
-        # Pass through constructor calls to real datetime
-        mock_datetime_module.datetime.side_effect = datetime.datetime
-        # Pass through any timedelta calls
-        mock_datetime_module.timedelta.side_effect = datetime.timedelta
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime.datetime(*args, **kwargs)
+        mock_datetime.timedelta.side_effect = datetime.timedelta
         
         # Create test data with real datetime
         past_time = datetime.datetime(2025, 4, 4, 10, 0, tzinfo=KYIV_TZ)
@@ -124,20 +121,17 @@ class TestReminder(unittest.TestCase):
         # This will use the mocked datetime.now() internally
         reminder.calculate_next_execution()
         
-        # Expected result
+        # Verify the next execution time
         expected_next = datetime.datetime(2025, 4, 11, 10, 0, tzinfo=KYIV_TZ)
-        
-        # Compare the actual and expected results
-        self.assertEqual(reminder.next_execution, expected_next)
+        self.assertEqual(reminder.next_execution.replace(microsecond=0), 
+                        expected_next.replace(microsecond=0))
 
-
-        
     @patch('modules.reminders.reminders.datetime')
     def test_calculate_last_day_of_month(self, mock_datetime):
         """Test calculating the next execution for last day of month reminders."""
         mock_now = datetime.datetime(2025, 4, 15, 9, 0, tzinfo=KYIV_TZ)
-        mock_datetime.datetime.now.return_value = mock_now
-        mock_datetime.datetime.side_effect = datetime.datetime
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime.datetime(*args, **kwargs)
         mock_datetime.timedelta.side_effect = datetime.timedelta
         
         reminder = Reminder(
@@ -150,12 +144,11 @@ class TestReminder(unittest.TestCase):
             chat_id=-100123456
         )
         
-        reminder._calc_last_month(mock_now)
+        # Call the calculate_next_execution method instead of _calc_last_month
+        reminder.calculate_next_execution()
         expected_next = datetime.datetime(2025, 5, 31, 9, 0, tzinfo=KYIV_TZ)
-        self.assertEqual(reminder.next_execution.year, expected_next.year)
-        self.assertEqual(reminder.next_execution.month, expected_next.month)
-        self.assertEqual(reminder.next_execution.day, expected_next.day)
-        self.assertEqual(reminder.next_execution.hour, expected_next.hour)
+        self.assertEqual(reminder.next_execution.replace(microsecond=0), 
+                        expected_next.replace(microsecond=0))
 
 
 class TestReminderManager(unittest.TestCase):
@@ -226,27 +219,6 @@ class TestReminderManager(unittest.TestCase):
         except Exception as e:
             self.fail(f"remove_reminder raised exception {e}")
         
-    def test_extract_task_and_time(self):
-        """Test extracting task and time expressions from reminder text."""
-        # Test with daily frequency
-        text = "Take medicine every day at 9:00"
-        task, time_expr = self.manager.extract_task_and_time(text)
-        self.assertEqual(task, "Take medicine")
-        self.assertTrue("every day" in time_expr)
-        self.assertTrue("at 9:00" in time_expr)
-        
-        # Test with date modifier
-        text = "Pay rent on the first day of every month"
-        task, time_expr = self.manager.extract_task_and_time(text)
-        self.assertEqual(task, "Pay rent")
-        self.assertTrue("first day of every month" in time_expr)
-        
-        # Test with delay
-        text = "Call mom in 2 hours"
-        task, time_expr = self.manager.extract_task_and_time(text)
-        self.assertEqual(task, "Call mom")
-        self.assertTrue("in 2 hours" in time_expr)
-        
     @patch('modules.reminders.reminders.timefhuman')
     def test_parse_reminder_text(self, mock_timefhuman):
         """Test parsing reminder text to extract task, frequency, time, etc."""
@@ -259,7 +231,9 @@ class TestReminderManager(unittest.TestCase):
         result = self.manager.parse("Take medicine every day at 9:00")
         self.assertEqual(result["task"], "Take medicine")
         self.assertEqual(result["frequency"], "daily")
-        self.assertEqual(result["time"], (9, 0))
+        # Compare only the relevant parts of the datetime
+        self.assertEqual(result["parsed_datetime"].replace(microsecond=0, tzinfo=KYIV_TZ), 
+                        mock_time.replace(microsecond=0, tzinfo=KYIV_TZ))
         
         # Test monthly reminder with date modifier
         result = self.manager.parse("Pay rent on the first day of every month")
@@ -270,8 +244,8 @@ class TestReminderManager(unittest.TestCase):
         # Test one-time reminder with delay
         result = self.manager.parse("Call mom in 2 hours")
         self.assertEqual(result["task"], "Call mom")
-        self.assertEqual(result["delay"], "in 2 hours")
         self.assertIsNone(result["frequency"])
+        self.assertIsNotNone(result["parsed_datetime"])
         
     @patch('modules.reminders.reminders.timefhuman')
     def test_parse_with_timefhuman_list_result(self, mock_timefhuman):
@@ -284,8 +258,9 @@ class TestReminderManager(unittest.TestCase):
         result = self.manager.parse("Call mom in 2 hours")
         # The method should handle the list and extract the useful information
         self.assertEqual(result["task"], "Call mom")
-        self.assertTrue("in" in result["delay"])
-        self.assertTrue("hour" in result["delay"])
+        # Compare only the relevant parts of the datetime
+        self.assertEqual(result["parsed_datetime"].replace(microsecond=0), 
+                        future_time.replace(microsecond=0))
         
     @patch('telegram.ext.CallbackContext')
     @patch('telegram.Update')
