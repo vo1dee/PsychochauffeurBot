@@ -4,6 +4,7 @@ import platform
 import asyncio
 from modules.logger import general_logger, error_logger
 from urllib.parse import urlparse
+from modules.const import OPENROUTER_BASE_URL
 
 
 import asyncio
