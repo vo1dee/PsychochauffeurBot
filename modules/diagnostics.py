@@ -5,7 +5,6 @@ import asyncio
 from modules.logger import general_logger, error_logger
 from urllib.parse import urlparse
 from modules.const import OPENROUTER_BASE_URL
-from modules.gpt import client
 
 import asyncio
 from datetime import datetime
@@ -174,12 +173,14 @@ async def monitor_api_health():
 async def test_api_connectivity():
     """
     Test basic API connectivity with a minimal request
-    
+
     Returns:
         bool: True if connection successful, False otherwise
     """
     try:
-        # Use a very simple request to test connectivity
+        # Import here to avoid circular import
+        from modules.gpt import client
+
         response = await client.chat.completions.create(
             model="openai/gpt-4o-mini",
             messages=[
@@ -189,12 +190,11 @@ async def test_api_connectivity():
             max_tokens=5,
             temperature=0
         )
-        
-        # Check if we got a response
+
         if response and hasattr(response, 'choices') and len(response.choices) > 0:
             return True
         return False
-        
+
     except Exception as e:
         general_logger.warning(f"API connectivity test failed: {e}")
         return False
