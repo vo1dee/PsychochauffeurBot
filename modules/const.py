@@ -20,6 +20,7 @@ KYIV_TZ = pytz.timezone('Europe/Kyiv')
 
 class Config:
     """Bot configuration and API keys."""
+    OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     OPENWEATHER_API_KEY: str = os.getenv('OPENWEATHER_API_KEY', '')
     DISCORD_WEBHOOK_URL: str = os.getenv('DISCORD_WEBHOOK_URL', '')
     TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
@@ -82,6 +83,7 @@ class Weather:
 TOKEN = Config.TELEGRAM_BOT_TOKEN
 OPENAI_API_KEY = Config.OPENAI_API_KEY
 SCREENSHOT_DIR = Config.SCREENSHOT_DIR
+OPENROUTER_BASE_URL = Config.OPENROUTER_BASE_URL
 ALIEXPRESS_STICKER_ID = Stickers.ALIEXPRESS
 domain_modifications = LinkModification.DOMAINS
 city_translations = Weather.CITY_TRANSLATIONS
