@@ -444,23 +444,23 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
 
 async def main() -> None:
     """Initialize and run the bot."""
-    # Use general_logger for startup messages
     general_logger.info("Starting bot initialization...")
 
     # Validate required environment variables
     if not TOKEN:
-        error_logger.critical("TELEGRAM_BOT_TOKEN is not set. Exiting.") # Use error_logger
+        error_logger.critical("TELEGRAM_BOT_TOKEN is not set. Exiting.")
         sys.exit(1)
     if not OPENAI_API_KEY:
-        error_logger.critical("OPENAI_API_KEY is not set. Exiting.") # Use error_logger
+        error_logger.critical("OPENAI_API_KEY is not set. Exiting.")
         sys.exit(1)
-    if not Config.ERROR_CHANNEL_ID:
-         error_logger.critical("ERROR_CHANNEL_ID is not set in Config or environment. Exiting.") # Use error_logger
-         sys.exit(1)
+    # Remove this block:
+    # if not Config.ERROR_CHANNEL_ID:
+    #     error_logger.critical("ERROR_CHANNEL_ID is not set in Config or environment. Exiting.")
+    #     sys.exit(1)
 
-    application = None # Define application here for finally block
+    application = None
     try:
-        init_directories() # Ensure directories exist early
+        init_directories()
         application = ApplicationBuilder().token(TOKEN).build()
 
         # --- Command Registration ---
@@ -496,12 +496,15 @@ async def main() -> None:
         general_logger.info("Video downloader handlers set up.")
 
         # --- Initialize Telegram Error Handler (Updated Call) ---
-        await init_telegram_error_handler(TOKEN, Config.ERROR_CHANNEL_ID)
-        # Send test message *after* ensuring handler init was successful (optional check)
-        if any(isinstance(h, TelegramErrorHandler) for h in error_logger.handlers):
-             error_logger.error("Test notification: Bot started and Telegram error logging initialized.")
+        # Only initialize if ERROR_CHANNEL_ID is set
+        if Config.ERROR_CHANNEL_ID:
+            await init_telegram_error_handler(TOKEN, Config.ERROR_CHANNEL_ID)
+            if any(isinstance(h, TelegramErrorHandler) for h in error_logger.handlers):
+                error_logger.error("Test notification: Bot started and Telegram error logging initialized.")
+            else:
+                error_logger.error("Bot started, but Telegram error handler was NOT added successfully.")
         else:
-             error_logger.error("Bot started, but Telegram error handler was NOT added successfully.")
+            general_logger.info("ERROR_CHANNEL_ID not set. Telegram error notifications will be disabled.")
 
         # --- Background Tasks ---
         screenshot_manager = ScreenshotManager()
