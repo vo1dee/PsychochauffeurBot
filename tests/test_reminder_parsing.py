@@ -2,6 +2,7 @@ import logging
 import datetime
 from dateutil.relativedelta import relativedelta
 from modules.reminders.reminders import ReminderManager, KYIV_TZ
+from modules.reminders.reminder_parser import ReminderParser
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -36,7 +37,7 @@ def test_reminder_parsing():
         reminder_text = test_case[len("/remind to "):]
         
         # Parse the reminder
-        parsed = manager.parse_reminder(reminder_text)
+        parsed = ReminderParser.parse_reminder(reminder_text)
         print(f"Parsed result: {parsed}")
         
         # Basic validation
