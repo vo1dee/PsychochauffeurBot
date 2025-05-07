@@ -611,11 +611,11 @@ class ReminderManager:
                 await query.message.edit_text("✅ All reminders have been deleted.")
 
             elif action == 'cancel_delete_all':
-                await query.message.edit_text("❌ Deletion cancelled.")
+                await update.callback_query.message.edit_text("❌ Deletion cancelled.")
 
         except Exception as e:
             error_logger.error(f"Error in button callback: {e}", exc_info=True)
-            await query.message.edit_text("❌ An error occurred while processing your request.")
+            await update.callback_query.message.edit_text("❌ An error occurred while processing your request.")
 
     async def list_reminders(self, update: Update, context: CallbackContext):
         """List all active reminders in a visually appealing format."""
