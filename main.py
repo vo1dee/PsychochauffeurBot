@@ -18,10 +18,10 @@ from typing import List, Optional, Dict
 import time
 from collections import deque
 
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
-    CallbackContext, CallbackQueryHandler, ContextTypes
+    CallbackContext, CallbackQueryHandler, ContextTypes, Application
 )
 
 # Import from your modules
@@ -48,7 +48,8 @@ from modules.video_downloader import setup_video_handlers
 from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
 from modules.geomagnetic import GeomagneticCommandHandler
 from modules.reminders.reminders import ReminderManager
-from modules.error_analytics import error_report_command # Import moved inside main()
+from modules.error_analytics import error_report_command, error_tracker
+from config.config_manager import ConfigManager
 
 nest_asyncio.apply()
 
@@ -61,6 +62,9 @@ _SHORTENER_MAX_CALLS_PER_MINUTE: int = int(os.getenv('SHORTENER_MAX_CALLS_PER_MI
 message_counter = MessageCounter()
 last_user_messages = {}
 reminder_manager = ReminderManager()
+
+# Initialize ConfigManager at module level
+config_manager = ConfigManager()
 
 # --- Removed Basic Logging Config ---
 # logging.basicConfig(...) # REMOVED
@@ -179,6 +183,19 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     username = update.message.from_user.username or f"ID:{update.message.from_user.id}" # Fallback if no username
     user_id = update.message.from_user.id
     chat_title = update.effective_chat.title or f"Private_{chat_id}" # More descriptive private chat title
+    chat_type = "private" if update.effective_chat.type == "private" else "group"
+
+    # Create or get chat configuration
+    try:
+        chat_config = await config_manager.get_config(
+            chat_id=str(chat_id),
+            chat_type=chat_type,
+            chat_name=chat_title
+        )
+        general_logger.info(f"Loaded chat config for {chat_type} chat {chat_id}")
+    except Exception as e:
+        error_logger.error(f"Failed to load chat config: {e}")
+        # Continue without config if there's an error
 
     # Update last message cache
     last_user_messages.setdefault(user_id, {'current': None, 'previous': None})
@@ -191,8 +208,8 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username}
     )
 
-    # Restrict user check
-    if any(char in message_text for char in "ЫыЪъЭэЁё"):
+    # Restrict user check - only for group chats
+    if chat_type == "group" and any(char in message_text for char in "ЫыЪъЭэЁё"):
         chat_logger.warning(f"Restricting user {username} ({user_id}) in chat {chat_id} due to forbidden characters.",
              extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
         await restrict_user(update, context)
@@ -445,122 +462,67 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         await restrict_user(update, context)
 
 
+def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
+    """Register all command and message handlers."""
+    # Command handlers
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('cat', cat_command))
+    application.add_handler(CommandHandler('gpt', ask_gpt_command))
+    application.add_handler(CommandHandler('analyze', analyze_command))
+    application.add_handler(CommandHandler('flares', screenshot_command))
+    application.add_handler(CommandHandler('weather', WeatherCommandHandler()))
+    application.add_handler(CommandHandler('errors', error_report_command))
+    application.add_handler(CommandHandler('gm', GeomagneticCommandHandler()))
+    application.add_handler(CommandHandler('ping', lambda update, context: update.message.reply_text("🏓 Bot is online!")))
+    application.add_handler(CommandHandler('remind', reminder_manager.remind))
+    
+    # Message handlers
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    
+    # Video downloader setup
+    video_downloader = setup_video_handlers(application, extract_urls_func=extract_urls)
+    application.bot_data['video_downloader'] = video_downloader
+    
+    general_logger.info("All handlers registered successfully")
+
 async def main() -> None:
-    """Initialize and run the bot."""
-    general_logger.info("Starting bot initialization...")
-
-    # Validate required environment variables
-    if not TOKEN:
-        error_logger.critical("TELEGRAM_BOT_TOKEN is not set. Exiting.")
-        sys.exit(1)
-    if not OPENAI_API_KEY:
-        error_logger.critical("OPENAI_API_KEY is not set. Exiting.")
-        sys.exit(1)
-    # Remove this block:
-    # if not Config.ERROR_CHANNEL_ID:
-    #     error_logger.critical("ERROR_CHANNEL_ID is not set in Config or environment. Exiting.")
-    #     sys.exit(1)
-
-    application = None
+    """Main function to start the bot."""
     try:
-        init_directories()
+        # Initialize bot and application
         application = ApplicationBuilder().token(TOKEN).build()
-
-        # --- Command Registration ---
-        # Import command handlers here if they cause circular dependencies, otherwise keep at top
-        from modules.error_analytics import error_report_command # Keep import here if needed
-
-        commands = {
-            'start': start,
-            'cat': cat_command,
-            'gpt': ask_gpt_command, # Ensure this handler exists and is async
-            'analyze': analyze_command, # Ensure this handler exists and is async
-            'flares': screenshot_command, # Ensure this handler exists and is async
-            'weather': WeatherCommandHandler(), # Ensure this implements __call__ or is callable
-            'errors': error_report_command, # Ensure this handler exists and is async
-            'gm': GeomagneticCommandHandler(), # Ensure this implements __call__ or is callable
-            'ping': lambda update, context: update.message.reply_text("🏓 Bot is online!"),
-            'remind': reminder_manager.remind # Ensure this method is async
-        }
-        for command, handler in commands.items():
-            application.add_handler(CommandHandler(command, handler))
-        general_logger.info(f"Registered {len(commands)} commands.")
-
-        # --- Message and Callback Handlers ---
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
-        application.add_handler(CallbackQueryHandler(button_callback)) # Ensure button_callback is async
-        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        general_logger.info("Registered photo handler.")
-
-        # --- Module Setups ---
-        video_downloader = setup_video_handlers(application, extract_urls_func=extract_urls)
-        application.bot_data['video_downloader'] = video_downloader
-        general_logger.info("Video downloader handlers set up.")
-
-        # --- Initialize Telegram Error Handler (Updated Call) ---
-        # Only initialize if ERROR_CHANNEL_ID is set
-        if Config.ERROR_CHANNEL_ID:
-            await init_telegram_error_handler(TOKEN, Config.ERROR_CHANNEL_ID)
-            if any(isinstance(h, TelegramErrorHandler) for h in error_logger.handlers):
-                error_logger.error("Test notification: Bot started and Telegram error logging initialized.")
-            else:
-                error_logger.error("Bot started, but Telegram error handler was NOT added successfully.")
-        else:
-            general_logger.info("ERROR_CHANNEL_ID not set. Telegram error notifications will be disabled.")
-
-        # --- Background Tasks ---
-        screenshot_manager = ScreenshotManager()
-        asyncio.create_task(screenshot_manager.schedule_task())
-        general_logger.info("Scheduled screenshot task.")
-        if application.job_queue:
-            reminder_manager.schedule_startup(application.job_queue)
-            general_logger.info("Scheduled reminder startup jobs.")
-        else:
-            general_logger.warning("JobQueue not available, cannot schedule reminder startup jobs.")
-
-
-        # --- Run the Bot ---
-        general_logger.info("Bot initialization complete. Starting polling...")
+        
+        # Initialize config manager
+        config_manager = ConfigManager()
+        
+        # Register handlers
+        register_handlers(application, application.bot, config_manager)
+        
+        # Migrate configurations
+        general_logger.info("Starting configuration migration...")
+        migration_results = await config_manager.migrate_all_configs()
+        general_logger.info("Configuration migration completed")
+        for chat_id, result in migration_results.items():
+            general_logger.info(f"Chat {chat_id}: {result}")
+        
+        # Start error tracking after event loop is running
+        error_tracker._schedule_tasks()
+        
+        # Start polling
+        general_logger.info("Starting bot polling...")
         await application.run_polling()
-
+        
     except Exception as e:
-        # Log critical startup error using the configured error logger
-        error_context = {
-            "system_info": {"python_version": sys.version},
-             "time": datetime.now(KYIV_TZ).isoformat()
-        }
-        # Use error_logger, exc_info=True adds traceback
-        error_logger.critical(f"Bot failed to start: {e}", exc_info=True, extra=error_context)
-        # Optional: Re-raise if you want the process to exit non-zero
-        # raise
-
+        general_logger.error(f"Error in main: {str(e)}")
+        raise
     finally:
-        # --- Graceful Shutdown ---
-        general_logger.info("Initiating bot shutdown sequence...")
-        if application:
-             # Optional: Add shutdown logic for the application itself if needed
-             # await application.shutdown() # If PTB implements this in the future
-             pass
-        await shutdown_logging() # Call the logger shutdown function
-        general_logger.info("Bot shutdown complete.")
+        # Cleanup
+        if 'error_tracker' in globals():
+            await error_tracker.stop()
+        general_logger.info("Bot stopped")
 
 
-if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except RuntimeError as e:
-        # Log error if encountered during asyncio.run
-        error_logger.critical(f"RuntimeError during main execution: {e}", exc_info=True)
-        # Specific check for loop already running error
-        if "Cannot run the event loop while another loop is running" in str(e):
-            error_logger.error("Event loop is already running. Check for nested asyncio.run or conflicting frameworks.")
-        else:
-             raise # Re-raise other RuntimeErrors
-    except KeyboardInterrupt:
-        general_logger.info("KeyboardInterrupt received, exiting.")
-        # The finally block in main() should handle cleanup.
-    except Exception as e:
-         # Catch any other unexpected exceptions during startup/runtime
-         error_logger.critical(f"Unhandled exception in __main__: {e}", exc_info=True)
-         sys.exit(1) # Exit with error code
+if __name__ == "__main__":
+    asyncio.run(main())
