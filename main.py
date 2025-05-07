@@ -444,16 +444,23 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
 
 async def main() -> None:
     """Initialize and run the bot."""
-    # Use general_logger for startup messages
     general_logger.info("Starting bot initialization...")
 
-    # Validate required environment variables using Config class
-    if not Config.validate():
+    # Validate required environment variables
+    if not TOKEN:
+        error_logger.critical("TELEGRAM_BOT_TOKEN is not set. Exiting.")
         sys.exit(1)
+    if not OPENAI_API_KEY:
+        error_logger.critical("OPENAI_API_KEY is not set. Exiting.")
+        sys.exit(1)
+    # Remove this block:
+    # if not Config.ERROR_CHANNEL_ID:
+    #     error_logger.critical("ERROR_CHANNEL_ID is not set in Config or environment. Exiting.")
+    #     sys.exit(1)
 
-    application = None # Define application here for finally block
+    application = None
     try:
-        init_directories() # Ensure directories exist early
+        init_directories()
         application = ApplicationBuilder().token(TOKEN).build()
 
         # --- Command Registration ---
@@ -479,23 +486,25 @@ async def main() -> None:
         # --- Message and Callback Handlers ---
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
-        application.add_handler(CallbackQueryHandler(button_callback)) # This handles both keyboard and reminder callbacks
+        application.add_handler(CallbackQueryHandler(button_callback)) # Ensure button_callback is async
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         general_logger.info("Registered photo handler.")
 
         # --- Module Setups ---
         video_downloader = setup_video_handlers(application, extract_urls_func=extract_urls)
         application.bot_data['video_downloader'] = video_downloader
-        application.bot_data['reminder_manager'] = reminder_manager  # Store reminder manager in bot_data
         general_logger.info("Video downloader handlers set up.")
 
         # --- Initialize Telegram Error Handler (Updated Call) ---
-        await init_telegram_error_handler(TOKEN, Config.ERROR_CHANNEL_ID)
-        # Send test message *after* ensuring handler init was successful (optional check)
-        if any(isinstance(h, TelegramErrorHandler) for h in error_logger.handlers):
-             error_logger.error("Test notification: Bot started and Telegram error logging initialized.")
+        # Only initialize if ERROR_CHANNEL_ID is set
+        if Config.ERROR_CHANNEL_ID:
+            await init_telegram_error_handler(TOKEN, Config.ERROR_CHANNEL_ID)
+            if any(isinstance(h, TelegramErrorHandler) for h in error_logger.handlers):
+                error_logger.error("Test notification: Bot started and Telegram error logging initialized.")
+            else:
+                error_logger.error("Bot started, but Telegram error handler was NOT added successfully.")
         else:
-             error_logger.error("Bot started, but Telegram error handler was NOT added successfully.")
+            general_logger.info("ERROR_CHANNEL_ID not set. Telegram error notifications will be disabled.")
 
         # --- Background Tasks ---
         screenshot_manager = ScreenshotManager()
