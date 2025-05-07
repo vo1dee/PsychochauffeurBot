@@ -20,26 +20,13 @@ KYIV_TZ = pytz.timezone('Europe/Kyiv')
 
 class Config:
     """Bot configuration and API keys."""
+    OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     OPENWEATHER_API_KEY: str = os.getenv('OPENWEATHER_API_KEY', '')
     DISCORD_WEBHOOK_URL: str = os.getenv('DISCORD_WEBHOOK_URL', '')
     TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
     OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
     ERROR_CHANNEL_ID: str = os.getenv('ERROR_CHANNEL_ID', '')
     SCREENSHOT_DIR: str = 'python-web-screenshots'
-
-    @classmethod
-    def validate(cls) -> bool:
-        """Validate required configuration."""
-        required = {
-            'TELEGRAM_BOT_TOKEN': cls.TELEGRAM_BOT_TOKEN,
-            'OPENAI_API_KEY': cls.OPENAI_API_KEY
-        }
-        
-        missing = [key for key, value in required.items() if not value]
-        if missing:
-            error_logger.error(f"Missing required configuration: {', '.join(missing)}")
-            return False
-        return True
 
 class Stickers:
     """Telegram sticker IDs."""
@@ -96,6 +83,7 @@ class Weather:
 TOKEN = Config.TELEGRAM_BOT_TOKEN
 OPENAI_API_KEY = Config.OPENAI_API_KEY
 SCREENSHOT_DIR = Config.SCREENSHOT_DIR
+OPENROUTER_BASE_URL = Config.OPENROUTER_BASE_URL
 ALIEXPRESS_STICKER_ID = Stickers.ALIEXPRESS
 domain_modifications = LinkModification.DOMAINS
 city_translations = Weather.CITY_TRANSLATIONS

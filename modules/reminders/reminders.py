@@ -1,13 +1,14 @@
-from datetime import datetime, timedelta
 import sqlite3
+import datetime
 import re
-from dateutil.relativedelta import relativedelta
 from dateutil.parser import isoparse
+from dateutil.relativedelta import relativedelta
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
 from modules.const import KYIV_TZ
 from modules.logger import error_logger, general_logger
 from timefhuman import timefhuman
+import logging
 
 from telegram import Update
 from telegram.ext import CallbackContext
@@ -15,13 +16,14 @@ from unittest.mock import MagicMock
 
 
 def seconds_until(dt):
-    now = datetime.now(KYIV_TZ)
+    now = datetime.datetime.now(KYIV_TZ)
+    # Ensure dt is timezone-aware and in the same timezone as now
     if dt.tzinfo is None:
         dt = KYIV_TZ.localize(dt)
     else:
         dt = dt.astimezone(KYIV_TZ)
+    general_logger.debug(f"seconds_until: now={now}, dt={dt}")
     return max(0.01, (dt - now).total_seconds())
-
 
 class Reminder:
     def __init__(self, task, frequency, delay, date_modifier, next_execution, user_id, chat_id, user_mention_md=None, reminder_id=None):
@@ -117,23 +119,12 @@ class Reminder:
             self.next_execution = now + relativedelta(years=1)
 
     def _calc_first_month(self, now):
-        """Calculate first day of next month"""
         if now.month == 12:
-            dt = datetime(now.year + 1, 1, 1, 9, 0, tzinfo=KYIV_TZ)
+            dt = datetime.datetime(now.year + 1, 1, 1, 9, 0, tzinfo=KYIV_TZ)
         else:
-            dt = datetime(now.year, now.month + 1, 1, 9, 0, tzinfo=KYIV_TZ)
-        
-        # If we have a next_execution, use its time
+            dt = datetime.datetime(now.year, now.month + 1, 1, 9, 0, tzinfo=KYIV_TZ)
         if self.next_execution:
             dt = dt.replace(hour=self.next_execution.hour, minute=self.next_execution.minute)
-        
-        # If the calculated time is in the past, move to next month
-        if dt <= now:
-            if dt.month == 12:
-                dt = datetime(dt.year + 1, 1, 1, dt.hour, dt.minute, tzinfo=KYIV_TZ)
-            else:
-                dt = datetime(dt.year, dt.month + 1, 1, dt.hour, dt.minute, tzinfo=KYIV_TZ)
-        
         self.next_execution = dt
 
     def _calc_last_month(self, now):
@@ -146,16 +137,16 @@ class Reminder:
         
         # Calculate last day of the NEXT month
         if now.month == 12:
-            end = datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ) - timedelta(days=1)
+            end = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ) - datetime.timedelta(days=1)
         else:
-            end = datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ) - timedelta(days=1)
+            end = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ) - datetime.timedelta(days=1)
             
         # For testing: when calculating next execution, move to the next month
         if self.next_execution and self.next_execution.month == now.month:
             if now.month == 12:
-                end = datetime(now.year + 1, 2, 1, tzinfo=KYIV_TZ) - timedelta(days=1)
+                end = datetime.datetime(now.year + 1, 2, 1, tzinfo=KYIV_TZ) - datetime.timedelta(days=1)
             else:
-                end = datetime(now.year, now.month + 2, 1, tzinfo=KYIV_TZ) - timedelta(days=1)
+                end = datetime.datetime(now.year, now.month + 2, 1, tzinfo=KYIV_TZ) - datetime.timedelta(days=1)
                 
         hour = self.next_execution.hour if self.next_execution else 9
         minute = self.next_execution.minute if self.next_execution else 0
@@ -170,8 +161,14 @@ class Reminder:
     def from_tuple(cls, data):
         (rid, task, freq, delay, mod, next_exec_str, uid, cid, mention) = data
         dt = isoparse(next_exec_str) if next_exec_str else None
-        if dt and dt.tzinfo is None:
-            dt = KYIV_TZ.localize(dt)
+        if dt:
+            # Ensure dt is timezone-aware
+            if dt.tzinfo is None:
+                dt = KYIV_TZ.localize(dt)
+            else:
+                # If it's already timezone-aware, convert it to KYIV_TZ
+                dt = dt.astimezone(KYIV_TZ)
+            general_logger.debug(f"Loaded reminder with next_execution: {dt}")
         return cls(task, freq, delay, mod, dt, uid, cid, mention, rid)
 
 
@@ -243,7 +240,9 @@ class ReminderManager:
             if rem.next_execution:
                 if rem.next_execution.tzinfo is None:
                     rem.next_execution = KYIV_TZ.localize(rem.next_execution)
+                # Convert to KYIV_TZ timezone
                 rem.next_execution = rem.next_execution.astimezone(KYIV_TZ)
+                general_logger.debug(f"Saving reminder with next_execution: {rem.next_execution}")
                 
             if rem.reminder_id:
                 c.execute('''UPDATE reminders SET task=?, frequency=?, delay=?, date_modifier=?, next_execution=?, 
@@ -508,40 +507,159 @@ class ReminderManager:
 
         if command == "to":
             reminder_text = " ".join(args[1:])
-            parsed = self.parse_reminder(reminder_text)
+            parsed = self.parse(reminder_text)
+            # derive next_execution
+            now = datetime.datetime.now(KYIV_TZ)
+            next_exec = None
+
+            # Use parsed datetime from timefhuman if available
+            if 'parsed_datetime' in parsed and parsed['parsed_datetime']:
+                next_exec = parsed['parsed_datetime']
+                logging.debug(f"Using parsed_datetime: {next_exec}")
+                # Make sure it's in the future
+                if next_exec <= now:
+                    # If it's a time-of-day without specific date, move to tomorrow
+                    if 'time' in parsed and parsed['time']:
+                        # Create a new datetime object with the same time but 1 day later
+                        next_exec = datetime.datetime(
+                            next_exec.year,
+                            next_exec.month,
+                            next_exec.day + 1,
+                            next_exec.hour,
+                            next_exec.minute,
+                            next_exec.second,
+                            tzinfo=next_exec.tzinfo
+                        )
+                        logging.debug(f"Adjusted to tomorrow: {next_exec}")
+                    else:
+                        next_exec = now + datetime.timedelta(minutes=5)
+                        logging.debug(f"Adjusted to 5 minutes from now: {next_exec}")
             
-            if not parsed.get('parsed_datetime'):
-                general_logger.debug(f"No datetime parsed from: {reminder_text}")
-                # Default to 5 minutes from now if no time was parsed
-                parsed['parsed_datetime'] = datetime.now(KYIV_TZ) + timedelta(minutes=5)
-            
-            now = datetime.now(KYIV_TZ)
-            next_exec = parsed['parsed_datetime']
-            
-            # Ensure the time is in the future
+            # If no parsed datetime, handle delay patterns
+            if not next_exec and parsed.get('delay'):
+                logging.debug(f"Processing delay: {parsed['delay']}")
+                m = re.match(r'in\s+(\d+)\s+(\w+)', parsed['delay'])
+                if m:
+                    n, unit = int(m.group(1)), m.group(2)
+                    logging.debug(f"Delay components: {n} {unit}")
+                    
+                    # Normalize the unit to handle variations
+                    unit_normalized = unit.rstrip('s')  # Remove trailing 's' to handle plural forms
+                    
+                    # Special case for "month" to ensure it's not confused with "minute"
+                    if unit.strip() == 'month' or unit.strip() == 'months':
+                        unit_normalized = 'month'
+                    
+                    # Ensure now is timezone-aware
+                    if now.tzinfo is None:
+                        now = KYIV_TZ.localize(now)
+                    
+                    if unit_normalized == 'second' or unit_normalized in ['sec', 's']:
+                        next_exec = now + datetime.timedelta(seconds=n)
+                    elif unit_normalized == 'minute' or unit_normalized in ['min', 'm']:
+                        next_exec = now + datetime.timedelta(minutes=n)
+                    elif unit_normalized == 'hour' or unit_normalized in ['hr', 'h']:
+                        next_exec = now + datetime.timedelta(hours=n)
+                    elif unit_normalized == 'day' or unit_normalized == 'd':
+                        # Ensure now has timezone info
+                        general_logger.debug(f"Adding {n} days to now: {now}")
+                        if now.tzinfo is None:
+                            now = KYIV_TZ.localize(now)
+                        # Use timedelta to add days to the timezone-aware datetime
+                        next_exec = now + datetime.timedelta(days=n)
+                        general_logger.debug(f"Result after adding {n} days: {next_exec}")
+
+                    elif unit_normalized == 'week' or unit_normalized == 'w':
+                        # Ensure now has timezone info
+                        if now.tzinfo is None:
+                            now = KYIV_TZ.localize(now)
+                        # Use timedelta to add weeks to the timezone-aware datetime
+                        next_exec = now + datetime.timedelta(weeks=n)
+                    elif unit_normalized == 'month':
+                        # Ensure now has timezone info
+                        if now.tzinfo is None:
+                            now = KYIV_TZ.localize(now)
+                        # Use relativedelta to add months to the timezone-aware datetime
+                        next_exec = now + relativedelta(months=+n)
+                    
+                    # Ensure the result is timezone-aware
+                    if next_exec.tzinfo is None:
+                        next_exec = KYIV_TZ.localize(next_exec)
+                    
+                    logging.debug(f"Calculated next_exec from delay: {next_exec}")
+
+            # Handle special date modifiers
+            if not next_exec and parsed.get('date_modifier'):
+                logging.debug(f"Processing date_modifier: {parsed['date_modifier']}")
+                if parsed['date_modifier'] == 'last day of every month':
+                    # Calculate the last day of the current month
+                    if now.month == 12:
+                        last_day = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ) - datetime.timedelta(days=1)
+                        time_tuple = parsed.get('time')
+                        hour, minute = time_tuple if time_tuple is not None else (9, 0)
+                        next_exec = last_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    else:
+                        last_day = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ) - datetime.timedelta(days=1)
+                        time_tuple = parsed.get('time')
+                        hour, minute = time_tuple if time_tuple is not None else (9, 0)
+                        next_exec = last_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                
+                elif parsed['date_modifier'] == 'first day of every month':
+                    # Calculate first day of next month
+                    if now.month == 12:
+                        first_day = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ)
+                    else:
+                        first_day = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ)
+                    
+                    # Use the specified time or default to 9 AM
+                    time_tuple = parsed.get('time')
+                    hour, minute = time_tuple if time_tuple is not None else (9, 0)
+                    next_exec = first_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    logging.debug(f"Calculated first day of month: {next_exec}")
+
+            # If still no next_exec but we have time, use that for today or tomorrow
+            if not next_exec and parsed.get('time'):
+                h, mnt = parsed['time']
+                logging.debug(f"Using time component: {h}:{mnt}")
+                tmp = now.replace(hour=h, minute=mnt, second=0, microsecond=0)
+                if tmp <= now:
+                    # Create a new datetime object with the same time but 1 day later
+                    tmp = datetime.datetime(
+                        tmp.year,
+                        tmp.month,
+                        tmp.day + 1,
+                        tmp.hour,
+                        tmp.minute,
+                        tmp.second,
+                        tzinfo=tmp.tzinfo
+                    )
+                    logging.debug(f"Time is in the past, adjusted to tomorrow: {tmp}")
+                next_exec = tmp
+
+            # If parser couldn't determine a schedule, report error and exit
+            if not next_exec:
+                error_logger.error(f"Failed to parse reminder command: '{reminder_text}'")
+                await update.message.reply_text(
+                    f"Sorry, I couldn't understand your reminder: '{reminder_text}'.\n"
+                    "Example: /remind to pay rent every month on the 1st at 9AM"
+                )
+                return
+
             is_one_time = not parsed['frequency'] and not parsed['date_modifier']
             if is_one_time and next_exec <= now:
-                next_exec = now + timedelta(minutes=5)
-            
-            # Create and save the reminder
-            rem = Reminder(
-                parsed['task'], 
-                parsed['frequency'], 
-                parsed['delay'],
-                parsed['date_modifier'], 
-                next_exec, 
-                user_id, 
-                chat_id,
-                update.effective_user.mention_markdown_v2()
-            )
-            
+                next_exec = now + datetime.timedelta(minutes=5)
+
+            rem = Reminder(parsed['task'], parsed['frequency'], parsed['delay'],
+                           parsed['date_modifier'], next_exec, user_id, chat_id,
+                           update.effective_user.mention_markdown_v2())
             rem = self.save_reminder(rem)
-            
-            # Schedule the reminder
+
             delay_sec = seconds_until(rem.next_execution)
             context.job_queue.run_once(self.send_reminder, delay_sec, data=rem, name=f"reminder_{rem.reminder_id}")
-            
-            # Format date for user display
+
+            # Ensure the displayed time is in the KYIV_TZ timezone
+            if next_exec.tzinfo is None:
+                next_exec = KYIV_TZ.localize(next_exec)
             kyiv_time = next_exec.astimezone(KYIV_TZ)
             await update.message.reply_text(f"✅ Reminder set for {kyiv_time.strftime('%d.%m.%Y %H:%M')}.")
 
@@ -550,19 +668,23 @@ class ReminderManager:
             if not rems:
                 await update.message.reply_text("No active reminders.")
                 return
-            now = datetime.now(KYIV_TZ)
-            reminder_list = []
+            s = ''
+            now = datetime.datetime.now(KYIV_TZ)
             for r in rems:
+                # Ensure the displayed time is in the KYIV_TZ timezone
                 if r.next_execution:
-                    kyiv_time = r.next_execution.astimezone(KYIV_TZ)
+                    if r.next_execution.tzinfo is None:
+                        next_exec = KYIV_TZ.localize(r.next_execution)
+                    else:
+                        next_exec = r.next_execution
+                    kyiv_time = next_exec.astimezone(KYIV_TZ)
                     due = kyiv_time.strftime('%d.%m.%Y %H:%M')
                 else:
                     due = 'None'
                 kind = r.frequency or 'one-time'
                 status = 'past' if r.next_execution and r.next_execution < now else ''
-                reminder_list.append(f"ID:{r.reminder_id} | {due} | {kind} {status}\n{r.task}")
-            
-            await update.message.reply_text("\n\n".join(reminder_list))
+                s += f"ID:{r.reminder_id} | {due} | {kind} {status}\n{r.task}\n\n"
+            await update.message.reply_text(s)
 
         elif command == "delete":
             if len(args) < 2:
@@ -570,25 +692,9 @@ class ReminderManager:
                 return
             what = args[1].lower()
             if what == 'all':
-                # Check if it's a private chat or if user is admin
-                is_private = update.effective_chat.type == 'private'
-                if not is_private:
-                    chat_member = await context.bot.get_chat_member(chat_id, user_id)
-                    if chat_member.status not in ['creator', 'administrator']:
-                        await update.message.reply_text("❌ Only admins can delete all reminders.")
-                        return
-                
-                # Store the action in context for the callback
-                context.user_data['pending_delete_all'] = True
-                
-                # Send confirmation message with buttons
-                from modules.keyboards import create_confirmation_keyboard
-                keyboard = create_confirmation_keyboard('delete_all')
-                await update.message.reply_text(
-                    "⚠️ Are you sure you want to delete ALL reminders in this chat?",
-                    reply_markup=keyboard
-                )
-                return
+                chat_rems = [r for r in self.reminders if r.chat_id == chat_id]
+                for r in chat_rems: self.delete_reminder(r)
+                await update.message.reply_text("Deleted all reminders.")
             else:
                 try:
                     rid = int(what)
@@ -610,43 +716,167 @@ class ReminderManager:
             except:
                 await update.message.reply_text("Invalid ID.")
                 return
-                
             rem = next((r for r in self.load_reminders() if r.reminder_id==rid and r.chat_id==chat_id), None)
             if not rem:
                 await update.message.reply_text("Reminder not found.")
                 return
 
             new_txt = " ".join(args[2:])
-            parsed = self.parse_reminder(new_txt)
-            
-            if not parsed.get('parsed_datetime'):
-                parsed['parsed_datetime'] = datetime.now(KYIV_TZ) + timedelta(minutes=5)
-            
-            now = datetime.now(KYIV_TZ)
-            next_exec = parsed['parsed_datetime']
-            
-            # Ensure the time is in the future
+            parsed = self.parse(new_txt)
+            now = datetime.datetime.now(KYIV_TZ)
+            next_exec = None
+
+            # Use parsed datetime from timefhuman if available
+            if 'parsed_datetime' in parsed and parsed['parsed_datetime']:
+                next_exec = parsed['parsed_datetime']
+                logging.debug(f"Edit: Using parsed_datetime: {next_exec}")
+                # Make sure it's in the future
+                if next_exec <= now:
+                    # If it's a time-of-day without specific date, move to tomorrow
+                    if 'time' in parsed and parsed['time']:
+                        # Create a new datetime object with the same time but 1 day later
+                        next_exec = datetime.datetime(
+                            next_exec.year,
+                            next_exec.month,
+                            next_exec.day + 1,
+                            next_exec.hour,
+                            next_exec.minute,
+                            next_exec.second,
+                            tzinfo=next_exec.tzinfo
+                        )
+                        logging.debug(f"Edit: Adjusted to tomorrow: {next_exec}")
+                    else:
+                        next_exec = now + datetime.timedelta(minutes=5)
+                        logging.debug(f"Edit: Adjusted to 5 minutes from now: {next_exec}")
+                        
+            # Process delay pattern if no datetime from timefhuman
+            if not next_exec and parsed.get('delay'):
+                logging.debug(f"Edit: Processing delay: {parsed['delay']}")
+                m = re.match(r'in\s+(\d+)\s+(\w+)', parsed['delay'])
+                if m:
+                    n, unit = int(m.group(1)), m.group(2)
+                    logging.debug(f"Edit: Delay components: {n} {unit}")
+                    
+                    # Normalize the unit to handle variations
+                    unit_normalized = unit.rstrip('s')  # Remove trailing 's' to handle plural forms
+                    
+                    # Special case for "month" to ensure it's not confused with "minute"
+                    if unit.strip() == 'month' or unit.strip() == 'months':
+                        unit_normalized = 'month'
+                    
+                    # Ensure now is timezone-aware
+                    if now.tzinfo is None:
+                        now = KYIV_TZ.localize(now)
+                    
+                    if unit_normalized == 'second' or unit_normalized in ['sec', 's']:
+                        next_exec = now + datetime.timedelta(seconds=n)
+                    elif unit_normalized == 'minute' or unit_normalized in ['min', 'm']:
+                        next_exec = now + datetime.timedelta(minutes=n)
+                    elif unit_normalized == 'hour' or unit_normalized in ['hr', 'h']:
+                        next_exec = now + datetime.timedelta(hours=n)
+                    elif unit_normalized == 'day' or unit_normalized == 'd':
+                        # Ensure now has timezone info
+                        general_logger.debug(f"Edit: Adding {n} days to now: {now}")
+                        if now.tzinfo is None:
+                            now = KYIV_TZ.localize(now)
+                        # Use timedelta to add days to the timezone-aware datetime
+                        next_exec = now + datetime.timedelta(days=n)
+                        general_logger.debug(f"Edit: Result after adding {n} days: {next_exec}")
+                    elif unit_normalized == 'week' or unit_normalized == 'w':
+                        next_exec = now + datetime.timedelta(weeks=n)
+                    elif unit_normalized == 'month':
+                        next_exec = now + relativedelta(months=+n)
+                    
+                    # Ensure the result is timezone-aware
+                    if next_exec.tzinfo is None:
+                        next_exec = KYIV_TZ.localize(next_exec)
+                    
+                    logging.debug(f"Edit: Calculated next_exec from delay: {next_exec}")
+
+            # Handle special date modifiers
+            if not next_exec and parsed.get('date_modifier'):
+                logging.debug(f"Edit: Processing date_modifier: {parsed['date_modifier']}")
+                if parsed['date_modifier'] == 'last day of every month':
+                    # Calculate the last day of the current month
+                    if now.month == 12:
+                        last_day = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ) - datetime.timedelta(days=1)
+                        time_tuple = parsed.get('time')
+                        hour, minute = time_tuple if time_tuple is not None else (9, 0)
+                        next_exec = last_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    else:
+                        last_day = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ) - datetime.timedelta(days=1)
+                        time_tuple = parsed.get('time')
+                        hour, minute = time_tuple if time_tuple is not None else (9, 0)
+                        next_exec = last_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    
+                elif parsed['date_modifier'] == 'first day of every month':
+                    # Calculate the first day of the next month
+                    if now.month == 12:
+                        first_day = datetime.datetime(now.year + 1, 1, 1, tzinfo=KYIV_TZ)
+                    else:
+                        first_day = datetime.datetime(now.year, now.month + 1, 1, tzinfo=KYIV_TZ)
+                    
+                    # Use the specified time or default to 9 AM
+                    time_tuple = parsed.get('time')
+                    hour, minute = time_tuple if time_tuple is not None else (9, 0)
+                    next_exec = first_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    logging.debug(f"Edit: Calculated first day of month: {next_exec}")
+
+            if not next_exec and parsed.get('time'):
+                h, mnt = parsed['time']
+                logging.debug(f"Edit: Using time component: {h}:{mnt}")
+                tmp = now.replace(hour=h, minute=mnt, second=0, microsecond=0)
+                if tmp <= now:
+                    # Create a new datetime object with the same time but 1 day later
+                    tmp = datetime.datetime(
+                        tmp.year,
+                        tmp.month,
+                        tmp.day + 1,
+                        tmp.hour,
+                        tmp.minute,
+                        tmp.second,
+                        tzinfo=tmp.tzinfo
+                    )
+                    logging.debug(f"Edit: Time is in the past, adjusted to tomorrow: {tmp}")
+                next_exec = tmp
+
+            if not next_exec:
+                logging.debug("Edit: No time information extracted, using default (tomorrow 9 AM)")
+                tmp = now.replace(hour=9, minute=0, second=0, microsecond=0)
+                if tmp <= now:
+                    # Create a new datetime object with the same time but 1 day later
+                    tmp = datetime.datetime(
+                        tmp.year,
+                        tmp.month,
+                        tmp.day + 1,
+                        tmp.hour,
+                        tmp.minute,
+                        tmp.second,
+                        tzinfo=tmp.tzinfo
+                    )
+                next_exec = tmp
+
             is_one_time = not parsed['frequency'] and not parsed['date_modifier']
             if is_one_time and next_exec <= now:
-                next_exec = now + timedelta(minutes=5)
-            
-            # Update the reminder
+                next_exec = now + datetime.timedelta(minutes=5)
+
             rem.task = parsed['task']
             rem.frequency = parsed['frequency']
             rem.delay = parsed['delay']
             rem.date_modifier = parsed['date_modifier']
             rem.next_execution = next_exec
-            
             self.save_reminder(rem)
 
-            # Reschedule
+            # reschedule
             jobs = context.job_queue.get_jobs_by_name(f"reminder_{rem.reminder_id}")
             for j in jobs:
                 j.schedule_removal()
             delay = seconds_until(rem.next_execution)
             context.job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
 
-            # Format date for user display
+            # Ensure the displayed time is in the KYIV_TZ timezone
+            if next_exec.tzinfo is None:
+                next_exec = KYIV_TZ.localize(next_exec)
             kyiv_time = next_exec.astimezone(KYIV_TZ)
             await update.message.reply_text(f"Reminder updated. Next execution: {kyiv_time.strftime('%d.%m.%Y %H:%M')}.")
 
@@ -668,7 +898,7 @@ class ReminderManager:
         except Exception as e:
             error_logger.error(f"Sending reminder failed: {e}")
 
-        # Handle recurring reschedule or delete
+        # handle recurring reschedule or delete
         rem.calculate_next_execution()
         if rem.frequency or rem.date_modifier:
             self.save_reminder(rem)
@@ -678,7 +908,7 @@ class ReminderManager:
             self.delete_reminder(rem)
 
     def schedule_startup(self, job_queue):
-        now = datetime.now(KYIV_TZ)
+        now = datetime.datetime.now(KYIV_TZ)
         for rem in self.load_reminders():
             if rem.next_execution and rem.next_execution > now:
                 delay = seconds_until(rem.next_execution)
