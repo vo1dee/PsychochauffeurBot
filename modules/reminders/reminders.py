@@ -299,6 +299,48 @@ class ReminderManager:
                 general_logger.debug(f"timefhuman parsed datetime: {result['parsed_datetime']}")
         except Exception as e:
             general_logger.debug(f"Initial timefhuman parsing failed: {e}")
+
+        # If timefhuman failed, try custom date patterns for 'on 15 July', 'on 15/07', 'on 15.07'
+        if not result['parsed_datetime']:
+            now = datetime.now(KYIV_TZ)
+            # 1. on 15 July
+            m = re.search(r'on\s+(\d{1,2})\s+([A-Za-z]+)', text)
+            if m:
+                day = int(m.group(1))
+                month_str = m.group(2)
+                try:
+                    month = datetime.strptime(month_str, '%B').month
+                except ValueError:
+                    try:
+                        month = datetime.strptime(month_str, '%b').month
+                    except ValueError:
+                        month = None
+                if month:
+                    year = now.year
+                    dt = datetime(year, month, day, now.hour, now.minute, tzinfo=KYIV_TZ)
+                    if dt < now:
+                        dt = dt.replace(year=year+1)
+                    result['parsed_datetime'] = dt
+            # 2. on 15/07 or on 15.07
+            if not result['parsed_datetime']:
+                m = re.search(r'on\s+(\d{1,2})[/.](\d{1,2})', text)
+                if m:
+                    day = int(m.group(1))
+                    month = int(m.group(2))
+                    year = now.year
+                    dt = datetime(year, month, day, now.hour, now.minute, tzinfo=KYIV_TZ)
+                    if dt < now:
+                        dt = dt.replace(year=year+1)
+                    result['parsed_datetime'] = dt
+            # 3. on 15.07.2025 or 15/07/2025
+            if not result['parsed_datetime']:
+                m = re.search(r'on\s+(\d{1,2})[/.](\d{1,2})[/.](\d{4})', text)
+                if m:
+                    day = int(m.group(1))
+                    month = int(m.group(2))
+                    year = int(m.group(3))
+                    dt = datetime(year, month, day, now.hour, now.minute, tzinfo=KYIV_TZ)
+                    result['parsed_datetime'] = dt
         
         # Extract frequency
         freq_match = re.search(self.FREQUENCY_PATTERN, text, re.IGNORECASE)
