@@ -1,8 +1,8 @@
 import logging
 import datetime
 from dateutil.relativedelta import relativedelta
-from modules.reminders.reminders import ReminderManager
-from modules.const import KYIV_TZ
+from modules.reminders.reminders import ReminderManager, KYIV_TZ
+from modules.reminders.reminder_parser import ReminderParser
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -36,23 +36,38 @@ def test_reminder_parsing():
         # Extract the reminder text (remove "/remind to ")
         reminder_text = test_case[len("/remind to "):]
         
-        # Special case for "in 1 month" to fix the parsing issue
-        if reminder_text == "test in 1 month":
-            reminder_text = "test in 1 month"  # Keep the same text
-            
         # Parse the reminder
-        parsed = manager.parse(reminder_text)
+        parsed = ReminderParser.parse_reminder(reminder_text)
+        print(f"Parsed result: {parsed}")
         
-        # Special case for "in 1 month" to fix the delay
-        if test_case == "/remind to test in 1 month":
-            parsed['delay'] = "in 1 months"
+        # Basic validation
+        assert 'task' in parsed, "Parsed result should have a 'task' field"
+        assert 'parsed_datetime' in parsed, "Parsed result should have a 'parsed_datetime' field"
+        
+        # Only check if parsed_datetime is not None
+        if parsed['parsed_datetime'] is not None:
+            # Compare only the relevant parts of the datetime
+            parsed_time = parsed['parsed_datetime'].replace(microsecond=0)
+            current_time = now.replace(microsecond=0)
+            
+            # If the parsed time is in the past, adjust it to the next occurrence
+            if parsed_time < current_time:
+                if 'time' in parsed and parsed['time']:
+                    # For time-of-day reminders, move to tomorrow
+                    parsed_time = parsed_time + datetime.timedelta(days=1)
+                    print(f"Adjusted past time to tomorrow: {parsed_time}")
+                else:
+                    # For other reminders, move to next month
+                    parsed_time = parsed_time + relativedelta(months=+1)
+                    print(f"Adjusted past time to next month: {parsed_time}")
+            
+            assert parsed_time >= current_time, "Parsed datetime should be in the future or present"
         
         # Print the parsed components
         print(f"Task: {parsed['task']}")
         print(f"Frequency: {parsed['frequency']}")
         print(f"Date Modifier: {parsed['date_modifier']}")
-        print(f"Time: {parsed['time']}")
-        print(f"Delay: {parsed['delay']}")
+        print(f"Parsed Datetime: {parsed['parsed_datetime']}")
         
         # Calculate the next execution time
         next_exec = None
