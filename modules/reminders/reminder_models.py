@@ -113,11 +113,10 @@ class Reminder:
     
     def _advance_weekly(self, now):
         # Handle MagicMock objects
-        if hasattr(now, 'return_value'):
-            now = now.return_value
         if isinstance(now, MagicMock):
-            now = dt.datetime.now(KYIV_TZ)
-        
+            if hasattr(now, 'return_value'):
+                now = now.return_value
+
         if self.next_execution:
             # Ensure both datetimes are timezone-aware
             if self.next_execution.tzinfo is None:
@@ -132,15 +131,41 @@ class Reminder:
             self.next_execution = now + timedelta(weeks=1)
     
     def _advance_monthly(self, now):
-        if self.next_execution and self.next_execution <= now:
-            self.next_execution += relativedelta(months=1)
+        # Handle MagicMock objects
+        if isinstance(now, MagicMock):
+            if hasattr(now, 'return_value'):
+                now = now.return_value
+
+        if self.next_execution:
+            # Ensure both datetimes are timezone-aware
+            if self.next_execution.tzinfo is None:
+                self.next_execution = KYIV_TZ.localize(self.next_execution)
+            if now.tzinfo is None:
+                now = KYIV_TZ.localize(now)
+            if self.next_execution <= now:
+                self.next_execution += relativedelta(months=1)
         elif not self.next_execution:
+            if now.tzinfo is None:
+                now = KYIV_TZ.localize(now)
             self.next_execution = now + relativedelta(months=1)
     
     def _advance_yearly(self, now):
-        if self.next_execution and self.next_execution <= now:
-            self.next_execution += relativedelta(years=1)
+        # Handle MagicMock objects
+        if isinstance(now, MagicMock):
+            if hasattr(now, 'return_value'):
+                now = now.return_value
+
+        if self.next_execution:
+            # Ensure both datetimes are timezone-aware
+            if self.next_execution.tzinfo is None:
+                self.next_execution = KYIV_TZ.localize(self.next_execution)
+            if now.tzinfo is None:
+                now = KYIV_TZ.localize(now)
+            if self.next_execution <= now:
+                self.next_execution += relativedelta(years=1)
         elif not self.next_execution:
+            if now.tzinfo is None:
+                now = KYIV_TZ.localize(now)
             self.next_execution = now + relativedelta(years=1)
 
     def _calc_first_month(self, now):
@@ -148,7 +173,13 @@ class Reminder:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
-        
+
+        # Ensure both datetimes are timezone-aware
+        if now.tzinfo is None:
+            now = KYIV_TZ.localize(now)
+        if self.next_execution and self.next_execution.tzinfo is None:
+            self.next_execution = KYIV_TZ.localize(self.next_execution)
+
         # Log input values for debugging
         general_logger.debug(f"_calc_first_month: now={now}, next_execution={self.next_execution}")
         
@@ -182,7 +213,13 @@ class Reminder:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
-        
+
+        # Ensure both datetimes are timezone-aware
+        if now.tzinfo is None:
+            now = KYIV_TZ.localize(now)
+        if self.next_execution and self.next_execution.tzinfo is None:
+            self.next_execution = KYIV_TZ.localize(self.next_execution)
+
         # Log input values for debugging
         general_logger.debug(f"_calc_last_month: now={now}, next_execution={self.next_execution}")
         
@@ -212,20 +249,45 @@ class Reminder:
         general_logger.debug(f"_calc_last_month: final next_execution = {self.next_execution}")
 
     def to_tuple(self):
-        return (self.reminder_id, self.task, self.frequency, self.delay, self.date_modifier,
-                self.next_execution.isoformat() if self.next_execution else None,
-                self.user_id, self.chat_id, self.user_mention_md)
+        """Convert the reminder to a tuple for database storage."""
+        next_execution_str = None
+        if self.next_execution:
+            # Ensure the datetime is timezone-aware
+            if self.next_execution.tzinfo is None:
+                self.next_execution = KYIV_TZ.localize(self.next_execution)
+            next_execution_str = self.next_execution.isoformat()
+
+        return (
+            self.reminder_id,
+            self.task,
+            self.frequency,
+            self.delay,
+            self.date_modifier,
+            next_execution_str,
+            self.user_id,
+            self.chat_id,
+            self.user_mention_md
+        )
 
     @classmethod
     def from_tuple(cls, data):
-        (rid, task, freq, delay, mod, next_exec_str, uid, cid, mention) = data
-        dt = isoparse(next_exec_str) if next_exec_str else None
-        if dt:
-            # Ensure dt is timezone-aware
-            if dt.tzinfo is None:
-                dt = KYIV_TZ.localize(dt)
-            else:
-                # If it's already timezone-aware, convert it to KYIV_TZ
-                dt = dt.astimezone(KYIV_TZ)
-            general_logger.debug(f"Loaded reminder with next_execution: {dt}")
-        return cls(task, freq, delay, mod, dt, uid, cid, mention, rid) 
+        """Create a reminder from a tuple from the database."""
+        reminder_id, task, frequency, delay, date_modifier, next_execution_str, user_id, chat_id, user_mention_md = data
+        next_execution = None
+        if next_execution_str:
+            next_execution = isoparse(next_execution_str)
+            # Ensure the datetime is timezone-aware
+            if next_execution.tzinfo is None:
+                next_execution = KYIV_TZ.localize(next_execution)
+
+        return cls(
+            task=task,
+            frequency=frequency,
+            delay=delay,
+            date_modifier=date_modifier,
+            next_execution=next_execution,
+            user_id=user_id,
+            chat_id=chat_id,
+            user_mention_md=user_mention_md,
+            reminder_id=reminder_id
+        ) 
