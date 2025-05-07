@@ -317,7 +317,7 @@ class ReminderManager:
                         month = None
                 if month:
                     year = now.year
-                    dt = datetime(year, month, day, now.hour, now.minute, tzinfo=KYIV_TZ)
+                    dt = datetime(year, month, day, 10, 0, tzinfo=KYIV_TZ)  # Default to 10 AM
                     if dt < now:
                         dt = dt.replace(year=year+1)
                     result['parsed_datetime'] = dt
@@ -328,7 +328,7 @@ class ReminderManager:
                     day = int(m.group(1))
                     month = int(m.group(2))
                     year = now.year
-                    dt = datetime(year, month, day, now.hour, now.minute, tzinfo=KYIV_TZ)
+                    dt = datetime(year, month, day, 10, 0, tzinfo=KYIV_TZ)  # Default to 10 AM
                     if dt < now:
                         dt = dt.replace(year=year+1)
                     result['parsed_datetime'] = dt
@@ -339,7 +339,7 @@ class ReminderManager:
                     day = int(m.group(1))
                     month = int(m.group(2))
                     year = int(m.group(3))
-                    dt = datetime(year, month, day, now.hour, now.minute, tzinfo=KYIV_TZ)
+                    dt = datetime(year, month, day, 10, 0, tzinfo=KYIV_TZ)  # Default to 10 AM
                     result['parsed_datetime'] = dt
         
         # Extract frequency
@@ -472,28 +472,34 @@ class ReminderManager:
     async def remind(self, update: Update, context: CallbackContext):
         args = context.args or []
         if not args:
-            await update.message.reply_text(
+            help_text = (
                 "📝 *Reminder Bot Help*\n\n"
-                "🔹 *Commands:*\n"
-                "`/remind to <text> \\.\\.\\.` \\- Create a new reminder\n"
-                "`/remind list` \\- Show all active reminders\n"
-                "`/remind delete <id>` \\- Delete a specific reminder\n"
-                "`/remind delete all` \\- Delete all reminders\n"
-                "`/remind edit <id> <new text>` \\- Edit an existing reminder\n\n"
-                "🔹 *Examples:*\n"
-                "• `/remind to pay rent every month on the 1st at 9AM`\n"
-                "• `/remind to call mom in 2 hours`\n"
-                "• `/remind to water plants every day at 8PM`\n"
-                "• `/remind to submit report on the last day of every month`\n\n"
+                "🕰️ *Reminder Bot \- Your Personal Assistant* 🚨\n\n"
+                "*How to Use:*\n"
+                "• Create Reminders: `/remind to <task> \[details\]`\n"
+                "• List Reminders: `/remind list`\n"
+                "• Delete Reminders: `/remind delete <id>` or `/remind delete all`\n"
+                "• Edit Reminders: `/remind edit <id> <new text>`\n\n"
+                "*Reminder Creation Examples:*\n"
+                "• Time\-based: `/remind to pay rent every month on the 1st at 9AM`\n"
+                "• Relative Time: `/remind to call mom in 2 hours`\n"
+                "• Daily Tasks: `/remind to water plants every day at 8PM`\n"
+                "• Monthly Tasks: `/remind to submit report on the last day of every month`\n\n"
+                "*Date Formats:*\n"
+                "• `on 15 July` \(defaults to 10 AM\)\n"
+                "• `on 15/07` \(defaults to 10 AM this year\)\n"
+                "• `on 15\.07\.2025` \(specific date and year\)\n"
+                "• `in 2 hours` \(relative time\)\n\n"
+                "💡 *Pro Tip:* Reminders default to 10 AM if no time is specified\!\n"
                 "🔹 *Supported time formats:*\n"
                 "• `in X minutes/hours/days/weeks/months`\n"
                 "• `at HH\\:MM` or `at HH AM/PM`\n"
                 "• `every day/week/month`\n"
                 "• `first/last day of every month`\n"
                 "• `tomorrow at HH\\:MM`\n"
-                "• `on Monday` or `on July 15`",
-                parse_mode=ParseMode.MARKDOWN_V2
+                "• `on Monday` or `on July 15`"
             )
+            await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN_V2)
             return
 
         command = args[0].lower()
@@ -682,6 +688,47 @@ class ReminderManager:
         """Handle button callbacks for reminder actions."""
         query = update.callback_query
         await query.answer()
+
+    async def list_reminders(self, update: Update, context: CallbackContext):
+        """List all active reminders in a visually appealing format."""
+        chat_id = update.effective_chat.id
+        user_reminders = [r for r in self.reminders if r.chat_id == chat_id]
+
+        if not user_reminders:
+            await update.message.reply_text(
+                "🌟 *No Active Reminders* 🌟\n\n"
+                "Looks like you're all caught up! Create a new reminder with `/remind to`",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+            return
+
+        # Prepare a formatted list of reminders
+        reminder_list = "🕰️ *Your Active Reminders* 🕰️\n\n"
+        for reminder in user_reminders:
+            # Format next execution time
+            next_exec = reminder.next_execution.strftime('%d %b %Y at %I:%M %p')
+            
+            # Add frequency info
+            freq_emoji = {
+                'daily': '🔁',
+                'weekly': '📅',
+                'monthly': '📆',
+                'yearly': '🗓️'
+            }.get(reminder.frequency, '⏰')
+
+            reminder_list += (
+                f"*ID:* `{reminder.reminder_id}`\n"
+                f"{freq_emoji} *Task:* `{reminder.task}`\n"
+                f"🕒 *Next Reminder:* `{next_exec}`\n"
+                f"{'📆 *Frequency:* `' + reminder.frequency.capitalize() + '`' if reminder.frequency else ''}\n\n"
+            )
+
+        reminder_list += "Use `/remind delete <id>` to remove a specific reminder."
+
+        await update.message.reply_text(
+            reminder_list,
+            parse_mode=ParseMode.MARKDOWN_V2
+        )
         
         try:
             data = query.data or ''
