@@ -6,20 +6,16 @@ A versatile Telegram bot that downloads videos and images from social media plat
 
 ### Supported Platforms for Videos
 - TikTok
-- Instagram
-- YouTube Shorts
-- Facebook
+- Meta (Instagram, Facebook)
+- YouTube Shorts and Clips
 - Twitter/X
 - Vimeo
 - Reddit
-- Twitch clips
-
-### Supported Platforms for Images
-- Instagram
-- TikTok
+- Twitch Clips
 
 ### How to Use
-Simply send a video or image link from any supported platform, and the bot will:
+
+Simply send a video link from any supported platform, and the bot will:
 1. Process your request
 2. Download the media
 3. Send it directly in the chat
@@ -46,11 +42,47 @@ Simply send a video or image link from any supported platform, and the bot will:
 - `/flares` - Fetch weather screenshots from monitoring service
 - Scheduled weather screenshot capture every 6 hours
 
+## 🤖 Advanced Features
+
+### Message Processing
+- Automatic content moderation with character filtering
+  - Automatic restriction for prohibited characters (ЫыЪъЭэЁё)
+  - Smart message history tracking
+- Enhanced GPT response system:
+  - Direct responses when bot is mentioned
+  - Random responses (2% chance after 50+ messages)
+  - Silent image analysis capability
+  - Contextual responses based on chat history
+- Different behavior patterns for private and group chats
+- Message history tracking for translation features
+
+### URL Processing
+- Automatic URL shortening with rate limiting (30 calls/minute)
+- URL sanitization and security checks
+- Smart link modification system
+- Customized message construction for modified links
+- Platform-specific link handling
+
+### Reminder System
+- `/remind` - Set and manage reminders
+- Persistent reminder storage
+- Flexible time format parsing
+- Reminder notifications with customizable settings
+
+### Geomagnetic Activity
+- `/gm` - Get current geomagnetic activity status
+- Regular updates on significant changes
+- Integration with geomagnetic data sources
+- Historical data tracking
+
 ## 🛠 Commands
 - `/start` - Welcome message and bot info
 - `/cat` - Random cat pictures from thecatapi.com
-- `/blya` - Translates last message from English to Ukrainian keyboard layout
+- `бля!` - Translates last message from English to Ukrainian keyboard layout
 - `/errors` - Generate error analytics report (admin only)
+- `/gm` - Check geomagnetic activity
+- `/remind` - Set reminders
+- `/analyze` - Analyze chat messages
 
 ## 🔧 Technical Features
 - Comprehensive error analytics and reporting system
@@ -59,24 +91,28 @@ Simply send a video or image link from any supported platform, and the bot will:
 - Interactive button interfaces with link keyboards
 - Translation of messages written with wrong keyboard layout
 - Specialized sticker responses for errors and specific triggers
+- Advanced error handling system:
+  - Error severity categorization
+  - Automated error logging to designated channel
+  - Comprehensive analytics via `/errors` command
+- User management system:
+  - Automatic content moderation
+  - User message history tracking
+  - Chat-specific behavior customization
+- Rate limiting and protection systems:
+  - URL shortener limits (30 calls/minute)
+  - API call optimization
+  - Resource usage monitoring
 
 ## 📦 Requirements
-- Python 3.7+
+- Python 3.10+
 - Telegram Bot Token
 - OpenAI API Key
 - Required packages:
   ```
-  python-telegram-bot
-  openai
-  yt-dlp
-  pyshorteners
-  nest_asyncio
-  pytz
-  imgkit
-  requests
-  schedule
-  APScheduler
+spicified in requirements.txt
   ```
+
 
 ## 📝 Setup
 1. Install required packages:
@@ -84,10 +120,24 @@ Simply send a video or image link from any supported platform, and the bot will:
    pip install -r requirements.txt
    ```
 2. Create `.env` file with your API keys:
-   ```
-   TOKEN=your_telegram_bot_token
-   OPENAI_API_KEY=your_openai_api_key
-   OPENWEATHER_API_KEY=your_openweather_api_key
+## 🔧 Advanced Configuration
+Environment variables:
+```env
+# Required
+TOKEN=your_telegram_bot_token
+OPENAI_API_KEY=your_openai_api_key
+
+# Optional but Recommended
+ERROR_CHANNEL_ID=telegram_channel_id_for_errors
+OPENWEATHER_API_KEY=openweather_api_key
+SHORTENER_MAX_CALLS_PER_MINUTE=30
+
+# YouTube Download Service Configuration
+YTDL_SERVICE_API_KEY=your_ytdl_service_key
+YTDL_SERVICE_URL=service_url
+YTDL_MAX_RETRIES=3
+YTDL_RETRY_DELAY=1
+YTDL_RETRY_DELAY=1RY_DELAY=1
    ```
 3. Manage configurations (optional):
    - Use the REST API (see above) to retrieve or update configurations.
@@ -101,34 +151,24 @@ Simply send a video or image link from any supported platform, and the bot will:
    python main.py
    ```
 
-## 🌐 Configuration API
-
-A REST API for managing dynamic configurations.
-
-### Running the API Server
-
-Install FastAPI and Uvicorn (already included in requirements), then:
+## 🧪 Running Tests
+To run the test suite (excluding integration/service tests):
 ```bash
-uvicorn config_api:app --host 0.0.0.0 --port 8000 --reload
+pytest --ignore=tests/test_service.py
 ```
-
-### Endpoints
-- GET /config/{config_name}?chat_id={chat_id}&chat_type={chat_type}
-  Retrieve a configuration (returns JSON with `config_data`).
-- POST /config/{config_name}
-  Update a configuration. JSON body parameters:
-  ```json
-  {
-    "chat_id": "<chat_id or null>",
-    "chat_type": "global|private|group",
-    "config_data": { ... }
-  }
-  ```
+To run all tests:
+```bash
+pytest
+```
 
 ## ⚠️ Limitations
 - 50MB maximum video size for Telegram uploads
 - Rate limits for GPT API calls
 - Some platforms may have additional restrictions
 - Bot needs appropriate permissions in group chats
+- URL shortener rate limit: 30 calls per minute
+- Image analysis only available for specific file types
+- Reminder system requires persistent storage
+- Geomagnetic activity updates depend on external API availability
 
 For issues or suggestions, please contact @vo1dee
