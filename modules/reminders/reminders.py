@@ -579,43 +579,8 @@ class ReminderManager:
 
     async def button_callback(self, update: Update, context: CallbackContext):
         """Handle button callbacks for reminder actions."""
-        query = update.callback_query  # Ensure query is defined
+        query = update.callback_query
         await query.answer()
-
-        try:
-            data = query.data or ''
-            if ':' not in data:
-                await query.message.edit_text("Invalid callback data.")
-                return
-
-            action, _ = data.split(':', 1)
-
-            if action == 'confirm_delete_all':
-                # Check if it's a private chat or if user is admin
-                is_private = update.effective_chat.type == 'private'
-                if not is_private:
-                    chat_member = await context.bot.get_chat_member(update.effective_chat.id, update.effective_user.id)
-                    if chat_member.status not in ['creator', 'administrator']:
-                        await query.message.edit_text("❌ Only admins can delete all reminders.")
-                        return
-
-                # Delete all reminders
-                reminders = self.load_reminders(update.effective_chat.id)
-                for reminder in reminders:
-                    self.delete_reminder(reminder)
-                    # Remove any scheduled jobs for this reminder
-                    jobs = context.job_queue.get_jobs_by_name(f"reminder_{reminder.reminder_id}")
-                    for job in jobs:
-                        job.schedule_removal()
-
-                await query.message.edit_text("✅ All reminders have been deleted.")
-
-            elif action == 'cancel_delete_all':
-                await query.message.edit_text("❌ Deletion cancelled.")  # Fixed issue here
-
-        except Exception as e:
-            error_logger.error(f"Error in button callback: {e}", exc_info=True)
-            await query.message.edit_text("❌ An error occurred while processing your request.")  # Fixed issue here
 
     async def list_reminders(self, update: Update, context: CallbackContext):
         """List all active reminders in a visually appealing format."""
