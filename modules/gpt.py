@@ -19,12 +19,15 @@ if os.getenv("USE_EMPTY_PROMPTS", "false").lower() == "true":
     from modules.prompts_empty import GPT_PROMPTS  # Use empty prompts in GitHub Actions
 else:
     from modules.prompts import GPT_PROMPTS  # Use actual prompts on the server
-from modules.const import OPENAI_API_KEY, USED_WORDS_FILE
+from modules.const import OPENAI_API_KEY
 from config.config_manager import ConfigManager
 
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
 from openai import AsyncClient, APIStatusError
+
+# Initialize ConfigManager
+config_manager = ConfigManager()
 
 # Constants
 MAX_IMAGE_SIZE = 1024
@@ -144,14 +147,26 @@ async def analyze_image(
         # Encode image to base64
         base64_image = base64.b64encode(optimized_image).decode('utf-8')
         
-        # Call GPT with the image
+        # Get chat-specific configuration for system prompt
+        system_prompt = GPT_PROMPTS["image_analysis"]  # Default fallback
+        if update and update.effective_chat:
+            chat_id = str(update.effective_chat.id)
+            chat_type = "private" if update.effective_chat.type == "private" else "group"
+            try:
+                chat_config = await config_manager.get_config(chat_id, chat_type)
+                gpt_settings = chat_config.get("gpt_settings", {})
+                image_settings = gpt_settings.get("image_analysis", {})
+                system_prompt = image_settings.get("system_prompt", system_prompt)
+            except Exception as e:
+                error_logger.error(f"Failed to load chat config for image analysis: {e}")
+        
+        # Call GPT with the image using image_analysis response type
         response = await client.chat.completions.create(
             model=GPT_MODEL_IMAGE,
             messages=[
                 {
                     "role": "system", 
-                    "content": "Generate a brief 2-3 sentence description of the image provided. "
-                               "Focus on main elements, objects, people, and context. Be concise and informative."
+                    "content": system_prompt
                 },
                 {
                     "role": "user", 
@@ -279,7 +294,8 @@ async def gpt_response(
     prompt: str, 
     update: Optional[Update] = None, 
     context: Optional[CallbackContext] = None, 
-    return_text: bool = False, 
+    return_text: bool = False,
+    response_type: str = "regular",
     max_retries: int = MAX_RETRIES
 ) -> Optional[str]:
     """
@@ -290,6 +306,7 @@ async def gpt_response(
         update: Telegram update object
         context: Telegram callback context
         return_text: Whether to return the response text
+        response_type: Type of response (regular, weather, analyze, image_analysis, summary)
         max_retries: Maximum number of retry attempts
         
     Returns:
@@ -298,9 +315,51 @@ async def gpt_response(
     retry_count = 0
     last_error = None
     
+    # Get chat-specific configuration
+    chat_config = {}
+    if update and update.effective_chat:
+        chat_id = str(update.effective_chat.id)
+        chat_type = "private" if update.effective_chat.type == "private" else "group"
+        chat_name = update.effective_chat.title or f"Private_{chat_id}"
+        
+        try:
+            chat_config = await config_manager.get_config(
+                chat_id=chat_id,
+                chat_type=chat_type,
+                chat_name=chat_name
+            )
+            general_logger.info(f"Loaded chat config for GPT response in {chat_type} chat {chat_id}")
+        except Exception as e:
+            error_logger.error(f"Failed to load chat config for GPT response: {e}")
+            # Continue with default settings if config loading fails
+    
+    # Get response settings from chat config or use defaults
+    gpt_settings = chat_config.get("gpt_settings", {})
+    response_settings = gpt_settings.get(response_type, gpt_settings.get("regular", {}))
+    
+    # Extract settings with defaults
+    max_tokens = response_settings.get("max_tokens", DEFAULT_MAX_TOKENS)
+    temperature = response_settings.get("temperature", 0.6)
+    presence_penalty = response_settings.get("presence_penalty", 0.0)
+    frequency_penalty = response_settings.get("frequency_penalty", 0.0)
+    model = response_settings.get("model", GPT_MODEL_TEXT)
+    
+    # Get system prompt from config or use default
+    system_prompt = response_settings.get("system_prompt", "")
+    if not system_prompt:
+        # Fallback to default prompts if not in config
+        if response_type == "regular":
+            system_prompt = GPT_PROMPTS["gpt_response"]
+        elif response_type == "image_analysis":
+            system_prompt = GPT_PROMPTS["image_analysis"]
+        elif response_type == "summary":
+            system_prompt = GPT_PROMPTS["gpt_summary"]
+        else:
+            system_prompt = GPT_PROMPTS["gpt_response"]
+    
     while retry_count < max_retries:
         try:
-            # Get chat context - this is the important part from the second implementation
+            # Get chat context
             context_prompt = await get_chat_context(update)
             full_prompt = context_prompt + prompt
 
@@ -329,21 +388,23 @@ async def gpt_response(
             if not api_healthy:
                 general_logger.warning("Proceeding with API call despite health check failure")
             
-            # Make the API call with GPT-4.1 from second implementation
+            # Make the API call with chat-specific settings
             response = await client.chat.completions.create(
-                model=GPT_MODEL_TEXT,  # Use GPT-4.1 from second implementation
+                model=model,
                 messages=[
                     {
                         "role": "system", 
-                        "content": GPT_PROMPTS["gpt_response"] if not return_text else GPT_PROMPTS["gpt_response_return_text"]
+                        "content": system_prompt
                     },
                     {
                         "role": "user", 
                         "content": full_prompt
                     }
                 ],
-                max_tokens=DEFAULT_MAX_TOKENS,
-                temperature=0.6
+                max_tokens=max_tokens,
+                temperature=temperature,
+                presence_penalty=presence_penalty,
+                frequency_penalty=frequency_penalty
             )
             
             # Process the response
@@ -422,7 +483,7 @@ async def ask_gpt_command(
         command_parts = message_text.split(' ', 1)
         prompt = command_parts[1] if len(command_parts) > 1 else "Привіт!"
     
-    return await gpt_response(prompt, update, context, return_text)
+    return await gpt_response(prompt, update, context, return_text, response_type="regular")
 
 
 async def answer_from_gpt(
@@ -531,11 +592,21 @@ async def gpt_summary_function(messages: List[str]) -> str:
         # Create the prompt for GPT
         prompt = f"Підсумуйте наступні повідомлення:\n\n{messages_text}\n\nПідсумок:"
 
-        # Call the API to get the summary - use GPT-4.1 from second implementation
+        # Get system prompt from config or use default
+        system_prompt = GPT_PROMPTS["gpt_summary"]  # Default fallback
+        try:
+            chat_config = await config_manager.get_config()
+            gpt_settings = chat_config.get("gpt_settings", {})
+            summary_settings = gpt_settings.get("summary", {})
+            system_prompt = summary_settings.get("system_prompt", system_prompt)
+        except Exception as e:
+            error_logger.error(f"Failed to load config for summary: {e}")
+
+        # Call the API to get the summary
         response = await client.chat.completions.create(
-            model=GPT_MODEL_TEXT,  # Using GPT-4.1 from second implementation
+            model=GPT_MODEL_TEXT,
             messages=[
-                {"role": "system", "content": prompts["gpt_summary"]},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=SUMMARY_MAX_TOKENS,
@@ -588,29 +659,64 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Get the log path for the target date
     log_path = get_daily_log_path(chat_id, target_date)
+    
+    # Check if log file exists
     if not os.path.exists(log_path):
-        await context.bot.send_message(chat_id, f"Немає повідомлень для аналізу за {date_str}.")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"📊 Немає логів для аналізу за {date_str}. Спробуйте /analyze yesterday для аналізу вчорашніх повідомлень."
+        )
         return
 
     # Extract messages from the log file
     messages_text = []
-    with open(log_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            parts = line.strip().split(" - ", 6)  # Split up to 6 times, message is last
-            if len(parts) == 7:
-                messages_text.append(parts[6])
-            else:
-                general_logger.debug(f"Partial log line: {line}")
-                if len(parts) > 3:  # At least timestamp, name, level, and some content
-                    messages_text.append(" ".join(parts[3:]))  # Take whatever's after level
-
-    if not messages_text:
-        await context.bot.send_message(chat_id, f"Не знайдено повідомлень для аналізу за {date_str}.")
+    try:
+        with open(log_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                parts = line.strip().split(" - ", 6)  # Split up to 6 times, message is last
+                if len(parts) == 7:
+                    messages_text.append(parts[6])
+                else:
+                    general_logger.debug(f"Partial log line: {line}")
+                    if len(parts) > 3:  # At least timestamp, name, level, and some content
+                        messages_text.append(" ".join(parts[3:]))  # Take whatever's after level
+    except Exception as e:
+        error_logger.error(f"Error reading log file {log_path}: {e}")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="❌ Помилка при читанні логів. Спробуйте пізніше."
+        )
         return
 
-    # Generate and send summary
-    summary = await gpt_summary_function(messages_text)
-    await context.bot.send_message(
-        chat_id,
-        f"Підсумок повідомлень за {date_str} ({len(messages_text)} повідомлень):\n{summary}"
+    if not messages_text:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"📊 Лог-файл за {date_str} порожній. Немає повідомлень для аналізу."
+        )
+        return
+
+    # Send initial message
+    status_message = await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"🔄 Аналізую {len(messages_text)} повідомлень за {date_str}..."
     )
+
+    try:
+        # Generate and send summary using analyze response type
+        summary = await gpt_response(
+            "\n".join(messages_text),
+            update,
+            context,
+            return_text=True,
+            response_type="analyze"
+        )
+        
+        # Update the status message with the summary
+        await status_message.edit_text(
+            text=f"📊 Аналіз повідомлень за {date_str} ({len(messages_text)} повідомлень):\n\n{summary}"
+        )
+    except Exception as e:
+        error_logger.error(f"Error generating analysis: {e}")
+        await status_message.edit_text(
+            text="❌ Помилка при генерації аналізу. Спробуйте пізніше."
+        )

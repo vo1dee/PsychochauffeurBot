@@ -1,67 +1,138 @@
-# Configuration System for PsychochauffeurBot
+# Configuration System
 
-This directory contains configurations for the PsychochauffeurBot, supporting both default settings and chat-specific overrides.
+This directory contains the configuration system for the Psychochauffeur bot. The system is designed to manage chat-specific configurations with a hierarchical structure and operates asynchronously.
 
 ## Directory Structure
 
-- `default/` - Default configurations used when no chat-specific config exists
-- `private_chats/` - Private chat-specific configurations (organized by user ID)
-- `group_chats/` - Group chat-specific configurations (organized by chat ID)
-- `config_manager.py` - Configuration management system
-- `default/examples/` - Example configuration files
+- `global/`: Contains default configuration settings applicable to all chats
+  - `default_settings.json`: The base configuration file with default values
+- `private/`: Contains configuration settings for private chats
+  - Files are named as `{chat_id}.json`
+- `group/`: Contains configuration settings for group chats
+  - Files are named as `{chat_id}.json`
 
-## Configuration Types
+## Configuration Files
 
-### GPT Prompts (`gpt_prompts.py`)
-Contains system prompts used for different GPT interactions:
-- `gpt_response` - Regular GPT responses
-- `gpt_response_return_text` - Direct text-only responses
-- `gpt_summary` - Chat message summarization
-- `get_word_from_gpt` - Word game responses
+### Global Configuration (`global/default_settings.json`)
 
-### Weather Configuration (`weather_config.py`)
-Contains weather-related settings:
-- `CITY_TRANSLATIONS` - Map of Ukrainian city names to English equivalents
-- `CONDITION_EMOJIS` - Weather condition ID ranges mapped to emojis
-- `FEELS_LIKE_EMOJIS` - Temperature ranges mapped to appropriate emojis
+The global configuration file contains default settings that apply to all chats unless overridden. It includes:
 
-## Creating Chat-Specific Configurations
+- GPT prompts
+- Restriction triggers
+- Chat settings
+- Response settings
+- Safety settings
 
-1. Create a directory with the chat ID under the appropriate directory:
-   ```
-   # For private chats:
-   mkdir -p config/private_chats/{user_id}
-   
-   # For group chats:
-   mkdir -p config/group_chats/{chat_id}
-   ```
+### Chat-Specific Configuration
 
-2. Create a configuration file matching one of the default configs:
-   ```
-   # Example for custom GPT prompts in a private chat:
-   vim config/private_chats/{user_id}/gpt_prompts.py
-   
-   # Example for custom GPT prompts in a group chat:
-   vim config/group_chats/{chat_id}/gpt_prompts.py
-   ```
+Chat-specific configuration files can override any setting from the global configuration. They are stored in either the `private/` or `group/` directory, depending on the chat type.
 
-3. Add your custom configuration following the standard format (see examples in `default/examples/`).
+## Using the ConfigManager
 
-Note: The system will automatically create these configuration files for new chats, copying the default settings.
-
-## Usage
-
-The configuration system automatically merges default and chat-specific settings, prioritizing chat-specific values when available.
-
-In code, access configurations using:
+The `ConfigManager` class provides an asynchronous interface for managing configurations. Here's how to use it:
 
 ```python
-from config.config_manager import ConfigManager
+from config.config_manager_async import ConfigManager
 
-# Get configuration (automatically uses chat-specific if available)
-# chat_type should be 'private' or 'group'
-prompts = ConfigManager.get_config("gpt_prompts", chat_id, chat_type)
+# Create an instance
+config_manager = ConfigManager()
 
-# Access a specific prompt
-system_prompt = prompts["gpt_response"]
+# Get global configuration
+global_config = await config_manager.get_config()
+
+# Get chat-specific configuration
+chat_config = await config_manager.get_config(
+    chat_id="12345",
+    chat_type="private"
+)
+
+# Update a setting
+await config_manager.update_setting(
+    key="response_settings.temperature",
+    value=0.9,
+    chat_id="12345",
+    chat_type="private"
+)
+
+# Add to a list setting
+await config_manager.add_to_list(
+    key="gpt_prompts",
+    value={
+        "name": "new_prompt",
+        "content": "You are a new prompt.",
+        "description": "A new prompt"
+    },
+    chat_id="12345",
+    chat_type="private"
+)
+
+# Remove from a list setting
+await config_manager.remove_from_list(
+    key="gpt_prompts",
+    value="new_prompt",
+    chat_id="12345",
+    chat_type="private"
+)
 ```
+
+## Configuration Schema
+
+### Global Configuration Schema
+
+```json
+{
+  "gpt_prompts": [
+    {
+      "name": "string",
+      "content": "string",
+      "description": "string"
+    }
+  ],
+  "restriction_triggers": {
+    "keywords": ["string"],
+    "patterns": ["string"]
+  },
+  "chat_settings": {
+    "max_message_length": "number",
+    "rate_limit": {
+      "messages_per_minute": "number",
+      "burst_limit": "number"
+    },
+    "allowed_commands": ["string"]
+  },
+  "response_settings": {
+    "max_tokens": "number",
+    "temperature": "number",
+    "presence_penalty": "number",
+    "frequency_penalty": "number"
+  },
+  "safety_settings": {
+    "content_filter": "boolean",
+    "profanity_filter": "boolean",
+    "sensitive_content_warning": "boolean"
+  }
+}
+```
+
+## Best Practices
+
+1. Always use the `ConfigManager` class to access and modify configurations
+2. Keep the global configuration minimal and use chat-specific overrides for customization
+3. Use meaningful names for GPT prompts and other settings
+4. Document any custom settings added to chat-specific configurations
+5. Regularly backup configuration files
+6. Use the async methods to prevent blocking operations
+
+## Error Handling
+
+The `ConfigManager` includes error handling for:
+- File not found errors
+- JSON parsing errors
+- File permission errors
+- Concurrent access conflicts
+
+## Dependencies
+
+- Python 3.7+
+- aiofiles
+- asyncio
