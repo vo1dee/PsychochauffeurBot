@@ -679,23 +679,43 @@ class VideoDownloader:
             # Add more verbose logging for YouTube content
             is_youtube_shorts = "youtube.com/shorts" in url.lower()
             is_youtube_clips = "youtube.com/clip" in url.lower()
+            is_youtube_special = is_youtube_shorts or is_youtube_clips
             
-            if is_youtube_shorts or is_youtube_clips:
+            if is_youtube_special:
                 content_type = "Shorts" if is_youtube_shorts else "Clips"
                 error_logger.info(f"YouTube {content_type} direct download attempt: {url}")
                 error_logger.info(f"Using yt-dlp path: {self.yt_dlp_path}")
                 error_logger.info(f"Output template: {output_template}")
                 error_logger.info(f"Format: {config.format}")
                 
-                # Build args
+                # For clips, try to use a more reliable format option
+                format_option = config.format
+                if is_youtube_clips:
+                    # Use a simpler format for clips to increase reliability
+                    format_option = "best[ext=mp4]/best"
+                    error_logger.info(f"Using simplified format for YouTube Clips: {format_option}")
+                
+                # Build args with potential extra options for clips
                 yt_dlp_args = [
                     self.yt_dlp_path,
                     url,
-                    '-f', config.format,
+                    '-f', format_option,
                     '-o', output_template,
                     '--merge-output-format', 'mp4',
                     '--verbose',  # Enable verbose output for debugging
                 ]
+                
+                # Add specific args for clips if needed
+                if is_youtube_clips:
+                    # Add additional options that might help with clip downloads
+                    yt_dlp_args.extend([
+                        '--extractor-retries', '3',
+                        '--fragment-retries', '10',
+                        '--retry-sleep', '5',
+                        '--no-check-certificate',
+                        '--geo-bypass',
+                    ])
+                    error_logger.info("Added extra retry options for YouTube Clips")
                 
                 # Add any extra args from the config
                 if config.extra_args:
@@ -721,8 +741,8 @@ class VideoDownloader:
             
             stdout, stderr = await process.communicate()
             
-            # Always log stdout/stderr for YouTube Shorts or Clips for debugging
-            if is_youtube_shorts or is_youtube_clips:
+            # Always log stdout/stderr for YouTube special content for debugging
+            if is_youtube_special:
                 content_type = "Shorts" if is_youtube_shorts else "Clips"
                 error_logger.info(f"YouTube {content_type} stdout: {stdout.decode()}")
                 error_logger.info(f"YouTube {content_type} stderr: {stderr.decode()}")
@@ -744,8 +764,16 @@ class VideoDownloader:
                     return largest_file, await self._get_video_title(url)
                 else:
                     error_logger.error(f"No video files found in {self.download_path} after successful download")
-                        
-            if is_youtube_shorts or is_youtube_clips:
+                    
+            # If direct download failed for clips, try using the service method as fallback
+            if is_youtube_clips and process.returncode != 0:
+                error_logger.info(f"YouTube Clips direct download failed, trying service method as fallback")
+                if hasattr(self, '_download_from_service'):
+                    # Use a specialized format string for clips via the service
+                    clip_format = "best[ext=mp4]/best"
+                    return await self._download_from_service(url, format=clip_format)
+                
+            if is_youtube_special:
                 content_type = "Shorts" if is_youtube_shorts else "Clips"
                 error_logger.error(f"YouTube {content_type} download failed (returncode: {process.returncode})")
             else:

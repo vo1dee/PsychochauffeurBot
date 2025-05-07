@@ -159,22 +159,6 @@ LANGUAGE_OPTIONS_CONFIG = [
     }
 ]
 
-# Add confirmation buttons configuration
-CONFIRMATION_BUTTONS = [
-    {
-        'action': 'confirm_delete_all',
-        'text': '✅ Yes, delete all',
-        'check': lambda _: True,
-        'modify': lambda _: None
-    },
-    {
-        'action': 'cancel_delete_all',
-        'text': '❌ Cancel',
-        'check': lambda _: True,
-        'modify': lambda _: None
-    }
-]
-
 async def button_callback(update: Update, context: CallbackContext):
     """Handle button callbacks for link modifications and video downloads."""
     query = update.callback_query
@@ -186,27 +170,7 @@ async def button_callback(update: Update, context: CallbackContext):
         if ':' not in data:
             await query.message.edit_text("Invalid callback data.")
             return
-        action, action_data = data.split(':', 1)
-        
-        # Handle reminder callbacks
-        if action in ['confirm_delete_all', 'cancel_delete_all']:
-            # Get the reminder manager from context
-            reminder_manager = context.bot_data.get('reminder_manager')
-            if reminder_manager:
-                try:
-                    # Call the reminder manager's button_callback method
-                    await reminder_manager.button_callback(update, context)
-                    return
-                except Exception as e:
-                    error_logger.error(f"Error in reminder manager button callback: {e}", exc_info=True)
-                    await query.message.edit_text("❌ An error occurred while processing the reminder action.")
-                    return
-            else:
-                error_logger.error("Reminder manager not found in bot_data")
-                await query.message.edit_text("❌ Reminder manager not available.")
-                return
-        
-        # Handle link modification callbacks
+        action, link_hash = data.split(':', 1)
         # Validate action
         valid_actions = {btn['action'] for btn in BUTTONS_CONFIG + LANGUAGE_OPTIONS_CONFIG}
         valid_actions.update({'download_video', 'download_instagram_video'})
@@ -214,15 +178,15 @@ async def button_callback(update: Update, context: CallbackContext):
             await query.message.edit_text("Unknown action.")
             return
         # Validate hash: 8 hex chars
-        if not re.fullmatch(r"[0-9a-f]{8}", action_data):
+        if not re.fullmatch(r"[0-9a-f]{8}", link_hash):
             await query.message.edit_text("Invalid callback identifier.")
             return
-        general_logger.info(f"Received callback action: {action}, hash: {action_data}")
+        general_logger.info(f"Received callback action: {action}, hash: {link_hash}")
         chat_id = query.message.chat_id
         message_id = query.message.message_id
-        original_link = context.bot_data.get(action_data)
+        original_link = context.bot_data.get(link_hash)
         
-        general_logger.info(f"Action: {action}, Hash: {action_data}, Original link: {original_link}")
+        general_logger.info(f"Action: {action}, Hash: {link_hash}, Original link: {original_link}")
         
         if not original_link:
             await query.message.edit_text("Sorry, this button has expired. Please generate a new link.")
@@ -295,7 +259,7 @@ async def button_callback(update: Update, context: CallbackContext):
         # Handle translate action (language menu)
         if action == 'translate':
             general_logger.info("Creating language menu")
-            keyboard = create_language_menu(original_link, action_data)  # Pass both arguments
+            keyboard = create_language_menu(original_link, link_hash)  # Pass both arguments
             await query.message.edit_text(
                 text=query.message.text,
                 reply_markup=keyboard
@@ -413,16 +377,4 @@ def modify_language(link, lang):
     if lang != 'none':
         return f"{base_link}/{lang}"
     return base_link
-
-def create_confirmation_keyboard(action_type):
-    """Create a confirmation keyboard for destructive actions"""
-    buttons = []
-    for config in CONFIRMATION_BUTTONS:
-        buttons.append(
-            InlineKeyboardButton(
-                config['text'],
-                callback_data=f"{config['action']}:{action_type}"
-            )
-        )
-    return InlineKeyboardMarkup([buttons])
 
