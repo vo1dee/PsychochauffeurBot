@@ -13,13 +13,6 @@ from modules.diagnostics import run_api_diagnostics
 from modules.logger import general_logger, error_logger, get_daily_log_path, chat_logger
 from modules.const import OPENAI_API_KEY, OPENROUTER_BASE_URL
 from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
-
-# Import appropriate prompts based on environment
-if os.getenv("USE_EMPTY_PROMPTS", "false").lower() == "true":
-    from modules.prompts_empty import GPT_PROMPTS  # Use empty prompts in GitHub Actions
-else:
-    from modules.prompts import GPT_PROMPTS  # Use actual prompts on the server
-from modules.const import OPENAI_API_KEY
 from config.config_manager import ConfigManager
 
 from telegram import Update
@@ -39,6 +32,23 @@ DEFAULT_MAX_TOKENS = 666
 SUMMARY_MAX_TOKENS = 1000
 MAX_RETRIES = 3
 CONTEXT_MESSAGES_COUNT = 3  # Number of previous messages to include as context
+
+# Default prompts for fallback
+DEFAULT_PROMPTS = {
+    "image_analysis": """
+        You are an assistant that provides brief, accurate descriptions of images. 
+        Describe the main elements in 2-3 concise sentences.
+        Focus on objects, people, settings, actions, and context.
+        Do not speculate beyond what is clearly visible.
+        Keep descriptions factual and objective.
+    """,
+    "gpt_summary": "Summarize the given text concisely while preserving key information.",
+    "command": "You are a helpful assistant.",
+    "mention": "You are a helpful assistant who responds to mentions in group chats.",
+    "random": "You are a friendly assistant who occasionally joins conversations.",
+    "weather": "You are a weather information assistant. Provide concise weather updates and forecasts.",
+    "analyze": "You are an analytical assistant. Analyze the given information and provide insights."
+}
 
 # Configure timeouts and retries for API clients
 TIMEOUT_CONFIG = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=5.0)
@@ -65,6 +75,24 @@ if USE_OPENROUTER:
 last_diagnostic_result = None
 last_diagnostic_time = datetime.min
 
+async def get_system_prompt(response_type: str, chat_config: Dict[str, Any]) -> str:
+    """
+    Get the system prompt for a specific response type from the chat configuration.
+    
+    Args:
+        response_type: Type of response (command, mention, random, etc.)
+        chat_config: Chat configuration dictionary
+        
+    Returns:
+        str: System prompt to use
+    """
+    try:
+        gpt_settings = chat_config.get("gpt_settings", {})
+        response_settings = gpt_settings.get(response_type, {})
+        return response_settings.get("system_prompt", DEFAULT_PROMPTS.get(response_type, DEFAULT_PROMPTS["command"]))
+    except Exception as e:
+        error_logger.error(f"Error getting system prompt for {response_type}: {e}")
+        return DEFAULT_PROMPTS.get(response_type, DEFAULT_PROMPTS["command"])
 
 async def ensure_api_connectivity() -> str:
     """
@@ -148,15 +176,13 @@ async def analyze_image(
         base64_image = base64.b64encode(optimized_image).decode('utf-8')
         
         # Get chat-specific configuration for system prompt
-        system_prompt = GPT_PROMPTS["image_analysis"]  # Default fallback
+        system_prompt = DEFAULT_PROMPTS["image_analysis"]  # Default fallback
         if update and update.effective_chat:
             chat_id = str(update.effective_chat.id)
             chat_type = "private" if update.effective_chat.type == "private" else "group"
             try:
                 chat_config = await config_manager.get_config(chat_id, chat_type)
-                gpt_settings = chat_config.get("gpt_settings", {})
-                image_settings = gpt_settings.get("image_analysis", {})
-                system_prompt = image_settings.get("system_prompt", system_prompt)
+                system_prompt = await get_system_prompt("image_analysis", chat_config)
             except Exception as e:
                 error_logger.error(f"Failed to load chat config for image analysis: {e}")
         
@@ -206,7 +232,7 @@ async def analyze_image(
         return description
         
     except Exception as e:
-        await handle_error(e, update, return_text)
+        await handle_error(e, update, return_text=False)
         return "Error analyzing image."
 
 
@@ -290,173 +316,131 @@ async def check_api_health() -> bool:
         return False
 
 
-async def gpt_response(
-    prompt: str, 
-    update: Optional[Update] = None, 
-    context: Optional[CallbackContext] = None, 
-    return_text: bool = False,
-    response_type: str = "regular",
-    max_retries: int = MAX_RETRIES
-) -> Optional[str]:
+async def get_context_messages(update: Update, context: CallbackContext) -> List[Dict[str, str]]:
     """
-    Get a response from GPT with robust error handling and retries.
+    Get context messages for GPT response.
     
     Args:
-        prompt: User prompt
         update: Telegram update object
         context: Telegram callback context
-        return_text: Whether to return the response text
-        response_type: Type of response (regular, weather, analyze, image_analysis, summary)
-        max_retries: Maximum number of retry attempts
         
     Returns:
-        Optional[str]: GPT response text if return_text is True, otherwise None
+        List[Dict[str, str]]: List of message dictionaries for context
     """
-    retry_count = 0
-    last_error = None
+    messages = []
     
-    # Get chat-specific configuration
-    chat_config = {}
-    if update and update.effective_chat:
+    try:
+        if not update.message or not update.message.text:
+            return messages
+            
+        # Add the current message
+        messages.append({
+            "role": "user",
+            "content": update.message.text
+        })
+        
+        # Get previous messages if available
+        if context and hasattr(context, 'chat_data'):
+            chat_id = update.effective_chat.id
+            chat_history = context.chat_data.get('message_history', [])
+            
+            # Add up to CONTEXT_MESSAGES_COUNT previous messages
+            for msg in reversed(chat_history[-CONTEXT_MESSAGES_COUNT:]):
+                if msg.get('text'):
+                    messages.insert(0, {
+                        "role": "user" if msg.get('is_user') else "assistant",
+                        "content": msg['text']
+                    })
+                    
+    except Exception as e:
+        error_logger.error(f"Error getting context messages: {e}")
+        
+    return messages
+
+
+async def gpt_response(
+    update: Update, 
+    context: CallbackContext, 
+    response_type: str = "command",
+    max_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+    message_text_override: Optional[str] = None,
+    return_text: bool = False
+) -> Optional[str]:
+    """
+    Generate and send a GPT response based on the message context and configuration.
+    If return_text is True, return the response as a string instead of sending it.
+    """
+    try:
+        if not update.message or not (update.message.text or message_text_override):
+            return None
+
+        # Get chat configuration
         chat_id = str(update.effective_chat.id)
         chat_type = "private" if update.effective_chat.type == "private" else "group"
-        chat_name = update.effective_chat.title or f"Private_{chat_id}"
+        chat_config = await config_manager.get_config(chat_id, chat_type)
         
-        try:
-            chat_config = await config_manager.get_config(
-                chat_id=chat_id,
-                chat_type=chat_type,
-                chat_name=chat_name
-            )
-            general_logger.info(f"Loaded chat config for GPT response in {chat_type} chat {chat_id}")
-        except Exception as e:
-            error_logger.error(f"Failed to load chat config for GPT response: {e}")
-            # Continue with default settings if config loading fails
-    
-    # Get response settings from chat config or use defaults
-    gpt_settings = chat_config.get("gpt_settings", {})
-    response_settings = gpt_settings.get(response_type, gpt_settings.get("regular", {}))
-    
-    # Extract settings with defaults
-    max_tokens = response_settings.get("max_tokens", DEFAULT_MAX_TOKENS)
-    temperature = response_settings.get("temperature", 0.6)
-    presence_penalty = response_settings.get("presence_penalty", 0.0)
-    frequency_penalty = response_settings.get("frequency_penalty", 0.0)
-    model = response_settings.get("model", GPT_MODEL_TEXT)
-    
-    # Get system prompt from config or use default
-    system_prompt = response_settings.get("system_prompt", "")
-    if not system_prompt:
-        # Fallback to default prompts if not in config
-        if response_type == "regular":
-            system_prompt = GPT_PROMPTS["gpt_response"]
-        elif response_type == "image_analysis":
-            system_prompt = GPT_PROMPTS["image_analysis"]
-        elif response_type == "summary":
-            system_prompt = GPT_PROMPTS["gpt_summary"]
-        else:
-            system_prompt = GPT_PROMPTS["gpt_response"]
-    
-    while retry_count < max_retries:
-        try:
-            # Get chat context
-            context_prompt = await get_chat_context(update)
-            full_prompt = context_prompt + prompt
-
-            # Log connection attempt
-            general_logger.info(f"Attempting to connect to API (attempt {retry_count+1}/{max_retries})")
-            
-            # Verify API key
-            if not await verify_api_key():
-                error_message = "Invalid or missing API key"
-                if return_text:
-                    return "Configuration error: API key issue."
-                else:
-                    if update and hasattr(update, 'message') and update.message:
-                        await update.message.reply_text(
-                            "Бот тимчасово недоступний через проблему з конфігурацією API."
-                        )
-                    return None
-            
-            # Verify connectivity
-            connectivity = await verify_connectivity()
-            if connectivity != "Connected":
-                general_logger.warning("Proceeding with API call despite connectivity issues")
-            
-            # Check API health
-            api_healthy = await check_api_health()
-            if not api_healthy:
-                general_logger.warning("Proceeding with API call despite health check failure")
-            
-            # Make the API call with chat-specific settings
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user", 
-                        "content": full_prompt
-                    }
-                ],
-                max_tokens=max_tokens,
-                temperature=temperature,
-                presence_penalty=presence_penalty,
-                frequency_penalty=frequency_penalty
-            )
-            
-            # Process the response
-            if hasattr(response, 'choices') and len(response.choices) > 0 and hasattr(response.choices[0], 'message'):
-                response_text = response.choices[0].message.content.strip()
-                
-                if return_text:
-                    return response_text
-                    
-                if update and hasattr(update, 'message') and update.message:
-                    await log_user_response(update, response_text)
-                else:
-                    general_logger.warning("No valid update object; response not sent to chat.")
-                
-                return response_text if return_text else None
-            else:
-                error_message = f"Unexpected API response structure: {str(response)[:100]}..."
-                general_logger.error(error_message)
-                raise ValueError(error_message)
-                
-        except httpx.HTTPStatusError as http_err:
-            error_message = f"HTTP error: {http_err.response.status_code} - {http_err.response.text[:200]}"
-            general_logger.error(error_message)
-            last_error = http_err
-            
-        except APIStatusError as e:
-            # This captures all OpenAI status errors (4xx, 5xx)
-            general_logger.error(f"OpenAI API returned error {e.status_code}: {e.body}")
-            last_error = e
-            
-        except Exception as e:
-            general_logger.error(f"Error in API request: {str(e)}")
-            last_error = e
+        # Get response settings from config
+        gpt_settings = chat_config.get("gpt_settings", {})
+        response_settings = gpt_settings.get(response_type, {})
         
-        # Handle retry logic
-        retry_count += 1
-        if retry_count < max_retries:
-            wait_time = 2 ** retry_count  # Exponential backoff
-            await asyncio.sleep(wait_time)
-        else:
-            await handle_error(last_error, update, return_text)
-            if return_text:
-                return "Error generating response after multiple retries. Please try again later."
+        # Use provided values or fall back to config values
+        max_tokens = max_tokens or response_settings.get("max_tokens", DEFAULT_MAX_TOKENS)
+        temperature = temperature or response_settings.get("temperature", 0.7)
+        
+        # Get system prompt from config
+        system_prompt = await get_system_prompt(response_type, chat_config)
+        
+        # Get context messages
+        context_messages = await get_context_messages(update, context)
+        
+        # If message_text_override is provided, replace the last user message
+        if message_text_override and context_messages:
+            for i in range(len(context_messages)-1, -1, -1):
+                if context_messages[i]["role"] == "user":
+                    context_messages[i]["content"] = message_text_override
+                    break
             else:
-                if update and hasattr(update, 'message') and update.message:
-                    await update.message.reply_text(
-                        "Вибачте, сталася помилка при зверненні до GPT. Перевірте конфігурацію API."
-                    )
-                return None
-    
-    # This should never be reached due to the else clause above, but included for safety
-    return "Connection error after multiple retries." if return_text else None
+                context_messages.append({"role": "user", "content": message_text_override})
+        elif message_text_override:
+            context_messages = [{"role": "user", "content": message_text_override}]
+        
+        # Prepare messages for GPT
+        messages = [
+            {"role": "system", "content": system_prompt},
+            *context_messages
+        ]
+        
+        # Call GPT API
+        response = await client.chat.completions.create(
+            model=GPT_MODEL_TEXT,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
+        
+        # Get response text
+        response_text = response.choices[0].message.content.strip()
+        
+        # Log the response
+        chat_logger.info(
+            response_text,
+            extra={
+                'chat_id': update.effective_chat.id,
+                'chattitle': update.effective_chat.title or f"Private_{update.effective_chat.id}",
+                'username': update.message.from_user.username or f"ID:{update.message.from_user.id}"
+            }
+        )
+        
+        if return_text:
+            return response_text
+        else:
+            await update.message.reply_text(response_text)
+            return None
+        
+    except Exception as e:
+        await handle_error(e, update, return_text=return_text)
+        return None
 
 
 async def ask_gpt_command(
@@ -467,15 +451,7 @@ async def ask_gpt_command(
 ) -> Optional[str]:
     """
     Process a GPT command from either a string prompt or an Update object.
-    
-    Args:
-        prompt: String prompt or Update object
-        update: Telegram update object if prompt is a string
-        context: Telegram callback context
-        return_text: Whether to return the response text
-        
-    Returns:
-        Optional[str]: GPT response if return_text is True, otherwise None
+    If return_text is True, return the GPT response as a string.
     """
     if isinstance(prompt, Update):
         update = prompt
@@ -483,7 +459,8 @@ async def ask_gpt_command(
         command_parts = message_text.split(' ', 1)
         prompt = command_parts[1] if len(command_parts) > 1 else "Привіт!"
     
-    return await gpt_response(prompt, update, context, return_text, response_type="regular")
+    # Call gpt_response with the new signature
+    return await gpt_response(update, context, response_type="command", message_text_override=prompt, return_text=return_text)
 
 
 async def answer_from_gpt(
@@ -504,7 +481,12 @@ async def answer_from_gpt(
     Returns:
         Optional[str]: GPT response if return_text is True, otherwise None
     """
-    return await gpt_response(prompt, update, context, return_text)
+    if not update or not context:
+        return None
+        
+    # Call gpt_response with the new signature
+    await gpt_response(update, context, response_type="command")
+    return None  # Since gpt_response now handles sending the message directly
 
 
 async def log_user_response(update: Update, response_text: str) -> None:
@@ -668,18 +650,20 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    # Extract messages from the log file
+    # Extract messages from the log file, keeping only username and message
     messages_text = []
     try:
         with open(log_path, 'r', encoding='utf-8') as f:
             for line in f:
-                parts = line.strip().split(" - ", 6)  # Split up to 6 times, message is last
-                if len(parts) == 7:
-                    messages_text.append(parts[6])
-                else:
-                    general_logger.debug(f"Partial log line: {line}")
-                    if len(parts) > 3:  # At least timestamp, name, level, and some content
-                        messages_text.append(" ".join(parts[3:]))  # Take whatever's after level
+                if 'User message:' in line:
+                    user_part, msg_part = line.split('User message:', 1)
+                    username = None
+                    user_bracket_idx = user_part.rfind('[')
+                    if user_bracket_idx != -1:
+                        username = user_part[user_bracket_idx+1:].replace(']', '').strip()
+                    message = msg_part.strip()
+                    if username and message:
+                        messages_text.append(f"{username}: {message}")
     except Exception as e:
         error_logger.error(f"Error reading log file {log_path}: {e}")
         await context.bot.send_message(
@@ -702,18 +686,10 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
     try:
-        # Generate and send summary using analyze response type
-        summary = await gpt_response(
-            "\n".join(messages_text),
-            update,
-            context,
-            return_text=True,
-            response_type="analyze"
-        )
-        
-        # Update the status message with the summary
+        analysis_text = "\n".join(messages_text)
+        await gpt_response(update, context, response_type="analyze", message_text_override=analysis_text)
         await status_message.edit_text(
-            text=f"📊 Аналіз повідомлень за {date_str} ({len(messages_text)} повідомлень):\n\n{summary}"
+            text=f"📊 Аналіз повідомлень за {date_str} ({len(messages_text)} повідомлень) завершено."
         )
     except Exception as e:
         error_logger.error(f"Error generating analysis: {e}")

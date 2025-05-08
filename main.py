@@ -35,7 +35,10 @@ from modules.const import (
     TOKEN, OPENAI_API_KEY, KYIV_TZ, ALIEXPRESS_STICKER_ID,
     VideoPlatforms, LinkModification, Config # Ensure Config.ERROR_CHANNEL_ID is valid
 )
-from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt, analyze_image
+from modules.gpt import (
+    ask_gpt_command, analyze_command, answer_from_gpt, analyze_image,
+    gpt_response  # Add gpt_response to imports
+)
 from modules.weather import WeatherCommandHandler
 # Updated logger imports
 from modules.logger import (
@@ -119,15 +122,39 @@ async def translate_last_message(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text(response_text)
 
 
-def needs_gpt_response(update: Update, context: CallbackContext, message_text: str) -> bool:
-    # ... (logic - looks fine)
+def needs_gpt_response(update: Update, context: CallbackContext, message_text: str) -> tuple[bool, str]:
+    """
+    Determine if a message needs a GPT response and what type of response it needs.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram callback context
+        message_text: The message text to analyze
+        
+    Returns:
+        tuple[bool, str]: (needs_response, response_type)
+            - needs_response: Whether the message needs a GPT response
+            - response_type: Type of response needed ('command', 'mention', 'random')
+    """
     bot_username = context.bot.username
     is_private_chat = update.effective_chat.type == 'private'
     mentioned = f"@{bot_username}" in message_text
-    # Ensure constants are used correctly
     contains_video_platform = any(platform in message_text.lower() for platform in VideoPlatforms.SUPPORTED_PLATFORMS)
     contains_modified_domain = any(domain in message_text for domain in LinkModification.DOMAINS)
-    return (mentioned or (is_private_chat and not (contains_video_platform or contains_modified_domain)))
+    
+    # Check if it's a command
+    if message_text.startswith('/gpt'):
+        return True, 'command'
+    
+    # Check if bot is mentioned
+    if mentioned:
+        return True, 'mention'
+    
+    # Check if it's a private chat message that needs random response
+    if is_private_chat and not (contains_video_platform or contains_modified_domain):
+        return True, 'random'
+    
+    return False, ''
 
 
 @handle_errors(feedback_message="An error occurred while analyzing the image.")
@@ -180,9 +207,9 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     message_text = update.message.text
     chat_id = update.message.chat_id
-    username = update.message.from_user.username or f"ID:{update.message.from_user.id}" # Fallback if no username
+    username = update.message.from_user.username or f"ID:{update.message.from_user.id}"
     user_id = update.message.from_user.id
-    chat_title = update.effective_chat.title or f"Private_{chat_id}" # More descriptive private chat title
+    chat_title = update.effective_chat.title or f"Private_{chat_id}"
     chat_type = "private" if update.effective_chat.type == "private" else "group"
 
     # Create or get chat configuration
@@ -208,12 +235,38 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username}
     )
 
-    # Restrict user check - only for group chats
-    if chat_type == "group" and any(char in message_text for char in "ЫыЪъЭэЁё"):
-        chat_logger.warning(f"Restricting user {username} ({user_id}) in chat {chat_id} due to forbidden characters.",
-             extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
-        await restrict_user(update, context)
-        return
+    # Check for restriction triggers if restrictions are enabled
+    if chat_type == "group" and chat_config.get("chat_settings", {}).get("restrictions_enabled", True):
+        # Check for forbidden characters
+        if any(char in message_text for char in "ЫыЪъЭэЁё"):
+            chat_logger.warning(f"Restricting user {username} ({user_id}) in chat {chat_id} due to forbidden characters.",
+                extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
+            await restrict_user(update, context)
+            return
+
+        # Check for restriction triggers
+        restriction_triggers = chat_config.get("restriction_triggers", {})
+        keywords = restriction_triggers.get("keywords", [])
+        patterns = restriction_triggers.get("patterns", [])
+
+        # Check keywords
+        message_lower = message_text.lower()
+        if any(keyword.lower() in message_lower for keyword in keywords):
+            chat_logger.warning(f"Restricting user {username} ({user_id}) in chat {chat_id} due to restricted keyword.",
+                extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
+            await restrict_user(update, context)
+            return
+
+        # Check regex patterns
+        for pattern in patterns:
+            try:
+                if re.search(pattern, message_text, re.IGNORECASE):
+                    chat_logger.warning(f"Restricting user {username} ({user_id}) in chat {chat_id} due to restricted pattern.",
+                        extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
+                    await restrict_user(update, context)
+                    return
+            except re.error as e:
+                error_logger.error(f"Invalid regex pattern '{pattern}': {e}")
 
     # Translate check
     if "бля!" in message_text:
@@ -223,16 +276,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # URL processing check
     urls = extract_urls(message_text)
     if urls:
-        general_logger.info(f"Processing URLs: {urls} in chat {chat_id}") # Use general_logger
+        general_logger.info(f"Processing URLs: {urls} in chat {chat_id}")
         await process_urls(update, context, urls, message_text)
         context.bot_data.pop('update_override', None)
         return
 
     # GPT response check
-    if needs_gpt_response(update, context, message_text):
+    needs_response, response_type = needs_gpt_response(update, context, message_text)
+    if needs_response:
         cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
-        general_logger.info(f"GPT response triggered for: '{cleaned_message}' in chat {chat_id}") # Use general_logger
-        await ask_gpt_command(cleaned_message, update, context) # Assuming ask_gpt_command is designed for this usage
+        general_logger.info(f"GPT response triggered for: '{cleaned_message}' in chat {chat_id} with type {response_type}")
+        await gpt_response(update, context, response_type=response_type)
         return
 
     # Fallback to random GPT response check
@@ -241,21 +295,65 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
 @handle_errors(feedback_message="An error occurred while processing GPT response.")
 async def handle_random_gpt_response(update: Update, context: CallbackContext) -> None:
-    # ... (logic - uses general_logger correctly)
-    message_text = update.message.text
-    chat_id = update.message.chat_id
-    if not message_text or len(message_text.split()) < 5:
+    """Handle random GPT responses in chat."""
+    if not update.message or not update.message.text:
         return
 
-    current_count = message_counter.increment(chat_id)
-    # Consider making the threshold and probability configurable
-    if current_count > 50 and random.random() < 0.02:
-        general_logger.info(
-            f"Random GPT response triggered in chat {chat_id}: Message count: {current_count}",
-             extra={'chat_id': chat_id, 'chattitle': update.effective_chat.title or f"Private_{chat_id}"}
+    message_text = update.message.text
+    chat_id = str(update.message.chat_id)
+    chat_type = "private" if update.effective_chat.type == "private" else "group"
+    
+    # Get chat configuration
+    try:
+        chat_config = await config_manager.get_config(
+            chat_id=chat_id,
+            chat_type=chat_type,
+            chat_name=update.effective_chat.title or f"Private_{chat_id}"
         )
-        await answer_from_gpt(message_text, update, context) # Assuming this exists and works
-        message_counter.reset(chat_id)
+        
+        # Get random response settings from config
+        random_settings = chat_config.get("chat_settings", {}).get("random_response_settings", {})
+        
+        # Check if random responses are enabled
+        if not random_settings.get("enabled", True):
+            return
+            
+        # Check minimum word count
+        min_words = random_settings.get("min_words", 5)
+        if len(message_text.split()) < min_words:
+            return
+
+        # Get message count and check threshold
+        current_count = message_counter.increment(chat_id)
+        message_threshold = random_settings.get("message_threshold", 50)
+        probability = random_settings.get("probability", 0.02)
+        
+        if current_count >= message_threshold and random.random() < probability:
+            general_logger.info(
+                f"Random GPT response triggered in chat {chat_id}: Message count: {current_count}",
+                extra={
+                    'chat_id': chat_id, 
+                    'chattitle': update.effective_chat.title or f"Private_{chat_id}",
+                    'settings': {
+                        'threshold': message_threshold,
+                        'probability': probability,
+                        'min_words': min_words
+                    }
+                }
+            )
+            await gpt_response(update, context, response_type="random")
+            message_counter.reset(chat_id)
+            
+    except Exception as e:
+        error_logger.error(f"Error in handle_random_gpt_response: {e}", exc_info=True)
+        # Continue with default behavior if config loading fails
+        if len(message_text.split()) < 5:
+            return
+
+        current_count = message_counter.increment(chat_id)
+        if current_count >= 50 and random.random() < 0.02:
+            await gpt_response(update, context, response_type="random")
+            message_counter.reset(chat_id)
 
 @handle_errors(feedback_message="An error occurred while processing your links.")
 

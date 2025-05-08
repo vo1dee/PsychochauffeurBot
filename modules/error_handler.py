@@ -7,6 +7,7 @@ import pytz
 from telegram import Update
 from telegram.ext import ContextTypes
 from modules.logger import error_logger
+import functools
 
 # Timezone constants
 KYIV_TZ = pytz.timezone("Europe/Kyiv")
@@ -314,51 +315,32 @@ class ErrorHandler:
 # Common error handling decorators
 
 
-def handle_errors(
-    feedback_message: str = "An error occurred. Please try again later.",
-    propagate: bool = False,
-    context_data: Optional[Dict[str, Any]] = None,
-):
-    """Decorator for handling errors in async functions with consistent patterns.
-
-    Args:
-        feedback_message: Message to send to user on error
-        propagate: Whether to re-raise exceptions after handling
-        context_data: Additional context data to include with the error
-
-    Returns:
-        Decorated function
+def handle_errors(feedback_message: Optional[str] = None):
     """
-
+    Decorator for handling errors in async functions.
+    
+    Args:
+        feedback_message: Optional message to send to the user on error
+    """
     def decorator(func):
+        @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
-                # Find update object in args
+                # Get the update and context objects
                 update = next((arg for arg in args if isinstance(arg, Update)), None)
-                context = next(
-                    (arg for arg in args if isinstance(arg, ContextTypes.DEFAULT_TYPE)),
-                    None,
-                )
-
-                # Use provided context_data or create one with function name
-                error_context = context_data or {"function": func.__name__}
-
+                context = next((arg for arg in args if isinstance(arg, (CallbackContext, ContextTypes.DEFAULT_TYPE))), None)
+                
+                # Handle the error
                 await ErrorHandler.handle_error(
                     error=e,
                     update=update,
                     context=context,
-                    context_data=error_context,
-                    feedback_message=feedback_message,
-                    propagate=propagate,
+                    feedback_message=feedback_message
                 )
-
-                # Return None for the calling function to handle
                 return None
-
         return wrapper
-
     return decorator
 
 
