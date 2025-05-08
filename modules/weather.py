@@ -14,10 +14,10 @@ from modules.utils import (
     get_last_used_city
 )
 from config.config_manager import ConfigManager
-from modules.const import Config
+from modules.const import Config, Weather
 from modules.logger import error_logger, general_logger
 from modules.file_manager import save_user_location
-from modules.gpt import ask_gpt_command
+from modules.gpt import ask_gpt_command, gpt_response
 
 
 @dataclass
@@ -46,7 +46,7 @@ class WeatherData:
         
         """
         try:
-            advice = await ask_gpt_command(prompt, update, context, return_text=True)
+            advice = await gpt_response(update, context, response_type="weather", message_text_override=prompt, return_text=True)
             general_logger.info(f"Clothing advice: {advice}")
             return WeatherCommand(
                 temperature=self.temperature,
@@ -81,9 +81,9 @@ class WeatherData:
 
     async def format_message(self, update: Update = None, context: CallbackContext = None) -> str:
         """Format weather data into a readable message."""
-        weather_emoji = get_weather_emoji(self.weather_id)
+        weather_emoji = await get_weather_emoji(self.weather_id)
         country_flag = country_code_to_emoji(self.country_code)
-        feels_like_emoji = get_feels_like_emoji(self.feels_like)
+        feels_like_emoji = await get_feels_like_emoji(self.feels_like)
         
         # Get clothing advice
         clothing_advice = await self.get_clothing_advice(update, context)
@@ -112,7 +112,7 @@ class WeatherAPI:
         if city in self.cache:
             general_logger.info(f"Using cached weather data for {city}")
             return self.cache[city]
-        translated_city = get_city_translation(city)
+        translated_city = await get_city_translation(city)
         general_logger.info(f"Fetching weather for city: {translated_city} (original: {city})")
         
         params = {

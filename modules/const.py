@@ -58,22 +58,22 @@ class Weather:
         "Тель Авів": "Tel Aviv",
     }
     
-    CONDITION_EMOJIS: Dict[range, str] = {
-        range(200, 300): '⛈',  # Thunderstorm
-        range(300, 400): '🌧',  # Drizzle
-        range(500, 600): '🌧',  # Rain
-        range(600, 700): '❄️',  # Snow
-        range(700, 800): '🌫',  # Atmosphere
-        range(800, 801): '☀️',  # Clear
-        range(801, 900): '☁️',  # Clouds
+    CONDITION_EMOJIS = {
+        range(200, 300): "⛈",
+        range(300, 400): "🌧",
+        range(500, 600): "🌧",
+        range(600, 700): "❄️",
+        range(700, 800): "🌫",
+        range(800, 801): "☀️",
+        range(801, 900): "☁️",
     }
     
-    FEELS_LIKE_EMOJIS: Dict[range, str] = {
-        range(-100, 0): '🥶',  # Very cold
-        range(0, 10): '🧥',    # Cold
-        range(10, 20): '🧣',   # Cool
-        range(20, 30): '😎',   # Comfortable
-        range(30, 100): '🥵',  # Very hot
+    FEELS_LIKE_EMOJIS = {
+        range(-100, 0): "🥶",
+        range(0, 10): "🧥",
+        range(10, 20): "🧣",
+        range(20, 30): "😎",
+        range(30, 100): "🥵",
     }
 
 # Files (deprecated: game and word‑game features removed)
