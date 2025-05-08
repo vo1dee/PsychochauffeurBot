@@ -165,7 +165,8 @@ def get_last_used_city(user_id: int, chat_id: Optional[int] = None) -> Optional[
                     except (ValueError, TypeError):
                         continue
                     if uid == user_id and cid == chat_id:
-                        return row.get('city')
+                        city = row.get('city')
+                        return "Kyiv" if city and city.lower() == "kiev" else city
             # Fallback to user default
             csvfile.seek(0)
             for row in reader:
@@ -175,7 +176,8 @@ def get_last_used_city(user_id: int, chat_id: Optional[int] = None) -> Optional[
                 except (ValueError, TypeError):
                     continue
                 if uid == user_id and (cid is None or cid == '' or cid == 'None'):
-                    return row.get('city')
+                    city = row.get('city')
+                    return "Kyiv" if city and city.lower() == "kiev" else city
     except Exception as e:
         error_logger.error(f"Error reading city data: {e}")
         return None

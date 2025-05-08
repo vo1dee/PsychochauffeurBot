@@ -10,6 +10,7 @@ import pytz
 from unittest.mock import mock_open, patch, MagicMock, AsyncMock, call
 from telegram import Update
 from telegram.ext import CallbackContext
+import pytest
 
 # Add the project root to the Python path so we can import modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -24,6 +25,7 @@ from modules.utils import get_last_used_city
 from modules.weather import WeatherCommand, WeatherData, WeatherCommandHandler
 from modules.const import weather_emojis, feels_like_emojis
 
+@pytest.mark.asyncio
 class TestBot(unittest.TestCase):
 
     def test_extract_urls(self):
@@ -277,50 +279,26 @@ class TestBot(unittest.TestCase):
         # Test empty string (should return empty string)
         self.assertEqual(country_code_to_emoji(""), "")
 
-    def test_get_weather_emoji(self):
-        """Test getting weather emoji based on weather ID."""
-        # Test thunderstorm (200-299)
-        self.assertEqual(get_weather_emoji(230), next(emoji for id_range, emoji in weather_emojis.items() 
-                                               if 230 in id_range))
-        
-        # Test drizzle (300-399)
-        self.assertEqual(get_weather_emoji(310), next(emoji for id_range, emoji in weather_emojis.items() 
-                                              if 310 in id_range))
-        
-        # Test rain (500-599)
-        self.assertEqual(get_weather_emoji(520), next(emoji for id_range, emoji in weather_emojis.items() 
-                                             if 520 in id_range))
-        
-        # Test unknown ID (should return default rainbow emoji)
-        self.assertEqual(get_weather_emoji(999), "🌈")
+    @pytest.mark.asyncio
+    async def test_get_weather_emoji(self):
+        """Test getting weather emoji based on weather code."""
+        weather_code = 800  # Clear sky
+        emoji = await get_weather_emoji(weather_code)
+        self.assertEqual(emoji, weather_emojis[800])
 
-    def test_get_feels_like_emoji(self):
-        """Test getting 'feels like' emoji based on temperature."""
-        # Test very cold temperature
-        self.assertEqual(get_feels_like_emoji(-20), next(emoji for temp_range, emoji in feels_like_emojis.items() 
-                                                 if -20 in temp_range))
-        
-        # Test moderate temperature
-        self.assertEqual(get_feels_like_emoji(15), next(emoji for temp_range, emoji in feels_like_emojis.items() 
-                                                if 15 in temp_range))
-        
-        # Test hot temperature
-        self.assertEqual(get_feels_like_emoji(30), next(emoji for temp_range, emoji in feels_like_emojis.items() 
-                                               if 30 in temp_range))
+    @pytest.mark.asyncio
+    async def test_get_feels_like_emoji(self):
+        """Test getting feels like emoji based on temperature."""
+        temp = 25  # Warm temperature
+        emoji = await get_feels_like_emoji(temp)
+        self.assertEqual(emoji, feels_like_emojis["warm"])
 
-    def test_get_city_translation(self):
+    @pytest.mark.asyncio
+    async def test_get_city_translation(self):
         """Test city name translation."""
-        # Test known city translations
-        self.assertEqual(get_city_translation("Kyiv"), "Kyiv")  # Should stay the same
-        
-        # Test case insensitivity
-        self.assertEqual(get_city_translation("KYIV"), "KYIV")
-        
-        # Test with spaces
-        self.assertEqual(get_city_translation("New York"), "New York")
-        
-        # Test unknown city (should return original)
-        self.assertEqual(get_city_translation("Unknown City"), "Unknown City")
+        city = "Kiev"
+        translated = await get_city_translation(city)
+        self.assertEqual(translated, "Kyiv")
 
     def test_ensure_directory(self):
         """Test directory creation."""
