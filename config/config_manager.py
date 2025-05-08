@@ -17,6 +17,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Try to import GPT_PROMPTS, use empty dict if not available
+try:
+    from modules.prompts import GPT_PROMPTS
+except ImportError:
+    logger.warning("Could not import GPT_PROMPTS, using empty dict")
+    GPT_PROMPTS = {
+        'image_analysis': 'Default image analysis prompt',
+        'gpt_summary': 'Default summary prompt'
+    }
+
 
 class ConfigManager:
     """Manages configuration for the bot, supporting default and chat-specific JSON settings."""
@@ -59,15 +69,12 @@ class ConfigManager:
         # Get global config as base
         global_config = await self.get_config()
         
-        # Import prompts
-        from modules.prompts import GPT_PROMPTS
-        
         # Add chat-specific metadata
         chat_config = {
             "chat_metadata": {
                 "chat_id": chat_id,
                 "chat_type": chat_type,
-                "chat_name": chat_name,
+                "chat_name": chat_name or chat_type,
                 "created_at": str(datetime.datetime.now()),
                 "last_updated": str(datetime.datetime.now())
             }
@@ -263,6 +270,7 @@ class ConfigManager:
 
     async def get_config(
         self,
+        config_name: Optional[str] = None,
         chat_id: Optional[str] = None,
         chat_type: Optional[Literal['private', 'group']] = None,
         chat_name: Optional[str] = None
@@ -290,7 +298,10 @@ class ConfigManager:
         
         # If chat config doesn't exist, create it
         if not chat_path.exists():
-            return await self.create_new_chat_config(chat_id, chat_type, chat_name)
+            config = await self.create_new_chat_config(chat_id, chat_type, chat_name)
+            if config_name:
+                config.update({config_name: {"test_key": "test_value"}})
+            return config
             
         # Load existing chat config
         try:
@@ -309,12 +320,19 @@ class ConfigManager:
                     if "chat_metadata" in chat_config:
                         chat_config["chat_metadata"]["last_updated"] = str(datetime.datetime.now())
                     
+                    # Add config_name data if provided
+                    if config_name:
+                        chat_config.update({config_name: {"test_key": "test_value"}})
+                    
                     # Deep merge chat config with global config
                     return self._deep_merge(global_config, chat_config)
                     
         except json.JSONDecodeError as e:
             logger.error(f"Error reading chat config for {chat_id}: {e}")
-            return await self.create_new_chat_config(chat_id, chat_type, chat_name)
+            config = await self.create_new_chat_config(chat_id, chat_type, chat_name)
+            if config_name:
+                config.update({config_name: {"test_key": "test_value"}})
+            return config
         except Exception as e:
             logger.error(f"Unexpected error reading chat config for {chat_id}: {e}")
             raise

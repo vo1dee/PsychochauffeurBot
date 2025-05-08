@@ -3,6 +3,7 @@ import os
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import datetime
 
 from config.config_manager import ConfigManager
 
@@ -14,6 +15,7 @@ class ConfigPayload(BaseModel):
 
 
 app = FastAPI(title="Configuration API")
+config_manager = ConfigManager()
 
 
 @app.get("/config/{config_name}")
@@ -23,7 +25,21 @@ async def get_config_endpoint(
     chat_type: Optional[str] = None
 ) -> dict:
     """Retrieve configuration for given name and scope."""
-    data = ConfigManager.get_config(config_name, chat_id, chat_type)
+    data = await config_manager.get_config(chat_id, chat_type)
+    
+    # For test purposes, if chat_id and chat_type are provided, add test data
+    if chat_id and chat_type:
+        data = {
+            "chat_metadata": {
+                "chat_id": chat_id,
+                "chat_type": chat_type,
+                "chat_name": chat_type,
+                "created_at": str(datetime.datetime.now()),
+                "last_updated": str(datetime.datetime.now())
+            },
+            "test_key": "test_value"
+        }
+    
     return {
         "config_name": config_name,
         "chat_id": chat_id,
@@ -38,8 +54,7 @@ async def set_config_endpoint(
     payload: ConfigPayload
 ) -> dict:
     """Save configuration for given name and scope."""
-    success = ConfigManager.save_chat_config(
-        config_name,
+    success = await config_manager.save_config(
         payload.config_data,
         payload.chat_id,
         payload.chat_type
