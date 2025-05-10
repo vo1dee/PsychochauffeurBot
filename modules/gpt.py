@@ -87,9 +87,43 @@ async def get_system_prompt(response_type: str, chat_config: Dict[str, Any]) -> 
         str: System prompt to use
     """
     try:
+        # Get default prompt first as fallback
+        default_prompt = DEFAULT_PROMPTS.get(response_type, DEFAULT_PROMPTS["command"])
+        
+        # Check if custom config is enabled
+        if not chat_config.get("chat_metadata", {}).get("custom_config_enabled", True):
+            return default_prompt
+            
+        # Try to get custom prompt from config
         gpt_settings = chat_config.get("gpt_settings", {})
         response_settings = gpt_settings.get(response_type, {})
-        return response_settings.get("system_prompt", DEFAULT_PROMPTS.get(response_type, DEFAULT_PROMPTS["command"]))
+        custom_prompt = response_settings.get("system_prompt")
+        
+        # Validate custom prompt if it exists
+        if custom_prompt:
+            # Check if prompt is valid
+            if not isinstance(custom_prompt, str):
+                error_logger.error(f"Invalid system prompt type for {response_type}: {type(custom_prompt)}")
+                return default_prompt
+                
+            # Check if prompt is too short or corrupted
+            if len(custom_prompt) < 5:  # Reduced minimum length
+                error_logger.error(f"System prompt too short for {response_type}: {len(custom_prompt)}")
+                return default_prompt
+                
+            # Check if prompt is too long
+            if len(custom_prompt) > 2000:  # Increased maximum length
+                error_logger.error(f"System prompt too long for {response_type}: {len(custom_prompt)}")
+                return default_prompt
+                
+            # Only check for obvious corruption patterns
+            if custom_prompt.strip() == "" or custom_prompt.strip() == "...":
+                error_logger.error(f"Empty or invalid system prompt for {response_type}")
+                return default_prompt
+                
+            return custom_prompt
+            
+        return default_prompt
     except Exception as e:
         error_logger.error(f"Error getting system prompt for {response_type}: {e}")
         return DEFAULT_PROMPTS.get(response_type, DEFAULT_PROMPTS["command"])

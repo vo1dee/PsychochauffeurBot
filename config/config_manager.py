@@ -9,6 +9,8 @@ import aiofiles
 from pathlib import Path
 import datetime
 
+from modules.logger import general_logger, error_logger
+
 # Set up logging with a more concise format
 logging.basicConfig(
     level=logging.INFO,
@@ -36,12 +38,13 @@ class ConfigManager:
         self.GLOBAL_CONFIG_DIR = self.base_dir / 'config' / 'global'
         self.PRIVATE_CONFIG_DIR = self.base_dir / 'config' / 'private'
         self.GROUP_CONFIG_DIR = self.base_dir / 'config' / 'group'
+        self.BACKUP_DIR = self.base_dir / 'config' / 'backups'
         self._file_locks: Dict[str, asyncio.Lock] = {}
         logger.debug("ConfigManager initialized")
 
     async def ensure_dirs(self) -> None:
         """Ensure that base directories for configuration exist."""
-        for d in (self.GLOBAL_CONFIG_DIR, self.PRIVATE_CONFIG_DIR, self.GROUP_CONFIG_DIR):
+        for d in (self.GLOBAL_CONFIG_DIR, self.PRIVATE_CONFIG_DIR, self.GROUP_CONFIG_DIR, self.BACKUP_DIR):
             d.mkdir(parents=True, exist_ok=True)
         logger.debug("Configuration directories verified")
 
@@ -76,7 +79,8 @@ class ConfigManager:
                 "chat_type": chat_type,
                 "chat_name": chat_name or chat_type,
                 "created_at": str(datetime.datetime.now()),
-                "last_updated": str(datetime.datetime.now())
+                "last_updated": str(datetime.datetime.now()),
+                "custom_config_enabled": True  # Enable custom config by default for new chats
             }
         }
 
@@ -270,74 +274,80 @@ class ConfigManager:
 
     async def get_config(
         self,
-        config_name: Optional[str] = None,
         chat_id: Optional[str] = None,
-        chat_type: Optional[Literal['private', 'group']] = None,
-        chat_name: Optional[str] = None
+        chat_type: Optional[str] = None,
+        config_name: Optional[str] = None,
+        create_if_missing: bool = True
     ) -> Dict[str, Any]:
-        """Retrieve configuration data, merging chat-specific with global settings."""
+        """Get configuration for a chat, falling back to global settings."""
         await self.ensure_dirs()
         
-        # Load global config first
-        global_config = {}
-        global_path = self.GLOBAL_CONFIG_DIR / 'default_settings.json'
-        if global_path.exists():
-            async with self._get_lock(str(global_path)):
-                async with aiofiles.open(global_path, 'r', encoding='utf-8') as f:
-                    try:
-                        global_config = json.loads(await f.read())
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Error loading global config: {e}")
-
-        # If no chat-specific config requested, return global config
-        if not chat_id or not chat_type:
-            return global_config
-
-        # Load and merge chat-specific config
-        chat_path = self._get_chat_config_path(chat_id, chat_type)
+        if config_name:
+            config_path = self.get_config_path(config_name, chat_id, chat_type)
+            if os.path.exists(config_path):
+                async with aiofiles.open(config_path, 'r') as f:
+                    content = await f.read()
+                    return json.loads(content)
+            elif create_if_missing:
+                # Create a new config file with default settings
+                default_config = await self._load_global_config()
+                await self.save_config(default_config, chat_id, chat_type)
+                return default_config
+            else:
+                raise FileNotFoundError(f"Config {config_name} not found")
         
-        # If chat config doesn't exist, create it
-        if not chat_path.exists():
-            config = await self.create_new_chat_config(chat_id, chat_type, chat_name)
-            if config_name:
-                config.update({config_name: {"test_key": "test_value"}})
-            return config
-            
-        # Load existing chat config
-        try:
-            async with self._get_lock(str(chat_path)):
-                async with aiofiles.open(chat_path, 'r', encoding='utf-8') as f:
-                    chat_config = json.loads(await f.read())
-                    
-                    # Check if migration is needed
-                    if "gpt_settings" not in chat_config:
-                        await self.migrate_config(chat_id, chat_type)
-                        # Reload the config after migration
-                        async with aiofiles.open(chat_path, 'r', encoding='utf-8') as f:
-                            chat_config = json.loads(await f.read())
-                    
-                    # Update last_updated timestamp
-                    if "chat_metadata" in chat_config:
-                        chat_config["chat_metadata"]["last_updated"] = str(datetime.datetime.now())
-                    
-                    # Add config_name data if provided
-                    if config_name:
-                        chat_config.update({config_name: {"test_key": "test_value"}})
-                    
-                    # Deep merge chat config with global config
-                    return self._deep_merge(global_config, chat_config)
-                    
-        except json.JSONDecodeError as e:
-            logger.error(f"Error reading chat config for {chat_id}: {e}")
-            config = await self.create_new_chat_config(chat_id, chat_type, chat_name)
-            if config_name:
-                config.update({config_name: {"test_key": "test_value"}})
-            return config
-        except Exception as e:
-            logger.error(f"Unexpected error reading chat config for {chat_id}: {e}")
-            raise
+        # If no config_name is provided, get the default config for the chat
+        if chat_type == "global":
+            return await self._load_global_config()
+        
+        # Get chat-specific config
+        chat_config = await self._load_chat_config(chat_id)
+        if chat_config:
+            return chat_config
+        
+        # If no chat config exists and create_if_missing is True, create one
+        if create_if_missing:
+            return await self.create_new_chat_config(chat_id, chat_type)
+        
+        # Return empty dict if no config exists and create_if_missing is False
+        return {}
 
-        return global_config
+    def _validate_config_structure(self, config: Dict[str, Any]) -> bool:
+        """Validate the structure of a configuration."""
+        try:
+            # Check required top-level keys
+            if not isinstance(config, dict):
+                return False
+
+            # Check chat metadata
+            metadata = config.get("chat_metadata", {})
+            if not isinstance(metadata, dict):
+                return False
+
+            # Check chat settings
+            settings = config.get("chat_settings", {})
+            if not isinstance(settings, dict):
+                return False
+
+            # Check GPT settings
+            gpt_settings = config.get("gpt_settings", {})
+            if not isinstance(gpt_settings, dict):
+                return False
+
+            # Validate each GPT setting
+            for setting_type, setting in gpt_settings.items():
+                if not isinstance(setting, dict):
+                    return False
+                required_keys = ["max_tokens", "temperature", "presence_penalty", "frequency_penalty", "model", "system_prompt"]
+                if not all(key in setting for key in required_keys):
+                    return False
+                if not isinstance(setting["system_prompt"], str) or len(setting["system_prompt"]) < 10:
+                    return False
+
+            return True
+        except Exception as e:
+            logger.error(f"Error validating config structure: {e}")
+            return False
 
     def _deep_merge(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
         """Deep merge two dictionaries, with override taking precedence."""
@@ -357,29 +367,71 @@ class ConfigManager:
         self,
         config_data: Dict[str, Any],
         chat_id: Optional[str] = None,
-        chat_type: Optional[Literal['private', 'group']] = None
+        chat_type: Optional[str] = None,
+        config_name: Optional[str] = None
     ) -> bool:
-        """Save configuration data to the appropriate location."""
+        """Save configuration data."""
+        await self.ensure_dirs()
+        
+        if not self._validate_config_structure(config_data):
+            error_logger.error("Invalid config structure")
+            return False
+        
         try:
-            await self.ensure_dirs()
+            if config_name:
+                config_path = self.get_config_path(config_name, chat_id, chat_type)
+                # Create backup if file exists
+                if os.path.exists(config_path):
+                    backup_path = self.BACKUP_DIR / f"{config_path.name}.bak"
+                    async with aiofiles.open(config_path, 'r') as src, aiofiles.open(backup_path, 'w') as dst:
+                        await dst.write(await src.read())
+                
+                # Add metadata if it doesn't exist
+                if "chat_metadata" not in config_data and chat_id and chat_type:
+                    config_data["chat_metadata"] = {
+                        "chat_id": chat_id,
+                        "chat_type": chat_type,
+                        "chat_name": chat_type,
+                        "created_at": str(datetime.datetime.now()),
+                        "last_updated": str(datetime.datetime.now()),
+                        "custom_config_enabled": True
+                    }
+                
+                # Write new config
+                async with aiofiles.open(config_path, 'w') as f:
+                    await f.write(json.dumps(config_data, indent=2))
+                return True
             
-            if chat_id and chat_type:
-                target_path = self._get_chat_config_path(chat_id, chat_type)
-                logger.info(f"Saving chat config to: {target_path}")
-                # Update last_updated timestamp if it's a chat config
-                if "chat_metadata" in config_data:
-                    config_data["chat_metadata"]["last_updated"] = str(datetime.datetime.now())
+            # If no config_name is provided, save to the default chat config
+            if chat_type == "global":
+                config_path = self.GLOBAL_CONFIG_DIR / "default_settings.json"
             else:
-                target_path = self.GLOBAL_CONFIG_DIR / 'default_settings.json'
-                logger.info(f"Saving global config to: {target_path}")
-
-            async with self._get_lock(str(target_path)):
-                async with aiofiles.open(target_path, 'w', encoding='utf-8') as f:
-                    await f.write(json.dumps(config_data, ensure_ascii=False, indent=2))
-            logger.info(f"Successfully saved config to: {target_path}")
+                config_path = self._get_chat_config_path(chat_id, chat_type)
+            
+            # Create backup if file exists
+            if os.path.exists(config_path):
+                backup_path = self.BACKUP_DIR / f"{config_path.name}.bak"
+                async with aiofiles.open(config_path, 'r') as src, aiofiles.open(backup_path, 'w') as dst:
+                    await dst.write(await src.read())
+            
+            # Add metadata if it doesn't exist
+            if "chat_metadata" not in config_data and chat_id and chat_type:
+                config_data["chat_metadata"] = {
+                    "chat_id": chat_id,
+                    "chat_type": chat_type,
+                    "chat_name": chat_type,
+                    "created_at": str(datetime.datetime.now()),
+                    "last_updated": str(datetime.datetime.now()),
+                    "custom_config_enabled": True
+                }
+            
+            # Write new config
+            async with aiofiles.open(config_path, 'w') as f:
+                await f.write(json.dumps(config_data, indent=2))
             return True
+            
         except Exception as e:
-            logger.error(f"Error saving config: {e}")
+            error_logger.error(f"Error saving config: {e}")
             return False
 
     async def update_setting(
@@ -391,8 +443,23 @@ class ConfigManager:
     ) -> bool:
         """Update a specific setting in the configuration."""
         logger.info(f"Updating setting {key} for chat_id: {chat_id}, type: {chat_type}")
-        current_config = await self.get_config(chat_id, chat_type)
-        current_config[key] = value
+        
+        # Get current config
+        current_config = await self.get_config(chat_id=chat_id, chat_type=chat_type)
+        
+        # Handle nested keys (e.g., "chat_metadata.custom_config_enabled")
+        if "." in key:
+            parts = key.split(".")
+            target = current_config
+            for part in parts[:-1]:
+                if part not in target:
+                    target[part] = {}
+                target = target[part]
+            target[parts[-1]] = value
+        else:
+            current_config[key] = value
+            
+        # Save the updated config
         return await self.save_config(current_config, chat_id, chat_type)
 
     async def get_setting(
@@ -545,14 +612,209 @@ class ConfigManager:
         # Migrate private chats
         for config_file in self.PRIVATE_CONFIG_DIR.glob("*.json"):
             chat_id = config_file.stem
-            success = await self.migrate_config(chat_id, "private")
-            results[f"private_{chat_id}"] = success
+            # Only migrate if the config needs migration
+            try:
+                async with aiofiles.open(config_file, 'r') as f:
+                    content = await f.read()
+                    config = json.loads(content)
+                    # Check if config needs migration (missing required fields)
+                    if not self._validate_config_structure(config):
+                        success = await self.migrate_config(chat_id, "private")
+                        results[f"private_{chat_id}"] = success
+                    else:
+                        results[f"private_{chat_id}"] = True  # Already up to date
+            except Exception as e:
+                logger.error(f"Error checking config for private chat {chat_id}: {e}")
+                results[f"private_{chat_id}"] = False
         
         # Migrate group chats
         for config_file in self.GROUP_CONFIG_DIR.glob("*.json"):
             chat_id = config_file.stem
-            success = await self.migrate_config(chat_id, "group")
-            results[f"group_{chat_id}"] = success
+            # Only migrate if the config needs migration
+            try:
+                async with aiofiles.open(config_file, 'r') as f:
+                    content = await f.read()
+                    config = json.loads(content)
+                    # Check if config needs migration (missing required fields)
+                    if not self._validate_config_structure(config):
+                        success = await self.migrate_config(chat_id, "group")
+                        results[f"group_{chat_id}"] = success
+                    else:
+                        results[f"group_{chat_id}"] = True  # Already up to date
+            except Exception as e:
+                logger.error(f"Error checking config for group chat {chat_id}: {e}")
+                results[f"group_{chat_id}"] = False
         
         logger.info(f"Migration completed: {sum(results.values())} successful, {len(results) - sum(results.values())} failed")
-        return results 
+        return results
+
+    async def backup_config(self, chat_id: str, chat_type: str) -> bool:
+        """Create a backup of a chat's configuration."""
+        try:
+            source_path = self._get_chat_config_path(chat_id, chat_type)
+            if not source_path.exists():
+                return False
+
+            # Create backup filename with timestamp
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = self.BACKUP_DIR / f"{chat_type}_{chat_id}_{timestamp}.json"
+
+            # Copy the file
+            async with aiofiles.open(source_path, 'r') as src:
+                content = await src.read()
+                async with aiofiles.open(backup_path, 'w') as dst:
+                    await dst.write(content)
+
+            logger.info(f"Created backup of {chat_type} chat {chat_id} config at {backup_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to backup config for {chat_type} chat {chat_id}: {e}")
+            return False
+
+    async def restore_config(self, chat_id: str, chat_type: str, backup_timestamp: Optional[str] = None) -> bool:
+        """Restore a chat's configuration from backup."""
+        try:
+            # Find the most recent backup if timestamp not specified
+            if not backup_timestamp:
+                backups = list(self.BACKUP_DIR.glob(f"{chat_type}_{chat_id}_*.json"))
+                if not backups:
+                    return False
+                backup_path = max(backups, key=lambda p: p.stat().st_mtime)
+            else:
+                backup_path = self.BACKUP_DIR / f"{chat_type}_{chat_id}_{backup_timestamp}.json"
+                if not backup_path.exists():
+                    return False
+
+            # Restore the backup
+            target_path = self._get_chat_config_path(chat_id, chat_type)
+            async with aiofiles.open(backup_path, 'r') as src:
+                content = await src.read()
+                async with aiofiles.open(target_path, 'w') as dst:
+                    await dst.write(content)
+
+            logger.info(f"Restored config for {chat_type} chat {chat_id} from {backup_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to restore config for {chat_type} chat {chat_id}: {e}")
+            return False
+
+    async def list_backups(self, chat_id: str, chat_type: str) -> List[str]:
+        """List available backups for a chat."""
+        try:
+            backups = list(self.BACKUP_DIR.glob(f"{chat_type}_{chat_id}_*.json"))
+            return [b.stem.split('_')[-1] for b in sorted(backups, key=lambda p: p.stat().st_mtime, reverse=True)]
+        except Exception as e:
+            logger.error(f"Failed to list backups for {chat_type} chat {chat_id}: {e}")
+            return []
+
+    async def _load_global_config(self) -> Dict[str, Any]:
+        """Load the global configuration file."""
+        try:
+            config_path = self.GLOBAL_CONFIG_DIR / 'default_settings.json'
+            if not config_path.exists():
+                # Create default global config if it doesn't exist
+                default_config = {
+                    "chat_settings": {
+                        "restrictions_enabled": True,
+                        "max_message_length": 4096,
+                        "rate_limit": {
+                            "messages_per_minute": 30,
+                            "burst_limit": 10
+                        }
+                    },
+                    "gpt_settings": {
+                        "command": {
+                            "max_tokens": 2000,
+                            "temperature": 0.7,
+                            "presence_penalty": 0.0,
+                            "frequency_penalty": 0.0,
+                            "model": "gpt-4.1-mini",
+                            "system_prompt": "You are a helpful assistant."
+                        }
+                    }
+                }
+                await self.save_config(default_config)
+                return default_config
+
+            async with self._get_lock(str(config_path)):
+                async with aiofiles.open(config_path, 'r', encoding='utf-8') as f:
+                    return json.loads(await f.read())
+        except Exception as e:
+            error_logger.error(f"Error loading global config: {e}")
+            return {}
+
+    async def _load_chat_config(self, chat_id: str) -> Dict[str, Any]:
+        """Load a chat-specific configuration file."""
+        try:
+            # Try both private and group configs
+            for chat_type in ['private', 'group']:
+                config_path = self._get_chat_config_path(chat_id, chat_type)
+                if config_path.exists():
+                    async with self._get_lock(str(config_path)):
+                        async with aiofiles.open(config_path, 'r', encoding='utf-8') as f:
+                            return json.loads(await f.read())
+            
+            # If no config found, raise FileNotFoundError
+            raise FileNotFoundError(f"No config found for chat {chat_id}")
+        except Exception as e:
+            error_logger.error(f"Error loading chat config for {chat_id}: {e}")
+            raise
+
+    async def _save_chat_config(self, chat_id: str, config: Dict[str, Any]) -> None:
+        """Save a chat-specific configuration file."""
+        try:
+            chat_type = config.get("chat_metadata", {}).get("chat_type", "private")
+            config_path = self._get_chat_config_path(chat_id, chat_type)
+            
+            # Create backup before saving
+            if config_path.exists():
+                await self.backup_config(chat_id, chat_type)
+            
+            async with self._get_lock(str(config_path)):
+                async with aiofiles.open(config_path, 'w', encoding='utf-8') as f:
+                    await f.write(json.dumps(config, ensure_ascii=False, indent=2))
+        except Exception as e:
+            error_logger.error(f"Error saving chat config for {chat_id}: {e}")
+            raise
+
+    def _create_new_chat_config(self, chat_id: str, chat_type: str, chat_name: Optional[str] = None) -> Dict[str, Any]:
+        """Create a new chat configuration dictionary."""
+        return {
+            "chat_metadata": {
+                "chat_id": chat_id,
+                "chat_type": chat_type,
+                "chat_name": chat_name or chat_type,
+                "created_at": str(datetime.datetime.now()),
+                "last_updated": str(datetime.datetime.now()),
+                "custom_config_enabled": True
+            },
+            "chat_settings": {
+                "restrictions_enabled": True,
+                "max_message_length": 4096,
+                "rate_limit": {
+                    "messages_per_minute": 30,
+                    "burst_limit": 10
+                }
+            },
+            "gpt_settings": {
+                "command": {
+                    "max_tokens": 2000,
+                    "temperature": 0.7,
+                    "presence_penalty": 0.0,
+                    "frequency_penalty": 0.0,
+                    "model": "gpt-4.1-mini",
+                    "system_prompt": "You are a helpful assistant."
+                }
+            }
+        }
+
+    def get_config_path(self, config_name: str, chat_id: Optional[str] = None, chat_type: Optional[str] = None) -> Path:
+        """Get the path for a specific configuration file."""
+        if chat_type == "global":
+            return self.GLOBAL_CONFIG_DIR / f"{config_name}.json"
+        elif chat_type == "private":
+            return self.PRIVATE_CONFIG_DIR / f"{chat_id}_{config_name}.json"
+        elif chat_type == "group":
+            return self.GROUP_CONFIG_DIR / f"{chat_id}_{config_name}.json"
+        else:
+            raise ValueError(f"Invalid chat type: {chat_type}") 

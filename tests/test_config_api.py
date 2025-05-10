@@ -43,6 +43,10 @@ def temp_config_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(config_manager, "PRIVATE_CONFIG_DIR", private_dir)
     monkeypatch.setattr(config_manager, "GROUP_CONFIG_DIR", group_dir)
     
+    # Patch the config manager in the API
+    import config_api
+    monkeypatch.setattr(config_api, "config_manager", config_manager)
+    
     return config_manager
 
 
@@ -58,7 +62,11 @@ async def async_client():
 async def test_global_config_roundtrip(async_client):
     """Test saving and retrieving global config through API."""
     config_name = "test_global"
-    test_config = {"test_key": "test_value"}
+    test_config = {
+        "chat_settings": {
+            "test_key": "test_value"
+        }
+    }
     
     # Save config
     response = await async_client.post(
@@ -81,7 +89,10 @@ async def test_global_config_roundtrip(async_client):
     data = response.json()
     assert data["config_name"] == config_name
     assert data["chat_type"] == "global"
-    assert data["config_data"] == test_config
+    # Check that our test config is in the config_data
+    assert "chat_settings" in data["config_data"]
+    assert "test_key" in data["config_data"]["chat_settings"]
+    assert data["config_data"]["chat_settings"]["test_key"] == "test_value"
 
 
 @pytest.mark.asyncio

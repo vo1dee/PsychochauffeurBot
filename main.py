@@ -212,7 +212,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     chat_title = update.effective_chat.title or f"Private_{chat_id}"
     chat_type = "private" if update.effective_chat.type == "private" else "group"
 
-    # Create or get chat configuration
+    # Get chat configuration (will create if missing)
     try:
         chat_config = await config_manager.get_config(
             chat_id=str(chat_id),
@@ -223,6 +223,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         error_logger.error(f"Failed to load chat config: {e}")
         # Continue without config if there's an error
+        chat_config = {}
 
     # Update last message cache
     last_user_messages.setdefault(user_id, {'current': None, 'previous': None})
@@ -303,7 +304,7 @@ async def handle_random_gpt_response(update: Update, context: CallbackContext) -
     chat_id = str(update.message.chat_id)
     chat_type = "private" if update.effective_chat.type == "private" else "group"
     
-    # Get chat configuration
+    # Get chat configuration (will create if missing)
     try:
         chat_config = await config_manager.get_config(
             chat_id=chat_id,
@@ -560,6 +561,100 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         await restrict_user(update, context)
 
 
+@handle_errors(feedback_message="An error occurred while updating chat configuration.")
+async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /config command to manage chat configuration."""
+    if not update.message:
+        return
+
+    chat_id = str(update.effective_chat.id)
+    chat_type = 'private' if update.effective_chat.type == 'private' else 'group'
+    
+    # Check if user has permission (only admins in groups)
+    if chat_type == 'group':
+        user = await update.effective_chat.get_member(update.effective_user.id)
+        if not user.status in ['creator', 'administrator']:
+            await update.message.reply_text("❌ Only administrators can modify chat configuration.")
+            return
+
+    # Get current config
+    current_config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type)
+    current_state = current_config.get("chat_metadata", {}).get("custom_config_enabled", True)
+
+    # Parse command arguments
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            f"Current configuration status: {'enabled' if current_state else 'disabled'}\n\n"
+            "Usage:\n"
+            "/config enable - Enable custom configuration\n"
+            "/config disable - Disable custom configuration (use global settings)\n"
+            "/config backup - Create a backup of current configuration\n"
+            "/config restore [timestamp] - Restore from backup (most recent if no timestamp)\n"
+            "/config list - List available backups"
+        )
+        return
+
+    command = args[0].lower()
+    
+    if command == 'backup':
+        success = await config_manager.backup_config(chat_id, chat_type)
+        if success:
+            await update.message.reply_text("✅ Configuration backup created successfully.")
+        else:
+            await update.message.reply_text("❌ Failed to create backup. Please try again later.")
+        return
+
+    elif command == 'restore':
+        # Create backup before restoring
+        await config_manager.backup_config(chat_id, chat_type)
+        
+        # Get timestamp from args if provided
+        timestamp = args[1] if len(args) > 1 else None
+        success = await config_manager.restore_config(chat_id, chat_type, timestamp)
+        if success:
+            await update.message.reply_text("✅ Configuration restored successfully.")
+        else:
+            await update.message.reply_text("❌ Failed to restore configuration. Please try again later.")
+        return
+
+    elif command == 'list':
+        backups = await config_manager.list_backups(chat_id, chat_type)
+        if backups:
+            backup_list = "\n".join(backups)
+            await update.message.reply_text(f"Available backups:\n{backup_list}")
+        else:
+            await update.message.reply_text("No backups available.")
+        return
+
+    elif command in ['enable', 'disable']:
+        # Create backup before modifying
+        await config_manager.backup_config(chat_id, chat_type)
+        
+        # Update configuration
+        new_state = command == 'enable'
+        success = await config_manager.update_setting(
+            "chat_metadata.custom_config_enabled",
+            new_state,
+            chat_id=chat_id,
+            chat_type=chat_type
+        )
+
+        if success:
+            await update.message.reply_text(
+                f"✅ Custom configuration has been {'enabled' if new_state else 'disabled'} for this chat."
+            )
+        else:
+            await update.message.reply_text("❌ Failed to update configuration. Please try again later.")
+        return
+
+    else:
+        await update.message.reply_text(
+            "Invalid command. Use /config to see available commands."
+        )
+        return
+
+
 def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
     """Register all command and message handlers."""
     # Command handlers
@@ -573,6 +668,7 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     application.add_handler(CommandHandler('gm', GeomagneticCommandHandler()))
     application.add_handler(CommandHandler('ping', lambda update, context: update.message.reply_text("🏓 Bot is online!")))
     application.add_handler(CommandHandler('remind', reminder_manager.remind))
+    application.add_handler(CommandHandler("config", config_command))
     
     # Message handlers
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
