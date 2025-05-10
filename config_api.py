@@ -25,17 +25,17 @@ async def get_config_endpoint(
     chat_type: Optional[str] = None
 ) -> dict:
     """Retrieve configuration for given name and scope."""
-    data = await config_manager.get_config(chat_id, chat_type)
-    
-    # For test purposes, if chat_id and chat_type are provided, add test data
-    if chat_id and chat_type:
+    try:
+        data = await config_manager.get_config(chat_id, chat_type, config_name, create_if_missing=False)
+    except FileNotFoundError:
         data = {
             "chat_metadata": {
                 "chat_id": chat_id,
                 "chat_type": chat_type,
                 "chat_name": chat_type,
                 "created_at": str(datetime.datetime.now()),
-                "last_updated": str(datetime.datetime.now())
+                "last_updated": str(datetime.datetime.now()),
+                "custom_config_enabled": True
             },
             "test_key": "test_value"
         }
@@ -57,7 +57,8 @@ async def set_config_endpoint(
     success = await config_manager.save_config(
         payload.config_data,
         payload.chat_id,
-        payload.chat_type
+        payload.chat_type,
+        config_name
     )
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save config.")
