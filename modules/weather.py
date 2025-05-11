@@ -170,12 +170,18 @@ class WeatherCommandHandler:
     
     def __init__(self):
         self.weather_api = WeatherAPI()
+        self.config_manager = ConfigManager()
     
     async def handle_weather_request(self, city: str, update: Update = None, context: CallbackContext = None) -> str:
         """Process weather request and return formatted message."""
         chat_type = 'private' if update and update.effective_chat and update.effective_chat.type == 'private' else 'group'
         chat_id = str(update.effective_chat.id) if update and update.effective_chat else None
         
+        # Get weather module configuration
+        weather_config = await self.config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="weather")
+        if not weather_config.get("enabled", False):
+            return "Weather module is disabled for this chat."
+            
         weather_data = await self.weather_api.fetch_weather(city)
         if weather_data:
             return await weather_data.format_message(update, context)
@@ -184,7 +190,14 @@ class WeatherCommandHandler:
     async def __call__(self, update: Update, context: CallbackContext) -> None:
         """Handle /weather command."""
         user_id = update.effective_user.id
-        chat_id = update.effective_chat.id if update.effective_chat else None
+        chat_id = str(update.effective_chat.id) if update.effective_chat else None
+        chat_type = 'private' if update.effective_chat and update.effective_chat.type == 'private' else 'group'
+        
+        # Get weather module configuration
+        weather_config = await self.config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="weather")
+        if not weather_config.get("enabled", False):
+            await update.message.reply_text("Weather module is disabled for this chat.")
+            return
         
         try:
             if context.args:

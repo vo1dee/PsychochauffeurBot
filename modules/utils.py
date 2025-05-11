@@ -36,7 +36,7 @@ IMGKIT_OPTIONS = {
     ]
 }
 
-# Create a global config_manager instance for async config access
+# Initialize config manager
 config_manager = ConfigManager()
 
 class MessageCounter:
@@ -384,6 +384,10 @@ def ensure_city_data_file():
 
 # Call this function during initialization
 ensure_city_data_file()
+
+async def initialize_utils():
+    """Initialize utility modules."""
+    await config_manager.initialize()
 
 # Only run setup code if this module is the main script
 if __name__ == "__main__":

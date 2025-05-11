@@ -90,13 +90,28 @@ async def get_system_prompt(response_type: str, chat_config: Dict[str, Any]) -> 
         # Get default prompt first as fallback
         default_prompt = DEFAULT_PROMPTS.get(response_type, DEFAULT_PROMPTS["command"])
         
-        # Check if custom config is enabled
-        if not chat_config.get("chat_metadata", {}).get("custom_config_enabled", True):
+        # First try to get global config as default
+        try:
+            global_config = await config_manager.get_config()
+            gpt_module = global_config.get("config_modules", {}).get("gpt", {})
+            if gpt_module.get("enabled", True):  # Default to enabled for global config
+                response_settings = gpt_module.get("overrides", {}).get(response_type, {})
+                global_prompt = response_settings.get("system_prompt")
+                if global_prompt and isinstance(global_prompt, str) and 5 <= len(global_prompt) <= 2000:
+                    default_prompt = global_prompt  # Use global prompt as default
+        except Exception as e:
+            error_logger.error(f"Error getting global config: {e}")
+            
+        # Check if chat has custom config enabled
+        if not chat_config.get("chat_metadata", {}).get("custom_config_enabled", False):
+            return default_prompt  # Return global/default prompt if custom config is not enabled
+            
+        # Try to get custom prompt from chat config
+        gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
+        if not gpt_module.get("enabled", False):
             return default_prompt
             
-        # Try to get custom prompt from config
-        gpt_settings = chat_config.get("gpt_settings", {})
-        response_settings = gpt_settings.get(response_type, {})
+        response_settings = gpt_module.get("overrides", {}).get(response_type, {})
         custom_prompt = response_settings.get("system_prompt")
         
         # Validate custom prompt if it exists
@@ -367,6 +382,15 @@ async def get_context_messages(update: Update, context: CallbackContext) -> List
         if not update.message or not update.message.text:
             return messages
             
+        # Get chat configuration
+        chat_id = str(update.effective_chat.id)
+        chat_type = "private" if update.effective_chat.type == "private" else "group"
+        chat_config = await config_manager.get_config(chat_id, chat_type)
+        
+        # Get context messages count from config
+        gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
+        context_messages_count = gpt_module.get("context_messages_count", 3)  # Default to 3 if not specified
+            
         # Add the current message
         messages.append({
             "role": "user",
@@ -378,8 +402,8 @@ async def get_context_messages(update: Update, context: CallbackContext) -> List
             chat_id = update.effective_chat.id
             chat_history = context.chat_data.get('message_history', [])
             
-            # Add up to CONTEXT_MESSAGES_COUNT previous messages
-            for msg in reversed(chat_history[-CONTEXT_MESSAGES_COUNT:]):
+            # Add up to context_messages_count previous messages
+            for msg in reversed(chat_history[-context_messages_count:]):
                 if msg.get('text'):
                     messages.insert(0, {
                         "role": "user" if msg.get('is_user') else "assistant",
@@ -415,15 +439,26 @@ async def gpt_response(
         chat_config = await config_manager.get_config(chat_id, chat_type)
         
         # Get response settings from config
-        gpt_settings = chat_config.get("gpt_settings", {})
-        response_settings = gpt_settings.get(response_type, {})
+        gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
         
-        # Use provided values or fall back to config values
-        max_tokens = max_tokens or response_settings.get("max_tokens", DEFAULT_MAX_TOKENS)
-        temperature = temperature or response_settings.get("temperature", 0.7)
-        
-        # Get system prompt from config
-        system_prompt = await get_system_prompt(response_type, chat_config)
+        # If GPT module is not configured, use default settings
+        if not gpt_module:
+            max_tokens = max_tokens or DEFAULT_MAX_TOKENS
+            temperature = temperature or 0.7
+            system_prompt = DEFAULT_PROMPTS.get(response_type, DEFAULT_PROMPTS["command"])
+        else:
+            # Check if module is disabled
+            if not gpt_module.get("enabled", True):  # Default to enabled if not specified
+                return None
+                
+            response_settings = gpt_module.get("overrides", {}).get(response_type, {})
+            
+            # Use provided values or fall back to config values
+            max_tokens = max_tokens or response_settings.get("max_tokens", DEFAULT_MAX_TOKENS)
+            temperature = temperature or response_settings.get("temperature", 0.7)
+            
+            # Get system prompt from config
+            system_prompt = await get_system_prompt(response_type, chat_config)
         
         # Get context messages
         context_messages = await get_context_messages(update, context)
@@ -487,11 +522,25 @@ async def ask_gpt_command(
     Process a GPT command from either a string prompt or an Update object.
     If return_text is True, return the GPT response as a string.
     """
+    # If prompt is an Update object, use it as the update
     if isinstance(prompt, Update):
         update = prompt
         message_text = update.message.text
         command_parts = message_text.split(' ', 1)
-        prompt = command_parts[1] if len(command_parts) > 1 else "Привіт!"
+        prompt = command_parts[1] if len(command_parts) > 1 else None
+    # If update is provided as a separate parameter, use it
+    elif update is not None:
+        message_text = update.message.text
+        command_parts = message_text.split(' ', 1)
+        prompt = command_parts[1] if len(command_parts) > 1 else None
+    
+    if not update or not context:
+        error_logger.error("ask_gpt_command called without update or context")
+        return None
+    
+    # If no prompt is provided, use a default greeting
+    if not prompt:
+        prompt = "Привіт! Як я можу вам допомогти?"
     
     # Call gpt_response with the new signature
     return await gpt_response(update, context, response_type="command", message_text_override=prompt, return_text=return_text)
@@ -730,3 +779,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await status_message.edit_text(
             text="❌ Помилка при генерації аналізу. Спробуйте пізніше."
         )
+
+async def initialize_gpt():
+    """Initialize GPT module."""
+    await config_manager.initialize()

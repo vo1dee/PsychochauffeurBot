@@ -53,6 +53,7 @@ from modules.geomagnetic import GeomagneticCommandHandler
 from modules.reminders.reminders import ReminderManager
 from modules.error_analytics import error_report_command, error_tracker
 from config.config_manager import ConfigManager
+from modules.safety import safety_manager
 
 nest_asyncio.apply()
 
@@ -206,35 +207,23 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         return
 
     message_text = update.message.text
-    chat_id = update.message.chat_id
-    username = update.message.from_user.username or f"ID:{update.message.from_user.id}"
-    user_id = update.message.from_user.id
-    chat_title = update.effective_chat.title or f"Private_{chat_id}"
+    chat_id = str(update.message.chat_id)
     chat_type = "private" if update.effective_chat.type == "private" else "group"
+    chat_name = update.effective_chat.title or f"{chat_type}_{chat_id}"
+    user_id = update.effective_user.id
+    username = update.effective_user.username or str(user_id)
+    chat_title = update.effective_chat.title if update.effective_chat.title else "private"
 
-    # Get chat configuration (will create if missing)
-    try:
-        chat_config = await config_manager.get_config(
-            chat_id=str(chat_id),
-            chat_type=chat_type,
-            chat_name=chat_title
-        )
-        general_logger.info(f"Loaded chat config for {chat_type} chat {chat_id}")
-    except Exception as e:
-        error_logger.error(f"Failed to load chat config: {e}")
-        # Continue without config if there's an error
-        chat_config = {}
-
-    # Update last message cache
-    last_user_messages.setdefault(user_id, {'current': None, 'previous': None})
-    last_user_messages[user_id]['previous'] = last_user_messages[user_id]['current']
-    last_user_messages[user_id]['current'] = message_text
-
-    # Use chat_logger with context via 'extra'
-    chat_logger.info(
-        f"User message: {message_text}",
-        extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username}
+    # Get chat configuration
+    chat_config = await config_manager.get_config(
+        chat_id=chat_id,
+        chat_type=chat_type,
+        chat_name=chat_name
     )
+
+    # Check message safety
+    if not await safety_manager.check_message_safety(update, context, message_text):
+        return
 
     # Check for restriction triggers if restrictions are enabled
     if chat_type == "group" and chat_config.get("chat_settings", {}).get("restrictions_enabled", True):
@@ -277,20 +266,16 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # URL processing check
     urls = extract_urls(message_text)
     if urls:
-        general_logger.info(f"Processing URLs: {urls} in chat {chat_id}")
         await process_urls(update, context, urls, message_text)
-        context.bot_data.pop('update_override', None)
         return
 
-    # GPT response check
+    # Check if message needs GPT response
     needs_response, response_type = needs_gpt_response(update, context, message_text)
     if needs_response:
-        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
-        general_logger.info(f"GPT response triggered for: '{cleaned_message}' in chat {chat_id} with type {response_type}")
-        await gpt_response(update, context, response_type=response_type)
+        await ask_gpt_command(message_text, update=update, context=context)
         return
 
-    # Fallback to random GPT response check
+    # Handle random GPT responses
     await handle_random_gpt_response(update, context)
 
 
@@ -303,13 +288,14 @@ async def handle_random_gpt_response(update: Update, context: CallbackContext) -
     message_text = update.message.text
     chat_id = str(update.message.chat_id)
     chat_type = "private" if update.effective_chat.type == "private" else "group"
+    chat_name = update.effective_chat.title or f"{chat_type}_{chat_id}"
     
     # Get chat configuration (will create if missing)
     try:
         chat_config = await config_manager.get_config(
             chat_id=chat_id,
             chat_type=chat_type,
-            chat_name=update.effective_chat.title or f"Private_{chat_id}"
+            chat_name=chat_name
         )
         
         # Get random response settings from config
@@ -334,7 +320,7 @@ async def handle_random_gpt_response(update: Update, context: CallbackContext) -
                 f"Random GPT response triggered in chat {chat_id}: Message count: {current_count}",
                 extra={
                     'chat_id': chat_id, 
-                    'chattitle': update.effective_chat.title or f"Private_{chat_id}",
+                    'chattitle': chat_name,
                     'settings': {
                         'threshold': message_threshold,
                         'probability': probability,
@@ -342,7 +328,7 @@ async def handle_random_gpt_response(update: Update, context: CallbackContext) -
                     }
                 }
             )
-            await gpt_response(update, context, response_type="random")
+            await ask_gpt_command(message_text, update=update, context=context)
             message_counter.reset(chat_id)
             
     except Exception as e:
@@ -353,7 +339,7 @@ async def handle_random_gpt_response(update: Update, context: CallbackContext) -
 
         current_count = message_counter.increment(chat_id)
         if current_count >= 50 and random.random() < 0.02:
-            await gpt_response(update, context, response_type="random")
+            await ask_gpt_command(message_text, update=update, context=context)
             message_counter.reset(chat_id)
 
 @handle_errors(feedback_message="An error occurred while processing your links.")
@@ -579,7 +565,7 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Get current config
     current_config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type)
-    current_state = current_config.get("chat_metadata", {}).get("custom_config_enabled", True)
+    current_state = current_config.get("chat_metadata", {}).get("custom_config_enabled", False)
 
     # Parse command arguments
     args = context.args
@@ -589,63 +575,78 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "Usage:\n"
             "/config enable - Enable custom configuration\n"
             "/config disable - Disable custom configuration (use global settings)\n"
+            "/config enable <module> - Enable a specific module\n"
+            "/config disable <module> - Disable a specific module\n"
             "/config backup - Create a backup of current configuration\n"
             "/config restore [timestamp] - Restore from backup (most recent if no timestamp)\n"
-            "/config list - List available backups"
+            "/config list - List available backups\n"
+            "/config modules - List available modules and their status"
         )
         return
 
     command = args[0].lower()
-    
-    if command == 'backup':
+
+    if command == 'modules':
+        # List available modules and their status
+        modules = current_config.get("config_modules", {})
+        if not modules:
+            await update.message.reply_text("No modules configured for this chat.")
+            return
+
+        response = "Available modules and their status:\n\n"
+        for module_name, module_config in modules.items():
+            status = "✅ Enabled" if module_config.get("enabled", False) else "❌ Disabled"
+            response += f"{module_name}: {status}\n"
+
+        await update.message.reply_text(response)
+        return
+
+    elif command == 'enable':
+        if len(args) < 2:
+            # Enable custom configuration for the chat
+            success = await config_manager.enable_custom_config(chat_id, chat_type)
+            if success:
+                await update.message.reply_text("✅ Custom configuration has been enabled for this chat.")
+            else:
+                await update.message.reply_text("❌ Failed to enable custom configuration. Please try again later.")
+            return
+
+        # Enable specific module
+        module_name = args[1].lower()
+        success = await config_manager.enable_module(chat_id, chat_type, module_name)
+        
+        if success:
+            await update.message.reply_text(f"✅ Module '{module_name}' has been enabled.")
+        else:
+            await update.message.reply_text(f"❌ Failed to enable module '{module_name}'. Module may not exist.")
+        return
+
+    elif command == 'disable':
+        if len(args) < 2:
+            # Disable custom configuration for the chat
+            success = await config_manager.disable_custom_config(chat_id, chat_type)
+            if success:
+                await update.message.reply_text("✅ Custom configuration has been disabled for this chat.")
+            else:
+                await update.message.reply_text("❌ Failed to disable custom configuration. Please try again later.")
+            return
+
+        # Disable specific module
+        module_name = args[1].lower()
+        success = await config_manager.disable_module(chat_id, chat_type, module_name)
+        
+        if success:
+            await update.message.reply_text(f"✅ Module '{module_name}' has been disabled.")
+        else:
+            await update.message.reply_text(f"❌ Failed to disable module '{module_name}'. Module may not exist.")
+        return
+
+    elif command == 'backup':
         success = await config_manager.backup_config(chat_id, chat_type)
         if success:
             await update.message.reply_text("✅ Configuration backup created successfully.")
         else:
             await update.message.reply_text("❌ Failed to create backup. Please try again later.")
-        return
-
-    elif command == 'restore':
-        # Create backup before restoring
-        await config_manager.backup_config(chat_id, chat_type)
-        
-        # Get timestamp from args if provided
-        timestamp = args[1] if len(args) > 1 else None
-        success = await config_manager.restore_config(chat_id, chat_type, timestamp)
-        if success:
-            await update.message.reply_text("✅ Configuration restored successfully.")
-        else:
-            await update.message.reply_text("❌ Failed to restore configuration. Please try again later.")
-        return
-
-    elif command == 'list':
-        backups = await config_manager.list_backups(chat_id, chat_type)
-        if backups:
-            backup_list = "\n".join(backups)
-            await update.message.reply_text(f"Available backups:\n{backup_list}")
-        else:
-            await update.message.reply_text("No backups available.")
-        return
-
-    elif command in ['enable', 'disable']:
-        # Create backup before modifying
-        await config_manager.backup_config(chat_id, chat_type)
-        
-        # Update configuration
-        new_state = command == 'enable'
-        success = await config_manager.update_setting(
-            "chat_metadata.custom_config_enabled",
-            new_state,
-            chat_id=chat_id,
-            chat_type=chat_type
-        )
-
-        if success:
-            await update.message.reply_text(
-                f"✅ Custom configuration has been {'enabled' if new_state else 'disabled'} for this chat."
-            )
-        else:
-            await update.message.reply_text("❌ Failed to update configuration. Please try again later.")
         return
 
     else:
@@ -655,12 +656,56 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
 
+@handle_errors(feedback_message="An error occurred while processing your file.")
+async def handle_file(update: Update, context: CallbackContext) -> None:
+    """Handle incoming files with safety checks."""
+    if not update.message or not update.message.document:
+        return
+
+    file = update.message.document
+    chat_id = str(update.message.chat_id)
+    chat_type = "private" if update.effective_chat.type == "private" else "group"
+    chat_name = update.effective_chat.title or f"{chat_type}_{chat_id}"
+    
+    # Check file safety
+    if not await safety_manager.check_file_safety(update, context, file.mime_type):
+        await update.message.reply_text("⚠️ This file type is not allowed in this chat.")
+        return
+        
+    # Process the file based on its type
+    if file.mime_type.startswith('image/'):
+        # Handle image files
+        pass
+    elif file.mime_type.startswith('video/'):
+        # Handle video files
+        pass
+    elif file.mime_type.startswith('audio/'):
+        # Handle audio files
+        pass
+    else:
+        # Handle other file types
+        pass
+
+
+@handle_errors(feedback_message="An error occurred while processing GPT command.")
+async def gpt_command_handler(update: Update, context: CallbackContext) -> None:
+    """Wrapper for the /gpt command to properly handle the command format."""
+    if not update.message:
+        return
+        
+    # Extract the prompt from the command
+    command_parts = update.message.text.split(' ', 1)
+    prompt = command_parts[1] if len(command_parts) > 1 else None
+    
+    # Call ask_gpt_command with the prompt
+    await ask_gpt_command(prompt, update=update, context=context)
+
 def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
     """Register all command and message handlers."""
     # Command handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('cat', cat_command))
-    application.add_handler(CommandHandler('gpt', ask_gpt_command))
+    application.add_handler(CommandHandler('gpt', gpt_command_handler))  # Use the wrapper instead
     application.add_handler(CommandHandler('analyze', analyze_command))
     application.add_handler(CommandHandler('flares', screenshot_command))
     application.add_handler(CommandHandler('weather', WeatherCommandHandler()))
@@ -680,6 +725,9 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     video_downloader = setup_video_handlers(application, extract_urls_func=extract_urls)
     application.bot_data['video_downloader'] = video_downloader
     
+    # Add file handler
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    
     general_logger.info("All handlers registered successfully")
 
 async def main() -> None:
@@ -690,15 +738,24 @@ async def main() -> None:
         
         # Initialize config manager
         config_manager = ConfigManager()
+        await config_manager.initialize()  # Initialize config manager and ensure global config exists
         
         # Register handlers
         register_handlers(application, application.bot, config_manager)
         
         # Migrate configurations
         general_logger.info("Starting configuration migration...")
-        migration_results = await config_manager.migrate_all_configs()
-        general_logger.info("Configuration migration completed")
+        
+        # First migrate existing configs to new directory structure
+        migration_results = await config_manager.migrate_existing_configs()
+        general_logger.info("Configuration directory migration completed")
         for chat_id, result in migration_results.items():
+            general_logger.info(f"Chat {chat_id}: {result}")
+        
+        # Then migrate to modular structure
+        modular_results = await config_manager.migrate_all_to_modular()
+        general_logger.info("Modular configuration migration completed")
+        for chat_id, result in modular_results.items():
             general_logger.info(f"Chat {chat_id}: {result}")
         
         # Start error tracking after event loop is running
