@@ -94,11 +94,10 @@ async def get_system_prompt(response_type: str, chat_config: Dict[str, Any]) -> 
         try:
             global_config = await config_manager.get_config()
             gpt_module = global_config.get("config_modules", {}).get("gpt", {})
-            if gpt_module.get("enabled", True):  # Default to enabled for global config
-                response_settings = gpt_module.get("overrides", {}).get(response_type, {})
-                global_prompt = response_settings.get("system_prompt")
-                if global_prompt and isinstance(global_prompt, str) and 5 <= len(global_prompt) <= 2000:
-                    default_prompt = global_prompt  # Use global prompt as default
+            response_settings = gpt_module.get("overrides", {}).get(response_type, {})
+            global_prompt = response_settings.get("system_prompt")
+            if global_prompt and isinstance(global_prompt, str) and 5 <= len(global_prompt) <= 2000:
+                default_prompt = global_prompt  # Use global prompt as default
         except Exception as e:
             error_logger.error(f"Error getting global config: {e}")
             
@@ -108,9 +107,6 @@ async def get_system_prompt(response_type: str, chat_config: Dict[str, Any]) -> 
             
         # Try to get custom prompt from chat config
         gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
-        if not gpt_module.get("enabled", False):
-            return default_prompt
-            
         response_settings = gpt_module.get("overrides", {}).get(response_type, {})
         custom_prompt = response_settings.get("system_prompt")
         
