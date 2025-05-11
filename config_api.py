@@ -18,6 +18,12 @@ app = FastAPI(title="Configuration API")
 config_manager = ConfigManager()
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize configuration manager on startup."""
+    await config_manager.initialize()
+
+
 @app.get("/config/{config_name}")
 async def get_config_endpoint(
     config_name: str,
