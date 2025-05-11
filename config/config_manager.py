@@ -673,9 +673,11 @@ class ConfigManager:
 
     async def enable_custom_config(self, chat_id: str, chat_type: str) -> bool:
         """Enable custom configuration for a chat."""
-        chat_config = await self.get_config(chat_id, chat_type)
+        # Load chat config directly to preserve existing settings
+        chat_config = await self._load_chat_config(chat_id, chat_type)
         if not chat_config:
-            return False
+            # If no config exists, create a new one
+            chat_config = await self.create_new_chat_config(chat_id, chat_type)
 
         chat_config["chat_metadata"]["custom_config_enabled"] = True
         chat_config["chat_metadata"]["last_updated"] = str(datetime.datetime.now())

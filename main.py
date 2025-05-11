@@ -575,70 +575,28 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "Usage:\n"
             "/config enable - Enable custom configuration\n"
             "/config disable - Disable custom configuration (use global settings)\n"
-            "/config enable <module> - Enable a specific module\n"
-            "/config disable <module> - Disable a specific module\n"
-            "/config backup - Create a backup of current configuration\n"
-            "/config restore [timestamp] - Restore from backup (most recent if no timestamp)\n"
-            "/config list - List available backups\n"
-            "/config modules - List available modules and their status"
+            "/config backup - Create a backup of current configuration"
         )
         return
 
     command = args[0].lower()
 
-    if command == 'modules':
-        # List available modules and their status
-        modules = current_config.get("config_modules", {})
-        if not modules:
-            await update.message.reply_text("No modules configured for this chat.")
-            return
-
-        response = "Available modules and their status:\n\n"
-        for module_name, module_config in modules.items():
-            status = "✅ Enabled" if module_config.get("enabled", False) else "❌ Disabled"
-            response += f"{module_name}: {status}\n"
-
-        await update.message.reply_text(response)
-        return
-
-    elif command == 'enable':
-        if len(args) < 2:
-            # Enable custom configuration for the chat
-            success = await config_manager.enable_custom_config(chat_id, chat_type)
-            if success:
-                await update.message.reply_text("✅ Custom configuration has been enabled for this chat.")
-            else:
-                await update.message.reply_text("❌ Failed to enable custom configuration. Please try again later.")
-            return
-
-        # Enable specific module
-        module_name = args[1].lower()
-        success = await config_manager.enable_module(chat_id, chat_type, module_name)
-        
+    if command == 'enable':
+        # Enable custom configuration for the chat
+        success = await config_manager.enable_custom_config(chat_id, chat_type)
         if success:
-            await update.message.reply_text(f"✅ Module '{module_name}' has been enabled.")
+            await update.message.reply_text("✅ Custom configuration has been enabled for this chat.")
         else:
-            await update.message.reply_text(f"❌ Failed to enable module '{module_name}'. Module may not exist.")
+            await update.message.reply_text("❌ Failed to enable custom configuration. Please try again later.")
         return
 
     elif command == 'disable':
-        if len(args) < 2:
-            # Disable custom configuration for the chat
-            success = await config_manager.disable_custom_config(chat_id, chat_type)
-            if success:
-                await update.message.reply_text("✅ Custom configuration has been disabled for this chat.")
-            else:
-                await update.message.reply_text("❌ Failed to disable custom configuration. Please try again later.")
-            return
-
-        # Disable specific module
-        module_name = args[1].lower()
-        success = await config_manager.disable_module(chat_id, chat_type, module_name)
-        
+        # Disable custom configuration for the chat
+        success = await config_manager.disable_custom_config(chat_id, chat_type)
         if success:
-            await update.message.reply_text(f"✅ Module '{module_name}' has been disabled.")
+            await update.message.reply_text("✅ Custom configuration has been disabled for this chat.")
         else:
-            await update.message.reply_text(f"❌ Failed to disable module '{module_name}'. Module may not exist.")
+            await update.message.reply_text("❌ Failed to disable custom configuration. Please try again later.")
         return
 
     elif command == 'backup':
