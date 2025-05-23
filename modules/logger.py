@@ -265,7 +265,13 @@ class TelegramErrorHandler(logging.Handler):
     """
     def __init__(self, bot_token: str, channel_id: str, rate_limit: int = 2):
         super().__init__()
-        self.channel_id = channel_id
+        # Parse channel_id to handle topic-based messages
+        if ':' in channel_id:
+            self.channel_id, self.message_thread_id = channel_id.split(':')
+            self.message_thread_id = int(self.message_thread_id)
+        else:
+            self.channel_id = channel_id
+            self.message_thread_id = None
         self.rate_limit = rate_limit
         self.bot_token = bot_token # Store token to create bot internally
 
@@ -300,11 +306,15 @@ class TelegramErrorHandler(logging.Handler):
 
         for attempt in range(max_retries):
             try:
-                await self._bot_instance.send_message(
-                    chat_id=self.channel_id,
-                    text=text,
-                    parse_mode='HTML'
-                )
+                message_params = {
+                    'chat_id': self.channel_id,
+                    'text': text,
+                    'parse_mode': 'HTML'
+                }
+                if self.message_thread_id is not None:
+                    message_params['message_thread_id'] = self.message_thread_id
+
+                await self._bot_instance.send_message(**message_params)
                 return # Success
             except Exception as e:
                 print(f"ERROR: Attempt {attempt + 1} failed to send error to Telegram: {e}", file=sys.stderr)
@@ -312,11 +322,15 @@ class TelegramErrorHandler(logging.Handler):
                     # Last attempt failed, try sending plain text
                     try:
                         plain_text = html.escape(text) # Ensure it's safe
-                        await self._bot_instance.send_message(
-                             chat_id=self.channel_id,
-                             text=f"Fallback (HTML failed):\n{plain_text[:3800]}", # Limit length
-                             parse_mode=None
-                        )
+                        message_params = {
+                            'chat_id': self.channel_id,
+                            'text': f"Fallback (HTML failed):\n{plain_text[:3800]}", # Limit length
+                            'parse_mode': None
+                        }
+                        if self.message_thread_id is not None:
+                            message_params['message_thread_id'] = self.message_thread_id
+
+                        await self._bot_instance.send_message(**message_params)
                     except Exception as final_e:
                          print(f"ERROR: Final fallback attempt to send error to Telegram failed: {final_e}", file=sys.stderr)
                 else:
