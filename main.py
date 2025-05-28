@@ -442,6 +442,14 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         await restrict_user(update, context)
 
 
+@handle_errors(feedback_message="An error occurred in /wordle command.")
+async def wordle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /wordle command by sending the Wordle game link."""
+    wordle_link = "https://www.nytimes.com/games/wordle/index.html"
+    await update.message.reply_text(f"🎮 Play Wordle here: {wordle_link}")
+    general_logger.info(f"Handled /wordle command for user {update.effective_user.id}")
+
+
 async def main() -> None:
     """Initialize and run the bot."""
     general_logger.info("Starting bot initialization...")
@@ -477,7 +485,8 @@ async def main() -> None:
             'errors': error_report_command, # Ensure this handler exists and is async
             'gm': GeomagneticCommandHandler(), # Ensure this implements __call__ or is callable
             'ping': lambda update, context: update.message.reply_text("🏓 Bot is online!"),
-            'remind': reminder_manager.remind # Ensure this method is async
+            'remind': reminder_manager.remind, # Ensure this method is async
+            'wordle': wordle # Add wordle command
         }
         for command, handler in commands.items():
             application.add_handler(CommandHandler(command, handler))
