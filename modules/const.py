@@ -20,7 +20,6 @@ KYIV_TZ = pytz.timezone('Europe/Kyiv')
 
 class Config:
     """Bot configuration and API keys."""
-    OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     OPENWEATHER_API_KEY: str = os.getenv('OPENWEATHER_API_KEY', '')
     DISCORD_WEBHOOK_URL: str = os.getenv('DISCORD_WEBHOOK_URL', '')
     TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
@@ -30,7 +29,7 @@ class Config:
 
 class Stickers:
     """Telegram sticker IDs."""
-    ALIEXPRESS: str = 'CAACAgQAAxkBAAEz68ZoA3ZmvEtE8gkXYQUf9T4FToQcggAC9BwAAlW6GVDc_WkMgxhxJzYE'
+    ALIEXPRESS: str = 'CAACAgQAAxkBAAEuNplnAqatdmo-G7S_065k9AXXnqUn4QACwhQAAlKL8FNCof7bbA2jAjYE'
 
 class LinkModification:
     """Domain modifications for various social media platforms."""
@@ -58,32 +57,28 @@ class Weather:
         "Тель Авів": "Tel Aviv",
     }
     
-    CONDITION_EMOJIS = {
-        range(200, 300): "⛈",
-        range(300, 400): "🌧",
-        range(500, 600): "🌧",
-        range(600, 700): "❄️",
-        range(700, 800): "🌫",
-        range(800, 801): "☀️",
-        range(801, 900): "☁️",
+    CONDITION_EMOJIS: Dict[range, str] = {
+        range(200, 300): '⛈',  # Thunderstorm
+        range(300, 400): '🌧',  # Drizzle
+        range(500, 600): '🌧',  # Rain
+        range(600, 700): '❄️',  # Snow
+        range(700, 800): '🌫',  # Atmosphere
+        range(800, 801): '☀️',  # Clear
+        range(801, 900): '☁️',  # Clouds
     }
     
-    FEELS_LIKE_EMOJIS = {
-        range(-100, 0): "🥶",
-        range(0, 10): "🧥",
-        range(10, 20): "🧣",
-        range(20, 30): "😎",
-        range(30, 100): "🥵",
+    FEELS_LIKE_EMOJIS: Dict[range, str] = {
+        range(-100, 0): '🥶',  # Very cold
+        range(0, 10): '🧥',    # Cold
+        range(10, 20): '🧣',   # Cool
+        range(20, 30): '😎',   # Comfortable
+        range(30, 100): '🥵',  # Very hot
     }
-
-# Files (deprecated: game and word‑game features removed)
-# GAME_STATE_FILE and USED_WORDS_FILE no longer used
 
 # For backwards compatibility
 TOKEN = Config.TELEGRAM_BOT_TOKEN
 OPENAI_API_KEY = Config.OPENAI_API_KEY
 SCREENSHOT_DIR = Config.SCREENSHOT_DIR
-OPENROUTER_BASE_URL = Config.OPENROUTER_BASE_URL
 ALIEXPRESS_STICKER_ID = Stickers.ALIEXPRESS
 domain_modifications = LinkModification.DOMAINS
 city_translations = Weather.CITY_TRANSLATIONS

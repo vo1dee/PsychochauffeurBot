@@ -547,6 +547,14 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         await restrict_user(update, context)
 
 
+@handle_errors(feedback_message="An error occurred in /wordle command.")
+async def wordle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /wordle command by sending the Wordle game link."""
+    wordle_link = "https://www.nytimes.com/games/wordle/index.html"
+    await update.message.reply_text(f"🎮 Play Wordle here: {wordle_link}")
+    general_logger.info(f"Handled /wordle command for user {update.effective_user.id}")
+
+
 @handle_errors(feedback_message="An error occurred while updating chat configuration.")
 async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /config command to manage chat configuration."""
@@ -658,20 +666,28 @@ async def gpt_command_handler(update: Update, context: CallbackContext) -> None:
     # Call ask_gpt_command with the prompt
     await ask_gpt_command(prompt, update=update, context=context)
 
+
 def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
     """Register all command and message handlers."""
     # Command handlers
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('cat', cat_command))
-    application.add_handler(CommandHandler('gpt', gpt_command_handler))  # Use the wrapper instead
-    application.add_handler(CommandHandler('analyze', analyze_command))
-    application.add_handler(CommandHandler('flares', screenshot_command))
-    application.add_handler(CommandHandler('weather', WeatherCommandHandler()))
-    application.add_handler(CommandHandler('errors', error_report_command))
-    application.add_handler(CommandHandler('gm', GeomagneticCommandHandler()))
-    application.add_handler(CommandHandler('ping', lambda update, context: update.message.reply_text("🏓 Bot is online!")))
-    application.add_handler(CommandHandler('remind', reminder_manager.remind))
-    application.add_handler(CommandHandler("config", config_command))
+    commands = {
+        'start': start,
+        'cat': cat_command,
+        'gpt': gpt_command_handler,  # Use the wrapper instead
+        'analyze': analyze_command,
+        'flares': screenshot_command,
+        'weather': WeatherCommandHandler(),
+        'errors': error_report_command,
+        'gm': GeomagneticCommandHandler(),
+        'ping': lambda update, context: update.message.reply_text("🏓 Bot is online!"),
+        'remind': reminder_manager.remind,
+        'config': config_command,
+        'wordle': wordle  # Add wordle command
+    }
+    
+    for command, handler in commands.items():
+        application.add_handler(CommandHandler(command, handler))
+    general_logger.info(f"Registered {len(commands)} commands.")
     
     # Message handlers
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -687,6 +703,7 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     
     general_logger.info("All handlers registered successfully")
+
 
 async def main() -> None:
     """Main function to start the bot."""
@@ -715,12 +732,33 @@ async def main() -> None:
         general_logger.info("Modular configuration migration completed")
         for chat_id, result in modular_results.items():
             general_logger.info(f"Chat {chat_id}: {result}")
+
+        # --- Initialize Telegram Error Handler (Updated Call) ---
+        # Only initialize if ERROR_CHANNEL_ID is set
+        if Config.ERROR_CHANNEL_ID:
+            await init_telegram_error_handler(TOKEN, Config.ERROR_CHANNEL_ID)
+            if any(isinstance(h, TelegramErrorHandler) for h in error_logger.handlers):
+                error_logger.error("Test notification: Bot started and Telegram error logging initialized.")
+            else:
+                error_logger.error("Bot started, but Telegram error handler was NOT added successfully.")
+        else:
+            general_logger.info("ERROR_CHANNEL_ID not set. Telegram error notifications will be disabled.")
+
+        # --- Background Tasks ---
+        screenshot_manager = ScreenshotManager()
+        asyncio.create_task(screenshot_manager.schedule_task())
+        general_logger.info("Scheduled screenshot task.")
+        if application.job_queue:
+            reminder_manager.schedule_startup(application.job_queue)
+            general_logger.info("Scheduled reminder startup jobs.")
+        else:
+            general_logger.warning("JobQueue not available, cannot schedule reminder startup jobs.")
         
         # Start error tracking after event loop is running
         error_tracker._schedule_tasks()
         
         # Start polling
-        general_logger.info("Starting bot polling...")
+        general_logger.info("Bot initialization complete. Starting polling...")
         await application.run_polling()
         
     except Exception as e:
