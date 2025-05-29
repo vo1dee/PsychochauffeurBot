@@ -685,33 +685,6 @@ class VideoDownloader:
         except Exception as e:
             error_logger.error(f"TikTok download error: {str(e)}")
             return None, None
-        
-    def _get_instagram_args(self) -> List[str]:
-        """Get Instagram-specific arguments for yt-dlp."""
-        args = [
-            "--no-warnings",
-            "--ignore-errors",
-            "--no-playlist",
-            "--extractor-retries", "3",
-            "--fragment-retries", "10",
-            "--retry-sleep", "5"
-        ]
-        
-        # Try to use cookies file first
-        if os.path.exists(INSTAGRAM_COOKIES_FILE):
-            args.extend(["--cookies", INSTAGRAM_COOKIES_FILE])
-            error_logger.info("Using Instagram cookies file for authentication")
-        # Fall back to username/password if no cookies
-        elif INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD:
-            args.extend([
-                "--username", INSTAGRAM_USERNAME,
-                "--password", INSTAGRAM_PASSWORD
-            ])
-            error_logger.info("Using Instagram username/password for authentication")
-        else:
-            error_logger.warning("No Instagram authentication credentials found")
-            
-        return args
 
     async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None) -> Tuple[Optional[str], Optional[str]]:
         """Generic video download using yt-dlp."""
