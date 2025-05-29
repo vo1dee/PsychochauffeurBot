@@ -79,8 +79,31 @@ class VideoDownloader:
             Platform.INSTAGRAM: DownloadConfig(
                 format="best[ext=mp4]",
                 headers={
-                    "User-Agent": "Instagram 219.0.0.12.117 Android"
-                }
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.5",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "DNT": "1",
+                    "Connection": "keep-alive",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
+                    "Cache-Control": "max-age=0"
+                },
+                extra_args=[
+                    "--no-warnings",
+                    "--ignore-errors",
+                    "--no-playlist",
+                    "--extractor-retries", "5",
+                    "--fragment-retries", "10",
+                    "--retry-sleep", "5",
+                    "--geo-bypass",
+                    "--no-check-certificate",
+                    "--force-generic-extractor",
+                    "--extractor-args", "instagram:logged_in=false"
+                ]
             ),
             Platform.TIKTOK: DownloadConfig(
                 format="best[ext=mp4]",
@@ -663,6 +686,33 @@ class VideoDownloader:
             error_logger.error(f"TikTok download error: {str(e)}")
             return None, None
         
+    def _get_instagram_args(self) -> List[str]:
+        """Get Instagram-specific arguments for yt-dlp."""
+        args = [
+            "--no-warnings",
+            "--ignore-errors",
+            "--no-playlist",
+            "--extractor-retries", "3",
+            "--fragment-retries", "10",
+            "--retry-sleep", "5"
+        ]
+        
+        # Try to use cookies file first
+        if os.path.exists(INSTAGRAM_COOKIES_FILE):
+            args.extend(["--cookies", INSTAGRAM_COOKIES_FILE])
+            error_logger.info("Using Instagram cookies file for authentication")
+        # Fall back to username/password if no cookies
+        elif INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD:
+            args.extend([
+                "--username", INSTAGRAM_USERNAME,
+                "--password", INSTAGRAM_PASSWORD
+            ])
+            error_logger.info("Using Instagram username/password for authentication")
+        else:
+            error_logger.warning("No Instagram authentication credentials found")
+            
+        return args
+
     async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None) -> Tuple[Optional[str], Optional[str]]:
         """Generic video download using yt-dlp."""
         try:
@@ -716,11 +766,6 @@ class VideoDownloader:
                         '--geo-bypass',
                     ])
                     error_logger.info("Added extra retry options for YouTube Clips")
-                
-                # Add any extra args from the config
-                if config.extra_args:
-                    error_logger.info(f"Adding extra args: {config.extra_args}")
-                    yt_dlp_args.extend(config.extra_args)
             else:
                 # Use standard args for other platforms
                 yt_dlp_args = [
@@ -729,8 +774,16 @@ class VideoDownloader:
                     '-f', config.format,
                     '-o', output_template,
                     '--merge-output-format', 'mp4',
-                    '--no-warnings',
                 ]
+                
+                # Add platform-specific headers if available
+                if config.headers:
+                    for key, value in config.headers.items():
+                        yt_dlp_args.extend(['--add-header', f'{key}:{value}'])
+                
+                # Add any extra args from the config
+                if config.extra_args:
+                    yt_dlp_args.extend(config.extra_args)
             
             error_logger.info(f"Executing: {' '.join(yt_dlp_args)}")
             process = await asyncio.create_subprocess_exec(
@@ -741,11 +794,11 @@ class VideoDownloader:
             
             stdout, stderr = await process.communicate()
             
-            # Always log stdout/stderr for YouTube special content for debugging
-            if is_youtube_special:
-                content_type = "Shorts" if is_youtube_shorts else "Clips"
-                error_logger.info(f"YouTube {content_type} stdout: {stdout.decode()}")
-                error_logger.info(f"YouTube {content_type} stderr: {stderr.decode()}")
+            # Log output for debugging
+            if stdout:
+                error_logger.info(f"Download stdout: {stdout.decode()}")
+            if stderr:
+                error_logger.info(f"Download stderr: {stderr.decode()}")
             
             if process.returncode == 0:
                 # Find the downloaded file
