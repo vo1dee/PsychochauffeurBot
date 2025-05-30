@@ -122,13 +122,16 @@ class VideoDownloader:
         
         # Special configuration for YouTube Shorts
         self.youtube_shorts_config = DownloadConfig(
-            format="best[ext=mp4]",  # Prioritize MP4 format for compatibility
+            format="bestvideo[height>=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height>=720][ext=mp4]+bestaudio[ext=m4a]/best[height>=720][ext=mp4]/best",  # Prioritize high quality MP4
             extra_args=[
                 "--ignore-errors",   # Continue on errors
                 "--ignore-config",   # Ignore system-wide config
                 "--no-playlist",     # Don't download playlists
                 "--geo-bypass",      # Try to bypass geo-restrictions
-                "--socket-timeout", "10"  # Shorter socket timeout
+                "--socket-timeout", "30",  # Increased timeout for better reliability
+                "--concurrent-fragment-downloads", "1",  # Reduce concurrent downloads for better reliability
+                "--retries", "10",  # More retries for better reliability
+                "--fragment-retries", "10"  # More fragment retries
             ]
         )
         
