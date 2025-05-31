@@ -92,15 +92,11 @@ class ReminderParser:
                 today_at_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
                 if today_at_time <= now:
                     # Time has passed today, set for tomorrow
-                    tomorrow_at_time = datetime(
-                        now.year,
-                        now.month,
-                        now.day + 1,
-                        hour,
-                        minute,
-                        0,
-                        microsecond=0,
-                        tzinfo=KYIV_TZ
+                    tomorrow_at_time = (now + timedelta(days=1)).replace(
+                        hour=hour,
+                        minute=minute,
+                        second=0,
+                        microsecond=0
                     )
                     result['parsed_datetime'] = tomorrow_at_time
                     general_logger.debug(f"Daily reminder time passed today, setting for tomorrow: {tomorrow_at_time}")
