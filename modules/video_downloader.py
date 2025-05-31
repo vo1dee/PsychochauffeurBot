@@ -77,7 +77,7 @@ class VideoDownloader:
         # Platform-specific download configurations
         self.platform_configs = {
             Platform.INSTAGRAM: DownloadConfig(
-                format="best[ext=mp4]",
+                format="best[ext=mp4][vcodec*=avc1]/best[ext=mp4]/best",  # Prioritize H.264 for iOS
                 headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -101,28 +101,33 @@ class VideoDownloader:
                     "--retry-sleep", "5",
                     "--geo-bypass",
                     "--no-check-certificate",
-                    "--force-generic-extractor",
+                    "--postprocessor-args", "ffmpeg:-vcodec libx264 -acodec aac -movflags +faststart",  # iOS optimization
                     "--extractor-args", "instagram:logged_in=false"
                 ]
             ),
             Platform.TIKTOK: DownloadConfig(
-                format="best[ext=mp4]",
+                format="best[ext=mp4][vcodec*=avc1]/best[ext=mp4]/best",  # Prioritize H.264 for iOS
                 max_retries=3,
                 headers={
                     "User-Agent": "TikTok/26.2.0 (iPhone; iOS 14.4.2; Scale/3.00)",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                     "Accept-Language": "en-US,en;q=0.5"
-                }
+                },
+                extra_args=[
+                    "--postprocessor-args", "ffmpeg:-vcodec libx264 -acodec aac -movflags +faststart",  # iOS optimization
+                ]
             ),
             Platform.OTHER: DownloadConfig(
-                    format="bestvideo[height<=1080][ext=mp4]+bestaudio/best[height<=1080][ext=mp4]/best[ext=mp4]"  # Prefer 1080p MP4
-                )
-
+                format="best[ext=mp4][vcodec*=avc1][height<=1080]/best[ext=mp4][height<=1080]/best[ext=mp4]/best",  # H.264 + 1080p max for iOS
+                extra_args=[
+                    "--postprocessor-args", "ffmpeg:-vcodec libx264 -acodec aac -movflags +faststart -aspect 16:9",  # Force 16:9 aspect ratio for iOS
+                ]
+            )
         }
         
-        # Special configuration for YouTube Shorts
+        # Special configuration for YouTube Shorts - optimized for iOS and proper aspect ratio
         self.youtube_shorts_config = DownloadConfig(
-            format="bestvideo[height>=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height>=720][ext=mp4]+bestaudio[ext=m4a]/best[height>=720][ext=mp4]/best",  # Prioritize high quality MP4
+            format="best[ext=mp4][vcodec*=avc1][height<=1080]/best[ext=mp4][height<=1080]/best[ext=mp4]/best",  # H.264 prioritization for iOS
             extra_args=[
                 "--ignore-errors",   # Continue on errors
                 "--ignore-config",   # Ignore system-wide config
@@ -131,20 +136,21 @@ class VideoDownloader:
                 "--socket-timeout", "30",  # Increased timeout for better reliability
                 "--concurrent-fragment-downloads", "1",  # Reduce concurrent downloads for better reliability
                 "--retries", "10",  # More retries for better reliability
-                "--fragment-retries", "10"  # More fragment retries
+                "--fragment-retries", "10",  # More fragment retries
+                "--postprocessor-args", "ffmpeg:-vcodec libx264 -acodec aac -movflags +faststart -vf scale='if(gt(a,16/9),1920,trunc(oh*a/2)*2)':'if(gt(a,16/9),trunc(ow/a/2)*2,1080)'"  # iOS optimization with proper scaling
             ]
         )
         
-        # Configuration for YouTube clips
+        # Configuration for YouTube clips - optimized for iOS
         self.youtube_clips_config = DownloadConfig(
-            format="bestvideo[height<=1080][ext=mp4]+bestaudio/best[height<=1080][ext=mp4]/best[ext=mp4]",
+            format="best[ext=mp4][vcodec*=avc1][height<=1080]/best[ext=mp4][height<=1080]/best[ext=mp4]/best",  # H.264 for iOS
             extra_args=[
                 "--ignore-errors",
                 "--ignore-config",
                 "--no-playlist",
                 "--geo-bypass",
                 "--socket-timeout", "10",
-                "--force-generic-extractor"
+                "--postprocessor-args", "ffmpeg:-vcodec libx264 -acodec aac -movflags +faststart -aspect 16:9"  # iOS optimization with 16:9 aspect
             ]
         )
 
