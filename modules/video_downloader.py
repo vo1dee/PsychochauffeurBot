@@ -229,6 +229,9 @@ class VideoDownloader:
             payload = {"url": url, "format": format}
             error_logger.info(f"Sending download request to service for URL: {url}")
             
+            # Check if it's a YouTube clip/short
+            is_youtube_clip = any(x in url for x in ['youtube.com/clip', 'youtu.be/clip', 'youtube.com/shorts', 'youtu.be/shorts'])
+            
             async with aiohttp.ClientSession() as session:
                 for attempt in range(self.max_retries):
                     try:
@@ -236,50 +239,96 @@ class VideoDownloader:
                             f"{self.service_url}/download",
                             json=payload,
                             headers=headers,
-                            timeout=30,
+                            timeout=120,  # Increased from 30 to 120 seconds for YouTube clips
                             ssl=False  # Disable SSL verification for local development
                         ) as response:
                             if response.status == 200:
                                 data = await response.json()
                                 if data["success"]:
-                                    service_file = data["file_path"]
-                                    local_file = os.path.join(
-                                        self.download_path,
-                                        os.path.basename(service_file)
-                                    )
-                                    
-                                    # Get title from response or use fallback
-                                    video_title = data.get("title") 
-                                    if not video_title or video_title == "Video":
-                                        # Try description first line as fallback
-                                        description = data.get("description", "")
-                                        if description:
-                                            first_line = description.strip().split('\n')[0]
-                                            if first_line and not first_line.startswith('#'):
-                                                video_title = first_line.strip()
+                                    # Handle immediate response for YouTube clips
+                                    if is_youtube_clip and data.get("status") == "processing":
+                                        download_id = data["download_id"]
+                                        error_logger.info(f"YouTube clip download started in background, ID: {download_id}")
                                         
-                                        # If still no good title, try using hashtags
+                                        # Poll for completion
+                                        for poll_attempt in range(60):  # Poll for up to 5 minutes (60 * 5 seconds)
+                                            await asyncio.sleep(5)  # Wait 5 seconds between polls
+                                            
+                                            async with session.get(
+                                                f"{self.service_url}/status/{download_id}",
+                                                headers=headers
+                                            ) as status_response:
+                                                if status_response.status == 200:
+                                                    status_data = await status_response.json()
+                                                    error_logger.info(f"Download status: {status_data.get('status')} - Progress: {status_data.get('progress', 0)}%")
+                                                    
+                                                    if status_data["status"] == "completed":
+                                                        # Download completed, get the file
+                                                        service_file = status_data["file_path"]
+                                                        local_file = os.path.join(
+                                                            self.download_path,
+                                                            os.path.basename(service_file)
+                                                        )
+                                                        
+                                                        video_title = status_data.get("title", "Video")
+                                                        
+                                                        # Transfer file
+                                                        async with session.get(
+                                                            f"{self.service_url}/files/{os.path.basename(service_file)}",
+                                                            headers=headers
+                                                        ) as file_response:
+                                                            if file_response.status == 200:
+                                                                with open(local_file, 'wb') as f:
+                                                                    async for chunk in file_response.content.iter_chunked(8192):
+                                                                        f.write(chunk)
+                                                                error_logger.info(f"YouTube clip download completed: {video_title}")
+                                                                return local_file, video_title
+                                                    elif status_data["status"] == "failed":
+                                                        error_logger.error(f"Background download failed: {status_data.get('error')}")
+                                                        return None, None
+                                        
+                                        error_logger.error("Background download timed out after 5 minutes")
+                                        return None, None
+                                    else:
+                                        # Handle synchronous response for non-clips
+                                        service_file = data["file_path"]
+                                        local_file = os.path.join(
+                                            self.download_path,
+                                            os.path.basename(service_file)
+                                        )
+                                        
+                                        # Get title from response or use fallback
+                                        video_title = data.get("title") 
                                         if not video_title or video_title == "Video":
-                                            hashtags = data.get("hashtags", [])
-                                            if hashtags:
-                                                video_title = " ".join(hashtags[:3])  # Use first 3 hashtags
-                                    
-                                    # Still no title? Use generic with ID
-                                    if not video_title or video_title == "Video":
-                                        video_title = f"Video from {url.split('/')[-1]}"
-                                    
-                                    error_logger.info(f"Using video title: {video_title}")
-                                    
-                                    # Transfer file
-                                    async with session.get(
-                                        f"{self.service_url}/files/{os.path.basename(service_file)}",
-                                        headers=headers
-                                    ) as file_response:
-                                        if file_response.status == 200:
-                                            with open(local_file, 'wb') as f:
-                                                async for chunk in file_response.content.iter_chunked(8192):
-                                                    f.write(chunk)
-                                            return local_file, video_title
+                                            # Try description first line as fallback
+                                            description = data.get("description", "")
+                                            if description:
+                                                first_line = description.strip().split('\n')[0]
+                                                if first_line and not first_line.startswith('#'):
+                                                    video_title = first_line.strip()
+                                            
+                                            # If still no good title, try using hashtags
+                                            if not video_title or video_title == "Video":
+                                                hashtags = data.get("hashtags", [])
+                                                if hashtags:
+                                                    video_title = " ".join(hashtags[:3])  # Use first 3 hashtags
+                                        
+                                        # Still no title? Use generic with ID
+                                        if not video_title or video_title == "Video":
+                                            video_title = f"Video from {url.split('/')[-1]}"
+                                        
+                                        error_logger.info(f"Using video title: {video_title}")
+                                        
+                                        # Transfer file
+                                        async with session.get(
+                                            f"{self.service_url}/files/{os.path.basename(service_file)}",
+                                            headers=headers
+                                        ) as file_response:
+                                            if file_response.status == 200:
+                                                with open(local_file, 'wb') as f:
+                                                    async for chunk in file_response.content.iter_chunked(8192):
+                                                        f.write(chunk)
+                                                return local_file, video_title
                             elif response.status == 403:
                                 error_logger.error("API key authentication failed")
                                 return None, None
