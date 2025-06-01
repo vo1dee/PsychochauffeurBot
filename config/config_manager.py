@@ -612,6 +612,27 @@ class ConfigManager:
             # Ensure the chat directory exists before saving
             await self.ensure_chat_dir(chat_id, chat_type)
             config_path = self._get_chat_config_path(chat_id, chat_type)
+            
+            # For chat configs, ensure proper structure
+            if not isinstance(config_data, dict):
+                config_data = {}
+            
+            # If this is a new config or missing required structure, create it
+            if "chat_metadata" not in config_data:
+                config_data = {
+                    "chat_metadata": {
+                        "chat_id": chat_id,
+                        "chat_type": chat_type,
+                        "chat_name": f"{chat_type}_{chat_id}",
+                        "created_at": str(datetime.datetime.now()),
+                        "last_updated": str(datetime.datetime.now()),
+                        "custom_config_enabled": False
+                    },
+                    "config_modules": {}
+                }
+            
+            # Update last_updated timestamp
+            config_data["chat_metadata"]["last_updated"] = str(datetime.datetime.now())
 
         async with self._get_lock(str(config_path)):
             try:
