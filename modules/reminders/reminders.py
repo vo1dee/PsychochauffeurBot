@@ -297,7 +297,12 @@ class ReminderManager:
             rem = self.save_reminder(rem)
 
             delay_sec = seconds_until(rem.next_execution)
-            context.job_queue.run_once(self.send_reminder, delay_sec, data=rem, name=f"reminder_{rem.reminder_id}")
+            if context.job_queue is not None:
+                context.job_queue.run_once(self.send_reminder, delay_sec, data=rem, name=f"reminder_{rem.reminder_id}")
+            else:
+                general_logger.error("JobQueue is not available. Cannot schedule reminder.")
+                await update.message.reply_text("❌ Reminder scheduling is not available. Please contact the administrator.")
+                return
 
             # Ensure the displayed time is in the KYIV_TZ timezone
             if next_exec.tzinfo is None:
@@ -311,7 +316,7 @@ class ReminderManager:
                 await update.message.reply_text("No active reminders.")
                 return
             s = ''
-            now = datetime.datetime.now(KYIV_TZ)
+            now = datetime.now(KYIV_TZ)
             for r in rems:
                 # Ensure the displayed time is in the KYIV_TZ timezone
                 if r.next_execution:
@@ -365,7 +370,7 @@ class ReminderManager:
 
             new_txt = " ".join(args[2:])
             parsed = ReminderParser.parse(new_txt)
-            now = datetime.datetime.now(KYIV_TZ)
+            now = datetime.now(KYIV_TZ)
             next_exec = None
 
             # Use parsed datetime from timefhuman if available
@@ -557,7 +562,12 @@ class ReminderManager:
             for j in jobs:
                 j.schedule_removal()
             delay = seconds_until(rem.next_execution)
-            context.job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
+            if context.job_queue is not None:
+                context.job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
+            else:
+                general_logger.error("JobQueue is not available. Cannot schedule reminder.")
+                await update.message.reply_text("❌ Reminder scheduling is not available. Please contact the administrator.")
+                return
 
             # Ensure the displayed time is in the KYIV_TZ timezone
             if next_exec.tzinfo is None:
@@ -588,11 +598,20 @@ class ReminderManager:
         if rem.frequency or rem.date_modifier:
             self.save_reminder(rem)
             delay = seconds_until(rem.next_execution)
-            context.job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
+            if context.job_queue is not None:
+                context.job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
+            else:
+                general_logger.error("JobQueue is not available. Cannot schedule reminder.")
+                await context.bot.send_message(rem.chat_id, "❌ Reminder scheduling is not available. Please contact the administrator.")
+                return
         else:
             self.delete_reminder(rem)
 
     def schedule_startup(self, job_queue):
+        if job_queue is None:
+            general_logger.warning("JobQueue is None, cannot schedule startup reminders.")
+            return
+        
         now = datetime.now(KYIV_TZ)
         for rem in self.load_reminders():
             if rem.next_execution and rem.next_execution > now:
@@ -626,9 +645,12 @@ class ReminderManager:
                 for reminder in reminders:
                     self.delete_reminder(reminder)
                     # Remove any scheduled jobs for this reminder
-                    jobs = context.job_queue.get_jobs_by_name(f"reminder_{reminder.reminder_id}")
-                    for job in jobs:
-                        job.schedule_removal()
+                    if context.job_queue is not None:
+                        jobs = context.job_queue.get_jobs_by_name(f"reminder_{reminder.reminder_id}")
+                        for job in jobs:
+                            job.schedule_removal()
+                    else:
+                        general_logger.warning("JobQueue not available, cannot remove scheduled jobs.")
                 
                 await query.message.edit_text("✅ All reminders have been deleted.")
                 
