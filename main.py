@@ -343,7 +343,6 @@ async def handle_random_gpt_response(update: Update, context: CallbackContext) -
             message_counter.reset(chat_id)
 
 @handle_errors(feedback_message="An error occurred while processing your links.")
-
 async def process_urls(update: Update, context: CallbackContext, urls: List[str], message_text: str) -> None:
     # ... (logic - uses ErrorHandler correctly, ensure video_downloader logs if needed)
     modified_links = []
