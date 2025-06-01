@@ -654,12 +654,10 @@ async def gpt_summary_function(messages: List[str]) -> str:
         prompt = f"Підсумуйте наступні повідомлення:\n\n{messages_text}\n\nПідсумок:"
 
         # Get system prompt from config or use default
-        system_prompt = GPT_PROMPTS["gpt_summary"]  # Default fallback
+        system_prompt = DEFAULT_PROMPTS["gpt_summary"]  # Default fallback
         try:
             chat_config = await config_manager.get_config()
-            gpt_settings = chat_config.get("gpt_settings", {})
-            summary_settings = gpt_settings.get("summary", {})
-            system_prompt = summary_settings.get("system_prompt", system_prompt)
+            system_prompt = await get_system_prompt("gpt_summary", chat_config)
         except Exception as e:
             error_logger.error(f"Failed to load config for summary: {e}")
 
