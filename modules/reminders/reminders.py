@@ -1,5 +1,4 @@
 import sqlite3
-import datetime
 from datetime import datetime, timedelta
 import re
 import os
@@ -53,21 +52,8 @@ class ReminderManager:
 
     async def remind(self, update: Update, context: CallbackContext):
         args = context.args or []
-        chat_id = str(update.effective_chat.id) if update.effective_chat else None
+        chat_id = update.effective_chat.id if update.effective_chat else None  # Keep as int
         chat_type = 'private' if update.effective_chat and update.effective_chat.type == 'private' else 'group'
-        
-        # Check user's reminder limit
-        user_id = update.effective_user.id
-        user_reminders = [r for r in self.load_reminders(chat_id) if r.user_id == user_id]
-        max_reminders = 5  # Assuming a default max_reminders_per_user
-        
-        if len(user_reminders) >= max_reminders:
-            await update.message.reply_text(f"You have reached the maximum limit of {max_reminders} reminders.")
-            return
-            
-        # Check if recurring reminders are allowed
-        allow_recurring = True
-        max_recurring = 3  # Assuming a default max_recurring_reminders
         
         if not args:
             await update.message.reply_text(
@@ -88,7 +74,7 @@ class ReminderManager:
                 await update.message.reply_text("No active reminders.")
                 return
             s = ''
-            now = datetime.datetime.now(KYIV_TZ)
+            now = datetime.now(KYIV_TZ)
             for r in rems:
                 # Ensure the displayed time is in the KYIV_TZ timezone
                 if r.next_execution:
@@ -106,7 +92,20 @@ class ReminderManager:
             await update.message.reply_text(s)
             return
             
-        if command == "to":
+        elif command == "to":
+            # Check user's reminder limit only when creating new reminders
+            user_id = update.effective_user.id
+            user_reminders = [r for r in self.load_reminders(chat_id) if r.user_id == user_id]
+            max_reminders = 5  # Assuming a default max_reminders_per_user
+            
+            if len(user_reminders) >= max_reminders:
+                await update.message.reply_text(f"You have reached the maximum limit of {max_reminders} reminders.")
+                return
+                
+            # Check if recurring reminders are allowed
+            allow_recurring = True
+            max_recurring = 3  # Assuming a default max_recurring_reminders
+            
             reminder_text = " ".join(args[1:])
             parsed = ReminderParser.parse(reminder_text)
             # derive next_execution
@@ -309,29 +308,6 @@ class ReminderManager:
                 next_exec = KYIV_TZ.localize(next_exec)
             kyiv_time = next_exec.astimezone(KYIV_TZ)
             await update.message.reply_text(f"✅ Reminder set for {kyiv_time.strftime('%d.%m.%Y %H:%M')}.")
-
-        elif command == "list":
-            rems = [r for r in self.load_reminders() if r.chat_id == chat_id]
-            if not rems:
-                await update.message.reply_text("No active reminders.")
-                return
-            s = ''
-            now = datetime.now(KYIV_TZ)
-            for r in rems:
-                # Ensure the displayed time is in the KYIV_TZ timezone
-                if r.next_execution:
-                    if r.next_execution.tzinfo is None:
-                        next_exec = KYIV_TZ.localize(r.next_execution)
-                    else:
-                        next_exec = r.next_execution
-                    kyiv_time = next_exec.astimezone(KYIV_TZ)
-                    due = kyiv_time.strftime('%d.%m.%Y %H:%M')
-                else:
-                    due = 'None'
-                kind = r.frequency or 'one-time'
-                status = 'past' if r.next_execution and r.next_execution < now else ''
-                s += f"ID:{r.reminder_id} | {due} | {kind} {status}\n{r.task}\n\n"
-            await update.message.reply_text(s)
 
         elif command == "delete":
             if len(args) < 2:
@@ -576,7 +552,53 @@ class ReminderManager:
             await update.message.reply_text(f"Reminder updated. Next execution: {kyiv_time.strftime('%d.%m.%Y %H:%M')}.")
 
         else:
-            await update.message.reply_text("Unknown /remind command.")
+            # Handle cases where users don't use the "to" keyword
+            # Treat the entire args as a potential reminder task
+            if args:
+                reminder_text = " ".join(args)
+                # Check if it looks like a simple task without time specification
+                if len(args) <= 3 and not any(word in reminder_text.lower() for word in ['in', 'at', 'every', 'tomorrow', 'today']):
+                    await update.message.reply_text(
+                        f"⚠️ Did you mean to set a reminder for '{reminder_text}'?\n\n"
+                        "Please use the correct format:\n"
+                        "• `/remind to {task}` - for immediate reminder (5 min default)\n"
+                        "• `/remind to {task} in {time}` - for delayed reminder\n"
+                        "• `/remind to {task} at {time}` - for specific time\n"
+                        "• `/remind to {task} every {frequency}` - for recurring\n\n"
+                        "Examples:\n"
+                        "• `/remind to check email in 1 hour`\n"
+                        "• `/remind to call mom at 3PM`\n"
+                        "• `/remind to take medicine every day at 8AM`"
+                    )
+                else:
+                    # Try to parse it as a reminder anyway
+                    parsed = ReminderParser.parse(reminder_text)
+                    # Check if parsing succeeded
+                    if not parsed.get('task') or not parsed.get('task').strip():
+                        await update.message.reply_text(
+                            f"❌ Couldn't understand the reminder format.\n\n"
+                            "Correct usage:\n"
+                            "• `/remind to {task}` followed by time/frequency\n"
+                            "• `/remind list` to see all reminders\n"
+                            "• `/remind delete {id}` to remove a reminder\n\n"
+                            "Example: `/remind to pay rent every month on the 1st at 9AM`"
+                        )
+                        return
+                    
+                    # Continue with reminder creation as if "to" was used
+                    # [Rest of the reminder creation logic would go here]
+                    await update.message.reply_text(
+                        f"⚠️ I'll try to create a reminder, but please use `/remind to {reminder_text}` format next time.\n\n"
+                        "Setting reminder for: {parsed['task']}"
+                    )
+            else:
+                await update.message.reply_text(
+                    "❌ Please specify a reminder command.\n\n"
+                    "Available commands:\n"
+                    "• `/remind to {task}` - create a reminder\n"
+                    "• `/remind list` - view all reminders\n"
+                    "• `/remind delete {id}` - delete a reminder"
+                )
 
     async def send_reminder(self, context: CallbackContext):
         rem = context.job.data

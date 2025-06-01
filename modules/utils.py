@@ -141,7 +141,8 @@ async def get_city_translation(city: str) -> str:
     Get city translation from dictionary.
     """
     weather_config = await config_manager.get_config("weather_config", None, None)
-    city_translations = weather_config.get("CITY_TRANSLATIONS", {})
+    config_translations = weather_config.get("CITY_TRANSLATIONS", {})
+    city_translations = config_translations if config_translations else Weather.CITY_TRANSLATIONS
     normalized = city.lower().replace(" ", "")
     return city_translations.get(normalized, city)
 

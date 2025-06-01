@@ -135,7 +135,7 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
     Returns:
         tuple[bool, str]: (needs_response, response_type)
             - needs_response: Whether the message needs a GPT response
-            - response_type: Type of response needed ('command', 'mention', 'random')
+            - response_type: Type of response needed ('command', 'mention', 'private', 'random')
     """
     bot_username = context.bot.username
     is_private_chat = update.effective_chat.type == 'private'
@@ -151,9 +151,9 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
     if mentioned:
         return True, 'mention'
     
-    # Check if it's a private chat message that needs random response
+    # Check if it's a private chat message that needs private response
     if is_private_chat and not (contains_video_platform or contains_modified_domain):
-        return True, 'random'
+        return True, 'private'
     
     return False, ''
 
@@ -272,7 +272,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Check if message needs GPT response
     needs_response, response_type = needs_gpt_response(update, context, message_text)
     if needs_response:
-        await ask_gpt_command(message_text, update=update, context=context)
+        await gpt_response(update, context, response_type=response_type, message_text_override=message_text)
         return
 
     # Handle random GPT responses

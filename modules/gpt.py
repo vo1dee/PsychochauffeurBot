@@ -45,6 +45,7 @@ DEFAULT_PROMPTS = {
     "gpt_summary": "Summarize the given text concisely while preserving key information.",
     "command": "You are a helpful assistant.",
     "mention": "You are a helpful assistant who responds to mentions in group chats.",
+    "private": "You are a helpful assistant for private conversations.",
     "random": "You are a friendly assistant who occasionally joins conversations.",
     "weather": "You are a weather information assistant. Provide concise weather updates and forecasts.",
     "analyze": "You are an analytical assistant. Analyze the given information and provide insights."
