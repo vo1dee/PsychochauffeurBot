@@ -341,9 +341,22 @@ class ConfigManager:
                 chat_name=chat_name or f"{chat_type}_{chat_id}"
             )
 
-        # If custom config is disabled, return global config
+        # Always ensure chat_metadata exists
+        if "chat_metadata" not in chat_config:
+            chat_config["chat_metadata"] = {
+                "chat_id": chat_id,
+                "chat_type": chat_type,
+                "chat_name": chat_name or f"{chat_type}_{chat_id}",
+                "created_at": str(datetime.datetime.now()),
+                "last_updated": str(datetime.datetime.now()),
+                "custom_config_enabled": False
+            }
+
+        # If custom config is disabled, return global config with chat metadata
         if not chat_config.get("chat_metadata", {}).get("custom_config_enabled", False):
-            return global_config
+            result = global_config.copy()
+            result["chat_metadata"] = chat_config["chat_metadata"]
+            return result
 
         # Custom config is enabled - merge global + custom
         if module_name:
