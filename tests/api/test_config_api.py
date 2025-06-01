@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 import pytest_asyncio
 from unittest.mock import MagicMock
+from httpx import AsyncClient
 
 from config_api import app
 
