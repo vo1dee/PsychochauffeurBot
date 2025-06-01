@@ -330,7 +330,9 @@ def handle_errors(feedback_message: Optional[str] = None):
             except Exception as e:
                 # Get the update and context objects
                 update = next((arg for arg in args if isinstance(arg, Update)), None)
-                context = next((arg for arg in args if isinstance(arg, (CallbackContext, ContextTypes.DEFAULT_TYPE))), None)
+                # Fix: Use the actual imported class instead of subscripted generic
+                from telegram.ext import CallbackContext
+                context = next((arg for arg in args if isinstance(arg, CallbackContext)), None)
                 
                 # Handle the error
                 await ErrorHandler.handle_error(
