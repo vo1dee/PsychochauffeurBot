@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 # Add the project root to the Python path so we can import modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from main import sanitize_url, shorten_url, _url_shortener_cache, _shortener_calls, _SHORTENER_MAX_CALLS_PER_MINUTE
+from main import sanitize_url, shorten_url, _url_shortener_cache, _shortener_calls
 
 class DummyShortener:
     def __init__(self, mapping=None):
@@ -30,10 +30,9 @@ def clear_cache_and_calls(monkeypatch):
     _shortener_calls.clear()
     # Reset rate limit to small number for tests
     monkeypatch.setenv('SHORTENER_MAX_CALLS_PER_MINUTE', '2')
-    # Monkeypatch constant
-    from importlib import reload
+    # Patch the constant directly instead of reloading
     import main
-    reload(main)
+    monkeypatch.setattr(main, '_SHORTENER_MAX_CALLS_PER_MINUTE', 2)
     yield
 
 @pytest.mark.parametrize("url,expected", [
@@ -77,12 +76,9 @@ async def test_shorten_url_long_and_cache(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_shorten_url_rate_limit(monkeypatch):
-    # set max calls to 1 and reload constants
-    monkeypatch.setenv('SHORTENER_MAX_CALLS_PER_MINUTE', '1')
-    # reload main module to pick up new rate limit
-    import importlib
+    # set max calls to 1 directly
     import main
-    importlib.reload(main)
+    monkeypatch.setattr(main, '_SHORTENER_MAX_CALLS_PER_MINUTE', 1)
     # Create two long URLs
     base = "http://rate.limit/"
     long1 = base + "a" * 200

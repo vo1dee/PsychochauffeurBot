@@ -331,7 +331,10 @@ class ConfigManager:
 
         # Load chat config
         chat_config = await self._load_chat_config(chat_id, chat_type)
-        if not chat_config and create_if_missing:
+        if not chat_config:
+            if not create_if_missing:
+                # Raise FileNotFoundError if config doesn't exist and we shouldn't create it
+                raise FileNotFoundError(f"Config not found for {chat_type} chat {chat_id}")
             chat_config = await self.create_new_chat_config(
                 chat_id=chat_id,
                 chat_type=chat_type,
@@ -606,10 +609,14 @@ class ConfigManager:
             else:
                 config_path = self.GLOBAL_CONFIG_FILE
         else:
+            # Ensure the chat directory exists before saving
+            await self.ensure_chat_dir(chat_id, chat_type)
             config_path = self._get_chat_config_path(chat_id, chat_type)
 
         async with self._get_lock(str(config_path)):
             try:
+                # Ensure parent directory exists for all config types
+                config_path.parent.mkdir(parents=True, exist_ok=True)
                 async with aiofiles.open(config_path, 'w', encoding='utf-8') as f:
                     await f.write(json.dumps(config_data, indent=2, ensure_ascii=False))
                 return True
