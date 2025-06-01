@@ -94,7 +94,35 @@ class ConfigManager:
                     if not content.strip():
                         logger.info("Global config file is empty")
                         return {}
-                    return json.loads(content)
+                    
+                    global_config = json.loads(content)
+                    
+                    # Handle new format with config_metadata vs old format with chat_metadata
+                    if "config_metadata" in global_config:
+                        # New format - convert to old format for compatibility
+                        converted_config = {
+                            "chat_metadata": {
+                                "chat_id": "global",
+                                "chat_type": "global", 
+                                "chat_name": "Global Configuration",
+                                "created_at": global_config["config_metadata"].get("created_at", ""),
+                                "last_updated": global_config["config_metadata"].get("last_updated", ""),
+                                "custom_config_enabled": False
+                            },
+                            "config_modules": {}
+                        }
+                        
+                        # Convert module_configs to config_modules format
+                        for module_name, module_config in global_config.get("module_configs", {}).items():
+                            converted_config["config_modules"][module_name] = {
+                                "enabled": module_config.get("enabled", True),
+                                "overrides": module_config.get("settings", {})
+                            }
+                        
+                        return converted_config
+                    
+                    return global_config
+                    
             except FileNotFoundError:
                 logger.info("Global config not found")
                 return {}
@@ -139,6 +167,14 @@ class ConfigManager:
                                 "frequency_penalty": 0.0,
                                 "model": "gpt-4.1-mini",
                                 "system_prompt": "You are a helpful assistant who responds to mentions in group chats. Keep your responses concise and relevant to the conversation."
+                            },
+                            "private": {
+                                "max_tokens": 1000,
+                                "temperature": 0.7,
+                                "presence_penalty": 0.0,
+                                "frequency_penalty": 0.0,
+                                "model": "gpt-4.1-mini",
+                                "system_prompt": "You are a helpful assistant for private conversations. Keep your responses conversational and engaging."
                             },
                             "random": {
                                 "max_tokens": 800,
@@ -306,15 +342,29 @@ class ConfigManager:
         if not chat_config.get("chat_metadata", {}).get("custom_config_enabled", False):
             return global_config
 
+        # Custom config is enabled - merge global + custom
         if module_name:
-            # Get specific module config
-            if module_name in chat_config.get("config_modules", {}):
-                module_config = await self._load_module_config(module_name)
-                module_overrides = chat_config["config_modules"][module_name].get("overrides", {})
-                return self._deep_merge(module_config, module_overrides)
-            return await self._load_module_config(module_name)
+            # Get specific module config with inheritance
+            global_module = global_config.get("config_modules", {}).get(module_name, {})
+            chat_module = chat_config.get("config_modules", {}).get(module_name, {})
+            
+            if chat_module:
+                # Merge global module settings with chat overrides
+                merged_overrides = self._deep_merge(
+                    global_module.get("overrides", {}),
+                    chat_module.get("overrides", {})
+                )
+                return {
+                    "enabled": chat_module.get("enabled", global_module.get("enabled", False)),
+                    "overrides": merged_overrides
+                }
+            
+            # No chat override, return global module config
+            return global_module
 
-        return chat_config
+        # Return full merged config (global base + chat overrides)
+        merged_config = self._deep_merge(global_config, chat_config)
+        return merged_config
 
     async def _load_module_config(self, module_name: str) -> Dict[str, Any]:
         """Load a module's configuration from the global config."""
@@ -407,6 +457,14 @@ class ConfigManager:
                             "frequency_penalty": 0.0,
                             "model": "gpt-4.1-mini",
                             "system_prompt": "You are a helpful assistant who responds to mentions in group chats. Keep your responses concise and relevant to the conversation."
+                        },
+                        "private": {
+                            "max_tokens": 1000,
+                            "temperature": 0.7,
+                            "presence_penalty": 0.0,
+                            "frequency_penalty": 0.0,
+                            "model": "gpt-4.1-mini",
+                            "system_prompt": "You are a helpful assistant for private conversations. Keep your responses conversational and engaging."
                         },
                         "random": {
                             "max_tokens": 800,

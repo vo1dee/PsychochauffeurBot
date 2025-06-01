@@ -2,6 +2,13 @@ import asyncio
 import re
 import time
 import pytest
+import unittest
+import sys
+import os
+from unittest.mock import patch, MagicMock
+
+# Add the project root to the Python path so we can import modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from main import sanitize_url, shorten_url, _url_shortener_cache, _shortener_calls, _SHORTENER_MAX_CALLS_PER_MINUTE
 

@@ -1,14 +1,19 @@
+import unittest
+import json
+import tempfile
+import os
 import sys
+from unittest.mock import patch, mock_open
+
+# Add the project root to the Python path so we can import modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
+from config.config_manager import ConfigManager
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
 import pytest
 from fastapi.testclient import TestClient
-import json
-import os
-from config.config_manager import ConfigManager
-from httpx import AsyncClient
 import pytest_asyncio
-from unittest.mock import patch
 from unittest.mock import MagicMock
 
 from config_api import app
