@@ -322,15 +322,19 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
 
     def test_init_directories(self):
         """Test initialization of required directories."""
-        with patch('modules.utils.ensure_directory') as mock_ensure_directory:
+        with patch('modules.utils.ensure_directory') as mock_ensure_directory, \
+             patch('modules.utils.ensure_directory_permissions') as mock_ensure_permissions:
             init_directories()
             
             # Should call ensure_directory for each required directory
             self.assertEqual(mock_ensure_directory.call_count, 4)
+            self.assertEqual(mock_ensure_permissions.call_count, 4)
             
             # Check specific calls are made (without verifying exact paths)
             self.assertTrue(mock_ensure_directory.called)
+            self.assertTrue(mock_ensure_permissions.called)
             self.assertEqual(len(mock_ensure_directory.call_args_list), 4)
+            self.assertEqual(len(mock_ensure_permissions.call_args_list), 4)
 
     def test_weather_data_formatting(self):
         """Test weather data formatting and advice generation."""
