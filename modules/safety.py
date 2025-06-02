@@ -9,6 +9,18 @@ class SafetyManager:
     def __init__(self):
         self.config_manager = ConfigManager()
 
+    async def initialize(self):
+        """Initialize the safety manager."""
+        # Initialize config manager if needed
+        await self.config_manager.initialize()
+        general_logger.info("Safety manager initialized successfully")
+        return True
+
+    async def stop(self):
+        """Clean up resources when stopping the safety manager."""
+        general_logger.info("Safety manager stopped successfully")
+        return True
+
     async def check_message_safety(self, update: Update, context: CallbackContext, message_text: str) -> bool:
         """
         Check if a message passes all safety checks.
