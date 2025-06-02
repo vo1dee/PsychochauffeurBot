@@ -63,19 +63,29 @@ class ConfigManager:
                 # Create directory if it doesn't exist
                 d.mkdir(parents=True, exist_ok=True)
                 
-                # Get the current user's uid and gid
-                uid = os.getuid()
-                gid = os.getgid()
-                
-                # Set ownership
-                os.chown(d, uid, gid)
-                
-                # Set permissions (750 for directories)
-                os.chmod(d, 0o750)
-                
-                logger.debug(f"Directory created and permissions set: {d}")
+                try:
+                    # Get the current user's uid and gid
+                    uid = os.getuid()
+                    gid = os.getgid()
+                    
+                    # Try to set ownership, but don't fail if we can't
+                    try:
+                        os.chown(d, uid, gid)
+                    except PermissionError:
+                        logger.warning(f"Could not set ownership for {d}, continuing without ownership change")
+                    
+                    # Try to set permissions, but don't fail if we can't
+                    try:
+                        os.chmod(d, 0o750)
+                    except PermissionError:
+                        logger.warning(f"Could not set permissions for {d}, continuing without permission change")
+                    
+                    logger.debug(f"Directory created and permissions set: {d}")
+                except Exception as e:
+                    logger.warning(f"Could not set permissions for {d}: {e}, continuing without permission change")
+                    
             except Exception as e:
-                logger.error(f"Error creating/setting permissions for directory {d}: {e}")
+                logger.error(f"Error creating directory {d}: {e}")
                 raise
         logger.debug("Configuration directories verified")
 
