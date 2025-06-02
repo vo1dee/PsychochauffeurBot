@@ -674,13 +674,14 @@ async def gpt_command_handler(update: Update, context: CallbackContext) -> None:
     if not update.message:
         return
         
-    # Extract the prompt from the command
+    # Extract the prompt from the command, handling both /gpt and /gpt@bot_username formats
     command_parts = update.message.text.split(' ', 1)
+    command = command_parts[0].split('@')[0]  # Remove bot username if present
     prompt = command_parts[1] if len(command_parts) > 1 else None
     
     # Log the command details
     general_logger.info(
-        f"GPT command received: prompt={prompt}, bot_username={context.bot.username}",
+        f"GPT command received: command={command}, prompt={prompt}, bot_username={context.bot.username}",
         extra={
             'chat_id': update.effective_chat.id,
             'chattitle': update.effective_chat.title or f"Private_{update.effective_chat.id}",
@@ -714,9 +715,14 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
         'wordle': wordle  # Add wordle command
     }
     
+    # Register commands both with and without bot username
     for command, handler in commands.items():
+        # Register the basic command
         application.add_handler(CommandHandler(command, handler))
-    general_logger.info(f"Registered {len(commands)} commands.")
+        # Register the command with bot username
+        application.add_handler(CommandHandler(f"{command}@{bot.username}", handler))
+    
+    general_logger.info(f"Registered {len(commands)} commands (with and without bot username)")
     
     # Message handlers
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
