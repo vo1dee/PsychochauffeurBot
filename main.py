@@ -149,13 +149,26 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
     contains_video_platform = any(platform in message_text.lower() for platform in VideoPlatforms.SUPPORTED_PLATFORMS)
     contains_modified_domain = any(domain in message_text for domain in LinkModification.DOMAINS)
     
+    # Log the detection details
+    general_logger.info(
+        f"GPT response check: bot_username={bot_username}, mentioned={mentioned}, is_private={is_private_chat}",
+        extra={
+            'chat_id': update.effective_chat.id,
+            'chattitle': update.effective_chat.title or f"Private_{update.effective_chat.id}",
+            'username': update.effective_user.username or f"ID:{update.effective_user.id}"
+        }
+    )
+    
     # Check if it's a command
     if message_text.startswith('/gpt'):
         return True, 'command'
     
     # Check if bot is mentioned
     if mentioned:
-        return True, 'mention'
+        # Extract the message after the mention
+        parts = message_text.split(f"@{bot_username}", 1)
+        if len(parts) > 1 and parts[1].strip():
+            return True, 'mention'
     
     # Check if it's a private chat message that needs private response
     if is_private_chat and not (contains_video_platform or contains_modified_domain):
@@ -664,6 +677,20 @@ async def gpt_command_handler(update: Update, context: CallbackContext) -> None:
     # Extract the prompt from the command
     command_parts = update.message.text.split(' ', 1)
     prompt = command_parts[1] if len(command_parts) > 1 else None
+    
+    # Log the command details
+    general_logger.info(
+        f"GPT command received: prompt={prompt}, bot_username={context.bot.username}",
+        extra={
+            'chat_id': update.effective_chat.id,
+            'chattitle': update.effective_chat.title or f"Private_{update.effective_chat.id}",
+            'username': update.effective_user.username or f"ID:{update.effective_user.id}"
+        }
+    )
+    
+    if not prompt:
+        await update.message.reply_text("Please provide a prompt after the /gpt command. Example: /gpt What is the weather?")
+        return
     
     # Call ask_gpt_command with the prompt
     await ask_gpt_command(prompt, update=update, context=context)
