@@ -739,18 +739,27 @@ async def main() -> None:
         # Start the bot
         await application.initialize()
         await application.start()
-        await application.run_polling()
+        await application.run_polling(allowed_updates=Update.ALL_TYPES)
         
     except Exception as e:
         error_logger.error(f"Error in main: {e}")
         raise
     finally:
-        # Cleanup
-        await error_tracker.stop()
-        await reminder_manager.stop()
-        await safety_manager.stop()
-        shutdown_logging()
+        try:
+            # Cleanup
+            await error_tracker.stop()
+            await reminder_manager.stop()
+            await safety_manager.stop()
+            await shutdown_logging()
+        except Exception as e:
+            error_logger.error(f"Error during cleanup: {e}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        general_logger.info("Bot stopped by user")
+    except Exception as e:
+        error_logger.error(f"Fatal error: {e}")
+        sys.exit(1)
