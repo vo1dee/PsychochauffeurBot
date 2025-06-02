@@ -706,6 +706,7 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
 
 async def main() -> None:
     """Main entry point for the bot."""
+    application = None
     try:
         # Initialize directories and permissions
         init_directories()
@@ -747,6 +748,8 @@ async def main() -> None:
     finally:
         try:
             # Cleanup
+            if application:
+                await application.stop()
             await error_tracker.stop()
             await reminder_manager.stop()
             await safety_manager.stop()
