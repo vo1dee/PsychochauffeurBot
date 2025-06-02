@@ -49,15 +49,14 @@ class ErrorTracker:
         }
         self.error_history: List[Dict[str, Any]] = []
         self.lock = Lock()
+        self._save_task = None
+        self._analyze_task = None
         
         # Ensure directories exist
         os.makedirs(ANALYTICS_DIR, exist_ok=True)
         
         # Load existing data if available
         self._load_data()
-        
-        # Schedule periodic saving and analysis
-        self._schedule_tasks()
     
     def _load_data(self) -> None:
         """Load existing error stats and history from files."""
@@ -88,12 +87,17 @@ class ErrorTracker:
     def _schedule_tasks(self) -> None:
         """Schedule periodic tasks for data saving and analysis."""
         try:
-            loop = asyncio.get_event_loop()
-            loop.create_task(self._periodic_save())
-            loop.create_task(self._periodic_analyze())
-            analytics_logger.info("Error analytics tasks scheduled")
+            # Only create tasks if they don't exist
+            if self._save_task is None:
+                self._save_task = asyncio.create_task(self._periodic_save())
+            if self._analyze_task is None:
+                self._analyze_task = asyncio.create_task(self._periodic_analyze())
+            analytics_logger.info("Error analytics tasks created")
         except Exception as e:
             analytics_logger.error(f"Failed to schedule analytics tasks: {str(e)}")
+            # Reset tasks if they failed to create
+            self._save_task = None
+            self._analyze_task = None
     
     async def _periodic_save(self) -> None:
         """Periodically save error stats and history."""
@@ -101,6 +105,8 @@ class ErrorTracker:
             try:
                 await asyncio.sleep(300)  # Save every 5 minutes
                 self._save_data()
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 analytics_logger.error(f"Error in periodic save: {str(e)}")
                 await asyncio.sleep(60)  # Retry after a minute if there's an error
@@ -111,6 +117,8 @@ class ErrorTracker:
             try:
                 await asyncio.sleep(3600)  # Analyze every hour
                 self._analyze_trends()
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 analytics_logger.error(f"Error in periodic analysis: {str(e)}")
                 await asyncio.sleep(300)  # Retry after 5 minutes if there's an error
@@ -276,6 +284,21 @@ class ErrorTracker:
             self.error_history = []
             self._save_data()
             analytics_logger.info("Error statistics cleared")
+
+    async def stop(self) -> None:
+        """Stop the periodic tasks."""
+        if hasattr(self, '_save_task'):
+            self._save_task.cancel()
+            try:
+                await self._save_task
+            except asyncio.CancelledError:
+                pass
+        if hasattr(self, '_analyze_task'):
+            self._analyze_task.cancel()
+            try:
+                await self._analyze_task
+            except asyncio.CancelledError:
+                pass
 
 # Initialize the error tracker
 error_tracker = ErrorTracker()

@@ -1,9 +1,12 @@
 import unittest
-import os
 import sys
+import os
+from unittest.mock import patch, MagicMock, AsyncMock
+import tempfile
+import asyncio
 
 # Add the project root to the Python path so we can import modules
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from modules.utils import extract_urls
 
