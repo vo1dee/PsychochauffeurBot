@@ -18,10 +18,10 @@ from typing import List, Optional, Dict
 import time
 from collections import deque
 
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
-    CallbackContext, CallbackQueryHandler, ContextTypes
+    CallbackContext, CallbackQueryHandler, ContextTypes, Application
 )
 
 # Import from your modules
@@ -30,11 +30,15 @@ from modules.utils import (
     ScreenshotManager, MessageCounter, remove_links, screenshot_command, cat_command,
     extract_urls, init_directories
 )
+from modules.image_downloader import ImageDownloader
 from modules.const import (
     TOKEN, OPENAI_API_KEY, KYIV_TZ, ALIEXPRESS_STICKER_ID,
     VideoPlatforms, LinkModification, Config # Ensure Config.ERROR_CHANNEL_ID is valid
 )
-from modules.gpt import ask_gpt_command, analyze_command, answer_from_gpt, analyze_image
+from modules.gpt import (
+    ask_gpt_command, analyze_command, answer_from_gpt, analyze_image,
+    gpt_response  # Add gpt_response to imports
+)
 from modules.weather import WeatherCommandHandler
 # Updated logger imports
 from modules.logger import (
@@ -47,7 +51,9 @@ from modules.video_downloader import setup_video_handlers
 from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
 from modules.geomagnetic import GeomagneticCommandHandler
 from modules.reminders.reminders import ReminderManager
-from modules.error_analytics import error_report_command # Import moved inside main()
+from modules.error_analytics import error_report_command, error_tracker
+from config.config_manager import ConfigManager
+from modules.safety import safety_manager
 
 nest_asyncio.apply()
 
@@ -60,6 +66,9 @@ _SHORTENER_MAX_CALLS_PER_MINUTE: int = int(os.getenv('SHORTENER_MAX_CALLS_PER_MI
 message_counter = MessageCounter()
 last_user_messages = {}
 reminder_manager = ReminderManager()
+
+# Initialize ConfigManager at module level
+config_manager = ConfigManager()
 
 # --- Removed Basic Logging Config ---
 # logging.basicConfig(...) # REMOVED
@@ -114,15 +123,39 @@ async def translate_last_message(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text(response_text)
 
 
-def needs_gpt_response(update: Update, context: CallbackContext, message_text: str) -> bool:
-    # ... (logic - looks fine)
+def needs_gpt_response(update: Update, context: CallbackContext, message_text: str) -> tuple[bool, str]:
+    """
+    Determine if a message needs a GPT response and what type of response it needs.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram callback context
+        message_text: The message text to analyze
+        
+    Returns:
+        tuple[bool, str]: (needs_response, response_type)
+            - needs_response: Whether the message needs a GPT response
+            - response_type: Type of response needed ('command', 'mention', 'private', 'random')
+    """
     bot_username = context.bot.username
     is_private_chat = update.effective_chat.type == 'private'
     mentioned = f"@{bot_username}" in message_text
-    # Ensure constants are used correctly
     contains_video_platform = any(platform in message_text.lower() for platform in VideoPlatforms.SUPPORTED_PLATFORMS)
     contains_modified_domain = any(domain in message_text for domain in LinkModification.DOMAINS)
-    return (mentioned or (is_private_chat and not (contains_video_platform or contains_modified_domain)))
+    
+    # Check if it's a command
+    if message_text.startswith('/gpt'):
+        return True, 'command'
+    
+    # Check if bot is mentioned
+    if mentioned:
+        return True, 'mention'
+    
+    # Check if it's a private chat message that needs private response
+    if is_private_chat and not (contains_video_platform or contains_modified_domain):
+        return True, 'private'
+    
+    return False, ''
 
 
 @handle_errors(feedback_message="An error occurred while analyzing the image.")
@@ -174,28 +207,56 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         return
 
     message_text = update.message.text
-    chat_id = update.message.chat_id
-    username = update.message.from_user.username or f"ID:{update.message.from_user.id}" # Fallback if no username
-    user_id = update.message.from_user.id
-    chat_title = update.effective_chat.title or f"Private_{chat_id}" # More descriptive private chat title
+    chat_id = str(update.message.chat_id)
+    chat_type = "private" if update.effective_chat.type == "private" else "group"
+    chat_name = update.effective_chat.title or f"{chat_type}_{chat_id}"
+    user_id = update.effective_user.id
+    username = update.effective_user.username or str(user_id)
+    chat_title = update.effective_chat.title if update.effective_chat.title else "private"
 
-    # Update last message cache
-    last_user_messages.setdefault(user_id, {'current': None, 'previous': None})
-    last_user_messages[user_id]['previous'] = last_user_messages[user_id]['current']
-    last_user_messages[user_id]['current'] = message_text
-
-    # Use chat_logger with context via 'extra'
-    chat_logger.info(
-        f"User message: {message_text}",
-        extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username}
+    # Get chat configuration
+    chat_config = await config_manager.get_config(
+        chat_id=chat_id,
+        chat_type=chat_type,
+        chat_name=chat_name
     )
 
-    # Restrict user check
-    if any(char in message_text for char in "ЫыЪъЭэЁё"):
-        chat_logger.warning(f"Restricting user {username} ({user_id}) in chat {chat_id} due to forbidden characters.",
-             extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
-        await restrict_user(update, context)
+    # Check message safety
+    if not await safety_manager.check_message_safety(update, context, message_text):
         return
+
+    # Check for restriction triggers if restrictions are enabled
+    if chat_type == "group" and chat_config.get("chat_settings", {}).get("restrictions_enabled", True):
+        # Check for forbidden characters
+        if any(char in message_text for char in "ЫыЪъЭэЁё"):
+            chat_logger.warning(f"Restricting user {username} ({user_id}) in chat {chat_id} due to forbidden characters.",
+                extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
+            await restrict_user(update, context)
+            return
+
+        # Check for restriction triggers
+        restriction_triggers = chat_config.get("restriction_triggers", {})
+        keywords = restriction_triggers.get("keywords", [])
+        patterns = restriction_triggers.get("patterns", [])
+
+        # Check keywords
+        message_lower = message_text.lower()
+        if any(keyword.lower() in message_lower for keyword in keywords):
+            chat_logger.warning(f"Restricting user {username} ({user_id}) in chat {chat_id} due to restricted keyword.",
+                extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
+            await restrict_user(update, context)
+            return
+
+        # Check regex patterns
+        for pattern in patterns:
+            try:
+                if re.search(pattern, message_text, re.IGNORECASE):
+                    chat_logger.warning(f"Restricting user {username} ({user_id}) in chat {chat_id} due to restricted pattern.",
+                        extra={'chat_id': chat_id, 'chattitle': chat_title, 'username': username})
+                    await restrict_user(update, context)
+                    return
+            except re.error as e:
+                error_logger.error(f"Invalid regex pattern '{pattern}': {e}")
 
     # Translate check
     if "бля!" in message_text:
@@ -205,38 +266,81 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # URL processing check
     urls = extract_urls(message_text)
     if urls:
-        general_logger.info(f"Processing URLs: {urls} in chat {chat_id}") # Use general_logger
         await process_urls(update, context, urls, message_text)
         return
 
-    # GPT response check
-    if needs_gpt_response(update, context, message_text):
-        cleaned_message = message_text.replace(f"@{context.bot.username}", "").strip()
-        general_logger.info(f"GPT response triggered for: '{cleaned_message}' in chat {chat_id}") # Use general_logger
-        await ask_gpt_command(cleaned_message, update, context) # Assuming ask_gpt_command is designed for this usage
+    # Check if message needs GPT response
+    needs_response, response_type = needs_gpt_response(update, context, message_text)
+    if needs_response:
+        await gpt_response(update, context, response_type=response_type, message_text_override=message_text)
         return
 
-    # Fallback to random GPT response check
+    # Handle random GPT responses
     await handle_random_gpt_response(update, context)
 
 
 @handle_errors(feedback_message="An error occurred while processing GPT response.")
 async def handle_random_gpt_response(update: Update, context: CallbackContext) -> None:
-    # ... (logic - uses general_logger correctly)
-    message_text = update.message.text
-    chat_id = update.message.chat_id
-    if not message_text or len(message_text.split()) < 5:
+    """Handle random GPT responses in chat."""
+    if not update.message or not update.message.text:
         return
 
-    current_count = message_counter.increment(chat_id)
-    # Consider making the threshold and probability configurable
-    if current_count > 50 and random.random() < 0.02:
-        general_logger.info(
-            f"Random GPT response triggered in chat {chat_id}: Message count: {current_count}",
-             extra={'chat_id': chat_id, 'chattitle': update.effective_chat.title or f"Private_{chat_id}"}
+    message_text = update.message.text
+    chat_id = str(update.message.chat_id)
+    chat_type = "private" if update.effective_chat.type == "private" else "group"
+    chat_name = update.effective_chat.title or f"{chat_type}_{chat_id}"
+    
+    # Get chat configuration (will create if missing)
+    try:
+        chat_config = await config_manager.get_config(
+            chat_id=chat_id,
+            chat_type=chat_type,
+            chat_name=chat_name
         )
-        await answer_from_gpt(message_text, update, context) # Assuming this exists and works
-        message_counter.reset(chat_id)
+        
+        # Get random response settings from config
+        random_settings = chat_config.get("chat_settings", {}).get("random_response_settings", {})
+        
+        # Check if random responses are enabled
+        if not random_settings.get("enabled", True):
+            return
+            
+        # Check minimum word count
+        min_words = random_settings.get("min_words", 5)
+        if len(message_text.split()) < min_words:
+            return
+
+        # Get message count and check threshold
+        current_count = message_counter.increment(chat_id)
+        message_threshold = random_settings.get("message_threshold", 50)
+        probability = random_settings.get("probability", 0.02)
+        
+        if current_count >= message_threshold and random.random() < probability:
+            general_logger.info(
+                f"Random GPT response triggered in chat {chat_id}: Message count: {current_count}",
+                extra={
+                    'chat_id': chat_id, 
+                    'chattitle': chat_name,
+                    'settings': {
+                        'threshold': message_threshold,
+                        'probability': probability,
+                        'min_words': min_words
+                    }
+                }
+            )
+            await ask_gpt_command(message_text, update=update, context=context)
+            message_counter.reset(chat_id)
+            
+    except Exception as e:
+        error_logger.error(f"Error in handle_random_gpt_response: {e}", exc_info=True)
+        # Continue with default behavior if config loading fails
+        if len(message_text.split()) < 5:
+            return
+
+        current_count = message_counter.increment(chat_id)
+        if current_count >= 50 and random.random() < 0.02:
+            await ask_gpt_command(message_text, update=update, context=context)
+            message_counter.reset(chat_id)
 
 @handle_errors(feedback_message="An error occurred while processing your links.")
 async def process_urls(update: Update, context: CallbackContext, urls: List[str], message_text: str) -> None:
@@ -450,59 +554,183 @@ async def wordle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     general_logger.info(f"Handled /wordle command for user {update.effective_user.id}")
 
 
+@handle_errors(feedback_message="An error occurred while updating chat configuration.")
+async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /config command to manage chat configuration."""
+    if not update.message:
+        return
+
+    chat_id = str(update.effective_chat.id)
+    chat_type = 'private' if update.effective_chat.type == 'private' else 'group'
+    
+    # Check if user has permission (only admins in groups)
+    if chat_type == 'group':
+        user = await update.effective_chat.get_member(update.effective_user.id)
+        if not user.status in ['creator', 'administrator']:
+            await update.message.reply_text("❌ Only administrators can modify chat configuration.")
+            return
+
+    # Get current config
+    current_config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type)
+    current_state = current_config.get("chat_metadata", {}).get("custom_config_enabled", False)
+
+    # Parse command arguments
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            f"Current configuration status: {'enabled' if current_state else 'disabled'}\n\n"
+            "Usage:\n"
+            "/config enable - Enable custom configuration\n"
+            "/config disable - Disable custom configuration (use global settings)\n"
+            "/config backup - Create a backup of current configuration"
+        )
+        return
+
+    command = args[0].lower()
+
+    if command == 'enable':
+        # Enable custom configuration for the chat
+        success = await config_manager.enable_custom_config(chat_id, chat_type)
+        if success:
+            await update.message.reply_text("✅ Custom configuration has been enabled for this chat.")
+        else:
+            await update.message.reply_text("❌ Failed to enable custom configuration. Please try again later.")
+        return
+
+    elif command == 'disable':
+        # Disable custom configuration for the chat
+        success = await config_manager.disable_custom_config(chat_id, chat_type)
+        if success:
+            await update.message.reply_text("✅ Custom configuration has been disabled for this chat.")
+        else:
+            await update.message.reply_text("❌ Failed to disable custom configuration. Please try again later.")
+        return
+
+    elif command == 'backup':
+        success = await config_manager.backup_config(chat_id, chat_type)
+        if success:
+            await update.message.reply_text("✅ Configuration backup created successfully.")
+        else:
+            await update.message.reply_text("❌ Failed to create backup. Please try again later.")
+        return
+
+    else:
+        await update.message.reply_text(
+            "Invalid command. Use /config to see available commands."
+        )
+        return
+
+
+@handle_errors(feedback_message="An error occurred while processing your file.")
+async def handle_file(update: Update, context: CallbackContext) -> None:
+    """Handle incoming files with safety checks."""
+    if not update.message or not update.message.document:
+        return
+
+    file = update.message.document
+    chat_id = str(update.message.chat_id)
+    chat_type = "private" if update.effective_chat.type == "private" else "group"
+    chat_name = update.effective_chat.title or f"{chat_type}_{chat_id}"
+    
+    # Check file safety
+    if not await safety_manager.check_file_safety(update, context, file.mime_type):
+        await update.message.reply_text("⚠️ This file type is not allowed in this chat.")
+        return
+        
+    # Process the file based on its type
+    if file.mime_type.startswith('image/'):
+        # Handle image files
+        pass
+    elif file.mime_type.startswith('video/'):
+        # Handle video files
+        pass
+    elif file.mime_type.startswith('audio/'):
+        # Handle audio files
+        pass
+    else:
+        # Handle other file types
+        pass
+
+
+@handle_errors(feedback_message="An error occurred while processing GPT command.")
+async def gpt_command_handler(update: Update, context: CallbackContext) -> None:
+    """Wrapper for the /gpt command to properly handle the command format."""
+    if not update.message:
+        return
+        
+    # Extract the prompt from the command
+    command_parts = update.message.text.split(' ', 1)
+    prompt = command_parts[1] if len(command_parts) > 1 else None
+    
+    # Call ask_gpt_command with the prompt
+    await ask_gpt_command(prompt, update=update, context=context)
+
+
+def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
+    """Register all command and message handlers."""
+    # Command handlers
+    commands = {
+        'start': start,
+        'cat': cat_command,
+        'gpt': gpt_command_handler,  # Use the wrapper instead
+        'analyze': analyze_command,
+        'flares': screenshot_command,
+        'weather': WeatherCommandHandler(),
+        'errors': error_report_command,
+        'gm': GeomagneticCommandHandler(),
+        'ping': lambda update, context: update.message.reply_text("🏓 Bot is online!"),
+        'remind': reminder_manager.remind,
+        'config': config_command,
+        'wordle': wordle  # Add wordle command
+    }
+    
+    for command, handler in commands.items():
+        application.add_handler(CommandHandler(command, handler))
+    general_logger.info(f"Registered {len(commands)} commands.")
+    
+    # Message handlers
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    
+    # Video downloader setup
+    video_downloader = setup_video_handlers(application, extract_urls_func=extract_urls)
+    application.bot_data['video_downloader'] = video_downloader
+    
+    # Add file handler
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    
+    general_logger.info("All handlers registered successfully")
+
+
 async def main() -> None:
-    """Initialize and run the bot."""
-    general_logger.info("Starting bot initialization...")
-
-    # Validate required environment variables
-    if not TOKEN:
-        error_logger.critical("TELEGRAM_BOT_TOKEN is not set. Exiting.")
-        sys.exit(1)
-    if not OPENAI_API_KEY:
-        error_logger.critical("OPENAI_API_KEY is not set. Exiting.")
-        sys.exit(1)
-    # Remove this block:
-    # if not Config.ERROR_CHANNEL_ID:
-    #     error_logger.critical("ERROR_CHANNEL_ID is not set in Config or environment. Exiting.")
-    #     sys.exit(1)
-
-    application = None
+    """Main function to start the bot."""
     try:
-        init_directories()
+        # Initialize bot and application
         application = ApplicationBuilder().token(TOKEN).build()
-
-        # --- Command Registration ---
-        # Import command handlers here if they cause circular dependencies, otherwise keep at top
-        from modules.error_analytics import error_report_command # Keep import here if needed
-
-        commands = {
-            'start': start,
-            'cat': cat_command,
-            'gpt': ask_gpt_command, # Ensure this handler exists and is async
-            'analyze': analyze_command, # Ensure this handler exists and is async
-            'flares': screenshot_command, # Ensure this handler exists and is async
-            'weather': WeatherCommandHandler(), # Ensure this implements __call__ or is callable
-            'errors': error_report_command, # Ensure this handler exists and is async
-            'gm': GeomagneticCommandHandler(), # Ensure this implements __call__ or is callable
-            'ping': lambda update, context: update.message.reply_text("🏓 Bot is online!"),
-            'remind': reminder_manager.remind, # Ensure this method is async
-            'wordle': wordle # Add wordle command
-        }
-        for command, handler in commands.items():
-            application.add_handler(CommandHandler(command, handler))
-        general_logger.info(f"Registered {len(commands)} commands.")
-
-        # --- Message and Callback Handlers ---
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
-        application.add_handler(CallbackQueryHandler(button_callback)) # Ensure button_callback is async
-        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        general_logger.info("Registered photo handler.")
-
-        # --- Module Setups ---
-        video_downloader = setup_video_handlers(application, extract_urls_func=extract_urls)
-        application.bot_data['video_downloader'] = video_downloader
-        general_logger.info("Video downloader handlers set up.")
+        
+        # Initialize config manager
+        config_manager = ConfigManager()
+        await config_manager.initialize()  # Initialize config manager and ensure global config exists
+        
+        # Register handlers
+        register_handlers(application, application.bot, config_manager)
+        
+        # Migrate configurations
+        general_logger.info("Starting configuration migration...")
+        
+        # First migrate existing configs to new directory structure
+        migration_results = await config_manager.migrate_existing_configs()
+        general_logger.info("Configuration directory migration completed")
+        for chat_id, result in migration_results.items():
+            general_logger.info(f"Chat {chat_id}: {result}")
+        
+        # Then migrate to modular structure
+        modular_results = await config_manager.migrate_all_to_modular()
+        general_logger.info("Modular configuration migration completed")
+        for chat_id, result in modular_results.items():
+            general_logger.info(f"Chat {chat_id}: {result}")
 
         # --- Initialize Telegram Error Handler (Updated Call) ---
         # Only initialize if ERROR_CHANNEL_ID is set
@@ -524,49 +752,23 @@ async def main() -> None:
             general_logger.info("Scheduled reminder startup jobs.")
         else:
             general_logger.warning("JobQueue not available, cannot schedule reminder startup jobs.")
-
-
-        # --- Run the Bot ---
+        
+        # Start error tracking after event loop is running
+        error_tracker._schedule_tasks()
+        
+        # Start polling
         general_logger.info("Bot initialization complete. Starting polling...")
         await application.run_polling()
-
+        
     except Exception as e:
-        # Log critical startup error using the configured error logger
-        error_context = {
-            "system_info": {"python_version": sys.version},
-             "time": datetime.now(KYIV_TZ).isoformat()
-        }
-        # Use error_logger, exc_info=True adds traceback
-        error_logger.critical(f"Bot failed to start: {e}", exc_info=True, extra=error_context)
-        # Optional: Re-raise if you want the process to exit non-zero
-        # raise
-
+        general_logger.error(f"Error in main: {str(e)}")
+        raise
     finally:
-        # --- Graceful Shutdown ---
-        general_logger.info("Initiating bot shutdown sequence...")
-        if application:
-             # Optional: Add shutdown logic for the application itself if needed
-             # await application.shutdown() # If PTB implements this in the future
-             pass
-        await shutdown_logging() # Call the logger shutdown function
-        general_logger.info("Bot shutdown complete.")
+        # Cleanup
+        if 'error_tracker' in globals():
+            await error_tracker.stop()
+        general_logger.info("Bot stopped")
 
 
-if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except RuntimeError as e:
-        # Log error if encountered during asyncio.run
-        error_logger.critical(f"RuntimeError during main execution: {e}", exc_info=True)
-        # Specific check for loop already running error
-        if "Cannot run the event loop while another loop is running" in str(e):
-            error_logger.error("Event loop is already running. Check for nested asyncio.run or conflicting frameworks.")
-        else:
-             raise # Re-raise other RuntimeErrors
-    except KeyboardInterrupt:
-        general_logger.info("KeyboardInterrupt received, exiting.")
-        # The finally block in main() should handle cleanup.
-    except Exception as e:
-         # Catch any other unexpected exceptions during startup/runtime
-         error_logger.critical(f"Unhandled exception in __main__: {e}", exc_info=True)
-         sys.exit(1) # Exit with error code
+if __name__ == "__main__":
+    asyncio.run(main())

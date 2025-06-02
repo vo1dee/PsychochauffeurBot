@@ -1,10 +1,10 @@
 # Telegram PsychochauffeurBot 🤖
 
-A versatile Telegram bot that downloads videos from social media platforms, provides weather updates with AI-powered advice, offers GPT chat integration, and includes various utility features.
+A versatile Telegram bot that downloads videos and images from social media platforms, provides weather updates with AI-powered advice, offers GPT chat integration, and includes various utility features.
 
-## 🎥 Video Downloader
+## 🎥 Video & Image Downloader
 
-### Supported Platforms
+### Supported Platforms for Videos
 - TikTok
 - Meta (Instagram, Facebook)
 - YouTube Shorts and Clips
@@ -17,7 +17,7 @@ A versatile Telegram bot that downloads videos from social media platforms, prov
 
 Simply send a video link from any supported platform, and the bot will:
 1. Process your request
-2. Download the video
+2. Download the media
 3. Send it directly in the chat
 
 **Note**: Maximum video size is 50MB due to Telegram restrictions
@@ -139,7 +139,14 @@ YTDL_MAX_RETRIES=3
 YTDL_RETRY_DELAY=1
 YTDL_RETRY_DELAY=1RY_DELAY=1
    ```
-3. Run the bot:
+3. Manage configurations (optional):
+   - Use the REST API (see above) to retrieve or update configurations.
+   - Configuration scopes:
+     - `global` (applies when no specific config is set)
+     - `private` (per private chat)
+     - `group` (per group chat)
+   - Default configurations are loaded from `config/default/*.py`.
+4. Run the bot:
    ```bash
    python main.py
    ```

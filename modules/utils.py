@@ -14,11 +14,9 @@ from telegram.ext import CallbackContext
 # Avoid running code at module import time
 from modules.logger import error_logger, LOG_DIR, general_logger
 from modules.const import (
-    weather_emojis, city_translations, feels_like_emojis,
-    SCREENSHOT_DIR, DATA_DIR, LOG_DIR, DOWNLOADS_DIR
+    SCREENSHOT_DIR, DATA_DIR, LOG_DIR, DOWNLOADS_DIR, Weather
 )
-import modules.file_manager as file_manager
-
+from config.config_manager import ConfigManager
 # Constants
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')   
@@ -37,6 +35,9 @@ IMGKIT_OPTIONS = {
         ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
     ]
 }
+
+# Initialize config manager
+config_manager = ConfigManager()
 
 class MessageCounter:
     """Manages message counts per chat for random GPT responses."""
@@ -107,63 +108,81 @@ def country_code_to_emoji(country_code: str) -> str:
     """
     return ''.join(chr(127397 + ord(c)) for c in country_code.upper())
 
-def get_weather_emoji(weather_id: int) -> str:
+# Weather-related utilities (now async)
+async def get_weather_emoji(weather_id: int) -> str:
     """
-    Get weather emoji based on weather ID.
-    
-    Args:
-        weather_id: Weather condition ID
-        
-    Returns:
-        str: Appropriate emoji for the weather condition
+    Get weather emoji based on weather ID. Use config if available, else fallback to CONDITION_EMOJIS from const.
     """
-    return next((emoji for id_range, emoji in weather_emojis.items()
-                if weather_id in id_range), '🌈')
-
-def get_feels_like_emoji(feels_like: float) -> str:
-    """
-    Get emoji based on 'feels like' temperature.
-    
-    Args:
-        feels_like: Temperature in Celsius
-        
-    Returns:
-        str: Appropriate emoji for the temperature
-    """
-    for temp_range, emoji in feels_like_emojis.items():
-        if feels_like >= temp_range.start and feels_like < temp_range.stop:
+    weather_config = await config_manager.get_config("weather_config", None, None)
+    config_emojis = weather_config.get("CONDITION_EMOJIS", {})
+    emojis = config_emojis if config_emojis else Weather.CONDITION_EMOJIS
+    general_logger.info(f"CONDITION_EMOJIS used: {emojis}")
+    for rng, emoji in emojis.items():
+        if weather_id in rng:
             return emoji
     return '🌈'
 
-def get_city_translation(city: str) -> str:
+async def get_feels_like_emoji(feels_like: float) -> str:
+    """
+    Get emoji based on 'feels like' temperature. Use config if available, else fallback to FEELS_LIKE_EMOJIS from const.
+    """
+    weather_config = await config_manager.get_config("weather_config", None, None)
+    config_emojis = weather_config.get("FEELS_LIKE_EMOJIS", {})
+    emojis = config_emojis if config_emojis else Weather.FEELS_LIKE_EMOJIS
+    general_logger.info(f"FEELS_LIKE_EMOJIS used: {emojis}")
+    feels_like_int = int(round(feels_like))
+    for rng, emoji in emojis.items():
+        if feels_like_int in rng:
+            return emoji
+    return '🌈'
+
+async def get_city_translation(city: str) -> str:
     """
     Get city translation from dictionary.
-    
-    Args:
-        city: City name to translate
-        
-    Returns:
-        str: Translated city name or original if not found
     """
+    weather_config = await config_manager.get_config("weather_config", None, None)
+    config_translations = weather_config.get("CITY_TRANSLATIONS", {})
+    city_translations = config_translations if config_translations else Weather.CITY_TRANSLATIONS
     normalized = city.lower().replace(" ", "")
     return city_translations.get(normalized, city)
 
 # get_last_used_city wrapper to use local CITY_DATA_FILE
+# Now robust to empty/invalid fields
+
 def get_last_used_city(user_id: int, chat_id: Optional[int] = None) -> Optional[str]:
     """
     Retrieve the last city set by a user, preferring chat-specific entry.
-    Uses CITY_DATA_FILE for data storage.
+    Uses CITY_DATA_FILE for data storage. Skips rows with invalid user_id/chat_id.
     """
-    # Check for errors opening the data file
     try:
-        with open(CITY_DATA_FILE, mode='r', newline='', encoding='utf-8'):
-            pass
+        with open(CITY_DATA_FILE, mode='r', newline='', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            # Prefer chat-specific entry
+            if chat_id is not None:
+                for row in reader:
+                    try:
+                        uid = int(row.get('user_id', -1))
+                        cid = int(row.get('chat_id', -1))
+                    except (ValueError, TypeError):
+                        continue
+                    if uid == user_id and cid == chat_id:
+                        city = row.get('city')
+                        return "Kyiv" if city and city.lower() == "kiev" else city
+            # Fallback to user default
+            csvfile.seek(0)
+            for row in reader:
+                try:
+                    uid = int(row.get('user_id', -1))
+                    cid = row.get('chat_id')
+                except (ValueError, TypeError):
+                    continue
+                if uid == user_id and (cid is None or cid == '' or cid == 'None'):
+                    city = row.get('city')
+                    return "Kyiv" if city and city.lower() == "kiev" else city
     except Exception as e:
         error_logger.error(f"Error reading city data: {e}")
         return None
-    # Override file_manager's CSV_FILE to use local CITY_DATA_FILE
-    file_manager.CSV_FILE = CITY_DATA_FILE
-    return file_manager.get_last_used_city(user_id, chat_id)
+    return None
 
 # Cat API command
 async def cat_command(update: Update, context: CallbackContext) -> None:
@@ -366,6 +385,10 @@ def ensure_city_data_file():
 
 # Call this function during initialization
 ensure_city_data_file()
+
+async def initialize_utils():
+    """Initialize utility modules."""
+    await config_manager.initialize()
 
 # Only run setup code if this module is the main script
 if __name__ == "__main__":

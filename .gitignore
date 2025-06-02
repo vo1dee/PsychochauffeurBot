@@ -92,6 +92,11 @@ data/*
 .cookies.txt
 prompts.py
 
+# Chat specific configurations
+config/private_chats/
+config/group_chats/
+config/chat_config/
+
 # Ignore downloaded videos and temp files
 downloads/
 *.mp4

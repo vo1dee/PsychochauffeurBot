@@ -209,6 +209,13 @@ class ReminderParser:
             except Exception as e:
                 general_logger.error(f"Error parsing with timefhuman: {e}")
 
+        # Fallback: if still no datetime parsed, set a default time
+        if not result['parsed_datetime']:
+            now = datetime.now(KYIV_TZ)
+            # No time information at all, default to 1 hour from now
+            result['parsed_datetime'] = now + timedelta(hours=1)
+            general_logger.debug("No time information found, defaulting to 1 hour from now")
+
         general_logger.debug(f"Final parse result: {result}")
         return result
 
