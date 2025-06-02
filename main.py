@@ -742,7 +742,7 @@ async def main() -> None:
         await application.start()
         
         # Run the bot until a stop signal is received
-        await application.run_polling(allowed_updates=Update.ALL_TYPES, close_loop=False)
+        await application.run_polling(allowed_updates=Update.ALL_TYPES)
         
     except Exception as e:
         error_logger.error(f"Error in main: {e}")
@@ -762,24 +762,13 @@ async def main() -> None:
 
 if __name__ == "__main__":
     try:
-        # Create and set the event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Apply nest_asyncio to allow nested event loops
+        nest_asyncio.apply()
         
         # Run the main function
-        loop.run_until_complete(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
         general_logger.info("Bot stopped by user")
     except Exception as e:
         error_logger.error(f"Fatal error: {e}")
         sys.exit(1)
-    finally:
-        try:
-            # Clean up the event loop
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            loop.close()
-        except Exception as e:
-            error_logger.error(f"Error closing event loop: {e}")
