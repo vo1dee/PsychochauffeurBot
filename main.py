@@ -730,6 +730,10 @@ async def initialize_all_components():
         await safety_manager.initialize()
         general_logger.info("Safety manager initialized")
         
+        # Initialize Telegram error handler
+        await init_telegram_error_handler(TOKEN, Config.ERROR_CHANNEL_ID)
+        general_logger.info("Telegram error handler initialized")
+        
         return True
         
     except Exception as e:
