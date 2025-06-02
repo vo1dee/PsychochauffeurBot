@@ -709,231 +709,189 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
 # Global shutdown flag
 shutdown_event = threading.Event()
 
-async def main() -> None:
-    """Main entry point for the bot."""
-    application = None
+async def initialize_async_components():
+    """Initialize all async components."""
     try:
-        # Initialize directories and permissions
-        init_directories()
-        general_logger.info("Directories initialized with proper permissions")
-        
-        # Initialize config manager
         await config_manager.initialize()
         general_logger.info("Configuration manager initialized")
         
-        # Initialize error tracking
         await error_tracker.initialize()
         general_logger.info("Error tracking initialized")
         
-        # Initialize reminder manager
         await reminder_manager.initialize()
         general_logger.info("Reminder manager initialized")
         
-        # Initialize safety manager
         await safety_manager.initialize()
         general_logger.info("Safety manager initialized")
         
-        # Create the Application
-        application = ApplicationBuilder().token(TOKEN).build()
-        
-        # Get the bot instance
-        bot = application.bot
-        
-        # Register all handlers
-        register_handlers(application, bot, config_manager)
-        
-        # Initialize the application
-        await application.initialize()
-        await application.start()
-        
-        general_logger.info("Bot started successfully")
-        
-        # Start polling in a way that doesn't conflict with event loop
-        await application.updater.start_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
-        )
-        
-        # Keep the bot running until shutdown signal
-        while not shutdown_event.is_set():
-            await asyncio.sleep(1)
-            
+        return True
     except Exception as e:
-        error_logger.error(f"Error in main: {e}")
-        raise
-    finally:
-        # Cleanup
-        await cleanup_resources(application)
+        error_logger.error(f"Failed to initialize async components: {e}")
+        return False
 
-
-async def cleanup_resources(application):
+async def cleanup_resources():
     """Properly cleanup all resources."""
     general_logger.info("Starting cleanup process...")
     
-    try:
-        if application:
-            # Stop updater first
-            if hasattr(application, 'updater') and application.updater.running:
-                await application.updater.stop()
-                general_logger.info("Updater stopped")
-            
-            # Stop application
-            if application.running:
-                await application.stop()
-                general_logger.info("Application stopped")
-    except Exception as e:
-        error_logger.error(f"Error stopping application: {e}")
+    # Stop components in reverse order
+    components_to_stop = [
+        ("safety_manager", safety_manager),
+        ("reminder_manager", reminder_manager), 
+        ("error_tracker", error_tracker)
+    ]
     
-    # Stop other components
-    try:
-        await error_tracker.stop()
-        general_logger.info("Error tracker stopped")
-    except Exception as e:
-        error_logger.error(f"Error stopping error_tracker: {e}")
+    for name, component in components_to_stop:
+        try:
+            if hasattr(component, 'stop'):
+                await component.stop()
+                general_logger.info(f"{name} stopped successfully")
+        except Exception as e:
+            error_logger.error(f"Error stopping {name}: {e}")
     
-    try:
-        await reminder_manager.stop()
-        general_logger.info("Reminder manager stopped")
-    except Exception as e:
-        error_logger.error(f"Error stopping reminder_manager: {e}")
-    
-    try:
-        await safety_manager.stop()
-        general_logger.info("Safety manager stopped")
-    except Exception as e:
-        error_logger.error(f"Error stopping safety_manager: {e}")
-    
-    # Shutdown logging
+    # Shutdown logging last
     try:
         await shutdown_logging()
         general_logger.info("Logging shutdown complete")
     except Exception as e:
         error_logger.error(f"Error during logging shutdown: {e}")
 
+class BotManager:
+    def __init__(self):
+        self.application = None
+        self.initialized = False
+    
+    async def initialize(self):
+        """Initialize the bot and all components."""
+        try:
+            # Initialize directories
+            init_directories()
+            general_logger.info("Directories initialized with proper permissions")
+            
+            # Initialize async components
+            if not await initialize_async_components():
+                raise Exception("Failed to initialize async components")
+            
+            # Create the Application
+            self.application = ApplicationBuilder().token(TOKEN).build()
+            
+            # Register all handlers
+            register_handlers(self.application, self.application.bot, config_manager)
+            general_logger.info("All handlers registered successfully")
+            
+            self.initialized = True
+            general_logger.info("Bot manager initialized successfully")
+            
+        except Exception as e:
+            error_logger.error(f"Failed to initialize bot manager: {e}")
+            raise
+    
+    async def start(self):
+        """Start the bot."""
+        if not self.initialized:
+            await self.initialize()
+        
+        try:
+            # Set up graceful shutdown handling
+            def signal_handler(signum, frame):
+                general_logger.info(f"Received signal {signum}, initiating shutdown...")
+                shutdown_event.set()
+                # Stop the application
+                if self.application and self.application.running:
+                    asyncio.create_task(self.application.stop())
+            
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+            
+            general_logger.info("Starting bot with polling...")
+            
+            # Use telegram's built-in run_polling which handles the event loop properly
+            await self.application.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+                close_loop=False  # Don't let telegram close our loop
+            )
+            
+        except Exception as e:
+            error_logger.error(f"Error running bot: {e}")
+            raise
+    
+    async def stop(self):
+        """Stop the bot and cleanup resources."""
+        general_logger.info("Stopping bot manager...")
+        
+        try:
+            if self.application and self.application.running:
+                await self.application.stop()
+                general_logger.info("Application stopped")
+        except Exception as e:
+            error_logger.error(f"Error stopping application: {e}")
+        
+        # Cleanup all resources
+        await cleanup_resources()
 
-def signal_handler(signum, frame):
-    """Handle shutdown signals gracefully."""
-    general_logger.info(f"Received signal {signum}, initiating shutdown...")
-    shutdown_event.set()
-
-
-def run_bot():
-    """Run the bot without nest_asyncio conflicts."""
-    # Set up signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+async def main():
+    """Main entry point for the bot."""
+    bot_manager = BotManager()
     
     try:
-        # Create a new event loop for this thread
+        await bot_manager.start()
+    except KeyboardInterrupt:
+        general_logger.info("Bot stopped by keyboard interrupt")
+    except Exception as e:
+        error_logger.error(f"Fatal error in main: {e}")
+        raise
+    finally:
+        await bot_manager.stop()
+
+def run_bot():
+    """Run the bot with proper event loop management."""
+    try:
+        # Create and set new event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
-        # Run the main coroutine
+        # Run the bot
         loop.run_until_complete(main())
         
     except KeyboardInterrupt:
         general_logger.info("Bot stopped by user")
-        shutdown_event.set()
     except Exception as e:
         error_logger.error(f"Fatal error: {e}")
-        shutdown_event.set()
         sys.exit(1)
     finally:
-        # Clean up the event loop
+        # Cleanup event loop
         try:
-            # Cancel all remaining tasks
+            # Cancel remaining tasks
             pending = asyncio.all_tasks(loop)
             if pending:
+                general_logger.info(f"Cancelling {len(pending)} pending tasks...")
                 for task in pending:
                     task.cancel()
                 
-                # Wait for tasks to complete with timeout
+                # Wait for cancellation to complete
                 with suppress(Exception):
                     loop.run_until_complete(
                         asyncio.wait_for(
                             asyncio.gather(*pending, return_exceptions=True),
-                            timeout=5.0
+                            timeout=10.0
                         )
                     )
             
-            # Close the loop
             loop.close()
             general_logger.info("Event loop closed successfully")
             
         except Exception as e:
-            error_logger.error(f"Error during event loop cleanup: {e}")
-
-
-# Alternative approach using telegram's built-in mechanisms
-def run_bot_simple():
-    """Simple approach letting telegram handle everything."""
-    try:
-        # Initialize all components synchronously if possible
-        init_directories()
-        general_logger.info("Directories initialized with proper permissions")
-        
-        # Create the Application
-        application = ApplicationBuilder().token(TOKEN).build()
-        
-        # Get the bot instance
-        bot = application.bot
-        
-        # Register all handlers
-        register_handlers(application, bot, config_manager)
-        
-        # Set up signal handlers
-        def signal_handler_simple(signum, frame):
-            general_logger.info(f"Received signal {signum}, stopping bot...")
-            application.stop_running()
-        
-        signal.signal(signal.SIGINT, signal_handler_simple)
-        signal.signal(signal.SIGTERM, signal_handler_simple)
-        
-        # Initialize async components in a separate task
-        async def init_async_components():
-            await config_manager.initialize()
-            await error_tracker.initialize()
-            await reminder_manager.initialize()
-            await safety_manager.initialize()
-            general_logger.info("All async components initialized")
-        
-        # Run initialization and then start polling
-        application.job_queue.run_once(
-            lambda context: asyncio.create_task(init_async_components()),
-            when=0
-        )
-        
-        # Run the bot - this handles its own event loop
-        application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
-        )
-        
-    except KeyboardInterrupt:
-        general_logger.info("Bot stopped by user")
-    except Exception as e:
-        error_logger.error(f"Fatal error: {e}")
-        sys.exit(1)
-
+            error_logger.error(f"Error during cleanup: {e}")
 
 if __name__ == "__main__":
-    # Remove nest_asyncio entirely to avoid conflicts
-    # DO NOT use nest_asyncio.apply()
+    # DO NOT use nest_asyncio - it causes the conflicts you're seeing
     
-    # Choose one approach:
+    general_logger.info("Starting chauffeur bot...")
     
-    # Option 1: Manual event loop management (recommended)
     try:
         run_bot()
     except Exception as e:
         error_logger.error(f"Failed to start bot: {e}")
         sys.exit(1)
     
-    # Option 2: Let Telegram handle everything (uncomment to use instead)
-    """
-    try:
-        run_bot_simple()
-    except Exception as e:
-        error_logger.error(f"Failed to start bot: {e}")
-        sys.exit(1)
-    """
+    general_logger.info("Bot shutdown complete")
