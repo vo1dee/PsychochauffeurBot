@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import List, Optional, Dict
 import time
 from collections import deque
+from contextlib import suppress
 
 from telegram import Update, Bot
 from telegram.ext import (
@@ -748,19 +749,78 @@ async def main() -> None:
         error_logger.error(f"Error in main: {e}")
         raise
     finally:
-        try:
-            # Cleanup
-            if application:
-                await application.stop()
-            await error_tracker.stop()
-            await reminder_manager.stop()
-            await safety_manager.stop()
-            await shutdown_logging()
-        except Exception as e:
-            error_logger.error(f"Error during cleanup: {e}")
+        # Cleanup - ensure proper shutdown order
+        cleanup_tasks = []
+        
+        if application:
+            cleanup_tasks.append(safe_stop_application(application))
+        
+        cleanup_tasks.extend([
+            safe_stop_component(error_tracker, "error_tracker"),
+            safe_stop_component(reminder_manager, "reminder_manager"),
+            safe_stop_component(safety_manager, "safety_manager"),
+            safe_shutdown_logging()
+        ])
+        
+        # Execute all cleanup tasks
+        await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+
+
+async def safe_stop_application(application):
+    """Safely stop the application."""
+    try:
+        if hasattr(application, 'stop'):
+            await application.stop()
+        if hasattr(application, 'shutdown'):
+            await application.shutdown()
+    except Exception as e:
+        error_logger.error(f"Error stopping application: {e}")
+
+
+async def safe_stop_component(component, name):
+    """Safely stop a component."""
+    try:
+        if hasattr(component, 'stop'):
+            await component.stop()
+    except Exception as e:
+        error_logger.error(f"Error stopping {name}: {e}")
+
+
+async def safe_shutdown_logging():
+    """Safely shutdown logging."""
+    try:
+        await shutdown_logging()
+    except Exception as e:
+        error_logger.error(f"Error during logging shutdown: {e}")
+
+
+def cleanup_event_loop(loop):
+    """Properly cleanup the event loop."""
+    try:
+        # Cancel all pending tasks
+        pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+        if pending:
+            for task in pending:
+                task.cancel()
+            
+            # Wait for all tasks to complete with timeout
+            with suppress(asyncio.TimeoutError):
+                loop.run_until_complete(
+                    asyncio.wait_for(
+                        asyncio.gather(*pending, return_exceptions=True),
+                        timeout=5.0
+                    )
+                )
+    except Exception as e:
+        error_logger.error(f"Error cancelling tasks: {e}")
+    finally:
+        # Only close the loop if it's not already closed
+        if not loop.is_closed():
+            loop.close()
 
 
 if __name__ == "__main__":
+    loop = None
     try:
         # Apply nest_asyncio to allow nested event loops
         nest_asyncio.apply()
@@ -771,18 +831,12 @@ if __name__ == "__main__":
         
         # Run the main function
         loop.run_until_complete(main())
+        
     except KeyboardInterrupt:
         general_logger.info("Bot stopped by user")
     except Exception as e:
         error_logger.error(f"Fatal error: {e}")
         sys.exit(1)
     finally:
-        try:
-            # Clean up the event loop
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            loop.close()
-        except Exception as e:
-            error_logger.error(f"Error closing event loop: {e}")
+        if loop and not loop.is_closed():
+            cleanup_event_loop(loop)
