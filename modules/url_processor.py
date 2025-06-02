@@ -27,7 +27,7 @@ def sanitize_url(url: str) -> str:
         url: The URL to sanitize
         
     Returns:
-        str: Sanitized URL
+        str: Sanitized URL or empty string if invalid
         
     Raises:
         ValueError: If URL is invalid
@@ -42,7 +42,19 @@ def sanitize_url(url: str) -> str:
         
         # Validate domain
         if not parsed.netloc:
-            raise ValueError("Invalid URL: No domain found")
+            return ""
+            
+        # Check for invalid characters in domain
+        if '_' in parsed.netloc:
+            return ""
+            
+        # Check for IP addresses
+        if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', parsed.netloc):
+            return ""
+            
+        # Check for credentials in URL
+        if '@' in parsed.netloc:
+            return ""
             
         # Reconstruct URL
         sanitized = urlunparse((
@@ -58,7 +70,7 @@ def sanitize_url(url: str) -> str:
         
     except Exception as e:
         error_logger.error(f"URL sanitization failed: {str(e)}", exc_info=True)
-        raise ValueError(f"Invalid URL: {str(e)}")
+        return ""
 
 @handle_errors(feedback_message="An error occurred while shortening the URL.")
 async def shorten_url(url: str) -> str:
