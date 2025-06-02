@@ -60,8 +60,20 @@ class ConfigManager:
         """Ensure that base directories for configuration exist."""
         for d in (self.GLOBAL_CONFIG_DIR, self.PRIVATE_CONFIG_DIR, self.GROUP_CONFIG_DIR, self.BACKUP_DIR):
             try:
-                # Create directory if it doesn't exist
-                d.mkdir(parents=True, exist_ok=True)
+                # First check if directory exists
+                if d.exists():
+                    logger.debug(f"Directory already exists: {d}")
+                    continue
+                    
+                # Try to create directory
+                try:
+                    d.mkdir(parents=True, exist_ok=True)
+                except PermissionError:
+                    logger.warning(f"Could not create directory {d}, checking if it exists")
+                    if not d.exists():
+                        logger.error(f"Directory {d} does not exist and could not be created")
+                        raise
+                    logger.info(f"Directory {d} exists but could not be created by us")
                 
                 try:
                     # Get the current user's uid and gid
@@ -85,7 +97,7 @@ class ConfigManager:
                     logger.warning(f"Could not set permissions for {d}: {e}, continuing without permission change")
                     
             except Exception as e:
-                logger.error(f"Error creating directory {d}: {e}")
+                logger.error(f"Error with directory {d}: {e}")
                 raise
         logger.debug("Configuration directories verified")
 
