@@ -90,8 +90,14 @@ def init_directories() -> None:
     """Initialize necessary directories for the application."""
     directories = [LOG_DIR, DATA_DIR, DOWNLOADS_DIR, SCREENSHOT_DIR]
     for directory in directories:
-        ensure_directory(directory)
-        ensure_directory_permissions(directory)
+        try:
+            # First ensure directory exists
+            ensure_directory(directory)
+            # Then set permissions
+            ensure_directory_permissions(directory)
+        except Exception as e:
+            error_logger.error(f"Error initializing directory {directory}: {e}")
+            raise
 
 # Text processing utilities
 def remove_links(text: str) -> str:
