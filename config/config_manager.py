@@ -58,6 +58,7 @@ class ConfigManager:
 
     async def ensure_dirs(self) -> None:
         """Ensure that base directories for configuration exist."""
+        missing_dirs = []
         for d in (self.GLOBAL_CONFIG_DIR, self.PRIVATE_CONFIG_DIR, self.GROUP_CONFIG_DIR, self.BACKUP_DIR):
             try:
                 # First check if directory exists
@@ -68,11 +69,13 @@ class ConfigManager:
                 # Try to create directory
                 try:
                     d.mkdir(parents=True, exist_ok=True)
+                    logger.info(f"Created directory: {d}")
                 except PermissionError:
                     logger.warning(f"Could not create directory {d}, checking if it exists")
                     if not d.exists():
-                        logger.error(f"Directory {d} does not exist and could not be created")
-                        raise
+                        logger.warning(f"Directory {d} does not exist and could not be created")
+                        missing_dirs.append(str(d))
+                        continue
                     logger.info(f"Directory {d} exists but could not be created by us")
                 
                 try:
@@ -98,8 +101,13 @@ class ConfigManager:
                     
             except Exception as e:
                 logger.error(f"Error with directory {d}: {e}")
-                raise
-        logger.debug("Configuration directories verified")
+                missing_dirs.append(str(d))
+                
+        if missing_dirs:
+            logger.warning(f"Some directories could not be created: {', '.join(missing_dirs)}")
+            logger.warning("The bot will continue but some features may not work correctly")
+        else:
+            logger.debug("All configuration directories verified")
 
     async def ensure_chat_dir(self, chat_id: str, chat_type: str) -> None:
         """Ensure that the directory for a specific chat exists."""
@@ -164,6 +172,9 @@ class ConfigManager:
                     
             except FileNotFoundError:
                 logger.info("Global config not found")
+                return {}
+            except PermissionError:
+                logger.warning(f"Permission denied when accessing global config file: {self.GLOBAL_CONFIG_FILE}")
                 return {}
             except json.JSONDecodeError as e:
                 logger.error(f"Invalid JSON in global config: {e}")

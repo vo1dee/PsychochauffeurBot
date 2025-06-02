@@ -285,20 +285,39 @@ class ErrorTracker:
             self._save_data()
             analytics_logger.info("Error statistics cleared")
 
+    async def initialize(self) -> None:
+        """Initialize the error tracker and start periodic tasks."""
+        try:
+            # Schedule periodic tasks
+            self._schedule_tasks()
+            analytics_logger.info("Error tracker initialized successfully")
+        except Exception as e:
+            analytics_logger.error(f"Error initializing error tracker: {e}")
+            # Don't raise the exception, just log it
+
     async def stop(self) -> None:
         """Stop the periodic tasks."""
-        if hasattr(self, '_save_task'):
-            self._save_task.cancel()
-            try:
-                await self._save_task
-            except asyncio.CancelledError:
-                pass
-        if hasattr(self, '_analyze_task'):
-            self._analyze_task.cancel()
-            try:
-                await self._analyze_task
-            except asyncio.CancelledError:
-                pass
+        try:
+            if self._save_task is not None:
+                self._save_task.cancel()
+                try:
+                    await self._save_task
+                except asyncio.CancelledError:
+                    pass
+                self._save_task = None
+
+            if self._analyze_task is not None:
+                self._analyze_task.cancel()
+                try:
+                    await self._analyze_task
+                except asyncio.CancelledError:
+                    pass
+                self._analyze_task = None
+
+            analytics_logger.info("Error tracker stopped successfully")
+        except Exception as e:
+            analytics_logger.error(f"Error stopping error tracker: {e}")
+            # Don't raise the exception, just log it
 
 # Initialize the error tracker
 error_tracker = ErrorTracker()
