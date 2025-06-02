@@ -706,129 +706,12 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     
     general_logger.info("All handlers registered successfully")
 
+# Global shutdown flag
+shutdown_event = threading.Event()
 
 async def main() -> None:
     """Main entry point for the bot."""
     application = None
-    try:
-        # Initialize directories and permissions
-        init_directories()
-        general_logger.info("Directories initialized with proper permissions")
-        
-        # Initialize config manager
-        await config_manager.initialize()
-        general_logger.info("Configuration manager initialized")
-        
-        # Initialize error tracking
-        await error_tracker.initialize()
-        general_logger.info("Error tracking initialized")
-        
-        # Initialize reminder manager
-        await reminder_manager.initialize()
-        general_logger.info("Reminder manager initialized")
-        
-        # Initialize safety manager
-        await safety_manager.initialize()
-        general_logger.info("Safety manager initialized")
-        
-        # Create the Application with proper configuration
-        application = (
-            ApplicationBuilder()
-            .token(TOKEN)
-            .concurrent_updates(True)  # Enable concurrent updates
-            .build()
-        )
-        
-        # Get the bot instance
-        bot = application.bot
-        
-        # Register all handlers
-        register_handlers(application, bot, config_manager)
-        
-        # Start the bot - let telegram handle the event loop
-        await application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-            close_loop=False  # Important: don't let telegram close our loop
-        )
-        
-    except Exception as e:
-        error_logger.error(f"Error in main: {e}")
-        raise
-    finally:
-        # Cleanup - ensure proper shutdown order
-        await cleanup_resources(application)
-
-
-async def cleanup_resources(application):
-    """Properly cleanup all resources."""
-    cleanup_tasks = []
-    
-    # Stop application first
-    if application:
-        try:
-            if application.running:
-                await application.stop()
-            # Don't call shutdown here as it might interfere with the loop
-        except Exception as e:
-            error_logger.error(f"Error stopping application: {e}")
-    
-    # Stop other components
-    cleanup_tasks.extend([
-        safe_stop_component(error_tracker, "error_tracker"),
-        safe_stop_component(reminder_manager, "reminder_manager"),
-        safe_stop_component(safety_manager, "safety_manager"),
-    ])
-    
-    # Execute cleanup tasks
-    await asyncio.gather(*cleanup_tasks, return_exceptions=True)
-    
-    # Shutdown logging last
-    try:
-        await shutdown_logging()
-    except Exception as e:
-        error_logger.error(f"Error during logging shutdown: {e}")
-
-
-async def safe_stop_component(component, name):
-    """Safely stop a component."""
-    try:
-        if hasattr(component, 'stop'):
-            await component.stop()
-    except Exception as e:
-        error_logger.error(f"Error stopping {name}: {e}")
-
-
-def signal_handler(signum, frame):
-    """Handle shutdown signals gracefully."""
-    general_logger.info(f"Received signal {signum}, initiating shutdown...")
-    # Set a flag or trigger shutdown mechanism
-    # Don't call loop.stop() here as it can cause issues
-
-
-def run_with_proper_loop():
-    """Run the bot with proper event loop management."""
-    # Apply nest_asyncio for compatibility
-    nest_asyncio.apply()
-    
-    # Set up signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        # Use asyncio.run() instead of manual loop management
-        # This handles loop creation and cleanup automatically
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        general_logger.info("Bot stopped by user")
-    except Exception as e:
-        error_logger.error(f"Fatal error: {e}")
-        sys.exit(1)
-
-
-# Alternative approach using telegram's built-in loop management
-async def main_telegram_managed() -> None:
-    """Alternative main function that lets Telegram manage the event loop."""
     try:
         # Initialize directories and permissions
         init_directories()
@@ -859,43 +742,198 @@ async def main_telegram_managed() -> None:
         # Register all handlers
         register_handlers(application, bot, config_manager)
         
-        # Use telegram's run_polling with proper cleanup
-        try:
-            application.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True
-            )
-        finally:
-            # Cleanup will be handled by telegram's internal mechanisms
-            await cleanup_resources(application)
+        # Initialize the application
+        await application.initialize()
+        await application.start()
+        
+        general_logger.info("Bot started successfully")
+        
+        # Start polling in a way that doesn't conflict with event loop
+        await application.updater.start_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
+        
+        # Keep the bot running until shutdown signal
+        while not shutdown_event.is_set():
+            await asyncio.sleep(1)
             
     except Exception as e:
         error_logger.error(f"Error in main: {e}")
         raise
+    finally:
+        # Cleanup
+        await cleanup_resources(application)
 
 
-if __name__ == "__main__":
-    # Choose one of these approaches:
+async def cleanup_resources(application):
+    """Properly cleanup all resources."""
+    general_logger.info("Starting cleanup process...")
     
-    # Option 1: Use asyncio.run() (recommended)
     try:
-        nest_asyncio.apply()
-        asyncio.run(main())
+        if application:
+            # Stop updater first
+            if hasattr(application, 'updater') and application.updater.running:
+                await application.updater.stop()
+                general_logger.info("Updater stopped")
+            
+            # Stop application
+            if application.running:
+                await application.stop()
+                general_logger.info("Application stopped")
+    except Exception as e:
+        error_logger.error(f"Error stopping application: {e}")
+    
+    # Stop other components
+    try:
+        await error_tracker.stop()
+        general_logger.info("Error tracker stopped")
+    except Exception as e:
+        error_logger.error(f"Error stopping error_tracker: {e}")
+    
+    try:
+        await reminder_manager.stop()
+        general_logger.info("Reminder manager stopped")
+    except Exception as e:
+        error_logger.error(f"Error stopping reminder_manager: {e}")
+    
+    try:
+        await safety_manager.stop()
+        general_logger.info("Safety manager stopped")
+    except Exception as e:
+        error_logger.error(f"Error stopping safety_manager: {e}")
+    
+    # Shutdown logging
+    try:
+        await shutdown_logging()
+        general_logger.info("Logging shutdown complete")
+    except Exception as e:
+        error_logger.error(f"Error during logging shutdown: {e}")
+
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully."""
+    general_logger.info(f"Received signal {signum}, initiating shutdown...")
+    shutdown_event.set()
+
+
+def run_bot():
+    """Run the bot without nest_asyncio conflicts."""
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Run the main coroutine
+        loop.run_until_complete(main())
+        
+    except KeyboardInterrupt:
+        general_logger.info("Bot stopped by user")
+        shutdown_event.set()
+    except Exception as e:
+        error_logger.error(f"Fatal error: {e}")
+        shutdown_event.set()
+        sys.exit(1)
+    finally:
+        # Clean up the event loop
+        try:
+            # Cancel all remaining tasks
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                for task in pending:
+                    task.cancel()
+                
+                # Wait for tasks to complete with timeout
+                with suppress(Exception):
+                    loop.run_until_complete(
+                        asyncio.wait_for(
+                            asyncio.gather(*pending, return_exceptions=True),
+                            timeout=5.0
+                        )
+                    )
+            
+            # Close the loop
+            loop.close()
+            general_logger.info("Event loop closed successfully")
+            
+        except Exception as e:
+            error_logger.error(f"Error during event loop cleanup: {e}")
+
+
+# Alternative approach using telegram's built-in mechanisms
+def run_bot_simple():
+    """Simple approach letting telegram handle everything."""
+    try:
+        # Initialize all components synchronously if possible
+        init_directories()
+        general_logger.info("Directories initialized with proper permissions")
+        
+        # Create the Application
+        application = ApplicationBuilder().token(TOKEN).build()
+        
+        # Get the bot instance
+        bot = application.bot
+        
+        # Register all handlers
+        register_handlers(application, bot, config_manager)
+        
+        # Set up signal handlers
+        def signal_handler_simple(signum, frame):
+            general_logger.info(f"Received signal {signum}, stopping bot...")
+            application.stop_running()
+        
+        signal.signal(signal.SIGINT, signal_handler_simple)
+        signal.signal(signal.SIGTERM, signal_handler_simple)
+        
+        # Initialize async components in a separate task
+        async def init_async_components():
+            await config_manager.initialize()
+            await error_tracker.initialize()
+            await reminder_manager.initialize()
+            await safety_manager.initialize()
+            general_logger.info("All async components initialized")
+        
+        # Run initialization and then start polling
+        application.job_queue.run_once(
+            lambda context: asyncio.create_task(init_async_components()),
+            when=0
+        )
+        
+        # Run the bot - this handles its own event loop
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
+        
     except KeyboardInterrupt:
         general_logger.info("Bot stopped by user")
     except Exception as e:
         error_logger.error(f"Fatal error: {e}")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    # Remove nest_asyncio entirely to avoid conflicts
+    # DO NOT use nest_asyncio.apply()
     
-    # Option 2: Let Telegram manage everything (uncomment to use)
+    # Choose one approach:
+    
+    # Option 1: Manual event loop management (recommended)
+    try:
+        run_bot()
+    except Exception as e:
+        error_logger.error(f"Failed to start bot: {e}")
+        sys.exit(1)
+    
+    # Option 2: Let Telegram handle everything (uncomment to use instead)
     """
     try:
-        nest_asyncio.apply()
-        # This will handle its own event loop
-        main_telegram_managed()
-    except KeyboardInterrupt:
-        general_logger.info("Bot stopped by user")
+        run_bot_simple()
     except Exception as e:
-        error_logger.error(f"Fatal error: {e}")
+        error_logger.error(f"Failed to start bot: {e}")
         sys.exit(1)
     """
