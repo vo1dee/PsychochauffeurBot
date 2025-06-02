@@ -59,7 +59,24 @@ class ConfigManager:
     async def ensure_dirs(self) -> None:
         """Ensure that base directories for configuration exist."""
         for d in (self.GLOBAL_CONFIG_DIR, self.PRIVATE_CONFIG_DIR, self.GROUP_CONFIG_DIR, self.BACKUP_DIR):
-            d.mkdir(parents=True, exist_ok=True)
+            try:
+                # Create directory if it doesn't exist
+                d.mkdir(parents=True, exist_ok=True)
+                
+                # Get the current user's uid and gid
+                uid = os.getuid()
+                gid = os.getgid()
+                
+                # Set ownership
+                os.chown(d, uid, gid)
+                
+                # Set permissions (750 for directories)
+                os.chmod(d, 0o750)
+                
+                logger.debug(f"Directory created and permissions set: {d}")
+            except Exception as e:
+                logger.error(f"Error creating/setting permissions for directory {d}: {e}")
+                raise
         logger.debug("Configuration directories verified")
 
     async def ensure_chat_dir(self, chat_id: str, chat_type: str) -> None:

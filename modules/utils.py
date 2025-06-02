@@ -63,11 +63,35 @@ def ensure_directory(path: str) -> None:
     """
     os.makedirs(path, exist_ok=True)
 
+def ensure_directory_permissions(path: str) -> None:
+    """
+    Ensure a directory has proper permissions.
+    
+    Args:
+        path: Directory path to set permissions for
+    """
+    try:
+        # Get the current user's uid and gid
+        uid = os.getuid()
+        gid = os.getgid()
+        
+        # Set ownership
+        os.chown(path, uid, gid)
+        
+        # Set permissions (750 for directories)
+        os.chmod(path, 0o750)
+        
+        general_logger.info(f"Set permissions for directory: {path}")
+    except Exception as e:
+        error_logger.error(f"Error setting permissions for {path}: {e}")
+        raise
+
 def init_directories() -> None:
     """Initialize necessary directories for the application."""
     directories = [LOG_DIR, DATA_DIR, DOWNLOADS_DIR, SCREENSHOT_DIR]
     for directory in directories:
         ensure_directory(directory)
+        ensure_directory_permissions(directory)
 
 # Text processing utilities
 def remove_links(text: str) -> str:

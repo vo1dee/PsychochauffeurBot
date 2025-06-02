@@ -705,69 +705,51 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
 
 
 async def main() -> None:
-    """Main function to start the bot."""
+    """Main entry point for the bot."""
     try:
-        # Initialize bot and application
-        application = ApplicationBuilder().token(TOKEN).build()
+        # Initialize directories and permissions
+        init_directories()
+        general_logger.info("Directories initialized with proper permissions")
         
         # Initialize config manager
-        config_manager = ConfigManager()
-        await config_manager.initialize()  # Initialize config manager and ensure global config exists
+        await config_manager.initialize()
+        general_logger.info("Configuration manager initialized")
         
-        # Register handlers
-        register_handlers(application, application.bot, config_manager)
+        # Initialize error tracking
+        await error_tracker.initialize()
+        general_logger.info("Error tracking initialized")
         
-        # Migrate configurations
-        general_logger.info("Starting configuration migration...")
+        # Initialize reminder manager
+        await reminder_manager.initialize()
+        general_logger.info("Reminder manager initialized")
         
-        # First migrate existing configs to new directory structure
-        migration_results = await config_manager.migrate_existing_configs()
-        general_logger.info("Configuration directory migration completed")
-        for chat_id, result in migration_results.items():
-            general_logger.info(f"Chat {chat_id}: {result}")
+        # Initialize safety manager
+        await safety_manager.initialize()
+        general_logger.info("Safety manager initialized")
         
-        # Then migrate to modular structure
-        modular_results = await config_manager.migrate_all_to_modular()
-        general_logger.info("Modular configuration migration completed")
-        for chat_id, result in modular_results.items():
-            general_logger.info(f"Chat {chat_id}: {result}")
-
-        # --- Initialize Telegram Error Handler (Updated Call) ---
-        # Only initialize if ERROR_CHANNEL_ID is set
-        if Config.ERROR_CHANNEL_ID:
-            await init_telegram_error_handler(TOKEN, Config.ERROR_CHANNEL_ID)
-            if any(isinstance(h, TelegramErrorHandler) for h in error_logger.handlers):
-                error_logger.error("Test notification: Bot started and Telegram error logging initialized.")
-            else:
-                error_logger.error("Bot started, but Telegram error handler was NOT added successfully.")
-        else:
-            general_logger.info("ERROR_CHANNEL_ID not set. Telegram error notifications will be disabled.")
-
-        # --- Background Tasks ---
-        screenshot_manager = ScreenshotManager()
-        asyncio.create_task(screenshot_manager.schedule_task())
-        general_logger.info("Scheduled screenshot task.")
-        if application.job_queue:
-            reminder_manager.schedule_startup(application.job_queue)
-            general_logger.info("Scheduled reminder startup jobs.")
-        else:
-            general_logger.warning("JobQueue not available, cannot schedule reminder startup jobs.")
+        # Create the Application
+        application = ApplicationBuilder().token(TOKEN).build()
         
-        # Start error tracking after event loop is running
-        error_tracker._schedule_tasks()
+        # Get the bot instance
+        bot = application.bot
         
-        # Start polling
-        general_logger.info("Bot initialization complete. Starting polling...")
+        # Register all handlers
+        register_handlers(application, bot, config_manager)
+        
+        # Start the bot
+        await application.initialize()
+        await application.start()
         await application.run_polling()
         
     except Exception as e:
-        general_logger.error(f"Error in main: {str(e)}")
+        error_logger.error(f"Error in main: {e}")
         raise
     finally:
         # Cleanup
-        if 'error_tracker' in globals():
-            await error_tracker.stop()
-        general_logger.info("Bot stopped")
+        await error_tracker.stop()
+        await reminder_manager.stop()
+        await safety_manager.stop()
+        shutdown_logging()
 
 
 if __name__ == "__main__":
