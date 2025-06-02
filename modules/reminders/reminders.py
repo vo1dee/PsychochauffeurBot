@@ -35,6 +35,21 @@ class ReminderManager:
         self.reminders = self.db.load_reminders()
         self.reminders_file = os.path.join('data', 'reminders.json')
 
+    async def initialize(self):
+        """Initialize the reminder manager."""
+        # Load existing reminders
+        self.reminders = self.db.load_reminders()
+        general_logger.info("Reminder manager initialized successfully")
+        return True
+
+    async def stop(self):
+        """Clean up resources when stopping the reminder manager."""
+        # Close database connection
+        if hasattr(self.db, 'conn'):
+            self.db.conn.close()
+        general_logger.info("Reminder manager stopped successfully")
+        return True
+
     def load_reminders(self, chat_id=None):
         return self.db.load_reminders(chat_id)
 
