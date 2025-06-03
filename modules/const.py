@@ -23,7 +23,7 @@ class Config:
     OPENWEATHER_API_KEY: str = os.getenv('OPENWEATHER_API_KEY', '')
     DISCORD_WEBHOOK_URL: str = os.getenv('DISCORD_WEBHOOK_URL', '')
     TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
-    OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
+    OPENROUTER_API_KEY: str = os.getenv('OPENROUTER_API_KEY', '')
     OPENROUTER_BASE_URL: str = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
     ERROR_CHANNEL_ID: str = os.getenv('ERROR_CHANNEL_ID', '')
     SCREENSHOT_DIR: str = 'python-web-screenshots'
@@ -78,7 +78,7 @@ class Weather:
 
 # For backwards compatibility
 TOKEN = Config.TELEGRAM_BOT_TOKEN
-OPENAI_API_KEY = Config.OPENAI_API_KEY
+OPENAI_API_KEY = Config.OPENROUTER_API_KEY
 OPENROUTER_BASE_URL = Config.OPENROUTER_BASE_URL
 SCREENSHOT_DIR = Config.SCREENSHOT_DIR
 ALIEXPRESS_STICKER_ID = Stickers.ALIEXPRESS
