@@ -19,6 +19,15 @@ from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
 from openai import AsyncClient, APIStatusError
 
+from modules.chat_analysis import (
+    get_messages_for_chat_today,
+    get_last_n_messages_in_chat,
+    get_messages_for_chat_last_n_days,
+    get_messages_for_chat_date_period,
+    get_messages_for_chat_single_date,
+    get_user_chat_stats
+)
+
 # Initialize ConfigManager
 config_manager = ConfigManager()
 
@@ -701,80 +710,205 @@ async def summarize_messages(messages: List[str]) -> str:
 
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Analyze chat messages for a specific day and provide a summary.
+    Analyze chat messages based on various criteria and provide a summary.
+    
+    Supported syntaxes:
+    - /analyze: Analyze today's messages
+    - /analyze last <number> messages: Analyze last N messages
+    - /analyze last <number> days: Analyze messages from last N days
+    - /analyze period <YYYY-MM-DD> <YYYY-MM-DD>: Analyze messages in date range
+    - /analyze date <YYYY-MM-DD>: Analyze messages for specific date
     
     Args:
         update: Telegram update object
         context: Telegram callback context
     """
-    chat_id = str(update.effective_chat.id)
-    kyiv_tz = KYIV_TZ
-    target_date = datetime.now(kyiv_tz)
-    date_str = "сьогодні"
-
-    # Check if we're analyzing yesterday's messages
-    if context.args and context.args[0].lower() == "yesterday":
-        target_date -= timedelta(days=1)
-        date_str = "вчора"
-
-    # Get the log path for the target date
-    log_path = get_daily_log_path(chat_id, target_date)
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    username = update.effective_user.username or f"ID:{user_id}"
     
-    # Check if log file exists
-    if not os.path.exists(log_path):
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"📊 Немає логів для аналізу за {date_str}. Спробуйте /analyze yesterday для аналізу вчорашніх повідомлень."
-        )
-        return
-
-    # Extract messages from the log file, keeping only username and message
-    messages_text = []
+    # Get messages based on command arguments
+    messages = []
+    date_str = "сьогодні"
+    
     try:
-        with open(log_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                if 'User message:' in line:
-                    user_part, msg_part = line.split('User message:', 1)
-                    username = None
-                    user_bracket_idx = user_part.rfind('[')
-                    if user_bracket_idx != -1:
-                        username = user_part[user_bracket_idx+1:].replace(']', '').strip()
-                    message = msg_part.strip()
-                    if username and message:
-                        messages_text.append(f"{username}: {message}")
-    except Exception as e:
-        error_logger.error(f"Error reading log file {log_path}: {e}")
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="❌ Помилка при читанні логів. Спробуйте пізніше."
+        if not context.args:
+            # Default: today's messages
+            messages = await get_messages_for_chat_today(chat_id)
+        else:
+            args = context.args
+            if args[0].lower() == "last":
+                if len(args) < 3:
+                    await update.message.reply_text(
+                        "❌ Неправильний формат команди. Використовуйте:\n"
+                        "/analyze last <number> messages\n"
+                        "або\n"
+                        "/analyze last <number> days"
+                    )
+                    return
+                    
+                try:
+                    number = int(args[1])
+                    if number <= 0:
+                        raise ValueError("Number must be positive")
+                except ValueError:
+                    await update.message.reply_text("❌ Будь ласка, вкажіть коректне число.")
+                    return
+                    
+                if args[2].lower() == "messages":
+                    messages = await get_last_n_messages_in_chat(chat_id, number)
+                    date_str = f"останні {number} повідомлень"
+                elif args[2].lower() == "days":
+                    messages = await get_messages_for_chat_last_n_days(chat_id, number)
+                    date_str = f"останні {number} днів"
+                else:
+                    await update.message.reply_text(
+                        "❌ Неправильний формат команди. Використовуйте:\n"
+                        "/analyze last <number> messages\n"
+                        "або\n"
+                        "/analyze last <number> days"
+                    )
+                    return
+                    
+            elif args[0].lower() == "period":
+                if len(args) != 3:
+                    await update.message.reply_text(
+                        "❌ Неправильний формат команди. Використовуйте:\n"
+                        "/analyze period <YYYY-MM-DD> <YYYY-MM-DD>"
+                    )
+                    return
+                    
+                try:
+                    start_date = datetime.strptime(args[1], '%Y-%m-%d').date()
+                    end_date = datetime.strptime(args[2], '%Y-%m-%d').date()
+                    if end_date < start_date:
+                        raise ValueError("End date must be after start date")
+                except ValueError as e:
+                    await update.message.reply_text(f"❌ Помилка в датах: {str(e)}")
+                    return
+                    
+                messages = await get_messages_for_chat_date_period(chat_id, start_date, end_date)
+                date_str = f"період {args[1]} - {args[2]}"
+                
+            elif args[0].lower() == "date":
+                if len(args) != 2:
+                    await update.message.reply_text(
+                        "❌ Неправильний формат команди. Використовуйте:\n"
+                        "/analyze date <YYYY-MM-DD>"
+                    )
+                    return
+                    
+                try:
+                    target_date = datetime.strptime(args[1], '%Y-%m-%d').date()
+                except ValueError:
+                    await update.message.reply_text("❌ Неправильний формат дати. Використовуйте YYYY-MM-DD")
+                    return
+                    
+                messages = await get_messages_for_chat_single_date(chat_id, target_date)
+                date_str = args[1]
+                
+            else:
+                await update.message.reply_text(
+                    "❌ Невідома команда. Доступні варіанти:\n"
+                    "/analyze - аналіз сьогоднішніх повідомлень\n"
+                    "/analyze last <number> messages - аналіз останніх N повідомлень\n"
+                    "/analyze last <number> days - аналіз повідомлень за останні N днів\n"
+                    "/analyze period <YYYY-MM-DD> <YYYY-MM-DD> - аналіз повідомлень за період\n"
+                    "/analyze date <YYYY-MM-DD> - аналіз повідомлень за конкретну дату"
+                )
+                return
+                
+        if not messages:
+            await update.message.reply_text(f"📊 Немає повідомлень для аналізу за {date_str}.")
+            return
+            
+        # Format messages for GPT analysis
+        messages_text = []
+        for timestamp, sender, text in messages:
+            if text:  # Skip empty messages
+                time_str = timestamp.strftime('%H:%M')
+                messages_text.append(f"[{time_str}] {sender}: {text}")
+                
+        # Send initial message
+        status_message = await update.message.reply_text(
+            f"🔄 Аналізую {len(messages_text)} повідомлень за {date_str}..."
         )
-        return
-
-    if not messages_text:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"📊 Лог-файл за {date_str} порожній. Немає повідомлень для аналізу."
-        )
-        return
-
-    # Send initial message
-    status_message = await context.bot.send_message(
-        chat_id=chat_id,
-        text=f"🔄 Аналізую {len(messages_text)} повідомлень за {date_str}..."
-    )
-
-    try:
+        
+        # Get GPT analysis
         analysis_text = "\n".join(messages_text)
         await gpt_response(update, context, response_type="analyze", message_text_override=analysis_text)
+        
+        # Update status message
         await status_message.edit_text(
-            text=f"📊 Аналіз повідомлень за {date_str} ({len(messages_text)} повідомлень) завершено."
+            f"📊 Аналіз повідомлень за {date_str} ({len(messages_text)} повідомлень) завершено."
         )
+        
     except Exception as e:
-        error_logger.error(f"Error generating analysis: {e}")
-        await status_message.edit_text(
-            text="❌ Помилка при генерації аналізу. Спробуйте пізніше."
+        error_logger.error(f"Error in analyze command: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Виникла помилка при аналізі повідомлень. Спробуйте пізніше."
         )
 
 async def initialize_gpt():
     """Initialize GPT module."""
     await config_manager.initialize()
+
+async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Show message statistics for the user in the current chat.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram callback context
+    """
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    username = update.effective_user.username or f"ID:{user_id}"
+    
+    try:
+        # Get user statistics
+        stats = await get_user_chat_stats(chat_id, user_id)
+        
+        if not stats['total_messages']:
+            await update.message.reply_text(
+                "📊 У вас ще немає повідомлень в цьому чаті."
+            )
+            return
+            
+        # Format the statistics message
+        message_parts = [
+            f"📊 *Статистика повідомлень для @{username}*",
+            "",
+            f"Загальна кількість повідомлень: {stats['total_messages']}",
+            f"Повідомлень за останній тиждень: {stats['messages_last_week']}",
+        ]
+        
+        if stats['most_active_hour'] is not None:
+            message_parts.append(f"Найактивніша година: {stats['most_active_hour']}:00")
+            
+        if stats['command_stats']:
+            message_parts.extend([
+                "",
+                "*Використані команди:*"
+            ])
+            for cmd, count in stats['command_stats']:
+                message_parts.append(f"- /{cmd}: {count}")
+                
+        if stats['first_message']:
+            first_msg_date = stats['first_message'].strftime('%Y-%m-%d')
+            message_parts.extend([
+                "",
+                f"Перше повідомлення: {first_msg_date}"
+            ])
+            
+        # Send the statistics message
+        await update.message.reply_text(
+            "\n".join(message_parts),
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        error_logger.error(f"Error in mystats command: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ Виникла помилка при отриманні статистики. Спробуйте пізніше."
+        )
