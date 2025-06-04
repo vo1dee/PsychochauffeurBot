@@ -65,16 +65,8 @@ class Reminder:
                 )
                 
                 if today_at_time <= now:
-                    # If today's time has also passed, set to tomorrow
-                    self.next_execution = dt.datetime(
-                        now.year,
-                        now.month,
-                        now.day + 1,
-                        self.next_execution.hour,
-                        self.next_execution.minute,
-                        self.next_execution.second,
-                        tzinfo=self.next_execution.tzinfo
-                    )
+                    # If today's time has also passed, set to tomorrow using timedelta
+                    self.next_execution = today_at_time + timedelta(days=1)
                     general_logger.debug(f"Daily reminder time passed today, adjusted to tomorrow: {self.next_execution}")
                 else:
                     # Set to today's time since it hasn't passed yet
@@ -95,17 +87,9 @@ class Reminder:
                 tzinfo=now.tzinfo
             )
             
-            # If the time has passed today, start from tomorrow
+            # If the time has passed today, start from tomorrow using timedelta
             if today_at_time <= now:
-                self.next_execution = dt.datetime(
-                    now.year,
-                    now.month,
-                    now.day + 1,
-                    today_at_time.hour,
-                    today_at_time.minute,
-                    today_at_time.second,
-                    tzinfo=today_at_time.tzinfo
-                )
+                self.next_execution = today_at_time + timedelta(days=1)
                 general_logger.debug(f"New daily reminder time passed today, starting from tomorrow: {self.next_execution}")
             else:
                 self.next_execution = today_at_time
@@ -161,12 +145,18 @@ class Reminder:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
+            
+            # If the next execution time has passed
             if self.next_execution <= now:
-                self.next_execution += relativedelta(years=1)
+                # Keep the same month and day, but advance to next year
+                self.next_execution = self.next_execution.replace(year=self.next_execution.year + 1)
+                general_logger.debug(f"Yearly reminder advanced to next year: {self.next_execution}")
         elif not self.next_execution:
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
-            self.next_execution = now + relativedelta(years=1)
+            # For new reminders, start from next year
+            self.next_execution = now.replace(year=now.year + 1)
+            general_logger.debug(f"New yearly reminder set for next year: {self.next_execution}")
 
     def _calc_first_month(self, now):
         # Handle MagicMock objects
