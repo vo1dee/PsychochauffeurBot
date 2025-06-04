@@ -85,7 +85,7 @@ async def migrate_logs():
                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                             ON CONFLICT (chat_id, message_id) DO NOTHING
                         """,
-                            int(datetime.now().timestamp() * 1000),  # Generate a unique message ID
+                            int(timestamp.timestamp() * 1000),  # Use actual message timestamp for message_id
                             int(chat_id),
                             int(chat_id),
                             timestamp,
