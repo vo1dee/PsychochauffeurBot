@@ -172,7 +172,7 @@ async def construct_and_send_message(
 ) -> None:
     """Construct and send a message with modified links."""
     message = f"@{username} хотів відправити:\n{cleaned_message_text}"
-    keyboard = create_link_keyboard(modified_links)
+    keyboard = create_link_keyboard(modified_links, context)
     
     await context.bot.send_message(
         chat_id=chat_id,
