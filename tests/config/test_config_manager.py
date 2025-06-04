@@ -6,6 +6,7 @@ import json
 import tempfile
 import os
 import sys
+import pytest
 from unittest.mock import patch, mock_open, MagicMock
 from datetime import datetime
 
@@ -14,6 +15,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 
 from config.config_manager import ConfigManager
 
+@pytest.mark.asyncio
 async def test_config_manager():
     """Test the ConfigManager with your private chat config."""
     
