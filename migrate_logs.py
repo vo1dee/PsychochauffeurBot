@@ -56,14 +56,20 @@ async def migrate_logs():
                     
                     # Convert timestamp
                     try:
+                        # Try parsing with milliseconds first
                         timestamp = datetime.strptime(timestamp_str.strip(), '%Y-%m-%d %H:%M:%S,%f')
                     except ValueError:
                         try:
+                            # Try parsing with timezone offset
                             timestamp = datetime.strptime(timestamp_str.strip(), '%Y-%m-%d %H:%M:%S +%f')
                         except ValueError:
-                            print(f"Could not parse timestamp: {timestamp_str}")
-                            error_messages += 1
-                            continue
+                            try:
+                                # Try parsing without milliseconds
+                                timestamp = datetime.strptime(timestamp_str.strip(), '%Y-%m-%d %H:%M:%S')
+                            except ValueError:
+                                print(f"Could not parse timestamp: {timestamp_str}")
+                                error_messages += 1
+                                continue
                     
                     # Clean up values
                     chat_id = chat_id.strip()
