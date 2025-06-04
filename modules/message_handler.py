@@ -45,6 +45,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "I'll optimize this link for you\\!",
                 parse_mode=ParseMode.MARKDOWN_V2
             )
+            # Process AliExpress link
+            urls = extract_urls(message_text)
+            if urls:
+                from main import process_urls  # Import here to avoid circular import
+                await process_urls(update, context, urls, message_text)
+            return
             
         # Process message content
         cleaned_text, modified_links = process_message_content(message_text)
