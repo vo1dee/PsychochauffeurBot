@@ -8,6 +8,7 @@ from .message_processor import (
 from .url_processor import extract_urls
 from .user_management import restrict_user
 from .gpt import gpt_response
+from .const import ALIEXPRESS_STICKER_ID
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
