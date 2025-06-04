@@ -42,6 +42,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_sticker(sticker=ALIEXPRESS_STICKER_ID)
             return
             
+        # Skip URL processing for TikTok links
+        if any(platform in message_text.lower() for platform in ['tiktok.com', 'vm.tiktok.com']):
+            return
+            
         # Process message content
         cleaned_text, modified_links = process_message_content(message_text)
         
