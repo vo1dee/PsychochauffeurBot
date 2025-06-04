@@ -121,13 +121,18 @@ def extract_urls(text: str) -> List[str]:
     Returns:
         List[str]: List of found URLs
     """
-    # More permissive URL pattern that handles:
+    # Robust URL pattern that handles:
+    # - URLs with or without www
     # - URLs with special characters in path
     # - URLs with query parameters
     # - URLs with fragments
     # - URLs with international characters
-    url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+(?:/[^\s]*)?'
-    return re.findall(url_pattern, text)
+    # - URLs with subdomains
+    # - URLs with ports
+    url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+(?::\d+)?(?:/[^\s]*)?'
+    urls = re.findall(url_pattern, text)
+    general_logger.info(f"Extracted URLs from text: {urls}")
+    return urls
 
 def is_modified_domain(url: str) -> bool:
     """
@@ -157,18 +162,28 @@ def modify_url(url: str) -> Optional[str]:
     """
     try:
         parsed = urlparse(url)
-        domain = parsed.netloc
+        domain = parsed.netloc.lower()
+        general_logger.info(f"Processing URL: {url}, domain: {domain}")
+        
+        # Special case for x.com/twitter.com
+        if domain in ['x.com', 'twitter.com']:
+            modified = url.replace(domain, 'fixupx.com')
+            general_logger.info(f"Modified x.com/twitter.com URL: {modified}")
+            return modified
         
         # Check if domain needs modification
         for original_domain, modified_domain in LinkModification.DOMAINS.items():
-            if domain.endswith(original_domain):
+            # Handle both exact matches and subdomains
+            if domain == original_domain or domain.endswith('.' + original_domain):
                 # Replace the domain while preserving the rest of the URL
-                modified_url = url.replace(original_domain, modified_domain)
+                modified_url = url.replace(domain, modified_domain)
                 # Special case for AliExpress
                 if original_domain == 'aliexpress.com':
                     modified_url = f"{modified_url} #aliexpress"
+                general_logger.info(f"Modified URL: {modified_url}")
                 return modified_url
                     
+        general_logger.info(f"No modification needed for URL: {url}")
         return None
         
     except Exception as e:
