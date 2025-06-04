@@ -235,17 +235,63 @@ async def get_user_chat_stats(chat_id: int, user_id: int) -> Dict[str, Any]:
 async def get_user_chat_stats_with_fallback(chat_id: int, user_id: int, username: str) -> dict:
     pool = await Database.get_pool()
     async with pool.acquire() as conn:
-        # Try by user_id first
-        stats = await get_user_chat_stats(chat_id, user_id)
-        if not stats['total_messages']:
-            # Fallback: try by username (legacy messages)
-            row = await conn.fetchrow("""
-                SELECT u.user_id
-                FROM users u
-                WHERE u.username = $1
-                LIMIT 1
-            """, username)
-            if row:
-                legacy_user_id = row['user_id']
-                stats = await get_user_chat_stats(chat_id, legacy_user_id)
-        return stats 
+        # Get all user_ids for this username
+        user_ids = [user_id]
+        rows = await conn.fetch("""
+            SELECT user_id FROM users WHERE username = $1
+        """, username)
+        for row in rows:
+            if row['user_id'] not in user_ids:
+                user_ids.append(row['user_id'])
+
+        # Aggregate stats for all user_ids
+        total_messages = await conn.fetchval("""
+            SELECT COUNT(*) FROM messages WHERE chat_id = $1 AND user_id = ANY($2::bigint[])
+        """, chat_id, user_ids)
+
+        week_ago = datetime.now(KYIV_TZ) - timedelta(days=7)
+        messages_last_week = await conn.fetchval("""
+            SELECT COUNT(*) FROM messages WHERE chat_id = $1 AND user_id = ANY($2::bigint[]) AND timestamp >= $3
+        """, chat_id, user_ids, week_ago)
+
+        command_stats = await conn.fetch("""
+            SELECT command_name, COUNT(*) as count
+            FROM messages
+            WHERE chat_id = $1 AND user_id = ANY($2::bigint[]) AND is_command = true
+            GROUP BY command_name
+            ORDER BY count DESC
+        """, chat_id, user_ids)
+
+        active_hour = await conn.fetchval("""
+            SELECT EXTRACT(HOUR FROM timestamp) as hour, COUNT(*) as count
+            FROM messages
+            WHERE chat_id = $1 AND user_id = ANY($2::bigint[])
+            GROUP BY hour
+            ORDER BY count DESC
+            LIMIT 1
+        """, chat_id, user_ids)
+
+        first_message = await conn.fetchval("""
+            SELECT timestamp
+            FROM messages
+            WHERE chat_id = $1 AND user_id = ANY($2::bigint[])
+            ORDER BY timestamp ASC
+            LIMIT 1
+        """, chat_id, user_ids)
+
+        last_message = await conn.fetchval("""
+            SELECT timestamp
+            FROM messages
+            WHERE chat_id = $1 AND user_id = ANY($2::bigint[])
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """, chat_id, user_ids)
+
+        return {
+            'total_messages': total_messages,
+            'messages_last_week': messages_last_week,
+            'command_stats': [(row['command_name'], row['count']) for row in command_stats],
+            'most_active_hour': int(active_hour) if active_hour is not None else None,
+            'first_message': first_message,
+            'last_message': last_message
+        } 
