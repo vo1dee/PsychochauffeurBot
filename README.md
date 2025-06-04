@@ -93,7 +93,8 @@ A versatile Telegram bot that downloads videos and images from social media plat
    ```env
    # Required
    TOKEN=your_telegram_bot_token
-   OPENAI_API_KEY=your_openai_api_key
+   OPENROUTER_API_KEY=your_openrouter_api_key
+   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 
    # Optional but Recommended
    ERROR_CHANNEL_ID=telegram_channel_id_for_errors
@@ -118,7 +119,8 @@ A versatile Telegram bot that downloads videos and images from social media plat
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TOKEN` | Yes | Telegram Bot Token |
-| `OPENAI_API_KEY` | Yes | OpenAI API Key |
+| `OPENROUTER_API_KEY` | Yes | OpenRouter API Key |
+| `OPENROUTER_BASE_URL` | Yes | OpenRouter API Base URL |
 | `ERROR_CHANNEL_ID` | No | Channel for error logging |
 | `OPENWEATHER_API_KEY` | No | Weather API key |
 | `SHORTENER_MAX_CALLS_PER_MINUTE` | No | URL shortener rate limit |

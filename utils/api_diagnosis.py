@@ -20,9 +20,9 @@ def get_config():
     except ImportError:
         pass
     
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        print("❌ No API key found. Set OPENAI_API_KEY in your environment or .env file.")
+        print("❌ No API key found. Set OPENROUTER_API_KEY in your environment or .env file.")
         sys.exit(1)
     
     # Get the base URL, provide default if not set
