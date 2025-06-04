@@ -55,15 +55,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await gpt_response(update, context, response_type="command", message_text_override=cleaned_text)
             return
             
-        # Handle URLs
-        urls = extract_urls(cleaned_text)
-        if urls:
+        # Handle URLs if we have modified links
+        if modified_links:
             from main import process_urls  # Import here to avoid circular import
-            await process_urls(update, context, urls, cleaned_text)
+            await process_urls(update, context, modified_links, cleaned_text)
             
     except Exception as e:
         # Log the error but don't interrupt the bot's operation
-        print(f"Error processing message: {e}")
+        error_logger.error(f"Error processing message: {str(e)}", exc_info=True)
 
 async def handle_gpt_reply(
     message: Update.message,
@@ -90,13 +89,16 @@ def setup_message_handlers(application):
     This function should be called during bot initialization.
     """
     # Add the message handler to store and process all messages
-    # Use a more specific filter to avoid catching video links but allow AliExpress links
+    # Use a more specific filter to avoid catching video links but allow AliExpress and x.com links
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & ~filters.Regex('|'.join([
-            'tiktok.com', 'vm.tiktok.com', 'instagram.com/reels', 'youtube.com/shorts',
-            'youtu.be/shorts', 'facebook.com', 'vimeo.com', 'reddit.com', 'twitch.tv',
-            'youtube.com/clip'
-        ])) | filters.Regex('aliexpress.com'),  # Allow AliExpress links
+        filters.TEXT & ~filters.COMMAND & (
+            ~filters.Regex('|'.join([
+                'tiktok.com', 'vm.tiktok.com', 'instagram.com/reels', 'youtube.com/shorts',
+                'youtu.be/shorts', 'facebook.com', 'vimeo.com', 'reddit.com', 'twitch.tv',
+                'youtube.com/clip'
+            ])) | 
+            filters.Regex('|'.join(['aliexpress.com', 'x.com', 'twitter.com']))
+        ),
         handle_message,
         block=False  # Don't block other handlers
     )) 

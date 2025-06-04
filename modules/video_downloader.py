@@ -876,9 +876,17 @@ def setup_video_handlers(application, extract_urls_func=None):
     
     application.bot_data['video_downloader'] = video_downloader
 
+    # More specific filter for video platforms
+    video_platforms = [
+        'tiktok.com', 'vm.tiktok.com', 'instagram.com/reels', 'youtube.com/shorts',
+        'youtu.be/shorts', 'facebook.com', 'vimeo.com', 'reddit.com', 'twitch.tv',
+        'youtube.com/clip'
+    ]
+    
     application.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex('|'.join(VideoPlatforms.SUPPORTED_PLATFORMS)), 
-        video_downloader.handle_video_link
+        filters.TEXT & filters.Regex('|'.join(video_platforms)), 
+        video_downloader.handle_video_link,
+        block=False  # Don't block other handlers
     ))
 
     return video_downloader

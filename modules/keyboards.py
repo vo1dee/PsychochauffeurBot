@@ -326,23 +326,32 @@ def create_link_keyboard(link, context=None):
             return None
         link = link[0]
     
-    # Create a hash of the link for callback data
-    link_hash = hashlib.md5(link.encode()).hexdigest()[:8]
+    # Unescape the link for processing
+    unescaped_link = link.replace('\\', '')
+    
+    # Ensure link is using fixupx.com domain
+    # Only replace if the domain is exactly x.com (not as a substring of another domain)
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(unescaped_link)
+    if parsed.netloc == 'x.com':
+        parsed = parsed._replace(netloc='fixupx.com')
+        unescaped_link = urlunparse(parsed)
+    
+    # Create a hash of the unescaped link for callback data
+    link_hash = hashlib.md5(unescaped_link.encode()).hexdigest()[:8]
     
     # Store the original link in bot_data if context is provided
     if context:
-        context.bot_data[link_hash] = link
+        context.bot_data[link_hash] = unescaped_link
     
     # Create buttons based on the link type
     buttons = []
     for button in BUTTONS_CONFIG:
-        if button['check'](link):
-            buttons.append([
-                InlineKeyboardButton(
-                    button['text'],
-                    callback_data=f"{button['action']}:{link_hash}"
-                )
-            ])
+        if button['check'](unescaped_link):
+            buttons.append([InlineKeyboardButton(
+                button['text'],
+                callback_data=f"{button['action']}:{link_hash}"
+            )])
     
     # If no buttons are available, return None
     if not buttons:
