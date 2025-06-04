@@ -121,7 +121,12 @@ def extract_urls(text: str) -> List[str]:
     Returns:
         List[str]: List of found URLs
     """
-    url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
+    # More permissive URL pattern that handles:
+    # - URLs with special characters in path
+    # - URLs with query parameters
+    # - URLs with fragments
+    # - URLs with international characters
+    url_pattern = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+(?:/[^\s]*)?'
     return re.findall(url_pattern, text)
 
 def is_modified_domain(url: str) -> bool:
@@ -155,11 +160,14 @@ def modify_url(url: str) -> Optional[str]:
         domain = parsed.netloc
         
         # Check if domain needs modification
-        for mod_domain in LinkModification.DOMAINS:
-            if domain.endswith(mod_domain):
-                # Apply modification based on domain
-                if mod_domain == 'aliexpress.com':
-                    return f"{url} #aliexpress"
+        for original_domain, modified_domain in LinkModification.DOMAINS.items():
+            if domain.endswith(original_domain):
+                # Replace the domain while preserving the rest of the URL
+                modified_url = url.replace(original_domain, modified_domain)
+                # Special case for AliExpress
+                if original_domain == 'aliexpress.com':
+                    modified_url = f"{modified_url} #aliexpress"
+                return modified_url
                     
         return None
         
