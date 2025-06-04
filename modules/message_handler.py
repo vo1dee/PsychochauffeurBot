@@ -1,0 +1,85 @@
+from telegram import Update
+from telegram.ext import ContextTypes, MessageHandler, filters
+from .database import Database
+from .message_processor import (
+    needs_gpt_response, update_message_history,
+    process_message_content, should_restrict_user
+)
+from .url_processor import extract_urls
+from .user_management import restrict_user
+from .gpt import gpt_response
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handle incoming messages and store them in the database.
+    This handler should be added to the application's message handlers.
+    """
+    if not update.message or not update.message.text:
+        return
+
+    try:
+        # Store the message in the database
+        await Database.save_message(update.message)
+        
+        # Process the message
+        message_text = update.message.text
+        user_id = update.message.from_user.id
+        chat_id = update.effective_chat.id
+        
+        # Update message history
+        update_message_history(user_id, message_text)
+        
+        # Check for user restrictions
+        if should_restrict_user(message_text):
+            await restrict_user(update, context)
+            return
+            
+        # Process message content
+        cleaned_text, modified_links = process_message_content(message_text)
+        
+        # Check for GPT response
+        needs_response, response_type = needs_gpt_response(update, context, message_text)
+        if needs_response:
+            await gpt_response(update, context, response_type="command", message_text_override=cleaned_text)
+            return
+            
+        # Handle URLs
+        urls = extract_urls(cleaned_text)
+        if urls:
+            from main import process_urls  # Import here to avoid circular import
+            await process_urls(update, context, urls, cleaned_text)
+            
+    except Exception as e:
+        # Log the error but don't interrupt the bot's operation
+        print(f"Error processing message: {e}")
+
+async def handle_gpt_reply(
+    message: Update.message,
+    context_message_ids: list[int],
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle and store a GPT-generated reply message.
+    This should be called after generating a GPT response.
+    """
+    try:
+        # Store the GPT reply with its context
+        await Database.save_message(
+            message=message,
+            is_gpt_reply=True,
+            gpt_context_message_ids=context_message_ids
+        )
+    except Exception as e:
+        print(f"Error storing GPT reply: {e}")
+
+def setup_message_handlers(application):
+    """
+    Set up message handlers for the bot.
+    This function should be called during bot initialization.
+    """
+    # Add the message handler to store and process all messages
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,  # Only handle text messages that are not commands
+        handle_message,
+        block=False  # Don't block other handlers
+    )) 

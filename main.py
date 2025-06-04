@@ -32,7 +32,7 @@ from modules.const import (
 )
 from modules.gpt import (
     ask_gpt_command, analyze_command, answer_from_gpt, analyze_image,
-    gpt_response
+    gpt_response, mystats_command
 )
 from modules.weather import WeatherCommandHandler
 from modules.logger import (
@@ -58,6 +58,8 @@ from modules.message_processor import (
     should_restrict_user
 )
 from modules.keyboard_translator import translate_text, keyboard_mapping
+from modules.database import Database
+from modules.message_handler import setup_message_handlers, handle_gpt_reply
 
 # Apply nest_asyncio
 nest_asyncio.apply()
@@ -222,6 +224,7 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     # GPT commands
     application.add_handler(CommandHandler("gpt", lambda u, c: ask_gpt_command(u, u, c)))
     application.add_handler(CommandHandler("analyze", analyze_command))
+    application.add_handler(CommandHandler("mystats", mystats_command))
     
     # Weather and environment
     weather_handler = WeatherCommandHandler()
@@ -235,8 +238,7 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     # Reminders
     application.add_handler(CommandHandler("remind", reminder_manager.remind))
     
-    # Message handlers
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Message handlers for non-text content
     application.add_handler(MessageHandler(filters.PHOTO, analyze_image))
     application.add_handler(MessageHandler(filters.Sticker(), handle_sticker))
     
@@ -288,11 +290,17 @@ def handle_shutdown_signal(signum, frame):
 async def main():
     """Main bot initialization and run loop."""
     try:
+        # Initialize the database
+        await Database.initialize()
+        
         # Initialize components
         await initialize_all_components()
         
         # Create application
         application = ApplicationBuilder().token(TOKEN).build()
+        
+        # Set up message handlers
+        setup_message_handlers(application)
         
         # Register handlers
         register_handlers(application, application.bot, config_manager)
