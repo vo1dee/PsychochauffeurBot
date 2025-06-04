@@ -238,15 +238,15 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     # Reminders
     application.add_handler(CommandHandler("remind", reminder_manager.remind))
     
+    # Setup video handlers first (before general message handlers)
+    setup_video_handlers(application, extract_urls_func=extract_urls)
+    
     # Message handlers for non-text content
     application.add_handler(MessageHandler(filters.PHOTO, analyze_image))
     application.add_handler(MessageHandler(filters.Sticker(), handle_sticker))
     
     # Callback query handler
     application.add_handler(CallbackQueryHandler(button_callback))
-    
-    # Setup video handlers
-    setup_video_handlers(application, extract_urls_func=extract_urls)
 
 async def initialize_all_components():
     """Initialize all bot components."""
