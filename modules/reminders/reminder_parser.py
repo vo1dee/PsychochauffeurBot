@@ -146,6 +146,17 @@ class ReminderParser:
                 parsed_date = parsed_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
                 if not parsed_date.tzinfo:
                     parsed_date = parsed_date.replace(tzinfo=KYIV_TZ)
+                
+                # For yearly reminders, if the date has passed this year, set it for next year
+                if result.get('frequency') == 'yearly':
+                    now = datetime.now(KYIV_TZ)
+                    # Set the year to current year first
+                    parsed_date = parsed_date.replace(year=now.year)
+                    if parsed_date <= now:
+                        # If the date has passed this year, set it for next year
+                        parsed_date = parsed_date.replace(year=now.year + 1)
+                        general_logger.debug(f"Yearly reminder date passed this year, setting for next year: {parsed_date}")
+                
                 result['parsed_datetime'] = parsed_date
                 general_logger.debug(f"Parsed specific date: {parsed_date}")
             except Exception as e:
