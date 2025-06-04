@@ -42,6 +42,8 @@ DEFAULT_MAX_TOKENS = 666
 SUMMARY_MAX_TOKENS = 1000
 MAX_RETRIES = 3
 CONTEXT_MESSAGES_COUNT = 3  # Number of previous messages to include as context
+MAX_TELEGRAM_MESSAGE_LENGTH = 4096  # Telegram's maximum message length
+MAX_SYSTEM_PROMPT_LENGTH = 16000  # Maximum length for system prompts (GPT-4 can handle up to 32k tokens)
 
 # Default prompts for fallback
 DEFAULT_PROMPTS = {
@@ -107,7 +109,7 @@ async def get_system_prompt(response_type: str, chat_config: Dict[str, Any]) -> 
             gpt_module = global_config.get("config_modules", {}).get("gpt", {})
             response_settings = gpt_module.get("overrides", {}).get(response_type, {})
             global_prompt = response_settings.get("system_prompt")
-            if global_prompt and isinstance(global_prompt, str) and 5 <= len(global_prompt) <= 2000:
+            if global_prompt and isinstance(global_prompt, str) and 5 <= len(global_prompt) <= MAX_SYSTEM_PROMPT_LENGTH:
                 default_prompt = global_prompt  # Use global prompt as default
         except Exception as e:
             error_logger.error(f"Error getting global config: {e}")
@@ -134,9 +136,9 @@ async def get_system_prompt(response_type: str, chat_config: Dict[str, Any]) -> 
                 return default_prompt
                 
             # Check if prompt is too long
-            if len(custom_prompt) > 2000:  # Increased maximum length
-                error_logger.error(f"System prompt too long for {response_type}: {len(custom_prompt)}")
-                return default_prompt
+            if len(custom_prompt) > MAX_SYSTEM_PROMPT_LENGTH:
+                error_logger.warning(f"System prompt for {response_type} is very long ({len(custom_prompt)} chars). This may impact performance.")
+                # Don't truncate, just warn about potential performance impact
                 
             # Only check for obvious corruption patterns
             if custom_prompt.strip() == "" or custom_prompt.strip() == "...":
@@ -497,6 +499,13 @@ async def gpt_response(
         
         # Get response text
         response_text = response.choices[0].message.content.strip()
+        
+        # Check if response is too long for Telegram
+        if len(response_text) > MAX_TELEGRAM_MESSAGE_LENGTH:
+            # Truncate the response and add a note
+            truncated_text = response_text[:MAX_TELEGRAM_MESSAGE_LENGTH - 100]  # Leave room for the note
+            response_text = f"{truncated_text}\n\n[Message truncated due to length limit]"
+            error_logger.warning(f"Response truncated from {len(response_text)} to {MAX_TELEGRAM_MESSAGE_LENGTH} characters")
         
         # Log the response
         chat_logger.info(
