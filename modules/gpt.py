@@ -25,7 +25,8 @@ from modules.chat_analysis import (
     get_messages_for_chat_last_n_days,
     get_messages_for_chat_date_period,
     get_messages_for_chat_single_date,
-    get_user_chat_stats
+    get_user_chat_stats,
+    get_user_chat_stats_with_fallback
 )
 
 # Initialize ConfigManager
@@ -867,7 +868,7 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     try:
         # Get user statistics
-        stats = await get_user_chat_stats(chat_id, user_id)
+        stats = await get_user_chat_stats_with_fallback(chat_id, user_id, username)
         
         if not stats['total_messages']:
             await update.message.reply_text(
