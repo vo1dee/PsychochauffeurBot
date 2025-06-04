@@ -78,8 +78,13 @@ def setup_message_handlers(application):
     This function should be called during bot initialization.
     """
     # Add the message handler to store and process all messages
+    # Use a more specific filter to avoid catching video links
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,  # Only handle text messages that are not commands
+        filters.TEXT & ~filters.COMMAND & ~filters.Regex('|'.join([
+            'tiktok.com', 'vm.tiktok.com', 'instagram.com/reels', 'youtube.com/shorts',
+            'youtu.be/shorts', 'facebook.com', 'vimeo.com', 'reddit.com', 'twitch.tv',
+            'youtube.com/clip'
+        ])),
         handle_message,
         block=False  # Don't block other handlers
     )) 
