@@ -230,4 +230,22 @@ async def get_user_chat_stats(chat_id: int, user_id: int) -> Dict[str, Any]:
             'most_active_hour': int(active_hour) if active_hour is not None else None,
             'first_message': first_message,
             'last_message': last_message
-        } 
+        }
+
+async def get_user_chat_stats_with_fallback(chat_id: int, user_id: int, username: str) -> dict:
+    pool = await Database.get_pool()
+    async with pool.acquire() as conn:
+        # Try by user_id first
+        stats = await get_user_chat_stats(chat_id, user_id)
+        if not stats['total_messages']:
+            # Fallback: try by username (legacy messages)
+            row = await conn.fetchrow("""
+                SELECT u.user_id
+                FROM users u
+                WHERE u.username = $1
+                LIMIT 1
+            """, username)
+            if row:
+                legacy_user_id = row['user_id']
+                stats = await get_user_chat_stats(chat_id, legacy_user_id)
+        return stats 
