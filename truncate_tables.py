@@ -13,21 +13,9 @@ async def truncate_tables():
         # Get database pool
         pool = await Database.get_pool()
         async with pool.acquire() as conn:
-            # Disable foreign key checks temporarily
-            await conn.execute("SET session_replication_role = 'replica';")
-            
-            # Truncate tables in correct order (child tables first)
-            print("Truncating messages table...")
-            await conn.execute("TRUNCATE TABLE messages;")
-            
-            print("Truncating users table...")
-            await conn.execute("TRUNCATE TABLE users;")
-            
-            print("Truncating chats table...")
-            await conn.execute("TRUNCATE TABLE chats;")
-            
-            # Re-enable foreign key checks
-            await conn.execute("SET session_replication_role = 'origin';")
+            # Truncate all tables with CASCADE
+            print("Truncating all tables...")
+            await conn.execute("TRUNCATE TABLE messages, users, chats CASCADE;")
             
             print("\nAll tables have been truncated successfully!")
             
