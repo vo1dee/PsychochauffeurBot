@@ -699,7 +699,7 @@ class VideoDownloader:
         
         if "instagram.com" in url:
             return Platform.INSTAGRAM
-        elif "tiktok.com" in url:
+        elif "tiktok.com" in url or "vm.tiktok.com" in url:
             return Platform.TIKTOK
         else:
             return Platform.OTHER
