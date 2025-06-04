@@ -295,7 +295,7 @@ async def button_callback(update: Update, context: CallbackContext):
             context.bot_data[new_hash] = new_link
             
             # Create updated keyboard
-            keyboard = create_link_keyboard(new_link)
+            keyboard = create_link_keyboard(new_link, context)
             
             await query.message.edit_text(
                 text=new_message,
@@ -311,10 +311,14 @@ async def button_callback(update: Update, context: CallbackContext):
 
 
 
-def create_link_keyboard(link):
+def create_link_keyboard(link, context=None):
     """
     Create an inline keyboard for link modifications.
     Handles both single links and lists of links.
+    
+    Args:
+        link: A single link string or list of links
+        context: The CallbackContext object containing bot_data
     """
     if isinstance(link, list):
         # If we have multiple links, create a keyboard for the first one
@@ -325,9 +329,9 @@ def create_link_keyboard(link):
     # Create a hash of the link for callback data
     link_hash = hashlib.md5(link.encode()).hexdigest()[:8]
     
-    # Store the original link in bot_data
-    from main import application
-    application.bot_data[link_hash] = link
+    # Store the original link in bot_data if context is provided
+    if context:
+        context.bot_data[link_hash] = link
     
     # Create buttons based on the link type
     buttons = []
