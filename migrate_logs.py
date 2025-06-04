@@ -38,14 +38,21 @@ async def migrate_logs():
                     if "Chat logging system initialized" in line:
                         continue
                         
-                    # Parse the log line
+                    # Try old format first
                     # Format: timestamp - chat_logger - INFO - chat_id - chat_type - username - User message: text
-                    match = re.match(r'(.+?) - chat_logger - INFO - (.+?) - (.+?) - (.+?) - User message: (.+)', line)
-                    if not match:
+                    old_match = re.match(r'(.+?) - chat_logger - INFO - (.+?) - (.+?) - (.+?) - User message: (.+)', line)
+                    
+                    # Try new format if old format doesn't match
+                    # Format: timestamp +0300 - chat - INFO - Ctx:[chat_id][chat_type][username] - text
+                    new_match = re.match(r'(.+?) \+0300 - chat - INFO - Ctx:\[(.+?)\]\[(.+?)\]\[(.+?)\] - (.+)', line)
+                    
+                    if old_match:
+                        timestamp_str, chat_id, chat_type, username, text = old_match.groups()
+                    elif new_match:
+                        timestamp_str, chat_id, chat_type, username, text = new_match.groups()
+                    else:
                         skipped_messages += 1
                         continue
-                        
-                    timestamp_str, chat_id, chat_type, username, text = match.groups()
                     
                     # Convert timestamp
                     try:
