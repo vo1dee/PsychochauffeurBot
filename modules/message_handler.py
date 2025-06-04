@@ -1,4 +1,4 @@
-from telegram import Update
+from telegram import Update, ParseMode
 from telegram.ext import ContextTypes, MessageHandler, filters
 from .database import Database
 from .message_processor import (
@@ -33,6 +33,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if should_restrict_user(message_text):
             await restrict_user(update, context)
             return
+            
+        # Check for AliExpress links
+        if 'aliexpress.com' in message_text.lower():
+            # Send AliExpress sticker
+            await update.message.reply_sticker(sticker=ALIEXPRESS_STICKER_ID)
+            await update.message.reply_text(
+                "🔗 *AliExpress Link Detected*\n\n"
+                "I'll optimize this link for you\\!",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
             
         # Process message content
         cleaned_text, modified_links = process_message_content(message_text)
@@ -78,13 +88,13 @@ def setup_message_handlers(application):
     This function should be called during bot initialization.
     """
     # Add the message handler to store and process all messages
-    # Use a more specific filter to avoid catching video links
+    # Use a more specific filter to avoid catching video links but allow AliExpress links
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & ~filters.Regex('|'.join([
             'tiktok.com', 'vm.tiktok.com', 'instagram.com/reels', 'youtube.com/shorts',
             'youtu.be/shorts', 'facebook.com', 'vimeo.com', 'reddit.com', 'twitch.tv',
             'youtube.com/clip'
-        ])),
+        ])) | filters.Regex('aliexpress.com'),  # Allow AliExpress links
         handle_message,
         block=False  # Don't block other handlers
     )) 
