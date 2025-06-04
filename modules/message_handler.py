@@ -1,4 +1,5 @@
-from telegram import Update, ParseMode
+from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, MessageHandler, filters
 from .database import Database
 from .message_processor import (
