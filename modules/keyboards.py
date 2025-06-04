@@ -312,32 +312,39 @@ async def button_callback(update: Update, context: CallbackContext):
 
 
 def create_link_keyboard(link):
-    """Create keyboard with available modification buttons"""
+    """
+    Create an inline keyboard for link modifications.
+    Handles both single links and lists of links.
+    """
+    if isinstance(link, list):
+        # If we have multiple links, create a keyboard for the first one
+        if not link:
+            return None
+        link = link[0]
+    
+    # Create a hash of the link for callback data
     link_hash = hashlib.md5(link.encode()).hexdigest()[:8]
+    
+    # Store the original link in bot_data
+    from main import application
+    application.bot_data[link_hash] = link
+    
+    # Create buttons based on the link type
     buttons = []
-    
-    # Ensure link is using fixupx.com domain
-    # Only replace if the domain is exactly x.com (not as a substring of another domain)
-    from urllib.parse import urlparse, urlunparse
-    parsed = urlparse(link)
-    if parsed.netloc == 'x.com':
-        parsed = parsed._replace(netloc='fixupx.com')
-        link = urlunparse(parsed)
-    
-    general_logger.info(f"Creating keyboard for link: {link}")
-    
-    for config in BUTTONS_CONFIG:
-        if config['check'](link):
-            callback_data = f"{config['action']}:{link_hash}"
-            general_logger.info(f"Adding button: {config['text']} with callback_data: {callback_data}")
-            buttons.append(
+    for button in BUTTONS_CONFIG:
+        if button['check'](link):
+            buttons.append([
                 InlineKeyboardButton(
-                    config['text'],
-                    callback_data=callback_data
+                    button['text'],
+                    callback_data=f"{button['action']}:{link_hash}"
                 )
-            )
+            ])
     
-    return InlineKeyboardMarkup([buttons]) if buttons else None
+    # If no buttons are available, return None
+    if not buttons:
+        return None
+        
+    return InlineKeyboardMarkup(buttons)
 
 
 def create_language_menu(link, link_hash):
