@@ -62,7 +62,7 @@ from modules.database import Database
 from modules.message_handler import setup_message_handlers, handle_gpt_reply
 from modules.chat_streamer import chat_streamer
 
-# Apply nest_asyncio
+# Apply nest_asyncio at the very beginning, as it's crucial for the event loop.
 nest_asyncio.apply()
 
 # Initialize global objects
@@ -112,11 +112,16 @@ async def translate_last_message(update: Update, context: ContextTypes.DEFAULT_T
 
 @handle_errors(feedback_message="An error occurred while processing your message.")
 async def handle_message(update: Update, context: CallbackContext) -> None:
-    """Handle incoming messages."""
+    """Handle incoming non-command text messages."""
     if not update.message or not update.message.text:
         return
         
     message_text = update.message.text
+    
+    # Safeguard: Explicitly ignore commands to prevent interference with CommandHandlers
+    if message_text.startswith('/'):
+        return
+        
     user_id = update.message.from_user.id
     chat_id = update.effective_chat.id
     
@@ -134,7 +139,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Check for GPT response
     needs_response, response_type = needs_gpt_response(update, context, message_text)
     if needs_response:
-        await gpt_response(update, context, cleaned_text, response_type)
+        await gpt_response(update, context, response_type=response_type, message_text_override=cleaned_text)
         return
         
     # Handle modified links if any were found
@@ -147,7 +152,6 @@ async def process_urls(update: Update, context: CallbackContext, urls: list[str]
     chat_id = update.effective_chat.id
     username = update.message.from_user.username or f"ID:{update.message.from_user.id}"
     
-    # URLs are already modified by process_message_content, so we can use them directly
     if urls:
         await construct_and_send_message(chat_id, username, message_text, urls, update, context)
 
@@ -162,70 +166,42 @@ async def construct_and_send_message(
 ) -> None:
     """Construct and send a message with modified links."""
     try:
-        # Escape special characters for Markdown V2
         special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-        
-        # Escape username
         escaped_username = username
         for char in special_chars:
             escaped_username = escaped_username.replace(char, f'\\{char}')
-            
-        # Escape message text
         escaped_text = cleaned_message_text
         for char in special_chars:
             escaped_text = escaped_text.replace(char, f'\\{char}')
-            
-        # Escape URLs
         escaped_links = []
         for url in modified_links:
             escaped_url = url
             for char in special_chars:
                 escaped_url = escaped_url.replace(char, f'\\{char}')
             escaped_links.append(escaped_url)
-            
         message = f"@{escaped_username} хотів відправити:\n{escaped_text}"
         keyboard = create_link_keyboard(escaped_links, context)
-        
-        general_logger.info(f"Sending message with {len(escaped_links)} modified links")
-        general_logger.info(f"Modified links: {escaped_links}")
-        
         await context.bot.send_message(
             chat_id=chat_id,
             text=message,
             reply_markup=keyboard,
             parse_mode=ParseMode.MARKDOWN_V2
         )
-        general_logger.info("Message sent successfully")
     except Exception as e:
         error_logger.error(f"Failed to send message: {str(e)}", exc_info=True)
         raise
-
-@handle_errors(feedback_message="An error occurred while handling private message.")
-async def handle_private_message(update: Update, context: CallbackContext, message_text: str) -> None:
-    """Handle private chat messages."""
-    # Add private message handling logic here
-    pass
 
 @handle_errors(feedback_message="An error occurred while handling sticker.")
 async def handle_sticker(update: Update, context: CallbackContext) -> None:
     """Handle sticker messages."""
     if not update.message or not update.message.sticker:
         return
-        
     sticker = update.message.sticker
-    chat_id = update.effective_chat.id
-    
-    # Check if it's the AliExpress sticker
     if sticker.file_unique_id == ALIEXPRESS_STICKER_ID:
         await update.message.reply_text(
-            "🔗 *AliExpress Link Detected*\n\n"
-            "Please send the product link and I'll optimize it for you\\!",
+            "🔗 *AliExpress Link Detected*\n\nPlease send the product link and I'll optimize it for you\\!",
             parse_mode=ParseMode.MARKDOWN_V2
         )
-        return
-        
-    # Handle other stickers if needed
-    general_logger.info(f"Received sticker {sticker.file_unique_id} in chat {chat_id}")
 
 @handle_errors(feedback_message="An error occurred in /ping command.")
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -234,126 +210,139 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     general_logger.info(f"Handled /ping command for user {update.effective_user.id}")
 
 def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
-    """Register all command and message handlers."""
-    # Basic commands
+    """Register all command and message handlers in the correct order."""
+    
+    # Group 0: General logger for all messages (non-blocking).
+    # This runs first but allows other handlers to proceed.
+    setup_message_handlers(application)
+
+    # Group 0: Command Handlers. These will be checked next.
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", start))
     application.add_handler(CommandHandler("ping", ping))
     application.add_handler(CommandHandler("cat", cat_command))
     application.add_handler(CommandHandler("error_report", error_report_command))
-    
-    # GPT commands
     application.add_handler(CommandHandler("ask", ask_gpt_command))
     application.add_handler(CommandHandler("analyze", analyze_command))
     application.add_handler(CommandHandler("mystats", mystats_command))
-    
-    # Weather and environment
-    weather_handler = WeatherCommandHandler()
-    application.add_handler(CommandHandler("weather", weather_handler))
+    application.add_handler(CommandHandler("weather", WeatherCommandHandler()))
     application.add_handler(CommandHandler("flares", screenshot_command))
-    
-    # Geomagnetic activity
-    geomagnetic_handler = GeomagneticCommandHandler()
-    application.add_handler(CommandHandler("gm", geomagnetic_handler))
-    
-    # Reminders
+    application.add_handler(CommandHandler("gm", GeomagneticCommandHandler()))
     application.add_handler(CommandHandler("remind", reminder_manager.remind))
     
-    # Message handlers for non-text content
+    # Group 0: Other specific message handlers.
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_analysis))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+
+    # Group 0: General text message handler for non-command messages.
+    # It has a filter to specifically ignore commands.
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Callback query handler
+    # Group 0: Callback query handler for buttons.
     application.add_handler(CallbackQueryHandler(button_callback))
 
-    # General message handlers
-    setup_message_handlers(application)
+    # Group 1: Video handlers. These have a higher group number so they are checked
+    # after all of the default group 0 handlers.
+    setup_video_handlers(application, extract_urls_func=extract_urls)
+    general_logger.info("All handlers registered.")
 
 async def initialize_all_components():
-    """Initialize all bot components."""
+    """Initialize all bot components in the correct order."""
     try:
-        # Initialize directories
         init_directories()
-        
-        # Initialize error handler
+        await Database.initialize()
         await init_telegram_error_handler(TOKEN, Config.ERROR_CHANNEL_ID)
-        
-        # Initialize other components
+        await config_manager.initialize()
         await reminder_manager.initialize()
-        
-        general_logger.info("All components initialized successfully")
-        
+        await safety_manager.initialize()
+        general_logger.info("All components initialized successfully.")
     except Exception as e:
         error_logger.error(f"Failed to initialize components: {str(e)}", exc_info=True)
         raise
 
 async def cleanup_all_components():
-    """Cleanup all bot components."""
+    """Cleanup all bot components in reverse order of initialization."""
+    general_logger.info("Cleaning up all components...")
     try:
-        # Cleanup logging
-        await shutdown_logging()
-        
-        # Cleanup other components
+        if hasattr(safety_manager, 'stop'):
+            await safety_manager.stop()
         if hasattr(reminder_manager, 'stop'):
             await reminder_manager.stop()
-        
-        general_logger.info("All components cleaned up successfully")
-        
+        if hasattr(config_manager, 'stop'):
+            await config_manager.stop()
+        if hasattr(Database, 'close'):
+            await Database.close()
+        await shutdown_logging()
+        general_logger.info("All components cleaned up successfully.")
     except Exception as e:
-        error_logger.error(f"Failed to cleanup components: {str(e)}", exc_info=True)
-        raise
+        error_logger.error(f"Error during component cleanup: {e}", exc_info=True)
 
 def handle_shutdown_signal(signum, frame):
-    """Handle shutdown signals."""
-    general_logger.info(f"Received signal {signum}, initiating shutdown...")
-    sys.exit(0)
+    """Handle shutdown signals gracefully."""
+    general_logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+    # This will cause the asyncio event loop to stop.
+    # The 'finally' block in run_bot will then handle cleanup.
+    raise SystemExit("Shutdown signal received.")
 
 async def main():
     """Main bot initialization and run loop."""
+    application = None
     try:
-        # Initialize the database
-        await Database.initialize()
-        
-        # Initialize components
         await initialize_all_components()
-        
-        # Create application
-        application = ApplicationBuilder().token(TOKEN).build()
-        
-        # Register handlers
+        application = (
+            ApplicationBuilder()
+            .token(TOKEN)
+            .connection_pool_size(32)
+            .connect_timeout(60.0)
+            .read_timeout(60.0)
+            .write_timeout(60.0)
+            .pool_timeout(60.0)
+            .get_updates_connection_pool_size(32)
+            .get_updates_read_timeout(60.0)
+            .build()
+        )
         register_handlers(application, application.bot, config_manager)
-        
-        # Set up video handlers first
-        general_logger.info("Setting up video handlers...")
-        setup_video_handlers(application, extract_urls_func=extract_urls)
-        
-        # Set up general message handlers
-        general_logger.info("Setting up general message handlers...")
-        setup_message_handlers(application)
-        
-        # Start the bot
-        await application.initialize()
-        await application.run_polling(allowed_updates=Update.ALL_TYPES)
-        
+        general_logger.info("Bot polling started.")
+        await application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+            close_loop=False,
+            stop_signals=None  # We handle signals in run_bot
+        )
+    except (SystemExit, KeyboardInterrupt):
+        general_logger.info("Bot shutdown requested.")
     except Exception as e:
-        error_logger.error(f"Bot startup failed: {str(e)}", exc_info=True)
+        error_logger.error(f"Bot execution failed: {str(e)}", exc_info=True)
         raise
-        
     finally:
-        # Cleanup
+        general_logger.info("Starting final cleanup...")
+        if application and application.running:
+             await application.stop()
+             await application.shutdown()
         await cleanup_all_components()
-        if application:
-            await application.stop()
-            await application.shutdown()
 
 def run_bot():
-    """Run the bot with proper signal handling."""
-    # Register signal handlers
+    """Run the bot with proper event loop handling and graceful shutdown."""
+    # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, handle_shutdown_signal)
     signal.signal(signal.SIGTERM, handle_shutdown_signal)
-    
-    # Run the bot
-    asyncio.run(main())
+
+    loop = None
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+             # This can happen with nest_asyncio. We just run the main coroutine.
+             main_task = loop.create_task(main())
+             loop.run_until_complete(main_task)
+        else:
+             loop.run_until_complete(main())
+    except (SystemExit, KeyboardInterrupt):
+        general_logger.info("Bot stopped by user or system signal.")
+    except Exception as e:
+        error_logger.error(f"Bot stopped due to an unhandled exception: {e}", exc_info=True)
+    finally:
+        general_logger.info("Bot run finished.")
+        # The loop and tasks should be handled by run_until_complete and graceful shutdown logic.
 
 if __name__ == "__main__":
     run_bot()
