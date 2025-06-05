@@ -61,7 +61,7 @@ class TestChatStreamer(unittest.IsolatedAsyncioTestCase):
         
         # Get today's date for the log file name
         today = datetime.now(KYIV_TZ).strftime('%Y-%m-%d')
-        log_file = os.path.join(self.test_dir.name, f'chat_{update.effective_chat.id}', f'{today}.log')
+        log_file = os.path.join(self.test_dir.name, f'chat_{update.effective_chat.id}', f'chat_{today}.log')
         
         # Debug: Print directory contents
         logging.debug(f"Test directory contents: {os.listdir(self.test_dir.name)}")
@@ -107,7 +107,7 @@ class TestChatStreamer(unittest.IsolatedAsyncioTestCase):
         
         # Get today's date for the log file name
         today = datetime.now(KYIV_TZ).strftime('%Y-%m-%d')
-        log_file = os.path.join(self.test_dir.name, f'chat_{update.effective_chat.id}', f'{today}.log')
+        log_file = os.path.join(self.test_dir.name, f'chat_{update.effective_chat.id}', f'chat_{today}.log')
         
         # Verify log file was created
         self.assertTrue(os.path.exists(log_file), f"Log file not found at {log_file}")

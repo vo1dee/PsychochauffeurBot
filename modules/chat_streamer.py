@@ -32,9 +32,12 @@ class ChatStreamer:
             log_dir = get_chat_log_dir(chat_id)
             os.makedirs(log_dir, exist_ok=True)
             
-            # Create daily log file handler
+            # Create daily log file handler with correct naming format
             today = datetime.now(KYIV_TZ).strftime('%Y-%m-%d')
-            log_file = os.path.join(log_dir, f'{today}.log')
+            log_file = os.path.join(log_dir, f'chat_{today}.log')
+            
+            # Log that we're creating a new log file
+            logging.info(f"Creating new log file for chat {chat_id}: {log_file}")
             
             # Create formatter
             formatter = logging.Formatter(
@@ -48,6 +51,9 @@ class ChatStreamer:
             
             # Store both logger and handler
             self._loggers[chat_id] = (logger, file_handler)
+            
+            # Log that we've created the logger
+            logging.info(f"Created logger for chat {chat_id}")
         
         return self._loggers[chat_id][0]
     
