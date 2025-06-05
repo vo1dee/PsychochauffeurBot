@@ -377,7 +377,12 @@ class VideoDownloader:
                 config = self.youtube_clips_config if is_youtube_clips else self.youtube_shorts_config
                 return await self._download_generic(url, platform, config)
             
-            # For all other platforms or if service failed, use direct methods
+            # For TikTok, use the specialized TikTok downloader
+            if platform == Platform.TIKTOK:
+                error_logger.info(f"TikTok URL detected: {url}")
+                return await self._download_tiktok_ytdlp(url)
+            
+            # For all other platforms, use generic download
             return await self._download_generic(url, platform)
             
         except Exception as e:
@@ -869,6 +874,7 @@ class VideoDownloader:
 
 def setup_video_handlers(application, extract_urls_func=None):
     """Set up video handlers with improved configuration."""
+    general_logger.info("Initializing video downloader...")
     video_downloader = VideoDownloader(
         download_path='downloads',
         extract_urls_func=extract_urls_func
@@ -883,10 +889,18 @@ def setup_video_handlers(application, extract_urls_func=None):
         'youtube.com/clip'
     ]
     
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex('|'.join(video_platforms)), 
-        video_downloader.handle_video_link,
-        block=False  # Don't block other handlers
-    ))
-
+    video_pattern = '|'.join(video_platforms)
+    general_logger.info(f"Setting up video handler with pattern: {video_pattern}")
+    
+    # Add the video handler with high priority
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & filters.Regex(video_pattern),
+            video_downloader.handle_video_link,
+            block=True  # Block other handlers to ensure video processing takes priority
+        ),
+        group=1  # Higher priority group
+    )
+    
+    general_logger.info("Video handler setup complete")
     return video_downloader
