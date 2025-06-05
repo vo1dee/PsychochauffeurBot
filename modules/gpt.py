@@ -1,17 +1,28 @@
-import openai
-import os
-import base64
-import httpx
-import asyncio
-import pytz
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Union
-from io import BytesIO
-from PIL import Image
+"""GPT module for generating text and interacting with the OpenAI API."""
 
+# Standard library imports
+import asyncio
+from datetime import datetime
+from typing import Optional, List, Dict, Any, Union
+import base64
+from io import BytesIO
+
+# Third-party imports
+from PIL import Image
+import httpx
+import pytz
+from telegram import Update
+from telegram.ext import CallbackContext, ContextTypes
+
+# Local module imports
+from .database import Database
+from .chat_streamer import chat_streamer
+from modules.const import (
+    OPENAI_API_KEY,
+    OPENROUTER_BASE_URL
+)
 from modules.diagnostics import run_api_diagnostics
 from modules.logger import general_logger, error_logger, get_daily_log_path, chat_logger
-from modules.const import OPENAI_API_KEY, OPENROUTER_BASE_URL
 from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
 from config.config_manager import ConfigManager
 
@@ -29,23 +40,22 @@ from modules.chat_analysis import (
     get_user_chat_stats_with_fallback
 )
 
-from modules.database import Database
-
 # Initialize ConfigManager
 config_manager = ConfigManager()
 
 # Constants
-MAX_IMAGE_SIZE = 1024
+MAX_IMAGE_SIZE = (1024, 1024)
 IMAGE_COMPRESSION_QUALITY = 80
-GPT_MODEL_IMAGE = "gpt-4.1-mini"  # From second implementation
-GPT_MODEL_TEXT = "gpt-4.1-mini"       # From second implementation
+GPT_MODEL_TEXT = "openai/gpt-4o-mini"
+GPT_MODEL_VISION = "openai/gpt-4o-mini"
+GPT_MODEL_IMAGE = "openai/gpt-4o-mini"
 KYIV_TZ = pytz.timezone('Europe/Kiev')
 DEFAULT_MAX_TOKENS = 666
-SUMMARY_MAX_TOKENS = 1000
+SUMMARY_MAX_TOKENS = 1024
 MAX_RETRIES = 3
 CONTEXT_MESSAGES_COUNT = 3  # Number of previous messages to include as context
-MAX_TELEGRAM_MESSAGE_LENGTH = 4096  # Telegram's maximum message length
-MAX_SYSTEM_PROMPT_LENGTH = 16000  # Maximum length for system prompts (GPT-4 can handle up to 32k tokens)
+MAX_TELEGRAM_MESSAGE_LENGTH = 4096
+MAX_SYSTEM_PROMPT_LENGTH = 1000
 
 # Default prompts for fallback
 DEFAULT_PROMPTS = {
@@ -197,8 +207,8 @@ async def optimize_image(image_bytes: bytes) -> bytes:
     img = Image.open(BytesIO(image_bytes))
     
     # Resize if needed
-    if max(img.size) > MAX_IMAGE_SIZE:
-        ratio = MAX_IMAGE_SIZE / max(img.size)
+    if max(img.size) > MAX_IMAGE_SIZE[0] or max(img.size) > MAX_IMAGE_SIZE[1]:
+        ratio = max(MAX_IMAGE_SIZE[0] / max(img.size), MAX_IMAGE_SIZE[1] / max(img.size))
         new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
         img = img.resize(new_size, Image.LANCZOS)
     
@@ -248,7 +258,7 @@ async def analyze_image(
         
         # Call GPT with the image using image_analysis response type
         response = await client.chat.completions.create(
-            model=GPT_MODEL_IMAGE,
+            model=GPT_MODEL_TEXT,
             messages=[
                 {
                     "role": "system", 
@@ -471,6 +481,11 @@ async def gpt_response(
             # Get system prompt from config
             system_prompt = await get_system_prompt(response_type, chat_config)
         
+        # If the response type is a mention, clean the text to remove the bot's username
+        if response_type == 'mention' and message_text_override:
+            bot_username = f"@{context.bot.username}"
+            message_text_override = message_text_override.replace(bot_username, "").strip()
+
         # Get context messages
         context_messages = await get_context_messages(update, context)
         
@@ -510,12 +525,13 @@ async def gpt_response(
             error_logger.warning(f"Response truncated from {len(response_text)} to {MAX_TELEGRAM_MESSAGE_LENGTH} characters")
         
         # Log the response
+        bot_username = context.bot.username or "PsychochauffeurBot"
         chat_logger.info(
             response_text,
             extra={
                 'chat_id': update.effective_chat.id,
                 'chattitle': update.effective_chat.title or f"Private_{update.effective_chat.id}",
-                'username': update.message.from_user.username or f"ID:{update.message.from_user.id}"
+                'username': bot_username
             }
         )
         
@@ -656,7 +672,7 @@ async def gpt_summary_function(messages: List[str]) -> str:
 
         # Call the API to get the summary
         response = await client.chat.completions.create(
-            model=GPT_MODEL_TEXT,
+            model="openai/gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}

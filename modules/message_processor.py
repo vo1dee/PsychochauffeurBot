@@ -44,10 +44,6 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
         }
     )
     
-    # Check if it's a command
-    if message_text.startswith('/ask'):
-        return True, 'command'
-    
     # Check if bot is mentioned
     if mentioned:
         # Extract the message after the mention
