@@ -11,6 +11,7 @@ from .user_management import restrict_user
 from .gpt import gpt_response
 from .const import ALIEXPRESS_STICKER_ID
 from .logger import error_logger, general_logger
+from .chat_streamer import chat_streamer
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -23,6 +24,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         # Store the message in the database
         await Database.save_message(update.message)
+        
+        # Stream message to log file
+        await chat_streamer.stream_message(update, context)
         
         # Process the message
         message_text = update.message.text
