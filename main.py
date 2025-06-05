@@ -31,7 +31,7 @@ from modules.const import (
     VideoPlatforms, LinkModification, Config
 )
 from modules.gpt import (
-    ask_gpt_command, analyze_command, answer_from_gpt, analyze_image,
+    ask_gpt_command, analyze_command, answer_from_gpt, handle_photo_analysis,
     gpt_response, mystats_command
 )
 from modules.weather import WeatherCommandHandler
@@ -243,7 +243,7 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     application.add_handler(CommandHandler("error_report", error_report_command))
     
     # GPT commands
-    application.add_handler(CommandHandler("gpt", lambda u, c: ask_gpt_command(u, u, c)))
+    application.add_handler(CommandHandler("ask", ask_gpt_command))
     application.add_handler(CommandHandler("analyze", analyze_command))
     application.add_handler(CommandHandler("mystats", mystats_command))
     
@@ -260,11 +260,14 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     application.add_handler(CommandHandler("remind", reminder_manager.remind))
     
     # Message handlers for non-text content
-    application.add_handler(MessageHandler(filters.PHOTO, analyze_image))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo_analysis))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
     
     # Callback query handler
     application.add_handler(CallbackQueryHandler(button_callback))
+
+    # General message handlers
+    setup_message_handlers(application)
 
 async def initialize_all_components():
     """Initialize all bot components."""

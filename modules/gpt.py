@@ -29,6 +29,8 @@ from modules.chat_analysis import (
     get_user_chat_stats_with_fallback
 )
 
+from modules.database import Database
+
 # Initialize ConfigManager
 config_manager = ConfigManager()
 
@@ -528,38 +530,18 @@ async def gpt_response(
         return None
 
 
-async def ask_gpt_command(
-    prompt: Union[str, Update], 
-    update: Optional[Update] = None, 
-    context: Optional[CallbackContext] = None, 
-    return_text: bool = False
-) -> Optional[str]:
-    """
-    Process a GPT command from either a string prompt or an Update object.
-    If return_text is True, return the GPT response as a string.
-    """
-    # If prompt is an Update object, use it as the update
-    if isinstance(prompt, Update):
-        update = prompt
-        message_text = update.message.text
-        command_parts = message_text.split(' ', 1)
-        prompt = command_parts[1] if len(command_parts) > 1 else None
-    # If update is provided as a separate parameter, use it
-    elif update is not None:
-        message_text = update.message.text
-        command_parts = message_text.split(' ', 1)
-        prompt = command_parts[1] if len(command_parts) > 1 else None
-    
-    if not update or not context:
-        error_logger.error("ask_gpt_command called without update or context")
-        return None
-    
-    # If no prompt is provided, use a default greeting
+async def ask_gpt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /ask command."""
+    prompt = ""
+    if update.message and update.message.text:
+        command_parts = update.message.text.split(' ', 1)
+        if len(command_parts) > 1:
+            prompt = command_parts[1]
+
     if not prompt:
         prompt = "Привіт! Як я можу вам допомогти?"
-    
-    # Call gpt_response with the new signature
-    return await gpt_response(update, context, response_type="command", message_text_override=prompt, return_text=return_text)
+
+    await gpt_response(update, context, response_type="command", message_text_override=prompt)
 
 
 async def answer_from_gpt(
@@ -608,41 +590,32 @@ async def handle_error(
     return_text: bool
 ) -> None:
     """
-    Handle errors with appropriate diagnosis and feedback.
+    Handle errors in GPT-related functions.
     
     Args:
-        e: Exception that occurred
-        update: Telegram update object
-        return_text: Whether the calling function returns text
+        e: The exception that occurred
+        update: Telegram update object (optional)
+        return_text: Whether to return text instead of sending a message
     """
-    # Determine the error type and severity
-    error_category = ErrorCategory.GENERAL
-    error_severity = ErrorSeverity.MEDIUM
-    feedback_message = "Вибачте, сталася помилка при зверненні до GPT."
-    diagnosis = None
+    # Get error diagnosis
+    diagnosis = await ensure_api_connectivity()
     
-    # Check for connection-related errors
-    if isinstance(e, (openai.APIConnectionError, httpx.ConnectError)):
-        error_category = ErrorCategory.NETWORK
-        # Run diagnostics to get more specific information
-        api_endpoint = OPENROUTER_BASE_URL if USE_OPENROUTER else "https://api.openai.com/v1"
-        diagnosis = await run_api_diagnostics(api_endpoint)
-        
-        if diagnosis == "No internet connectivity":
-            feedback_message = "Вибачте, відсутнє з'єднання з Інтернетом. Спробуйте пізніше."
-        elif diagnosis == "DNS resolution issues":
-            feedback_message = "Вибачте, проблема з DNS-розпізнаванням. Спробуйте пізніше."
-        elif diagnosis == "API endpoint unreachable":
-            feedback_message = "Вибачте, сервіс GPT тимчасово недоступний. Спробуйте пізніше."
-        else:
-            feedback_message = "Вибачте, помилка з'єднання з сервісом GPT. Спробуйте пізніше."
+    # Determine feedback message based on diagnosis
+    if diagnosis == "No internet connectivity":
+        feedback_message = "Вибачте, відсутнє з'єднання з Інтернетом. Спробуйте пізніше."
+    elif diagnosis == "DNS resolution issues":
+        feedback_message = "Вибачте, проблема з DNS-розпізнаванням. Спробуйте пізніше."
+    elif diagnosis == "API endpoint unreachable":
+        feedback_message = "Вибачте, сервіс GPT тимчасово недоступний. Спробуйте пізнише."
+    else:
+        feedback_message = "Вибачте, помилка з'єднання з сервісом GPT. Спробуйте пізнише."
     
     # Create context with relevant information
     context = {
         "function": "gpt_response",
         "return_text": return_text,
-        "user_id": update.effective_user.id if update and update.effective_user else None,
-        "chat_id": update.effective_chat.id if update and update.effective_chat else None,
+        "user_id": update.effective_user.id if update and hasattr(update, 'effective_user') else None,
+        "chat_id": update.effective_chat.id if update and hasattr(update, 'effective_chat') else None,
         "error_diagnostic": diagnosis,
     }
 
@@ -650,7 +623,7 @@ async def handle_error(
     await ErrorHandler.handle_error(
         error=e,
         update=update,
-        context=None,
+        context=context,  # Pass the context dictionary instead of None
         feedback_message=feedback_message,
         propagate=True
     )
@@ -922,3 +895,39 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(
             "❌ Виникла помилка при отриманні статистики. Спробуйте пізніше."
         )
+
+async def handle_photo_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Automatically analyzes any photo sent to the chat.
+    Logs the description to the database and text logs silently.
+    """
+    if not update.message:
+        return
+
+    try:
+        # Get the highest resolution photo
+        photo = update.message.photo[-1]
+        
+        # Download the photo
+        photo_file = await photo.get_file()
+        image_bytes = await photo_file.download_as_bytearray()
+
+        general_logger.info(f"Automatically analyzing photo in chat {update.effective_chat.id}")
+
+        # Analyze the image (this also logs to the .txt file)
+        description = await analyze_image(bytes(image_bytes), update, context)
+
+        # Save the description to the database, linked to the original message
+        await Database.save_image_analysis_as_message(update.message, description)
+        
+        general_logger.info(f"Successfully saved image analysis for chat {update.effective_chat.id}")
+
+    except Exception as e:
+        # Log the error, but do not notify the user to keep it silent
+        error_logger.error(f"Error during automatic photo analysis: {e}", exc_info=True)
+
+# Add this at the end of the file
+__all__ = [
+    'gpt_response', 'ask_gpt_command', 'answer_from_gpt', 'analyze_image', 
+    'analyze_command', 'mystats_command', 'initialize_gpt', 'handle_photo_analysis'
+]

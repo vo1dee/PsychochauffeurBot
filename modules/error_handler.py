@@ -171,16 +171,16 @@ class ErrorHandler:
         if tb and tb != "NoneType: None\n":
             parts.append(f"Traceback: {tb}")
 
-        # Add user context if available
-        if update and update.effective_user:
-            parts.append(f"User ID: {update.effective_user.id}")
-            parts.append(f"Username: @{update.effective_user.username or 'unknown'}")
+        # Add user and chat context if a valid Update object is available
+        if isinstance(update, Update):
+            if update.effective_user:
+                parts.append(f"User ID: {update.effective_user.id}")
+                parts.append(f"Username: @{update.effective_user.username or 'unknown'}")
 
-        # Add chat context if available
-        if update and update.effective_chat:
-            parts.append(f"Chat ID: {update.effective_chat.id}")
-            if update.effective_chat.title:
-                parts.append(f"Chat Title: {update.effective_chat.title}")
+            if update.effective_chat:
+                parts.append(f"Chat ID: {update.effective_chat.id}")
+                if update.effective_chat.title:
+                    parts.append(f"Chat Title: {update.effective_chat.title}")
 
         # Join all parts with newlines
         return "\n".join(parts)
@@ -224,15 +224,15 @@ class ErrorHandler:
 
             # Create base context
             base_context = {
-                "update_id": update.update_id if update else None,
+                "update_id": update.update_id if update and hasattr(update, 'update_id') else None,
                 "chat_id": (
                     update.effective_chat.id
-                    if update and update.effective_chat
+                    if update and hasattr(update, 'effective_chat')
                     else None
                 ),
                 "user_id": (
                     update.effective_user.id
-                    if update and update.effective_user
+                    if update and hasattr(update, 'effective_user')
                     else None
                 ),
             }
@@ -262,7 +262,7 @@ class ErrorHandler:
             error_logger.error(f"Failed to track error for analytics: {e}")
 
         # Provide user feedback if requested
-        if update and update.effective_message:
+        if update and hasattr(update, 'effective_message') and update.effective_message:
             if user_feedback_fn:
                 try:
                     # Use custom feedback function if provided

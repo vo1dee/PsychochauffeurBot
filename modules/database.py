@@ -5,6 +5,7 @@ import asyncpg
 from datetime import datetime
 from telegram import Chat, User, Message
 from dotenv import load_dotenv
+import pytz
 
 load_dotenv()
 
@@ -155,6 +156,52 @@ class Database:
                 replied_to_message_id,
                 json.dumps(gpt_context_message_ids) if gpt_context_message_ids else None,
                 json.dumps(raw_message)
+            )
+
+    @classmethod
+    async def save_image_analysis_as_message(
+        cls,
+        original_message: Message,
+        description: str,
+    ) -> None:
+        """Saves an image description as a new message entry in the database."""
+        pool = await cls.get_pool()
+
+        # Get the bot's own User object via get_me() and save it to the users table.
+        ext_bot = original_message.get_bot()
+        bot_user = await ext_bot.get_me()
+        await cls.save_user_info(bot_user)
+        
+        bot_user_id = bot_user.id
+        chat_id = original_message.chat.id
+        
+        async with pool.acquire() as conn:
+            # We use ON CONFLICT...DO UPDATE because the original message from the user
+            # already exists. We are overwriting it with the bot's analysis.
+            # This is a simplification. A better approach might be a separate table
+            # for metadata or using a new message_id.
+            await conn.execute("""
+                INSERT INTO messages (
+                    message_id, chat_id, user_id, timestamp, text,
+                    is_command, command_name, is_gpt_reply,
+                    replied_to_message_id
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (chat_id, message_id) DO UPDATE SET
+                text = EXCLUDED.text,
+                user_id = EXCLUDED.user_id,
+                is_gpt_reply = TRUE,
+                timestamp = EXCLUDED.timestamp
+            """,
+                original_message.message_id,
+                chat_id,
+                bot_user_id,
+                datetime.now(pytz.utc), # Use timezone-aware datetime
+                f"[IMAGE ANALYSIS]: {description}",
+                False, # is_command
+                None,  # command_name
+                True,  # is_gpt_reply
+                original_message.message_id
             )
 
     @classmethod

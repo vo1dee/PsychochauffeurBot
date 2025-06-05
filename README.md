@@ -30,7 +30,7 @@ A versatile Telegram bot that downloads videos and images from social media plat
 ### 🤖 AI Integration
 - **GPT Features**:
   - Direct responses on mention
-  - `/gpt` command for chat
+  - `/ask` command for chat
   - `/analyze` for message summarization
   - Random responses (2% chance after 50+ messages)
   - Context-aware responses

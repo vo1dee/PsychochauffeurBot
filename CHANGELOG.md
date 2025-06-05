@@ -41,8 +41,8 @@
 ### GPT Commands
 | Command | Description | Example |
 |---------|-------------|---------|
-| `/gpt` | Ask GPT a question | `/gpt What is the weather like?` |
-| `/gpt` | Start a conversation | `/gpt` |
+| `/ask` | Ask GPT a question | `/ask What is the weather like?` |
+| `/ask` | Start a conversation | `/ask` |
 
 ### Weather Commands
 | Command | Description | Example |

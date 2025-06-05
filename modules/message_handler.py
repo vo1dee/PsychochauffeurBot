@@ -19,15 +19,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     This handler should be added to the application's message handlers.
     """
     try:
+        # Log that we received a message
+        general_logger.info(f"Received message in chat {update.effective_chat.id}")
+        
         # Stream message to log file first
         await chat_streamer.stream_message(update, context)
+        general_logger.info("Message streamed to log file")
         
         # If it's not a text message, we're done after logging
         if not update.message or not update.message.text:
+            general_logger.info("Non-text message, skipping further processing")
             return
 
         # Store the message in the database
         await Database.save_message(update.message)
+        general_logger.info("Message saved to database")
         
         # Process the message
         message_text = update.message.text
@@ -36,29 +42,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         # Update message history
         update_message_history(user_id, message_text)
+        general_logger.info("Message history updated")
         
         # Check for user restrictions
         if should_restrict_user(message_text):
+            general_logger.info(f"Restricting user {user_id} for inappropriate content")
             await restrict_user(update, context)
             return
             
         # Check for AliExpress links
         if 'aliexpress.com' in message_text.lower():
+            general_logger.info("Detected AliExpress link, sending sticker")
             # Send AliExpress sticker only
             await update.message.reply_sticker(sticker=ALIEXPRESS_STICKER_ID)
             return
             
         # Process message content
         cleaned_text, modified_links = process_message_content(message_text)
+        general_logger.info(f"Processed message content, found {len(modified_links) if modified_links else 0} links")
         
         # Check for GPT response
         needs_response, response_type = needs_gpt_response(update, context, message_text)
         if needs_response:
+            general_logger.info(f"Message needs GPT response of type {response_type}")
             await gpt_response(update, context, response_type="command", message_text_override=cleaned_text)
             return
             
         # Handle URLs if we have modified links
         if modified_links:
+            general_logger.info(f"Processing {len(modified_links)} modified links")
             from main import process_urls  # Import here to avoid circular import
             await process_urls(update, context, modified_links, cleaned_text)
             
