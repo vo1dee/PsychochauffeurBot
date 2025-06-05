@@ -60,6 +60,7 @@ from modules.message_processor import (
 from modules.keyboard_translator import translate_text, keyboard_mapping
 from modules.database import Database
 from modules.message_handler import setup_message_handlers, handle_gpt_reply
+from modules.chat_streamer import chat_streamer
 
 # Apply nest_asyncio
 nest_asyncio.apply()
@@ -236,9 +237,10 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     """Register all command and message handlers."""
     # Basic commands
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", start))
     application.add_handler(CommandHandler("ping", ping))
     application.add_handler(CommandHandler("cat", cat_command))
-    application.add_handler(CommandHandler("errors", error_report_command))
+    application.add_handler(CommandHandler("error_report", error_report_command))
     
     # GPT commands
     application.add_handler(CommandHandler("gpt", lambda u, c: ask_gpt_command(u, u, c)))
