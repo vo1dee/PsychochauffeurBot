@@ -18,15 +18,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     Handle incoming messages and store them in the database.
     This handler should be added to the application's message handlers.
     """
-    if not update.message or not update.message.text:
-        return
-
     try:
+        # Stream message to log file first
+        await chat_streamer.stream_message(update, context)
+        
+        # If it's not a text message, we're done after logging
+        if not update.message or not update.message.text:
+            return
+
         # Store the message in the database
         await Database.save_message(update.message)
-        
-        # Stream message to log file
-        await chat_streamer.stream_message(update, context)
         
         # Process the message
         message_text = update.message.text
@@ -93,6 +94,13 @@ def setup_message_handlers(application):
     Set up message handlers for the bot.
     This function should be called during bot initialization.
     """
+    # Add a handler to log all messages
+    application.add_handler(MessageHandler(
+        filters.ALL,
+        handle_message,
+        block=False
+    ))
+    
     # Add the message handler to store and process all messages
     # Use a more specific filter to avoid catching video links but allow AliExpress and x.com links
     application.add_handler(MessageHandler(

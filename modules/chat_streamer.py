@@ -59,18 +59,37 @@ class ChatStreamer:
             update: Telegram update object
             context: Telegram callback context
         """
-        if not update.message or not update.message.text:
-            return
-            
         try:
             chat_id = str(update.effective_chat.id)
             chat_type = update.effective_chat.type
             chat_name = update.effective_chat.title or f"Private_{chat_id}"
             username = update.effective_user.username or f"ID:{update.effective_user.id}"
-            message_text = update.message.text
             
             # Get logger for this chat
             logger = self._get_logger(chat_id)
+            
+            # Handle different message types
+            if update.message:
+                if update.message.text:
+                    message_text = update.message.text
+                elif update.message.sticker:
+                    message_text = f"[STICKER] {update.message.sticker.emoji or 'No emoji'}"
+                elif update.message.photo:
+                    message_text = "[PHOTO]"
+                elif update.message.video:
+                    message_text = "[VIDEO]"
+                elif update.message.voice:
+                    message_text = "[VOICE]"
+                elif update.message.audio:
+                    message_text = "[AUDIO]"
+                elif update.message.document:
+                    message_text = f"[DOCUMENT] {update.message.document.file_name or 'Unnamed'}"
+                elif update.message.animation:
+                    message_text = "[ANIMATION]"
+                else:
+                    message_text = "[OTHER MEDIA]"
+            else:
+                message_text = "[UNKNOWN MESSAGE TYPE]"
             
             # Log the message with context
             logger.info(
