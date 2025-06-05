@@ -1,8 +1,9 @@
 import os
 import logging
+import asyncio
 from datetime import datetime
 import pytz
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -17,12 +18,12 @@ class ChatStreamer:
     """
     
     def __init__(self):
-        self._files: Dict[str, logging.Logger] = {}
+        self._loggers: Dict[str, Tuple[logging.Logger, logging.FileHandler]] = {}
         self._lock = asyncio.Lock()
     
     def _get_logger(self, chat_id: str) -> logging.Logger:
         """Get or create a logger for a specific chat."""
-        if chat_id not in self._files:
+        if chat_id not in self._loggers:
             # Create chat-specific logger
             logger = logging.getLogger(f'chat_stream_{chat_id}')
             logger.setLevel(logging.INFO)
@@ -45,9 +46,10 @@ class ChatStreamer:
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
             
-            self._files[chat_id] = logger
+            # Store both logger and handler
+            self._loggers[chat_id] = (logger, file_handler)
         
-        return self._files[chat_id]
+        return self._loggers[chat_id][0]
     
     async def stream_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -81,15 +83,19 @@ class ChatStreamer:
                 }
             )
             
+            # Ensure the message is written to disk
+            logger.handlers[0].flush()
+            
         except Exception as e:
             logging.error(f"Error streaming message: {e}")
     
     async def close(self) -> None:
         """Close all file handlers."""
-        for logger in self._files.values():
-            for handler in logger.handlers:
-                handler.close()
-        self._files.clear()
+        for logger, handler in self._loggers.values():
+            handler.flush()
+            handler.close()
+            logger.removeHandler(handler)
+        self._loggers.clear()
 
 # Create global instance
 chat_streamer = ChatStreamer() 
