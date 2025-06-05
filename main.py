@@ -263,9 +263,6 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     application.add_handler(MessageHandler(filters.PHOTO, analyze_image))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
     
-    # Setup video handlers (after general message handlers)
-    setup_video_handlers(application, extract_urls_func=extract_urls)
-    
     # Callback query handler
     application.add_handler(CallbackQueryHandler(button_callback))
 
@@ -320,11 +317,16 @@ async def main():
         # Create application
         application = ApplicationBuilder().token(TOKEN).build()
         
-        # Set up message handlers
-        setup_message_handlers(application)
-        
         # Register handlers
         register_handlers(application, application.bot, config_manager)
+        
+        # Set up video handlers first
+        general_logger.info("Setting up video handlers...")
+        setup_video_handlers(application, extract_urls_func=extract_urls)
+        
+        # Set up general message handlers
+        general_logger.info("Setting up general message handlers...")
+        setup_message_handlers(application)
         
         # Start the bot
         await application.initialize()
