@@ -8,7 +8,7 @@ from modules.const import KYIV_TZ
 async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_id: int):
     """
     Migrate chat history from JSON file to PostgreSQL database.
-    Only migrates messages for the specific target chat.
+    Only migrates text messages for the specific target chat.
     
     Args:
         json_file_path: Path to the JSON file containing chat history
@@ -52,8 +52,8 @@ async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_i
             # Process messages
             for msg in data['messages']:
                 try:
-                    # Skip messages without text and not service messages
-                    if not msg.get('text') and msg['type'] != 'service':
+                    # Skip if no text content
+                    if not msg.get('text'):
                         skipped_messages += 1
                         continue
 
@@ -94,9 +94,9 @@ async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_i
                         INSERT INTO messages (
                             message_id, chat_id, user_id, timestamp, text,
                             is_command, command_name, is_gpt_reply,
-                            replied_to_message_id, raw_telegram_message
+                            replied_to_message_id
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                         ON CONFLICT (chat_id, message_id) DO NOTHING
                     """,
                         msg['id'],
@@ -107,9 +107,9 @@ async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_i
                         is_command,
                         command_name,
                         False,  # is_gpt_reply
-                        msg.get('reply_to_message_id'),
-                        json.dumps(msg)  # Store raw message data
+                        msg.get('reply_to_message_id')
                     )
+                    
                     total_messages += 1
 
                 except Exception as e:
@@ -118,7 +118,7 @@ async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_i
                     continue
 
         print(f"\nMigration Summary:")
-        print(f"Total messages processed: {total_messages}")
+        print(f"Total text messages processed: {total_messages}")
         print(f"Skipped messages: {skipped_messages}")
         print(f"Error messages: {error_messages}")
 
