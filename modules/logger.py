@@ -129,19 +129,21 @@ def save_chat_title(chat_id: str, chat_title: str) -> None:
 class KyivTimezoneFormatter(logging.Formatter):
     """Base formatter that uses Kyiv timezone for timestamps."""
     converter = lambda *args: datetime.fromtimestamp(args[1], KYIV_TZ).timetuple()
-    default_time_format = '%Y-%m-%d %H:%M:%S %z'
-    default_msec_format = '%s,%03d'
 
     def formatTime(self, record, datefmt=None):
+        """Formats the timestamp to always include milliseconds."""
         dt = datetime.fromtimestamp(record.created, KYIV_TZ)
-        _datefmt = datefmt or self.default_time_format
-        return dt.strftime(_datefmt)
+        if datefmt:
+            return dt.strftime(datefmt.replace('%f', f'{dt.microsecond // 1000:03d}'))
+        # Default format if none is provided
+        return f"{dt.strftime('%Y-%m-%d %H:%M:%S')},{dt.microsecond // 1000:03d} {dt.strftime('%z')}"
 
 class ChatContextFormatter(KyivTimezoneFormatter):
     """Formatter that includes Kyiv timezone AND chat context details."""
     def format(self, record):
         # Ensure chat attributes exist on the record, providing defaults
         record.chat_id = getattr(record, 'chat_id', 'N/A')
+        record.chat_type = getattr(record, 'chat_type', 'N/A')
         record.chattitle = getattr(record, 'chattitle', 'Unknown')
         record.username = getattr(record, 'username', 'Unknown')
         # Let the parent class handle the actual formatting string
@@ -473,13 +475,20 @@ def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger
         sys.exit(1)
 
     # --- Formatters --- (Using the refined classes)
+    # Define a unified format string that includes a placeholder for milliseconds
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    log_format_with_context = '%(asctime)s - %(name)s - %(levelname)s - Ctx:[%(chat_id)s][%(chat_type)s][%(chattitle)s][%(username)s] - %(message)s'
+    time_format = '%Y-%m-%d %H:%M:%S,%f %z'
+
     # Basic formatter with Kyiv time
     kyiv_formatter = KyivTimezoneFormatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        log_format,
+        datefmt=time_format
     )
     # Formatter with Kyiv time and chat context
     chat_context_formatter = ChatContextFormatter(
-        '%(asctime)s - %(name)s - %(levelname)s - Ctx:[%(chat_id)s][%(chattitle)s][%(username)s] - %(message)s'
+        log_format_with_context,
+        datefmt=time_format
     )
 
     # --- Console Handler ---

@@ -717,6 +717,13 @@ class VideoDownloader:
             unique_filename = f"video_{uuid.uuid4()}.mp4"
             output_template = os.path.join(self.download_path, unique_filename) 
 
+            # Clean up any old files first
+            for old_file in os.listdir(self.download_path):
+                if old_file.endswith(('.mp4', '.webm')):
+                    try:
+                        os.remove(os.path.join(self.download_path, old_file))
+                    except Exception as e:
+                        error_logger.error(f"Failed to remove old file {old_file}: {e}")
             
             process = await asyncio.create_subprocess_exec(
                 self.yt_dlp_path,
@@ -731,12 +738,8 @@ class VideoDownloader:
             
             stdout, stderr = await process.communicate()
             
-            if process.returncode == 0:
-                # Find the downloaded file
-                for file in os.listdir(self.download_path):
-                    if file.endswith(('.mp4', '.webm')):
-                        filepath = os.path.join(self.download_path, file)
-                        return filepath, await self._get_video_title(url)
+            if process.returncode == 0 and os.path.exists(output_template):
+                return output_template, await self._get_video_title(url)
                         
             error_logger.error(f"TikTok download failed: {stderr.decode()}")
             return None, None
