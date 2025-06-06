@@ -2,13 +2,22 @@ import asyncio
 import json
 from datetime import datetime
 import pytz
+import re
 from modules.database import Database
 from modules.const import KYIV_TZ
+
+def extract_numeric_user_id(user_id_field):
+    # Handles 'user15671125' -> 15671125, or returns int if already numeric
+    if isinstance(user_id_field, int):
+        return user_id_field
+    match = re.search(r'(\d+)$', str(user_id_field))
+    return int(match.group(1)) if match else None
 
 async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_id: int):
     """
     Migrate chat history from JSON file to PostgreSQL database.
     Only migrates text messages for the specific target chat.
+    Uses real Telegram user_id extracted from 'from_id' and 'actor_id'.
     
     Args:
         json_file_path: Path to the JSON file containing chat history
@@ -67,13 +76,17 @@ async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_i
                     if timestamp.tzinfo is None:
                         timestamp = KYIV_TZ.localize(timestamp)
 
-                    # Handle user info
+                    # Handle user info using real Telegram user_id
                     if msg['type'] == 'service':
-                        user_id = abs(hash(msg['actor_id'])) % (2**63)  # Generate user_id from actor_id
+                        user_id = extract_numeric_user_id(msg['actor_id'])
                         username = msg['actor']
                     else:
-                        user_id = abs(hash(msg['from_id'])) % (2**63)  # Generate user_id from from_id
+                        user_id = extract_numeric_user_id(msg['from_id'])
                         username = msg['from']
+
+                    if user_id is None:
+                        skipped_messages += 1
+                        continue
 
                     # Save user
                     await conn.execute("""
