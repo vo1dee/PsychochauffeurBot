@@ -234,11 +234,11 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_analysis))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
 
-    # Group 0: General text message handler for non-command messages.
+    # General text message handler for non-command messages.
     # It has a filter to specifically ignore commands.
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Group 0: Callback query handler for buttons.
+    # Callback query handler for buttons.
     application.add_handler(CallbackQueryHandler(button_callback))
 
     # Group 1: Video handlers. These have a higher group number so they are checked

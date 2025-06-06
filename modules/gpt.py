@@ -2,6 +2,7 @@
 
 # Standard library imports
 import asyncio
+import os
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Union
 import base64
@@ -249,7 +250,7 @@ async def analyze_image(
         system_prompt = DEFAULT_PROMPTS["image_analysis"]  # Default fallback
         if update and update.effective_chat:
             chat_id = str(update.effective_chat.id)
-            chat_type = "private" if update.effective_chat.type == "private" else "group"
+            chat_type = update.effective_chat.type
             try:
                 chat_config = await config_manager.get_config(chat_id, chat_type)
                 system_prompt = await get_system_prompt("image_analysis", chat_config)
@@ -293,6 +294,7 @@ async def analyze_image(
                 extra={
                     'chat_id': chat_id, 
                     'chattitle': update.effective_chat.title or f"Private_{chat_id}", 
+                    'chat_type': chat_type,
                     'username': username
                 }
             )
@@ -405,7 +407,7 @@ async def get_context_messages(update: Update, context: CallbackContext) -> List
             
         # Get chat configuration
         chat_id = str(update.effective_chat.id)
-        chat_type = "private" if update.effective_chat.type == "private" else "group"
+        chat_type = update.effective_chat.type
         chat_config = await config_manager.get_config(chat_id, chat_type)
         
         # Get context messages count from config
@@ -456,7 +458,7 @@ async def gpt_response(
 
         # Get chat configuration
         chat_id = str(update.effective_chat.id)
-        chat_type = "private" if update.effective_chat.type == "private" else "group"
+        chat_type = update.effective_chat.type
         chat_config = await config_manager.get_config(chat_id, chat_type)
         
         # Get response settings from config
@@ -531,6 +533,7 @@ async def gpt_response(
             extra={
                 'chat_id': update.effective_chat.id,
                 'chattitle': update.effective_chat.title or f"Private_{update.effective_chat.id}",
+                'chat_type': update.effective_chat.type,
                 'username': bot_username
             }
         )

@@ -46,9 +46,10 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
     
     # Check if bot is mentioned
     if mentioned:
-        # Extract the message after the mention
+        # Extract the message parts before and after the mention
         parts = message_text.split(f"@{bot_username}", 1)
-        if len(parts) > 1 and parts[1].strip():
+        # Trigger if there is text before the mention, or after the mention.
+        if parts[0].strip() or (len(parts) > 1 and parts[1].strip()):
             return True, 'mention'
     
     # Check if it's a private chat message that needs private response
