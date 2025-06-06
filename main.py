@@ -288,27 +288,46 @@ async def main():
     """Main bot initialization and run loop."""
     application = None
     try:
+        # Initialize components first
         await initialize_all_components()
-        application = (
-            ApplicationBuilder()
-            .token(TOKEN)
-            .connection_pool_size(32)
-            .connect_timeout(60.0)
-            .read_timeout(60.0)
-            .write_timeout(60.0)
-            .pool_timeout(60.0)
-            .get_updates_connection_pool_size(32)
-            .get_updates_read_timeout(60.0)
-            .build()
-        )
+        
+        # Create application with proper error handling
+        try:
+            application = (
+                ApplicationBuilder()
+                .token(TOKEN)
+                .connection_pool_size(32)
+                .connect_timeout(30.0)  # Reduced timeouts
+                .read_timeout(30.0)
+                .write_timeout(30.0)
+                .pool_timeout(30.0)
+                .get_updates_connection_pool_size(32)
+                .get_updates_read_timeout(30.0)
+                .build()
+            )
+        except Exception as e:
+            error_logger.error(f"Failed to create application: {str(e)}", exc_info=True)
+            raise RuntimeError("Failed to initialize bot application") from e
+
+        if not application:
+            raise RuntimeError("Application object is None after initialization")
+
+        # Register handlers
         register_handlers(application, application.bot, config_manager)
         general_logger.info("Bot polling started.")
-        await application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-            close_loop=False,
-            stop_signals=None  # We handle signals in run_bot
-        )
+        
+        # Run polling with proper error handling
+        try:
+            await application.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+                close_loop=False,
+                stop_signals=None  # We handle signals in run_bot
+            )
+        except Exception as e:
+            error_logger.error(f"Error during polling: {str(e)}", exc_info=True)
+            raise
+
     except (SystemExit, KeyboardInterrupt):
         general_logger.info("Bot shutdown requested.")
     except Exception as e:
@@ -316,10 +335,47 @@ async def main():
         raise
     finally:
         general_logger.info("Starting final cleanup...")
-        if application and application.running:
-             await application.stop()
-             await application.shutdown()
-        await cleanup_all_components()
+        if application and hasattr(application, 'running') and application.running:
+            try:
+                # First try to stop the updater directly with a timeout
+                if hasattr(application, 'updater') and application.updater:
+                    try:
+                        await asyncio.wait_for(application.updater.stop(), timeout=3.0)
+                    except asyncio.TimeoutError:
+                        error_logger.warning("Timeout stopping updater, forcing stop")
+                        if hasattr(application.updater, '_stop_polling'):
+                            application.updater._stop_polling()
+                    except Exception as e:
+                        error_logger.warning(f"Error stopping updater: {str(e)}")
+                
+                # Then try to stop the application with a timeout
+                try:
+                    await asyncio.wait_for(application.stop(), timeout=3.0)
+                except asyncio.TimeoutError:
+                    error_logger.warning("Timeout during application stop, forcing shutdown")
+                    if hasattr(application, '_stop'):
+                        application._stop()
+                except Exception as e:
+                    error_logger.warning(f"Error during application stop: {str(e)}")
+                
+                # Finally try to shutdown with a timeout
+                try:
+                    await asyncio.wait_for(application.shutdown(), timeout=3.0)
+                except asyncio.TimeoutError:
+                    error_logger.warning("Timeout during application shutdown")
+                except Exception as e:
+                    error_logger.warning(f"Error during application shutdown: {str(e)}")
+                    
+            except Exception as e:
+                error_logger.error(f"Error during application cleanup: {str(e)}", exc_info=True)
+        
+        # Clean up components with a timeout
+        try:
+            await asyncio.wait_for(cleanup_all_components(), timeout=5.0)
+        except asyncio.TimeoutError:
+            error_logger.warning("Timeout during component cleanup")
+        except Exception as e:
+            error_logger.error(f"Error during component cleanup: {str(e)}", exc_info=True)
 
 def run_bot():
     """Run the bot with proper event loop handling and graceful shutdown."""
