@@ -52,8 +52,20 @@ async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_i
             # Process messages
             for msg in data['messages']:
                 try:
+                    # Get text content
+                    text = msg.get('text', '')
+                    
+                    # Handle different text formats
+                    if isinstance(text, list):
+                        # Handle text entities
+                        text = ''.join(item.get('text', '') for item in text)
+                    elif not isinstance(text, str):
+                        # Skip if text is not a string or list
+                        skipped_messages += 1
+                        continue
+                    
                     # Skip if no text content
-                    if not msg.get('text'):
+                    if not text:
                         skipped_messages += 1
                         continue
 
@@ -77,13 +89,6 @@ async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_i
                         ON CONFLICT (user_id) DO UPDATE
                         SET first_name = $2, username = $3
                     """, user_id, username, username)
-
-                    # Prepare message text
-                    if isinstance(msg.get('text'), list):
-                        # Handle text entities
-                        text = ''.join(item.get('text', '') for item in msg['text'])
-                    else:
-                        text = msg.get('text', '')
 
                     # Check if it's a command
                     is_command = text.startswith('/') if text else False
