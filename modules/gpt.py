@@ -879,7 +879,7 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             
         # Format the statistics message
         message_parts = [
-            f"📊 *Статистика повідомлень для @{username}*",
+            f"📊 *Статистика повідомлень для {username}*",  # Removed @ symbol to avoid Markdown issues
             "",
             f"Загальна кількість повідомлень: {stats['total_messages']}",
             f"Повідомлень за останній тиждень: {stats['messages_last_week']}",
