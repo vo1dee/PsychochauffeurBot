@@ -242,14 +242,6 @@ class ConfigManager:
                                 "model": "gpt-4.1-mini",
                                 "system_prompt": "You are a weather information assistant. Provide concise weather updates and forecasts."
                             },
-                            "analyze": {
-                                "max_tokens": 1200,
-                                "temperature": 0.4,
-                                "presence_penalty": 0.1,
-                                "frequency_penalty": 0.1,
-                                "model": "gpt-4.1-mini",
-                                "system_prompt": "You are an analytical assistant. Analyze the given information and provide insights."
-                            },
                             "image_analysis": {
                                 "max_tokens": 250,
                                 "temperature": 0.2,
@@ -547,14 +539,6 @@ class ConfigManager:
                             "frequency_penalty": 0.0,
                             "model": "gpt-4.1-mini",
                             "system_prompt": "You are a weather information assistant. Provide concise weather updates and forecasts."
-                        },
-                        "analyze": {
-                            "max_tokens": 1200,
-                            "temperature": 0.4,
-                            "presence_penalty": 0.1,
-                            "frequency_penalty": 0.1,
-                            "model": "gpt-4.1-mini",
-                            "system_prompt": "You are an analytical assistant. Analyze the given information and provide insights."
                         },
                         "image_analysis": {
                             "max_tokens": 250,

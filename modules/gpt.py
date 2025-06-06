@@ -72,8 +72,7 @@ DEFAULT_PROMPTS = {
     "mention": "You are a helpful assistant who responds to mentions in group chats.",
     "private": "You are a helpful assistant for private conversations.",
     "random": "You are a friendly assistant who occasionally joins conversations.",
-    "weather": "You are a weather information assistant. Provide concise weather updates and forecasts.",
-    "analyze": "You are an analytical assistant. Analyze the given information and provide insights."
+    "weather": "You are a weather information assistant. Provide concise weather updates and forecasts."
 }
 
 # Configure timeouts and retries for API clients
@@ -461,6 +460,9 @@ async def gpt_response(
         chat_type = update.effective_chat.type
         chat_config = await config_manager.get_config(chat_id, chat_type)
         
+        # Patch: If response_type is 'analyze', use 'summary' system prompt instead
+        effective_response_type = "summary" if response_type == "analyze" else response_type
+
         # Get response settings from config
         gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
         
@@ -468,20 +470,20 @@ async def gpt_response(
         if not gpt_module:
             max_tokens = max_tokens or DEFAULT_MAX_TOKENS
             temperature = temperature or 0.7
-            system_prompt = DEFAULT_PROMPTS.get(response_type, DEFAULT_PROMPTS["command"])
+            system_prompt = DEFAULT_PROMPTS.get(effective_response_type, DEFAULT_PROMPTS["command"])
         else:
             # Check if module is disabled
             if not gpt_module.get("enabled", True):  # Default to enabled if not specified
                 return None
                 
-            response_settings = gpt_module.get("overrides", {}).get(response_type, {})
+            response_settings = gpt_module.get("overrides", {}).get(effective_response_type, {})
             
             # Use provided values or fall back to config values
             max_tokens = max_tokens or response_settings.get("max_tokens", DEFAULT_MAX_TOKENS)
             temperature = temperature or response_settings.get("temperature", 0.7)
             
             # Get system prompt from config
-            system_prompt = await get_system_prompt(response_type, chat_config)
+            system_prompt = await get_system_prompt(effective_response_type, chat_config)
         
         # If the response type is a mention, clean the text to remove the bot's username
         if response_type == 'mention' and message_text_override:
