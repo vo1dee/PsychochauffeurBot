@@ -877,9 +877,12 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
             
+        # Escape special characters in username
+        safe_username = username.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+            
         # Format the statistics message
         message_parts = [
-            f"📊 *Статистика повідомлень для {username}*",  # Removed @ symbol to avoid Markdown issues
+            f"📊 Статистика повідомлень для {safe_username}",  # Removed bold formatting to avoid issues
             "",
             f"Загальна кількість повідомлень: {stats['total_messages']}",
             f"Повідомлень за останній тиждень: {stats['messages_last_week']}",
@@ -891,7 +894,7 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if stats['command_stats']:
             message_parts.extend([
                 "",
-                "*Використані команди:*"
+                "Використані команди:"  # Removed bold formatting
             ])
             for cmd, count in stats['command_stats']:
                 message_parts.append(f"- /{cmd}: {count}")
@@ -903,10 +906,10 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"Перше повідомлення: {first_msg_date}"
             ])
             
-        # Send the statistics message
+        # Send the statistics message without Markdown parsing
         await update.message.reply_text(
             "\n".join(message_parts),
-            parse_mode='Markdown'
+            parse_mode=None  # Disable Markdown parsing completely
         )
         
     except Exception as e:
