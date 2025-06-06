@@ -52,17 +52,10 @@ async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_i
             # Process messages
             for msg in data['messages']:
                 try:
-                    # Get text content
-                    text = msg.get('text', '')
-                    
-                    # Handle different text formats
-                    if isinstance(text, list):
-                        # Handle text entities
-                        text = ''.join(item.get('text', '') for item in text)
-                    elif not isinstance(text, str):
-                        # Skip if text is not a string or list
-                        skipped_messages += 1
-                        continue
+                    # Get text content from text_entities
+                    text = ""
+                    if msg.get('text_entities'):
+                        text = ''.join(entity.get('text', '') for entity in msg['text_entities'])
                     
                     # Skip if no text content
                     if not text:
