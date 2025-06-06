@@ -308,6 +308,10 @@ class TelegramErrorHandler(logging.Handler):
 
         for attempt in range(max_retries):
             try:
+                # Ensure text is properly formatted and within limits
+                if len(text) > 4090:
+                    text = text[:4087] + "..."
+                
                 message_params = {
                     'chat_id': self.channel_id,
                     'text': text,
@@ -323,7 +327,8 @@ class TelegramErrorHandler(logging.Handler):
                 if attempt == max_retries - 1:
                     # Last attempt failed, try sending plain text
                     try:
-                        plain_text = html.escape(text) # Ensure it's safe
+                        # Strip HTML tags and escape special characters
+                        plain_text = html.escape(text.replace('<b>', '').replace('</b>', '').replace('<code>', '').replace('</code>', ''))
                         message_params = {
                             'chat_id': self.channel_id,
                             'text': f"Fallback (HTML failed):\n{plain_text[:3800]}", # Limit length
@@ -334,7 +339,7 @@ class TelegramErrorHandler(logging.Handler):
 
                         await self._bot_instance.send_message(**message_params)
                     except Exception as final_e:
-                         print(f"ERROR: Final fallback attempt to send error to Telegram failed: {final_e}", file=sys.stderr)
+                        print(f"ERROR: Final fallback attempt to send error to Telegram failed: {final_e}", file=sys.stderr)
                 else:
                     await asyncio.sleep(retry_delay * (attempt + 1)) # Exponential backoff
 
@@ -355,18 +360,18 @@ class TelegramErrorHandler(logging.Handler):
         except Exception:
             record_time_str = datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
 
-
+        # Format the error message with proper HTML escaping
         error_msg = (
             f"🚨 <b>Error Report</b>\n"
-            f"<b>Time:</b> {record_time_str}\n"
-            f"<b>Level:</b> {record.levelname}\n"
-            f"<b>Logger:</b> {record.name}\n"
+            f"<b>Time:</b> {html.escape(record_time_str)}\n"
+            f"<b>Level:</b> {html.escape(record.levelname)}\n"
+            f"<b>Logger:</b> {html.escape(record.name)}\n"
             f"<b>Location:</b> {html.escape(f'{record.pathname}:{record.lineno}')}\n"
             f"<b>Function:</b> {html.escape(record.funcName)}\n"
             f"<b>Chat ID:</b> {html.escape(str(chat_id))}\n"
             f"<b>Username:</b> {html.escape(str(username))}\n"
             f"<b>Chat Title:</b> {html.escape(str(chat_title))}\n"
-            f"<b>Message:</b>\n<pre>{safe_message}</pre>"
+            f"<b>Message:</b>\n<code>{safe_message}</code>"
         )
         return error_msg[:4090] # Ensure message fits Telegram limits
 
@@ -447,22 +452,33 @@ class TelegramErrorHandler(logging.Handler):
                 try:
                     # Send sentinel value to the queue
                     self._loop.call_soon_threadsafe(self._queue.put_nowait, None)
-                    # Wait for the task to finish processing
-                    await asyncio.wait_for(self._worker_task, timeout=10)
+                    # Wait for the task to finish processing with a shorter timeout
+                    await asyncio.wait_for(self._worker_task, timeout=5)
                     print("Telegram error handler worker stopped.")
                 except asyncio.TimeoutError:
                     print("WARNING: Timeout waiting for Telegram worker to stop. Cancelling task.", file=sys.stderr)
                     self._worker_task.cancel()
+                    try:
+                        await asyncio.wait_for(self._worker_task, timeout=2)
+                    except (asyncio.TimeoutError, asyncio.CancelledError):
+                        pass
                 except Exception as e:
                     print(f"ERROR during TelegramErrorHandler stop: {e}", file=sys.stderr)
                     if not self._worker_task.done():
-                         self._worker_task.cancel() # Force cancel if other error
+                        self._worker_task.cancel()
+                        try:
+                            await asyncio.wait_for(self._worker_task, timeout=2)
+                        except (asyncio.TimeoutError, asyncio.CancelledError):
+                            pass
 
                 self._worker_task = None
                 self._loop = None
                 if self._bot_instance:
-                     await self._bot_instance.close()
-                     self._bot_instance = None
+                    try:
+                        await asyncio.wait_for(self._bot_instance.close(), timeout=2)
+                    except (asyncio.TimeoutError, Exception) as e:
+                        print(f"WARNING: Error closing bot instance: {e}", file=sys.stderr)
+                    self._bot_instance = None
 
 
 # --- Logging System Initialization ---
