@@ -122,11 +122,28 @@ class TestChatStreamer(unittest.IsolatedAsyncioTestCase):
     
     async def test_close(self):
         """Test closing the streamer."""
-        # Create a logger first
-        logger = self.streamer._get_logger("123456789")
-        
+        # Create a mock update and stream a message first
+        update = MagicMock()
+        update.message = MagicMock()
+        update.message.text = "Test message"
+        update.effective_chat = MagicMock()
+        update.effective_chat.id = "123456789"
+        update.effective_chat.type = "group"
+        update.effective_chat.title = "Test Group"
+        update.effective_user = MagicMock()
+        update.effective_user.username = "testuser"
+    
+        context = MagicMock()
+    
+        # Stream the message
+        await self.streamer.stream_message(update, context)
+    
+        # Store original handlers count
+        original_handlers_count = len(self.streamer._chat_logger.handlers)
+    
         # Close the streamer
         await self.streamer.close()
-        
-        # Verify loggers dict is empty
-        self.assertEqual(len(self.streamer._loggers), 0) 
+    
+        # Verify that the chat logger still exists and has the same number of handlers
+        self.assertIsNotNone(self.streamer._chat_logger)
+        self.assertEqual(len(self.streamer._chat_logger.handlers), original_handlers_count) 

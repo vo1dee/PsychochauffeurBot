@@ -18,44 +18,11 @@ class ChatStreamer:
     """
     
     def __init__(self):
-        self._loggers: Dict[str, Tuple[logging.Logger, logging.FileHandler]] = {}
         self._lock = asyncio.Lock()
-    
-    def _get_logger(self, chat_id: str) -> logging.Logger:
-        """Get or create a logger for a specific chat."""
-        if chat_id not in self._loggers:
-            # Create chat-specific logger
-            logger = logging.getLogger(f'chat_stream_{chat_id}')
-            logger.setLevel(logging.INFO)
-            
-            # Create chat-specific log directory
-            log_dir = get_chat_log_dir(chat_id)
-            os.makedirs(log_dir, exist_ok=True)
-            
-            # Create daily log file handler with correct naming format
-            today = datetime.now(KYIV_TZ).strftime('%Y-%m-%d')
-            log_file = os.path.join(log_dir, f'chat_{today}.log')
-            
-            # Log that we're creating a new log file
-            logging.info(f"Creating new log file for chat {chat_id}: {log_file}")
-            
-            # Create formatter
-            formatter = logging.Formatter(
-                '%(asctime)s +0300 - chat - INFO - Ctx:[%(chat_id)s][%(chat_type)s][%(chat_name)s][%(username)s] - %(message)s'
-            )
-            
-            # Create file handler
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
-            
-            # Store both logger and handler
-            self._loggers[chat_id] = (logger, file_handler)
-            
-            # Log that we've created the logger
-            logging.info(f"Created logger for chat {chat_id}")
-        
-        return self._loggers[chat_id][0]
+        # Get the main chat logger which handles both summary and daily logs
+        self._chat_logger = logging.getLogger('chat')
+        # Store original handlers to restore them in close()
+        self._original_handlers = self._chat_logger.handlers[:]
     
     async def stream_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -70,9 +37,6 @@ class ChatStreamer:
             chat_type = update.effective_chat.type
             chat_name = update.effective_chat.title or f"Private_{chat_id}"
             username = update.effective_user.username or f"ID:{update.effective_user.id}"
-            
-            # Get logger for this chat
-            logger = self._get_logger(chat_id)
             
             # Handle different message types
             if update.message:
@@ -97,30 +61,34 @@ class ChatStreamer:
             else:
                 message_text = "[UNKNOWN MESSAGE TYPE]"
             
-            # Log the message with context
-            logger.info(
-                message_text,
-                extra={
-                    'chat_id': chat_id,
-                    'chat_type': chat_type,
-                    'chat_name': chat_name,
-                    'username': username
-                }
-            )
+            # Log context
+            log_context = {
+                'chat_id': chat_id,
+                'chat_type': chat_type,
+                'chattitle': chat_name,  # Changed from chat_name to chattitle to match formatter
+                'username': username
+            }
             
-            # Ensure the message is written to disk
-            logger.handlers[0].flush()
+            # Log using the main chat logger which handles both summary and daily logs
+            self._chat_logger.info(message_text, extra=log_context)
+            
+            # Ensure all handlers flush their output
+            for handler in self._chat_logger.handlers:
+                handler.flush()
             
         except Exception as e:
             logging.error(f"Error streaming message: {e}")
     
     async def close(self) -> None:
         """Close all file handlers."""
-        for logger, handler in self._loggers.values():
-            handler.flush()
+        # Remove all handlers from the chat logger
+        for handler in self._chat_logger.handlers[:]:
             handler.close()
-            logger.removeHandler(handler)
-        self._loggers.clear()
+            self._chat_logger.removeHandler(handler)
+        
+        # Restore original handlers
+        for handler in self._original_handlers:
+            self._chat_logger.addHandler(handler)
 
 # Create global instance
 chat_streamer = ChatStreamer() 
