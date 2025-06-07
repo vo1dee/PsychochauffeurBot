@@ -22,18 +22,21 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
         # Log that we received a message
         general_logger.info(f"Received message in chat {update.effective_chat.id}")
         
-        # Stream message to log file first
+        # Stream message to log file first - this handles ALL message types
         await chat_streamer.stream_message(update, context)
         general_logger.info("Message streamed to log file")
         
-        # If it's not a text message, we're done after logging
-        if not update.message or not (update.message.text or update.message.caption):
-            general_logger.info("Non-text message, skipping further processing")
-            return
-
-        # Store the message in the database
-        await Database.save_message(update.message)
-        general_logger.info("Message saved to database")
+        # Only save to database if it's a text message, bot reply, or has image description
+        if update.message:
+            should_save = (
+                update.message.text or  # Text message
+                update.message.caption or  # Image/video caption
+                (update.message.from_user and update.message.from_user.is_bot)  # Bot's reply
+            )
+            
+            if should_save:
+                await Database.save_message(update.message)
+                general_logger.info("Message saved to database")
             
     except Exception as e:
         # Log the error but don't interrupt the bot's operation
