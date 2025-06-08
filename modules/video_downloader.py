@@ -79,7 +79,7 @@ class VideoDownloader:
             Platform.INSTAGRAM: DownloadConfig(
                 format="best[ext=mp4][vcodec~='^avc1']/best[ext=mp4][vcodec*=avc1]/best[ext=mp4]/best",  # Aggressive H.264 first
                 headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                     "Accept-Language": "en-US,en;q=0.5",
                     "Accept-Encoding": "gzip, deflate, br",
@@ -90,7 +90,9 @@ class VideoDownloader:
                     "Sec-Fetch-Mode": "navigate",
                     "Sec-Fetch-Site": "none",
                     "Sec-Fetch-User": "?1",
-                    "Cache-Control": "max-age=0"
+                    "Cache-Control": "max-age=0",
+                    "X-IG-App-ID": "936619743392459",
+                    "X-Requested-With": "XMLHttpRequest"
                 },
                 extra_args=[
                     "--no-warnings",
@@ -101,7 +103,11 @@ class VideoDownloader:
                     "--retry-sleep", "5",
                     "--geo-bypass",
                     "--no-check-certificate",
-                    "--extractor-args", "instagram:logged_in=false"
+                    "--extractor-args", "instagram:logged_in=false",
+                    "--cookies-from-browser", "chrome",
+                    "--add-header", "X-IG-App-ID:936619743392459",
+                    "--add-header", "X-Requested-With:XMLHttpRequest",
+                    "--socket-timeout", "30"
                 ]
             ),
             Platform.TIKTOK: DownloadConfig(
