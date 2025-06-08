@@ -205,16 +205,17 @@ class ReminderParser:
                 if parsed_dates:
                     parsed_datetime = parsed_dates[0]
                     if not parsed_datetime.tzinfo:
+                        general_logger.warning(f"Naive datetime detected from timefhuman for input '{text}'. Forcing KYIV_TZ.")
                         parsed_datetime = parsed_datetime.replace(tzinfo=KYIV_TZ)
-                    
                     # Validate the parsed datetime
                     now = datetime.now(KYIV_TZ)
                     if parsed_datetime <= now:
                         # If it's a time-of-day without specific date, move to tomorrow
                         if 'tomorrow' in text.lower() or 'at' in text.lower():
+                            general_logger.warning(f"Parsed datetime for '{text}' is in the past. Moving to tomorrow.")
                             parsed_datetime = parsed_datetime + timedelta(days=1)
                         else:
-                            # For other cases, add 5 minutes to ensure it's in the future
+                            general_logger.warning(f"Parsed datetime for '{text}' is in the past. Adding 5 minutes as fallback.")
                             parsed_datetime = now + timedelta(minutes=5)
                     result['parsed_datetime'] = parsed_datetime
             except Exception as e:
@@ -223,9 +224,8 @@ class ReminderParser:
         # Fallback: if still no datetime parsed, set a default time
         if not result['parsed_datetime']:
             now = datetime.now(KYIV_TZ)
-            # No time information at all, default to 1 hour from now
             result['parsed_datetime'] = now + timedelta(hours=1)
-            general_logger.debug("No time information found, defaulting to 1 hour from now")
+            general_logger.warning(f"No time information found for input '{text}', defaulting to 1 hour from now: {result['parsed_datetime']}")
 
         general_logger.debug(f"Final parse result: {result}")
         return result

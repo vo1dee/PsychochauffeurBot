@@ -123,6 +123,7 @@ class ReminderManager:
             
             reminder_text = " ".join(args[1:])
             parsed = ReminderParser.parse(reminder_text)
+            general_logger.info(f"[REMINDER_CREATE] User input: '{reminder_text}', Parsed: {parsed}")
             # derive next_execution
             now = datetime.now(KYIV_TZ)
             next_exec = None
@@ -305,6 +306,12 @@ class ReminderManager:
                 general_logger.debug(f"One-time reminder in the past, adjusting to 5 minutes from now")
                 next_exec = now + timedelta(minutes=5)
 
+            # Ensure the result is timezone-aware
+            if next_exec and next_exec.tzinfo is None:
+                general_logger.warning(f"Naive datetime detected for next_exec ({next_exec}) for input '{reminder_text}'. Forcing KYIV_TZ.")
+                next_exec = KYIV_TZ.localize(next_exec)
+            general_logger.info(f"[REMINDER_SCHEDULE] Scheduling reminder for '{parsed['task']}' at {next_exec} (user input: '{reminder_text}')")
+
             rem = Reminder(parsed['task'], parsed['frequency'], parsed['delay'],
                            parsed['date_modifier'], next_exec, user_id, chat_id,
                            update.effective_user.mention_markdown_v2())
@@ -361,6 +368,7 @@ class ReminderManager:
 
             new_txt = " ".join(args[2:])
             parsed = ReminderParser.parse(new_txt)
+            general_logger.info(f"[REMINDER_EDIT] User input: '{new_txt}', Parsed: {parsed}")
             now = datetime.now(KYIV_TZ)
             next_exec = None
 
@@ -566,6 +574,12 @@ class ReminderManager:
             kyiv_time = next_exec.astimezone(KYIV_TZ)
             await update.message.reply_text(f"Reminder updated. Next execution: {kyiv_time.strftime('%d.%m.%Y %H:%M')}.")
 
+            # Ensure the result is timezone-aware
+            if next_exec and next_exec.tzinfo is None:
+                general_logger.warning(f"Naive datetime detected for next_exec ({next_exec}) for input '{new_txt}'. Forcing KYIV_TZ.")
+                next_exec = KYIV_TZ.localize(next_exec)
+            general_logger.info(f"[REMINDER_EDIT_SCHEDULE] Scheduling edited reminder for '{parsed['task']}' at {next_exec} (user input: '{new_txt}')")
+
         else:
             # Handle cases where users don't use the "to" keyword
             # Treat the entire args as a potential reminder task
@@ -635,6 +649,7 @@ class ReminderManager:
         if rem.frequency or rem.date_modifier:
             self.save_reminder(rem)
             delay = seconds_until(rem.next_execution)
+            general_logger.info(f"[REMINDER_RECUR] Rescheduling recurring reminder (id={rem.reminder_id}, task='{rem.task}') for next execution at {rem.next_execution}")
             if context.job_queue is not None:
                 context.job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
             else:
