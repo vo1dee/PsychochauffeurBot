@@ -104,10 +104,11 @@ class VideoDownloader:
                     "--geo-bypass",
                     "--no-check-certificate",
                     "--extractor-args", "instagram:logged_in=false",
-                    "--cookies-from-browser", "chrome",
                     "--add-header", "X-IG-App-ID:936619743392459",
                     "--add-header", "X-Requested-With:XMLHttpRequest",
-                    "--socket-timeout", "30"
+                    "--socket-timeout", "30",
+                    "--no-cookies",
+                    "--no-cache-dir"
                 ]
             ),
             Platform.TIKTOK: DownloadConfig(
