@@ -6,8 +6,6 @@ env/
 .env/
 .venv/
 Lib/
-Scripts/
-scripts/
 share/
 
 # Byte-compiled / optimized / DLL files
