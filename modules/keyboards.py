@@ -84,19 +84,6 @@ def is_twitter_video(link):
     # Add more specific checks if you have patterns for identifying video tweets
     return False
 
-def is_instagram_video(link):
-    """Check if an Instagram link contains a video"""
-    # Instagram video URLs typically have /reel/ or /tv/ in them
-    parsed = urlparse(link)
-    path_parts = parsed.path.split('/')
-    
-    # Check for reels or IGTV
-    if len(path_parts) >= 2 and path_parts[1] in ['reel', 'reels', 'tv', 'p']:
-        # For /p/ posts, you'd need to verify it's a video, but we're making a basic assumption
-        return True
-    
-    return False
-
 # Then update your BUTTONS_CONFIG:
 BUTTONS_CONFIG = [
     {
@@ -127,12 +114,6 @@ BUTTONS_CONFIG = [
         'action': 'download_video',
         'text': '⬇️ Download Video',
         'check': lambda link: ('x.com' in link or 'fixupx.com' in link) and '/status/' in link,
-        'modify': lambda link: link
-    },
-    {
-        'action': 'download_instagram_video',
-        'text': '⬇️ Download Instagram Video',
-        'check': lambda link: 'instagram.com' in link and any(part in link for part in ['/reel/', '/p/', '/tv/']),
         'modify': lambda link: link
     },
 ]
@@ -173,7 +154,7 @@ async def button_callback(update: Update, context: CallbackContext):
         action, link_hash = data.split(':', 1)
         # Validate action
         valid_actions = {btn['action'] for btn in BUTTONS_CONFIG + LANGUAGE_OPTIONS_CONFIG}
-        valid_actions.update({'download_video', 'download_instagram_video'})
+        valid_actions.update({'download_video'})
         if action not in valid_actions:
             await query.message.edit_text("Unknown action.")
             return
@@ -220,42 +201,6 @@ async def button_callback(update: Update, context: CallbackContext):
                 await query.message.edit_text("❌ An error occurred while downloading the video.")
                 return
             
-        # Handle Instagram video download action
-        if action == 'download_instagram_video':
-            video_downloader = context.bot_data.get('video_downloader')
-            if not video_downloader:
-                await query.message.edit_text("❌ Video downloader not initialized.")
-                return
-                
-            try:
-                await query.message.edit_text("🔄 Downloading Instagram video...")
-                filename, title = await video_downloader.download_video(original_link)
-                
-                if filename and os.path.exists(filename):
-                    with open(filename, 'rb') as video_file:
-                        await context.bot.send_video(
-                            chat_id=chat_id,
-                            video=video_file,
-                            caption=f"📹 {title or 'Downloaded Video'}"
-                        )
-                    os.remove(filename)
-                    await query.message.edit_text("✅ Download complete!")
-                else:
-                    await query.message.edit_text("❌ Video download failed. Check the link and try again.")
-                return
-            except Exception as e:
-                error_logger.error(f"Error in Instagram video download: {str(e)}")
-                await query.message.edit_text("❌ An error occurred while downloading the video.")
-                return
-        
-        # Convert x.com to fixupx.com if needed (only once)
-        # Only replace if the domain is exactly x.com (not as a substring of another domain)
-        from urllib.parse import urlparse, urlunparse
-        parsed = urlparse(original_link)
-        if parsed.netloc == 'x.com':
-            parsed = parsed._replace(netloc='fixupx.com')
-            original_link = urlunparse(parsed)
-
         # Handle translate action (language menu)
         if action == 'translate':
             general_logger.info("Creating language menu")
