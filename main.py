@@ -77,8 +77,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_text = (
         "🤖 PsychoChauffeur Bot\n\n"
         "🎥 Video Downloads from:\n"
-        "• TikTok\n• Instagram\n• YouTube Shorts\n"
-        "• Facebook\n• Twitter\n• Vimeo\n• Reddit\n• Twitch\n"
+        "• TikTok\n• YouTube Shorts\n"
+        "• Twitter\n• Vimeo\n• Reddit\n• Twitch\n"
         "🔗 Link Processing:\n"
         "• AliExpress link optimization\n"
         "• Link modification for restricted domains\n\n"

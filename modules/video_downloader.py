@@ -28,7 +28,6 @@ load_dotenv()
 YTDL_SERVICE_API_KEY = os.getenv('YTDL_SERVICE_API_KEY')
 
 class Platform(Enum):
-    INSTAGRAM = "instagram.com"
     TIKTOK = "tiktok.com"
     OTHER = "other"
 
@@ -76,41 +75,6 @@ class VideoDownloader:
         
         # Platform-specific download configurations
         self.platform_configs = {
-            Platform.INSTAGRAM: DownloadConfig(
-                format="best[ext=mp4][vcodec~='^avc1']/best[ext=mp4][vcodec*=avc1]/best[ext=mp4]/best",  # Aggressive H.264 first
-                headers={
-                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.5",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "DNT": "1",
-                    "Connection": "keep-alive",
-                    "Upgrade-Insecure-Requests": "1",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none",
-                    "Sec-Fetch-User": "?1",
-                    "Cache-Control": "max-age=0",
-                    "X-IG-App-ID": "936619743392459",
-                    "X-Requested-With": "XMLHttpRequest"
-                },
-                extra_args=[
-                    "--no-warnings",
-                    "--ignore-errors",
-                    "--no-playlist",
-                    "--extractor-retries", "5",
-                    "--fragment-retries", "10",
-                    "--retry-sleep", "5",
-                    "--geo-bypass",
-                    "--no-check-certificate",
-                    "--extractor-args", "instagram:logged_in=false",
-                    "--add-header", "X-IG-App-ID:936619743392459",
-                    "--add-header", "X-Requested-With:XMLHttpRequest",
-                    "--socket-timeout", "30",
-                    "--no-cookies",
-                    "--no-cache-dir"
-                ]
-            ),
             Platform.TIKTOK: DownloadConfig(
                 format="best[ext=mp4][vcodec~='^avc1']/best[ext=mp4][vcodec*=avc1]/best[ext=mp4]/best",  # Aggressive H.264 first
                 max_retries=3,
@@ -355,43 +319,32 @@ class VideoDownloader:
             return None, None
 
     async def download_video(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-        """Download video with service-first approach and fallback."""
         try:
             url = url.strip().strip('\\')
             platform = self._get_platform(url)
-            
-            # Check if it's a YouTube Shorts or Clips URL
+            error_logger.info(f"Starting video download for URL: {url}")
+            error_logger.info(f"Detected platform: {platform}")
             is_youtube_shorts = "youtube.com/shorts" in url.lower()
             is_youtube_clips = "youtube.com/clip" in url.lower()
-            
             if is_youtube_shorts or is_youtube_clips:
                 error_logger.info(f"YouTube {'Shorts' if is_youtube_shorts else 'Clips'} URL detected: {url}")
-                # Try service first for YouTube Shorts/Clips
                 service_healthy = await self._check_service_health()
                 error_logger.info(f"Service health check result: {service_healthy}")
-                
                 if service_healthy:
                     error_logger.info("Attempting service download")
                     result = await self._download_from_service(url)
-                    if result[0]:  # If service download successful
+                    if result[0]:
                         error_logger.info("Service download successful")
                         return result
                     error_logger.warning("Service download failed")
                 else:
                     error_logger.warning("Service health check failed")
-                
-                # Fallback to direct download with appropriate config
                 config = self.youtube_clips_config if is_youtube_clips else self.youtube_shorts_config
                 return await self._download_generic(url, platform, config)
-            
-            # For TikTok, use the specialized TikTok downloader
             if platform == Platform.TIKTOK:
                 error_logger.info(f"TikTok URL detected: {url}")
                 return await self._download_tiktok_ytdlp(url)
-            
-            # For all other platforms, use generic download
             return await self._download_generic(url, platform)
-            
         except Exception as e:
             error_logger.error(f"Download error: {str(e)}")
             return None, None
@@ -489,20 +442,6 @@ class VideoDownloader:
             error_logger.error(f"Traceback: {traceback.format_exc()}")
             return "Video"
 
-    @staticmethod
-    def _get_instagram_title(url: str) -> str:
-        """Extract Instagram content title."""
-        try:
-            if '/reel/' in url:
-                reel_id = url.split('/reel/')[1].split('/?')[0]
-                return f"Instagram Reel {reel_id}"
-            elif '/p/' in url:
-                post_id = url.split('/p/')[1].split('/?')[0]
-                return f"Instagram Post {post_id}"
-            return "Instagram Video"
-        except Exception:
-            return "Instagram Video"
-
     async def send_error_sticker(self, update: Update) -> None:
         """Send error sticker with enhanced error logging."""
         try:
@@ -575,6 +514,13 @@ class VideoDownloader:
                     caption=caption,
                     parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
                 )
+                
+            # Delete the original message after successful video send
+            try:
+                await update.message.delete()
+            except Exception as e:
+                error_logger.error(f"Failed to delete original message: {str(e)}")
+                
         except Exception as e:
             error_logger.error(f"Video sending error: {str(e)}")
             await self.send_error_sticker(update)
@@ -706,12 +652,8 @@ class VideoDownloader:
             raise RuntimeError(f"Could not create download directory: {self.download_path}")
 
     def _get_platform(self, url: str) -> Platform:
-        """Determine the platform from the URL."""
         url = url.lower()
-        
-        if "instagram.com" in url:
-            return Platform.INSTAGRAM
-        elif "tiktok.com" in url or "vm.tiktok.com" in url:
+        if "tiktok.com" in url or "vm.tiktok.com" in url:
             return Platform.TIKTOK
         else:
             return Platform.OTHER
@@ -764,6 +706,8 @@ class VideoDownloader:
             else:
                 config = self.platform_configs.get(platform, self.platform_configs[Platform.OTHER])
                 
+            error_logger.info(f"Using download config: {config}")
+            
             # Force mp4 extension
             unique_filename = f"video_{uuid.uuid4()}.mp4"
             output_template = os.path.join(self.download_path, unique_filename) 
@@ -816,18 +760,21 @@ class VideoDownloader:
                     '-f', config.format,
                     '-o', output_template,
                     '--merge-output-format', 'mp4',
+                    '--verbose',  # Enable verbose output for debugging
                 ]
                 
                 # Add platform-specific headers if available
                 if config.headers:
                     for key, value in config.headers.items():
                         yt_dlp_args.extend(['--add-header', f'{key}:{value}'])
+                        error_logger.info(f"Added header: {key}:{value}")
                 
                 # Add any extra args from the config
                 if config.extra_args:
                     yt_dlp_args.extend(config.extra_args)
+                    error_logger.info(f"Added extra args: {config.extra_args}")
             
-            error_logger.info(f"Executing: {' '.join(yt_dlp_args)}")
+            error_logger.info(f"Executing yt-dlp command: {' '.join(yt_dlp_args)}")
             process = await asyncio.create_subprocess_exec(
                 *yt_dlp_args,
                 stdout=asyncio.subprocess.PIPE,
@@ -894,9 +841,8 @@ def setup_video_handlers(application, extract_urls_func=None):
 
     # More specific filter for video platforms
     video_platforms = [
-        'tiktok.com', 'vm.tiktok.com', 'instagram.com/reels', 'youtube.com/shorts',
-        'youtu.be/shorts', 'facebook.com', 'vimeo.com', 'reddit.com', 'twitch.tv',
-        'youtube.com/clip'
+        'tiktok.com', 'vm.tiktok.com', 'youtube.com/shorts',
+        'youtu.be/shorts', 'vimeo.com', 'reddit.com', 'twitch.tv', 'youtube.com/clip'
     ]
     
     video_pattern = '|'.join(video_platforms)

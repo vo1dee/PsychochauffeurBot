@@ -17,7 +17,7 @@ A versatile Telegram bot that downloads videos and images from social media plat
 
 ### 🎥 Media Download
 - **Supported Platforms**:
-  - TikTok, Instagram, Facebook
+  - TikTok
   - YouTube Shorts and Clips
   - Twitter/X, Vimeo, Reddit
   - Twitch Clips

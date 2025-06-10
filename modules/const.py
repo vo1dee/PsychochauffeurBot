@@ -36,15 +36,14 @@ class LinkModification:
     """Domain modifications for various social media platforms."""
     DOMAINS: Dict[str, str] = {
         "twitter.com": "fxtwitter.com",
-        "x.com": "fixupx.com",
-        "instagram.com": "ddinstagram.com"
+        "x.com": "fixupx.com"
     }
 
 class VideoPlatforms:
     """Supported video platforms."""
     SUPPORTED_PLATFORMS = [
-        'tiktok.com', 'vm.tiktok.com', 'instagram.com/reels', 'youtube.com/shorts',
-        'youtu.be/shorts', 'facebook.com',
+        'tiktok.com', 'vm.tiktok.com', 'youtube.com/shorts',
+        'youtu.be/shorts',
         'vimeo.com', 'reddit.com', 'twitch.tv', 'youtube.com/clip'
     ]
 
