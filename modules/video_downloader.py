@@ -499,7 +499,13 @@ class VideoDownloader:
             for char in special_chars:
                 escaped_title = escaped_title.replace(char, f'\\{char}')
 
-            caption = f"📹 {escaped_title}"
+            # Get username and escape it
+            username = update.effective_user.username or update.effective_user.first_name
+            escaped_username = username
+            for char in special_chars:
+                escaped_username = escaped_username.replace(char, f'\\{char}')
+
+            caption = f"📹 {escaped_title}\n\n👤 Від: @{escaped_username}"
             
             if source_url:
                 # Escape special characters in URL
