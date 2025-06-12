@@ -42,8 +42,10 @@ class ChatStreamer:
             if update.message:
                 if update.message.text:
                     message_text = update.message.text
+                    self._chat_logger.info(message_text, extra=log_context)
                 elif update.message.sticker:
                     message_text = f"[STICKER] {update.message.sticker.emoji or 'No emoji'}"
+                    self._chat_logger.info(message_text, extra=log_context)
                 elif update.message.photo:
                     # Log the photo first
                     message_text = "[PHOTO]"
@@ -55,18 +57,25 @@ class ChatStreamer:
                         self._chat_logger.info(message_text, extra=log_context)
                 elif update.message.video:
                     message_text = "[VIDEO]"
+                    self._chat_logger.info(message_text, extra=log_context)
                 elif update.message.voice:
                     message_text = "[VOICE]"
+                    self._chat_logger.info(message_text, extra=log_context)
                 elif update.message.audio:
                     message_text = "[AUDIO]"
+                    self._chat_logger.info(message_text, extra=log_context)
                 elif update.message.document:
                     message_text = f"[DOCUMENT] {update.message.document.file_name or 'Unnamed'}"
+                    self._chat_logger.info(message_text, extra=log_context)
                 elif update.message.animation:
                     message_text = "[ANIMATION]"
+                    self._chat_logger.info(message_text, extra=log_context)
                 else:
                     message_text = "[OTHER MEDIA]"
+                    self._chat_logger.info(message_text, extra=log_context)
             else:
                 message_text = "[UNKNOWN MESSAGE TYPE]"
+                self._chat_logger.info(message_text, extra=log_context)
             
             # Log context
             log_context = {
@@ -75,11 +84,6 @@ class ChatStreamer:
                 'chattitle': chat_name,  # Changed from chat_name to chattitle to match formatter
                 'username': username
             }
-            
-            # Log using the main chat logger which handles both summary and daily logs
-            # Only log if we haven't already logged (for photos with captions)
-            if not (update.message and update.message.photo and update.message.caption):
-                self._chat_logger.info(message_text, extra=log_context)
             
             # Ensure all handlers flush their output
             for handler in self._chat_logger.handlers:
