@@ -255,6 +255,30 @@ async def initialize_all_components():
         await config_manager.initialize()
         await reminder_manager.initialize()
         await safety_manager.initialize()
+        
+        # Send startup message to error channel
+        try:
+            bot = Bot(token=TOKEN)
+            startup_time = datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
+            startup_message = (
+                "🚀 *Bot Started Successfully*\n\n"
+                f"*Time:* `{startup_time}`\n"
+                "*Status:* `Online`\n"
+                "*Components:*\n"
+                "• Database: ✅\n"
+                "• Error Handler: ✅\n"
+                "• Config Manager: ✅\n"
+                "• Reminder Manager: ✅\n"
+                "• Safety Manager: ✅"
+            )
+            await bot.send_message(
+                chat_id=Config.ERROR_CHANNEL_ID,
+                text=startup_message,
+                parse_mode='MarkdownV2'
+            )
+        except Exception as e:
+            error_logger.error(f"Failed to send startup message: {str(e)}", exc_info=True)
+            
         general_logger.info("All components initialized successfully.")
     except Exception as e:
         error_logger.error(f"Failed to initialize components: {str(e)}", exc_info=True)

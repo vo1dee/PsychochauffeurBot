@@ -315,7 +315,7 @@ class TelegramErrorHandler(logging.Handler):
                 message_params = {
                     'chat_id': self.channel_id,
                     'text': text,
-                    'parse_mode': 'HTML'
+                    'parse_mode': 'MarkdownV2'
                 }
                 if self.message_thread_id is not None:
                     message_params['message_thread_id'] = self.message_thread_id
@@ -327,11 +327,11 @@ class TelegramErrorHandler(logging.Handler):
                 if attempt == max_retries - 1:
                     # Last attempt failed, try sending plain text
                     try:
-                        # Strip HTML tags and escape special characters
-                        plain_text = html.escape(text.replace('<b>', '').replace('</b>', '').replace('<code>', '').replace('</code>', ''))
+                        # Strip Markdown formatting and escape special characters
+                        plain_text = text.replace('*', '').replace('_', '').replace('`', '').replace('[', '').replace(']', '')
                         message_params = {
                             'chat_id': self.channel_id,
-                            'text': f"Fallback (HTML failed):\n{plain_text[:3800]}", # Limit length
+                            'text': f"Fallback (Markdown failed):\n{plain_text[:3800]}", # Limit length
                             'parse_mode': None
                         }
                         if self.message_thread_id is not None:
@@ -344,7 +344,7 @@ class TelegramErrorHandler(logging.Handler):
                     await asyncio.sleep(retry_delay * (attempt + 1)) # Exponential backoff
 
     def format_error_message(self, record: logging.LogRecord) -> str:
-        """Formats the error message using HTML."""
+        """Formats the error message using Markdown V2."""
         # Ensure attributes exist
         chat_id = getattr(record, 'chat_id', 'N/A')
         username = getattr(record, 'username', 'N/A')
@@ -352,7 +352,12 @@ class TelegramErrorHandler(logging.Handler):
 
         # Use the handler's formatter for the main message part
         core_message = self.format(record) # Get formatted message string
-        safe_message = html.escape(core_message)
+        
+        # Escape special characters for Markdown V2
+        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        safe_message = core_message
+        for char in special_chars:
+            safe_message = safe_message.replace(char, f'\\{char}')
 
         # Format timestamp using KyivTimezoneFormatter logic if possible
         try:
@@ -360,18 +365,23 @@ class TelegramErrorHandler(logging.Handler):
         except Exception:
             record_time_str = datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
 
-        # Format the error message with proper HTML escaping
+        # Escape special characters in timestamp
+        safe_time = record_time_str
+        for char in special_chars:
+            safe_time = safe_time.replace(char, f'\\{char}')
+
+        # Format the error message with proper Markdown V2 escaping
         error_msg = (
-            f"🚨 <b>Error Report</b>\n"
-            f"<b>Time:</b> {html.escape(record_time_str)}\n"
-            f"<b>Level:</b> {html.escape(record.levelname)}\n"
-            f"<b>Logger:</b> {html.escape(record.name)}\n"
-            f"<b>Location:</b> {html.escape(f'{record.pathname}:{record.lineno}')}\n"
-            f"<b>Function:</b> {html.escape(record.funcName)}\n"
-            f"<b>Chat ID:</b> {html.escape(str(chat_id))}\n"
-            f"<b>Username:</b> {html.escape(str(username))}\n"
-            f"<b>Chat Title:</b> {html.escape(str(chat_title))}\n"
-            f"<b>Message:</b>\n<code>{safe_message}</code>"
+            "🚨 *Error Report*\n\n"
+            f"*Time:* `{safe_time}`\n"
+            f"*Level:* `{record.levelname}`\n"
+            f"*Logger:* `{record.name}`\n"
+            f"*Location:* `{record.pathname}:{record.lineno}`\n"
+            f"*Function:* `{record.funcName}`\n"
+            f"*Chat ID:* `{chat_id}`\n"
+            f"*Username:* `{username}`\n"
+            f"*Chat Title:* `{chat_title}`\n"
+            f"*Message:*\n`{safe_message}`"
         )
         return error_msg[:4090] # Ensure message fits Telegram limits
 
