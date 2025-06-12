@@ -38,6 +38,14 @@ class ChatStreamer:
             chat_name = update.effective_chat.title or f"Private_{chat_id}"
             username = update.effective_user.username or f"ID:{update.effective_user.id}"
             
+            # Create log context first
+            log_context = {
+                'chat_id': chat_id,
+                'chat_type': chat_type,
+                'chattitle': chat_name,  # Changed from chat_name to chattitle to match formatter
+                'username': username
+            }
+            
             # Handle different message types
             if update.message:
                 if update.message.text:
@@ -76,14 +84,6 @@ class ChatStreamer:
             else:
                 message_text = "[UNKNOWN MESSAGE TYPE]"
                 self._chat_logger.info(message_text, extra=log_context)
-            
-            # Log context
-            log_context = {
-                'chat_id': chat_id,
-                'chat_type': chat_type,
-                'chattitle': chat_name,  # Changed from chat_name to chattitle to match formatter
-                'username': username
-            }
             
             # Ensure all handlers flush their output
             for handler in self._chat_logger.handlers:
