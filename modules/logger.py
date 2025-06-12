@@ -312,11 +312,14 @@ class TelegramErrorHandler(logging.Handler):
                 if len(text) > 4090:
                     text = text[:4087] + "..."
                 
+                # Prepare message parameters
                 message_params = {
                     'chat_id': self.channel_id,
                     'text': text,
                     'parse_mode': 'MarkdownV2'
                 }
+                
+                # Add message_thread_id if it exists
                 if self.message_thread_id is not None:
                     message_params['message_thread_id'] = self.message_thread_id
 
