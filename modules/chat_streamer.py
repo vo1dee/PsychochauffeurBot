@@ -45,7 +45,14 @@ class ChatStreamer:
                 elif update.message.sticker:
                     message_text = f"[STICKER] {update.message.sticker.emoji or 'No emoji'}"
                 elif update.message.photo:
+                    # Log the photo first
                     message_text = "[PHOTO]"
+                    self._chat_logger.info(message_text, extra=log_context)
+                    
+                    # If there's a caption, log it separately
+                    if update.message.caption:
+                        message_text = update.message.caption
+                        self._chat_logger.info(message_text, extra=log_context)
                 elif update.message.video:
                     message_text = "[VIDEO]"
                 elif update.message.voice:
@@ -70,7 +77,9 @@ class ChatStreamer:
             }
             
             # Log using the main chat logger which handles both summary and daily logs
-            self._chat_logger.info(message_text, extra=log_context)
+            # Only log if we haven't already logged (for photos with captions)
+            if not (update.message and update.message.photo and update.message.caption):
+                self._chat_logger.info(message_text, extra=log_context)
             
             # Ensure all handlers flush their output
             for handler in self._chat_logger.handlers:
