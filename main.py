@@ -50,7 +50,7 @@ from config.config_manager import ConfigManager
 from modules.safety import safety_manager
 from modules.url_processor import (
     sanitize_url, shorten_url, extract_urls,
-    is_modified_domain, modify_url
+    is_modified_domain, modify_url, is_meta_platform
 )
 from modules.message_processor import (
     needs_gpt_response, update_message_history,
@@ -135,6 +135,13 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         
     # Process message content and extract URLs
     cleaned_text, modified_links = process_message_content(message_text)
+    
+    # Check for Meta platform links
+    urls = extract_urls(message_text)
+    for url in urls:
+        if is_meta_platform(url):
+            await update.message.reply_text("цукерберг уйобок, мета - корпорація гівна")
+            return
     
     # Check for GPT response
     needs_response, response_type = needs_gpt_response(update, context, message_text)
