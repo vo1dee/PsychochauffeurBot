@@ -19,6 +19,29 @@ _url_shortener_cache: dict[str, str] = {}
 _shortener_calls: deque = deque()
 _SHORTENER_MAX_CALLS_PER_MINUTE: int = int(os.getenv('SHORTENER_MAX_CALLS_PER_MINUTE', '30'))
 
+# Meta platform domains
+META_PLATFORMS = [
+    'instagram.com',
+    'facebook.com',
+    'threads.net'
+]
+
+def is_meta_platform(url: str) -> bool:
+    """
+    Check if URL is from a Meta platform (Instagram, Facebook, or Threads).
+    
+    Args:
+        url: URL to check
+        
+    Returns:
+        bool: True if URL is from a Meta platform
+    """
+    try:
+        domain = urlparse(url).netloc.lower()
+        return any(platform in domain for platform in META_PLATFORMS)
+    except Exception:
+        return False
+
 def sanitize_url(url: str) -> str:
     """
     Sanitize and validate a URL.
