@@ -691,7 +691,12 @@ class VideoDownloader:
                 stderr=asyncio.subprocess.PIPE
             )
             
-            stdout, stderr = await process.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)  # 60 second timeout
+            except asyncio.TimeoutError:
+                error_logger.error(f"TikTok download timeout after 60 seconds for URL: {url}")
+                process.kill()  # Kill the process if it's still running
+                return None, None
             
             if process.returncode == 0 and os.path.exists(output_template):
                 return output_template, await self._get_video_title(url)
@@ -787,7 +792,12 @@ class VideoDownloader:
                 stderr=asyncio.subprocess.PIPE
             )
             
-            stdout, stderr = await process.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)  # 60 second timeout
+            except asyncio.TimeoutError:
+                error_logger.error(f"Download timeout after 60 seconds for URL: {url}")
+                process.kill()  # Kill the process if it's still running
+                return None, None
             
             # Log output for debugging
             if stdout:
@@ -845,13 +855,8 @@ def setup_video_handlers(application, extract_urls_func=None):
     
     application.bot_data['video_downloader'] = video_downloader
 
-    # More specific filter for video platforms
-    video_platforms = [
-        'tiktok.com', 'vm.tiktok.com', 'youtube.com/shorts',
-        'youtu.be/shorts', 'vimeo.com', 'reddit.com', 'twitch.tv', 'youtube.com/clip'
-    ]
-    
-    video_pattern = '|'.join(video_platforms)
+    # Use the supported platforms from const.py
+    video_pattern = '|'.join(VideoPlatforms.SUPPORTED_PLATFORMS)
     general_logger.info(f"Setting up video handler with pattern: {video_pattern}")
     
     # Add the video handler with high priority
