@@ -248,7 +248,8 @@ class ConfigManager:
                                 "presence_penalty": 0.0,
                                 "frequency_penalty": 0.0,
                                 "model": "gpt-4.1-mini",
-                                "system_prompt": "Analyze the image and provide a brief description of its contents."
+                                "system_prompt": "You are an image analysis assistant. Provide detailed descriptions and analysis of images.",
+                                "enabled": True
                             },
                             "summary": {
                                 "max_tokens": 800,
@@ -541,6 +542,7 @@ class ConfigManager:
                             "system_prompt": "You are a weather information assistant. Provide concise weather updates and forecasts."
                         },
                         "image_analysis": {
+                            "enabled": False,  # Disable image analysis by default
                             "max_tokens": 250,
                             "temperature": 0.2,
                             "presence_penalty": 0.0,
