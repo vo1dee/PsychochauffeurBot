@@ -36,7 +36,9 @@ class LinkModification:
     """Domain modifications for various social media platforms."""
     DOMAINS: Dict[str, str] = {
         "twitter.com": "fxtwitter.com",
-        "x.com": "fixupx.com"
+        "x.com": "fixupx.com",
+        "aliexpress.com": "aliexpress.com",
+        "instagram.com": "ddinstagram.com"
     }
 
 class VideoPlatforms:

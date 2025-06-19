@@ -70,5 +70,22 @@ async def set_config_endpoint(
         raise HTTPException(status_code=500, detail="Failed to save config.")
     return {"status": "ok"}
 
+
+@app.post("/config/update-template")
+async def update_template_endpoint() -> dict:
+    """Update all chat configs with new fields from the template while preserving existing values."""
+    results = await config_manager.update_chat_configs_with_template()
+    success_count = sum(1 for v in results.values() if v)
+    total_count = len(results)
+    return {
+        "status": "ok",
+        "results": results,
+        "summary": {
+            "total": total_count,
+            "successful": success_count,
+            "failed": total_count - success_count
+        }
+    }
+
 # To run this server:
 # uvicorn config_api:app --host 0.0.0.0 --port 8000

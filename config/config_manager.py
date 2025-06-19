@@ -473,6 +473,24 @@ class ConfigManager:
                 result[key] = value
         return result
 
+    def _add_missing_recursive(self, target: Dict[str, Any], template_source: Dict[str, Any]) -> bool:
+        """
+        Recursively adds missing keys from template_source to target dictionary.
+        Existing keys in target are preserved.
+        Returns True if any changes were made to the target dictionary.
+        """
+        modified = False
+        for key, value in template_source.items():
+            if key not in target:
+                target[key] = value
+                modified = True
+                logger.info(f"Added missing key '{key}' with value: {value}")
+            elif isinstance(target[key], dict) and isinstance(value, dict):
+                if self._add_missing_recursive(target[key], value):
+                    modified = True
+            # If key exists and is not a dict, or if value is not a dict, do nothing (preserve existing)
+        return modified
+
     async def create_new_chat_config(
         self,
         chat_id: str,
@@ -910,103 +928,183 @@ class ConfigManager:
         return results
 
     async def migrate_existing_configs(self) -> Dict[str, bool]:
-        """Migrate existing config files to the new directory structure."""
-        logger.info("Starting migration of existing config files to new directory structure")
+        """Migrate existing configurations to the new modular format."""
         results = {}
+        # ... existing code ...
 
-        # Get default module configurations
-        default_config = await self.create_new_chat_config("default", "private")
-        default_modules = default_config["config_modules"]
+    async def update_chat_configs_with_template(self) -> Dict[str, bool]:
+        """Update all chat configs with new fields from the template while preserving existing values.
+        
+        This method will:
+        1. Get the current global template
+        2. For each chat config, add any missing fields from the template
+        3. Preserve all existing values in the chat configs
+        """
+        results = {}
+        try:
+            # Get the current global template
+            template = await self._load_global_config()
+            if not template or "config_modules" not in template:
+                logger.error("Invalid global template format")
+                return results
 
-        # Migrate private chat configs
-        for config_file in self.PRIVATE_CONFIG_DIR.glob("*.json"):
-            if config_file.name == "main_config.json":
-                continue
-            chat_id = config_file.stem
-            try:
-                # Read existing config
-                async with aiofiles.open(config_file, 'r', encoding='utf-8') as f:
-                    config_data = json.loads(await f.read())
-                
-                # Create chat directory
-                await self.ensure_chat_dir(chat_id, "private")
-                
-                # Merge with default module configurations
-                if "config_modules" not in config_data or not config_data["config_modules"]:
-                    config_data["config_modules"] = default_modules
-                else:
-                    # Merge existing modules with defaults
-                    for module_name, default_module in default_modules.items():
-                        if module_name not in config_data["config_modules"]:
-                            config_data["config_modules"][module_name] = default_module
-                        else:
-                            # Merge overrides
-                            existing_module = config_data["config_modules"][module_name]
-                            if "overrides" not in existing_module:
-                                existing_module["overrides"] = default_module["overrides"]
-                            else:
-                                # Deep merge overrides
-                                for key, value in default_module["overrides"].items():
-                                    if key not in existing_module["overrides"]:
-                                        existing_module["overrides"][key] = value
-                
-                # Save to new location
-                new_path = self._get_chat_config_path(chat_id, "private")
-                async with aiofiles.open(new_path, 'w', encoding='utf-8') as f:
-                    await f.write(json.dumps(config_data, indent=2, ensure_ascii=False))
-                
-                # Remove old file
-                config_file.unlink()
-                results[f"private_{chat_id}"] = True
-                logger.info(f"Migrated private chat config: {chat_id}")
-            except Exception as e:
-                logger.error(f"Error migrating private chat config {chat_id}: {e}")
-                results[f"private_{chat_id}"] = False
+            # Process private chats
+            for chat_dir in self.PRIVATE_CONFIG_DIR.iterdir():
+                if chat_dir.is_dir():
+                    chat_id = chat_dir.name
+                    config_path = chat_dir / "config.json"
+                    if config_path.exists():
+                        try:
+                            async with self._get_lock(str(config_path)):
+                                async with aiofiles.open(config_path, 'r', encoding='utf-8') as f:
+                                    chat_config = json.loads(await f.read())
 
-        # Migrate group chat configs
-        for config_file in self.GROUP_CONFIG_DIR.glob("*.json"):
-            if config_file.name == "main_config.json":
-                continue
-            chat_id = config_file.stem
-            try:
-                # Read existing config
-                async with aiofiles.open(config_file, 'r', encoding='utf-8') as f:
-                    config_data = json.loads(await f.read())
-                
-                # Create chat directory
-                await self.ensure_chat_dir(chat_id, "group")
-                
-                # Merge with default module configurations
-                if "config_modules" not in config_data or not config_data["config_modules"]:
-                    config_data["config_modules"] = default_modules
-                else:
-                    # Merge existing modules with defaults
-                    for module_name, default_module in default_modules.items():
-                        if module_name not in config_data["config_modules"]:
-                            config_data["config_modules"][module_name] = default_module
-                        else:
-                            # Merge overrides
-                            existing_module = config_data["config_modules"][module_name]
-                            if "overrides" not in existing_module:
-                                existing_module["overrides"] = default_module["overrides"]
-                            else:
-                                # Deep merge overrides
-                                for key, value in default_module["overrides"].items():
-                                    if key not in existing_module["overrides"]:
-                                        existing_module["overrides"][key] = value
-                
-                # Save to new location
-                new_path = self._get_chat_config_path(chat_id, "group")
-                async with aiofiles.open(new_path, 'w', encoding='utf-8') as f:
-                    await f.write(json.dumps(config_data, indent=2, ensure_ascii=False))
-                
-                # Remove old file
-                config_file.unlink()
-                results[f"group_{chat_id}"] = True
-                logger.info(f"Migrated group chat config: {chat_id}")
-            except Exception as e:
-                logger.error(f"Error migrating group chat config {chat_id}: {e}")
-                results[f"group_{chat_id}"] = False
+                                    config_modified = False
 
-        logger.info(f"Migration completed: {sum(results.values())} successful, {len(results) - sum(results.values())} failed")
-        return results 
+                                    # Ensure config_modules exists in chat config
+                                    if "config_modules" not in chat_config:
+                                        chat_config["config_modules"] = {}
+                                        config_modified = True
+
+                                    # Debug: Initial chat_config state
+                                    logger.info(f"[UpdateConfig][private {chat_id}] Initial chat_config: {json.dumps(chat_config, indent=2)}")
+
+                                    # Iterate through template modules
+                                    for module_name, template_module_data in template["config_modules"].items():
+                                        logger.info(f"[UpdateConfig][private {chat_id}] Processing module: {module_name}")
+                                        logger.info(f"[UpdateConfig][private {chat_id}] Template data for {module_name}: {json.dumps(template_module_data, indent=2)}")
+
+                                        if module_name not in chat_config["config_modules"]:
+                                            # If module is entirely missing, add it from template
+                                            new_module_config = template_module_data.copy()
+                                            if "settings" in new_module_config and "overrides" not in new_module_config:
+                                                new_module_config["overrides"] = new_module_config.pop("settings")
+                                            chat_config["config_modules"][module_name] = new_module_config
+                                            config_modified = True
+                                            logger.info(f"[UpdateConfig][private {chat_id}] Added new module: {module_name}")
+                                        else:
+                                            # If module exists, perform a recursive merge
+                                            current_chat_module_data = chat_config["config_modules"][module_name]
+                                            logger.info(f"[UpdateConfig][private {chat_id}] Current chat module data for {module_name} (before merge): {json.dumps(current_chat_module_data, indent=2)}")
+
+                                            # Merge top-level fields (e.g., 'enabled' for the module itself)
+                                            if self._add_missing_recursive(current_chat_module_data, template_module_data):
+                                                config_modified = True
+                                                logger.info(f"[UpdateConfig][private {chat_id}] Top-level fields modified for module: {module_name}")
+
+                                            # Special handling for merging 'settings' from template into 'overrides' in chat config
+                                            template_settings = template_module_data.get("settings", {})
+                                            if template_settings:
+                                                logger.info(f"[UpdateConfig][private {chat_id}] Template settings for {module_name}: {json.dumps(template_settings, indent=2)}")
+                                                if "overrides" not in current_chat_module_data:
+                                                    current_chat_module_data["overrides"] = {}
+                                                    config_modified = True
+                                                    logger.info(f"[UpdateConfig][private {chat_id}] Added 'overrides' to module: {module_name}")
+                                                
+                                                # Recursively add missing fields from template settings to chat overrides
+                                                if self._add_missing_recursive(current_chat_module_data["overrides"], template_settings):
+                                                    config_modified = True
+                                                    logger.info(f"[UpdateConfig][private {chat_id}] Overrides modified for module: {module_name}")
+
+                                            logger.info(f"[UpdateConfig][private {chat_id}] Current chat module data for {module_name} (after merge): {json.dumps(current_chat_module_data, indent=2)}")
+
+                                    # Debug: Final chat_config state before save decision
+                                    logger.info(f"[UpdateConfig][private {chat_id}] Final chat_config before save decision: {json.dumps(chat_config, indent=2)}")
+                                    logger.info(f"[UpdateConfig][private {chat_id}] config_modified flag: {config_modified}")
+
+                                    # Save updated config only if changes were made
+                                    if config_modified:
+                                        async with aiofiles.open(config_path, 'w', encoding='utf-8') as f:
+                                            await f.write(json.dumps(chat_config, indent=4, ensure_ascii=False))
+                                        results[f"private_{chat_id}"] = True
+                                        logger.info(f"[UpdateConfig][private {chat_id}] Config file saved due to modifications.")
+                                    else:
+                                        results[f"private_{chat_id}"] = True # Still count as success if no changes needed
+                                        logger.info(f"[UpdateConfig][private {chat_id}] No modifications detected, file not rewritten.")
+                        except Exception as e:
+                            logger.error(f"Error updating private chat {chat_id}: {e}")
+                            results[f"private_{chat_id}"] = False
+                            logger.error(f"[UpdateConfig][private {chat_id}] Failed to update config.")
+
+            # Process group chats
+            for chat_dir in self.GROUP_CONFIG_DIR.iterdir():
+                if chat_dir.is_dir():
+                    chat_id = chat_dir.name
+                    config_path = chat_dir / "config.json"
+                    if config_path.exists():
+                        try:
+                            async with self._get_lock(str(config_path)):
+                                async with aiofiles.open(config_path, 'r', encoding='utf-8') as f:
+                                    chat_config = json.loads(await f.read())
+
+                                    config_modified = False
+
+                                    # Ensure config_modules exists in chat config
+                                    if "config_modules" not in chat_config:
+                                        chat_config["config_modules"] = {}
+                                        config_modified = True
+
+                                    # Debug: Initial chat_config state
+                                    logger.info(f"[UpdateConfig][group {chat_id}] Initial chat_config: {json.dumps(chat_config, indent=2)}")
+
+                                    # Iterate through template modules
+                                    for module_name, template_module_data in template["config_modules"].items():
+                                        logger.info(f"[UpdateConfig][group {chat_id}] Processing module: {module_name}")
+                                        logger.info(f"[UpdateConfig][group {chat_id}] Template data for {module_name}: {json.dumps(template_module_data, indent=2)}")
+
+                                        if module_name not in chat_config["config_modules"]:
+                                            # If module is entirely missing, add it from template
+                                            new_module_config = template_module_data.copy()
+                                            if "settings" in new_module_config and "overrides" not in new_module_config:
+                                                new_module_config["overrides"] = new_module_config.pop("settings")
+                                            chat_config["config_modules"][module_name] = new_module_config
+                                            config_modified = True
+                                            logger.info(f"[UpdateConfig][group {chat_id}] Added new module: {module_name}")
+                                        else:
+                                            # If module exists, perform a recursive merge
+                                            current_chat_module_data = chat_config["config_modules"][module_name]
+                                            logger.debug(f"[UpdateConfig][group {chat_id}] Current chat module data for {module_name} (before merge): {json.dumps(current_chat_module_data, indent=2)}")
+
+                                            # Merge top-level fields (e.g., 'enabled' for the module itself)
+                                            if self._add_missing_recursive(current_chat_module_data, template_module_data):
+                                                config_modified = True
+                                                logger.debug(f"[UpdateConfig][group {chat_id}] Top-level fields modified for module: {module_name}")
+
+                                            # Special handling for merging 'settings' from template into 'overrides' in chat config
+                                            template_settings = template_module_data.get("settings", {})
+                                            if template_settings:
+                                                logger.debug(f"[UpdateConfig][group {chat_id}] Template settings for {module_name}: {json.dumps(template_settings, indent=2)}")
+                                                if "overrides" not in current_chat_module_data:
+                                                    current_chat_module_data["overrides"] = {}
+                                                    config_modified = True
+                                                    logger.debug(f"[UpdateConfig][group {chat_id}] Added 'overrides' to module: {module_name}")
+                                                
+                                                # Recursively add missing fields from template settings to chat overrides
+                                                if self._add_missing_recursive(current_chat_module_data["overrides"], template_settings):
+                                                    config_modified = True
+                                                    logger.debug(f"[UpdateConfig][group {chat_id}] Overrides modified for module: {module_name}")
+
+                                            logger.debug(f"[UpdateConfig][group {chat_id}] Current chat module data for {module_name} (after merge): {json.dumps(current_chat_module_data, indent=2)}")
+
+                                    # Debug: Final chat_config state before save decision
+                                    logger.debug(f"[UpdateConfig][group {chat_id}] Final chat_config before save decision: {json.dumps(chat_config, indent=2)}")
+                                    logger.debug(f"[UpdateConfig][group {chat_id}] config_modified flag: {config_modified}")
+
+                                    # Save updated config only if changes were made
+                                    if config_modified:
+                                        async with aiofiles.open(config_path, 'w', encoding='utf-8') as f:
+                                            await f.write(json.dumps(chat_config, indent=4, ensure_ascii=False))
+                                        results[f"group_{chat_id}"] = True
+                                        logger.info(f"[UpdateConfig][group {chat_id}] Config file saved due to modifications.")
+                                    else:
+                                        results[f"group_{chat_id}"] = True # Still count as success if no changes needed
+                                        logger.info(f"[UpdateConfig][group {chat_id}] No modifications detected, file not rewritten.")
+                        except Exception as e:
+                            logger.error(f"Error updating group chat {chat_id}: {e}")
+                            results[f"group_{chat_id}"] = False
+                            logger.error(f"[UpdateConfig][group {chat_id}] Failed to update config.")
+
+            return results
+        except Exception as e:
+            logger.error(f"Error in update_chat_configs_with_template: {e}", exc_info=True)
+            return results 

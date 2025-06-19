@@ -6,7 +6,7 @@ from .message_processor import (
     needs_gpt_response, update_message_history,
     process_message_content, should_restrict_user
 )
-from .url_processor import extract_urls
+from .url_processor import extract_urls, shorten_url
 from .user_management import restrict_user
 from .gpt import gpt_response
 from .const import ALIEXPRESS_STICKER_ID
@@ -33,6 +33,38 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
                 update.message.caption or  # Image/video caption
                 (update.message.from_user and update.message.from_user.is_bot)  # Bot's reply
             )
+            
+            # --- AliExpress sticker logic ---
+            if update.message.text:
+                urls = extract_urls(update.message.text)
+                if any("aliexpress.com" in url for url in urls):
+                    try:
+                        await update.message.reply_sticker(sticker=ALIEXPRESS_STICKER_ID)
+                    except Exception as e:
+                        error_logger.error(f"Failed to send AliExpress sticker: {e}")
+            # --- End AliExpress sticker logic ---
+
+            # --- URL shortening logic ---
+            if update.message.text:
+                urls = extract_urls(update.message.text)
+                url_map = {}
+                for url in urls:
+                    if len(url) > 30:
+                        try:
+                            short_url = await shorten_url(url)
+                            if short_url != url:
+                                url_map[url] = short_url
+                        except Exception as e:
+                            error_logger.error(f"Failed to shorten URL {url}: {e}")
+                if url_map:
+                    new_text = update.message.text
+                    for orig, short in url_map.items():
+                        new_text = new_text.replace(orig, short)
+                    try:
+                        await update.message.reply_text(new_text)
+                    except Exception as e:
+                        error_logger.error(f"Failed to send shortened message: {e}")
+            # --- End URL shortening logic ---
             
             if should_save:
                 await Database.save_message(update.message)

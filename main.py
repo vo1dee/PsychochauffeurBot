@@ -260,6 +260,13 @@ async def initialize_all_components():
         await Database.initialize()
         await init_telegram_error_handler(TOKEN, Config.ERROR_CHANNEL_ID)
         await config_manager.initialize()
+        
+        # Update all chat configs with new template fields
+        update_results = await config_manager.update_chat_configs_with_template()
+        success_count = sum(1 for v in update_results.values() if v)
+        total_count = len(update_results)
+        general_logger.info(f"Updated {success_count}/{total_count} chat configs with new template fields")
+        
         await reminder_manager.initialize()
         await safety_manager.initialize()
         
@@ -275,6 +282,7 @@ async def initialize_all_components():
                 "• Database: ✅\n"
                 "• Error Handler: ✅\n"
                 "• Config Manager: ✅\n"
+                f"• Config Update: ✅ \({success_count}/{total_count}\)\n"
                 "• Reminder Manager: ✅\n"
                 "• Safety Manager: ✅"
             )
