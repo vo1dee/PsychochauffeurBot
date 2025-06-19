@@ -49,7 +49,7 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
                 urls = extract_urls(update.message.text)
                 url_map = {}
                 for url in urls:
-                    if len(url) > 30:
+                    if len(url) > 123:
                         try:
                             short_url = await shorten_url(url)
                             if short_url != url:
