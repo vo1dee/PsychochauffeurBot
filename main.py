@@ -136,6 +136,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Process message content and extract URLs
     cleaned_text, modified_links = process_message_content(message_text)
     
+    # If all modified links are AliExpress, skip sending the "modified link" message
+    if modified_links and all("aliexpress.com" in link for link in modified_links):
+        return
+    
     # Check for Meta platform links
     urls = extract_urls(message_text)
     for url in urls:
