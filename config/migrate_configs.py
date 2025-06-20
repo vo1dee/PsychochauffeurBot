@@ -40,6 +40,13 @@ async def main():
         print("Modular configuration migration completed")
         for chat_id, result in modular_results.items():
             print(f"Chat {chat_id}: {result}")
+
+        # Add/update missing fields from template
+        print("Updating chat configs with new template fields...")
+        update_results = await config_manager.update_chat_configs_with_template()
+        print("Template field update completed")
+        for chat_id, result in update_results.items():
+            print(f"Chat {chat_id}: {result}")
             
     except Exception as e:
         print(f"Error during migration: {e}")
