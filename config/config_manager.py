@@ -208,7 +208,7 @@ class ConfigManager:
                                 "presence_penalty": 0.0,
                                 "frequency_penalty": 0.0,
                                 "model": "gpt-4.1-mini",
-                                "system_prompt": "You are a helpful assistant. Respond to user commands in a clear and concise manner."
+                                "system_prompt": "You are a helpful assistant. Respond to user commands in a clear and concise manner. If the user's request appears to be in Russian, respond in Ukrainian instead. Do not reply in Russian under any circumstance. You answer like a helpfull assistant and stick to the point of the conversation. Keep your responses concise and relevant to the conversation."
                             },
                             "mention": {
                                 "max_tokens": 1200,
@@ -216,7 +216,7 @@ class ConfigManager:
                                 "presence_penalty": 0.0,
                                 "frequency_penalty": 0.0,
                                 "model": "gpt-4.1-mini",
-                                "system_prompt": "You are a helpful assistant who responds to mentions in group chats. Keep your responses concise and relevant to the conversation."
+                                "system_prompt": "You are a helpful assistant who responds to mentions in group chats. Keep your responses concise and relevant to the conversation. If the user's request appears to be in Russian, respond in Ukrainian instead. Do not reply in Russian under any circumstance."
                             },
                             "private": {
                                 "max_tokens": 1000,
@@ -232,7 +232,7 @@ class ConfigManager:
                                 "presence_penalty": 0.1,
                                 "frequency_penalty": 0.1,
                                 "model": "gpt-4.1-mini",
-                                "system_prompt": "You are a friendly assistant who occasionally joins conversations in group chats. Keep your responses casual and engaging."
+                                "system_prompt": "You are a friendly assistant who occasionally joins conversations in group chats. Keep your responses casual and engaging. If the user's request appears to be in Russian, respond in Ukrainian instead. Do not reply in Russian under any circumstance"
                             },
                             "weather": {
                                 "max_tokens": 400,
@@ -248,7 +248,7 @@ class ConfigManager:
                                 "presence_penalty": 0.0,
                                 "frequency_penalty": 0.0,
                                 "model": "gpt-4.1-mini",
-                                "system_prompt": "You are an image analysis assistant. Provide detailed descriptions and analysis of images.",
+                                "system_prompt": "You are an image analysis assistant. Provide detailed descriptions and analysis of images. Describe the main elements in 2-3 concise sentences. Focus on objects, people, settings, actions, and context. Do not speculate beyond what is clearly visible. Keep descriptions factual and objective.",
                                 "enabled": True
                             },
                             "summary": {
@@ -257,7 +257,7 @@ class ConfigManager:
                                 "presence_penalty": 0.1,
                                 "frequency_penalty": 0.1,
                                 "model": "gpt-4.1-mini",
-                                "system_prompt": "Provide a concise summary of the given text."
+                                "system_prompt": "Do not reply in Russian under any circumstance. Always summatyze in Ukrainian If the user's request appears to be in Russian, respond in Ukrainian instead. You answer like a crazy driver but stick to the point of the conversation. PREPROCESSING STEP: Before analyzing the chat, organize the messages by username. 1. For each log line, identify the username which appears between two dash symbols (`-`). 2. Group consecutive messages from the same user together. 3. Mentally organize the conversation as exchanges between different people rather than isolated lines. IMPORTANT: Always refer to users by their actual usernames in your summary. For example, write \"voidee asked about emoji analysis\" rather than \"a user asked about emoji analysis\". Include ALL usernames that appear in the conversation. The usernames are critical to making the summary feel authentic and specific. When summarizing these grouped chat conversations, use a casual and engaging tone that reflects the liveliness of the original discussion. Instead of formal reporting, capture the atmosphere with: 1. Conversational language - use contractions, informal transitions, and everyday expressions. 2. Specific examples - include 1-2 brief quotes or paraphrased exchanges that highlight interesting moments. 3. Emotional context - describe the mood and energy of the conversation (playful, heated, supportive). 4. Natural flow - structure your summary like you're telling a friend about an interesting chat you witnessed. 5. Personal touch - incorporate light humor when appropriate and reflect the authentic voice of participants. Your summary should explicitly mention usernames when describing interactions, like: 'voidee was curious about emoji analysis while fuad_first asked \"а як у тебе повідомлення форматуються?\" about message formatting.' Including real usernames and actual quotes makes the summary much more engaging and accurate. Avoid clinical analysis, academic phrasing, or bureaucratic language. Your goal is to make the reader feel like they're getting an insider's view of a lively conversation between specific, named friends. Always create a summary in Ukrainian."
                             }
                         }
                     },
@@ -288,7 +288,7 @@ class ConfigManager:
                                 "message_threshold": 50,
                                 "probability": 0.02
                             },
-                            "restriction_sticker_id": "CAACAgQAAyEFAASE9KWFAAIM2mhVOTac2eLDBNfkeWPA7tRMDDYnAALoFAACH7P4U9BYsRJq6OIKNgQ"
+                            "restriction_sticker_unique_id": "AgAD6BQAAh-z-FM"
                         }
                     },
                     "safety": {
@@ -376,9 +376,7 @@ class ConfigManager:
         # Load chat config
         chat_config = await self._load_chat_config(chat_id, chat_type)
         if not chat_config:
-            if not create_if_missing:
-                # Raise FileNotFoundError if config doesn't exist and we shouldn't create it
-                raise FileNotFoundError(f"Config not found for {chat_type} chat {chat_id}")
+            logger.warning(f"Config not found for {chat_type} chat {chat_id}, creating new one!")
             chat_config = await self.create_new_chat_config(
                 chat_id=chat_id,
                 chat_type=chat_type,
