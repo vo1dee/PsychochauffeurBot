@@ -31,12 +31,16 @@ async def main():
         
         # First migrate existing configs to new directory structure
         migration_results = await config_manager.migrate_existing_configs()
+        if migration_results is None:
+            migration_results = {}
         print("Configuration directory migration completed")
         for chat_id, result in migration_results.items():
             print(f"Chat {chat_id}: {result}")
 
         # Then migrate to modular structure
         modular_results = await config_manager.migrate_all_to_modular()
+        if modular_results is None:
+            modular_results = {}
         print("Modular configuration migration completed")
         for chat_id, result in modular_results.items():
             print(f"Chat {chat_id}: {result}")
@@ -44,6 +48,8 @@ async def main():
         # Add/update missing fields from template
         print("Updating chat configs with new template fields...")
         update_results = await config_manager.update_chat_configs_with_template()
+        if update_results is None:
+            update_results = {}
         print("Template field update completed")
         for chat_id, result in update_results.items():
             print(f"Chat {chat_id}: {result}")
