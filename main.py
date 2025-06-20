@@ -40,7 +40,7 @@ from modules.logger import (
     general_logger, chat_logger, error_logger,
     init_telegram_error_handler, shutdown_logging
 )
-from modules.user_management import restrict_user
+from modules.user_management import restrict_user, handle_restriction_sticker
 from modules.video_downloader import setup_video_handlers
 from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
 from modules.geomagnetic import GeomagneticCommandHandler
@@ -240,18 +240,7 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         return
 
     # Restrict user if they send the specific sticker in a supergroup (never in private chats)
-    if update.effective_chat and update.effective_chat.type == 'supergroup':
-        chat_id = str(update.effective_chat.id)
-        chat_type = update.effective_chat.type
-        config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior")
-        overrides = config.get("overrides", {})
-        restriction_sticker_id = overrides.get("restriction_sticker_id")
-        # Log the config sticker ID for debugging
-        general_logger.info(f"Restriction sticker config: {restriction_sticker_id}")
-        # Only trigger restriction if the sticker matches the config value
-        if sticker.file_id == restriction_sticker_id:
-            await restrict_user(update, context)
-            return
+    await handle_restriction_sticker(update, context)
 
 @handle_errors(feedback_message="An error occurred in /ping command.")
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
