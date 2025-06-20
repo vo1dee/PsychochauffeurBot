@@ -1,0 +1,121 @@
+{
+  "config_metadata": {
+    "config_version": "2.0",
+    "config_type": "global_defaults",
+    "created_at": "2025-01-01T00:00:00Z",
+    "last_updated": "2025-01-01T00:00:00Z",
+    "description": "Global configuration defaults for all chats",
+    "inherits_from": "system_defaults"
+  },
+  "module_configs": {
+    "gpt": {
+      "enabled": true,
+      "settings": {
+        "command": {
+          "max_tokens": 1500,
+          "temperature": 0.6,
+          "presence_penalty": 0.0,
+          "frequency_penalty": 0.0,
+          "model": "gpt-4.1-mini",
+          "system_prompt": "You are a helpful assistant. Respond to user commands in a clear and concise manner."
+        },
+        "mention": {
+          "max_tokens": 1200,
+          "temperature": 0.5,
+          "presence_penalty": 0.0,
+          "frequency_penalty": 0.0,
+          "model": "gpt-4.1-mini",
+          "system_prompt": "You are a helpful assistant who responds to mentions in group chats. Keep your responses concise and relevant to the conversation."
+        },
+        "private": {
+          "max_tokens": 1000,
+          "temperature": 0.7,
+          "presence_penalty": 0.0,
+          "frequency_penalty": 0.0,
+          "model": "gpt-4.1-mini",
+          "system_prompt": "You are a helpful assistant for private conversations. Keep your responses conversational and engaging."
+        },
+        "random": {
+          "max_tokens": 800,
+          "temperature": 0.7,
+          "presence_penalty": 0.1,
+          "frequency_penalty": 0.1,
+          "model": "gpt-4.1-mini",
+          "system_prompt": "You are a friendly assistant who occasionally joins conversations in group chats. Keep your responses casual and engaging."
+        },
+        "image_analysis": {
+          "max_tokens": 250,
+          "temperature": 0.2,
+          "presence_penalty": 0.0,
+          "frequency_penalty": 0.0,
+          "model": "gpt-4.1-mini",
+          "system_prompt": "You are an image analysis assistant. Provide detailed descriptions and analysis of images.",
+          "enabled": true
+        }
+      }
+    },
+    "chat_behavior": {
+      "enabled": true,
+      "settings": {
+        "restrictions_enabled": false,
+        "max_message_length": 2048,
+        "rate_limit": {
+          "messages_per_minute": 20,
+          "burst_limit": 5
+        },
+        "allowed_commands": [
+          "help", "weather", "cat", "gpt", "analyze", "flares", "gm", "remind"
+        ],
+        "ban_words": [],
+        "ban_symbols": [],
+        "random_response_settings": {
+          "enabled": true,
+          "min_words": 5,
+          "message_threshold": 50,
+          "probability": 0.02
+        }
+      }
+    },
+    "safety": {
+      "enabled": true,
+      "settings": {
+        "content_filter_level": "medium",
+        "profanity_filter_enabled": false,
+        "sensitive_content_warning_enabled": false,
+        "restricted_domains": [],
+        "allowed_file_types": [
+          "image/jpeg", "image/png", "image/gif", "video/mp4", "video/quicktime"
+        ]
+      }
+    },
+    "reminders": {
+      "enabled": true,
+      "settings": {
+        "max_reminders_per_user": 5,
+        "max_reminder_duration_days": 30,
+        "reminder_notification_interval_minutes": 60,
+        "allow_recurring_reminders": true,
+        "max_recurring_reminders": 3
+      }
+    },
+    "weather": {
+      "enabled": true,
+      "settings": {
+        "default_location": null,
+        "units": "metric",
+        "update_interval_minutes": 30,
+        "forecast_days": 3,
+        "show_alerts": true
+      }
+    },
+    "flares": {
+      "enabled": true,
+      "settings": {
+        "check_interval_minutes": 15,
+        "notification_threshold": "M5",
+        "auto_notify": false,
+        "include_forecast": true
+      }
+    }
+  }
+}
