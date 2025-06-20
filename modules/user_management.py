@@ -8,24 +8,18 @@ from telegram.ext import CallbackContext
 from telegram.error import TelegramError
 
 from modules.logger import general_logger, error_logger
+from config.config_manager import ConfigManager
+from modules.const import RESTRICTION_STICKERS
 
 # Constants
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 RESTRICT_DURATION_RANGE = (1, 15)  # min and max minutes
-RESTRICTION_STICKER = [
-    "CAACAgQAAxkBAAEt8tNm9Wc6jYEQdAgQzvC917u3e8EKPgAC9hQAAtMUCVP4rJSNEWepBzYE",
-    "CAACAgIAAxkBAAEyoUxn0vCR2hi81ZEkZTuffMFmG9AexQACrBgAAk_x0Es_t_KsbxvdnTYE",
-    "CAACAgIAAxkBAAEyoTBn0vAKKx5B8fDNzKVD1WDD3A4SzgACJSsAArOEUEpDLeMUdNLVODYE",
-    "CAACAgIAAxkBAAEy4j9n3TOZf_YFKs9TdUCb9d3sNvVwbwAC32YAAvgziEr0xAPmmKNIFDYE"
-]
+
+config_manager = ConfigManager()
 
 async def restrict_user(update: Update, context: CallbackContext) -> None:
     """
-    Restricts a user's ability to send messages for a random duration.
-    
-    Args:
-        update (Update): The update object from Telegram
-        context (CallbackContext): The context object from Telegram
+    Restricts a user's ability to send messages for a random duration, using chat_behavior config if present.
     """
     chat = update.effective_chat
     if not chat or chat.type != "supergroup":
@@ -35,6 +29,24 @@ async def restrict_user(update: Update, context: CallbackContext) -> None:
     user = update.message.from_user
     if not user:
         error_logger.error("No user found in update")
+        return
+
+    # --- Load chat_behavior config ---
+    chat_id = str(chat.id)
+    chat_type = chat.type
+    try:
+        chat_config = await config_manager.get_config(chat_id, chat_type)
+        chat_behavior = chat_config.get("config_modules", {}).get("chat_behavior", {})
+        overrides = chat_behavior.get("overrides", {})
+        restrictions_enabled = overrides.get("restrictions_enabled", True)
+        restriction_sticker_id = overrides.get("restriction_sticker_id")
+    except Exception as e:
+        error_logger.error(f"Failed to load chat_behavior config: {e}")
+        restrictions_enabled = True
+        restriction_sticker_id = None
+
+    if not restrictions_enabled:
+        general_logger.info(f"Restrictions are disabled for chat {chat_id}")
         return
 
     try:
@@ -48,7 +60,9 @@ async def restrict_user(update: Update, context: CallbackContext) -> None:
         restrict_duration = random.randint(*RESTRICT_DURATION_RANGE)
         until_date = datetime.now(LOCAL_TZ) + timedelta(minutes=restrict_duration)
         until_date_formatted = until_date.strftime("%Y-%m-%d %H:%M:%S")
-        permissions = ChatPermissions(can_send_messages=False, can_send_media_messages=False)
+        permissions = ChatPermissions(
+            can_send_messages=False
+        )
 
         # Apply restriction
         await context.bot.restrict_chat_member(
@@ -64,12 +78,9 @@ async def restrict_user(update: Update, context: CallbackContext) -> None:
             f"Ви не можете надсилати повідомлення до {until_date_formatted}."
         )
         
-        # Send sticker
+        # Send sticker (always random from RESTRICTION_STICKERS, never custom config)
         try:
-            await context.bot.send_sticker(
-                chat_id=chat.id, 
-                sticker=random.choice(RESTRICTION_STICKER)
-            )
+            await context.bot.send_sticker(chat_id=chat.id, sticker=random.choice(RESTRICTION_STICKERS))
         except TelegramError as sticker_error:
             error_logger.warning(f"Failed to send restriction sticker: {sticker_error}")
 
