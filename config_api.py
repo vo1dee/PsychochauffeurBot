@@ -34,6 +34,14 @@ async def get_config_endpoint(
     try:
         data = await config_manager.get_config(chat_id, chat_type, config_name, create_if_missing=False)
     except FileNotFoundError:
+        data = None
+
+    # If config is missing or empty, or is an auto-generated empty config, return fallback
+    if not data or (
+        isinstance(data, dict)
+        and set(data.keys()) == {"chat_metadata", "config_modules"}
+        and not data.get("chat_metadata", {}).get("custom_config_enabled", True)
+    ):
         data = {
             "chat_metadata": {
                 "chat_id": chat_id,
