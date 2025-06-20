@@ -45,12 +45,12 @@ async def restrict_user(update: Update, context: CallbackContext) -> None:
         chat_behavior = chat_config.get("config_modules", {}).get("chat_behavior", {})
         overrides = chat_behavior.get("overrides", {})
         restrictions_enabled = overrides.get("restrictions_enabled", True)
-        restriction_sticker_id = overrides.get("restriction_sticker_id")
-        general_logger.info(f"[restrict_user] restrictions_enabled={restrictions_enabled}, restriction_sticker_id={restriction_sticker_id}")
+        restriction_sticker_unique_id = overrides.get("restriction_sticker_unique_id")
+        general_logger.info(f"[restrict_user] restrictions_enabled={restrictions_enabled}, restriction_sticker_unique_id={restriction_sticker_unique_id}")
     except Exception as e:
         error_logger.error(f"Failed to load chat_behavior config: {e}")
         restrictions_enabled = True
-        restriction_sticker_id = None
+        restriction_sticker_unique_id = None
 
     if not restrictions_enabled:
         general_logger.info(f"[restrict_user] Restrictions are disabled for chat {chat_id}, returning early.")
