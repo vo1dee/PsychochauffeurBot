@@ -39,6 +39,9 @@ downloads/*
 *.json
 reminders.json
 
+# Allow global config template to be tracked
+!config/global/global_config.json
+
 ### IDE and Editor Files ###
 # VS Code
 .vscode/
