@@ -246,10 +246,10 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior")
         overrides = config.get("overrides", {})
         restriction_sticker_id = overrides.get("restriction_sticker_id")
-        # Log all possible sticker IDs for debugging
-        general_logger.info(f"Restriction sticker config: {restriction_sticker_id}, default stickers: {RESTRICTION_STICKERS}")
-        # Compare against config and default stickers
-        if sticker.file_id == restriction_sticker_id or sticker.file_id in RESTRICTION_STICKERS:
+        # Log the config sticker ID for debugging
+        general_logger.info(f"Restriction sticker config: {restriction_sticker_id}")
+        # Only trigger restriction if the sticker matches the config value
+        if sticker.file_id == restriction_sticker_id:
             await restrict_user(update, context)
             return
 
