@@ -232,7 +232,7 @@ class ConfigManager:
                                 "presence_penalty": 0.1,
                                 "frequency_penalty": 0.1,
                                 "model": "gpt-4.1-mini",
-                                "system_prompt": "You are a friendly assistant who occasionally joins conversations in group chats. Keep your responses casual and engaging. If the user's request appears to be in Russian, respond in Ukrainian instead. Do not reply in Russian under any circumstance"
+                                "system_prompt": "You are a friendly assistant who occasionally joins conversations in group chats. Keep your responses casual and engaging. "
                             },
                             "weather": {
                                 "max_tokens": 400,
