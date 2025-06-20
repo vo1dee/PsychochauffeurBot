@@ -31,6 +31,12 @@ class Config:
 class Stickers:
     """Telegram sticker IDs."""
     ALIEXPRESS: str = 'CAACAgQAAxkBAAEuNplnAqatdmo-G7S_065k9AXXnqUn4QACwhQAAlKL8FNCof7bbA2jAjYE'
+    RESTRICTION_STICKERS = [
+        "CAACAgQAAxkBAAEt8tNm9Wc6jYEQdAgQzvC917u3e8EKPgAC9hQAAtMUCVP4rJSNEWepBzYE",
+        "CAACAgIAAxkBAAEyoUxn0vCR2hi81ZEkZTuffMFmG9AexQACrBgAAk_x0Es_t_KsbxvdnTYE",
+        "CAACAgIAAxkBAAEyoTBn0vAKKx5B8fDNzKVD1WDD3A4SzgACJSsAArOEUEpDLeMUdNLVODYE",
+        "CAACAgIAAxkBAAEy4j9n3TOZf_YFKs9TdUCb9d3sNvVwbwAC32YAAvgziEr0xAPmmKNIFDYE"
+    ]
 
 class LinkModification:
     """Domain modifications for various social media platforms."""
@@ -84,6 +90,7 @@ OPENAI_API_KEY = Config.OPENROUTER_API_KEY
 OPENROUTER_BASE_URL = Config.OPENROUTER_BASE_URL
 SCREENSHOT_DIR = Config.SCREENSHOT_DIR
 ALIEXPRESS_STICKER_ID = Stickers.ALIEXPRESS
+RESTRICTION_STICKERS = Stickers.RESTRICTION_STICKERS
 domain_modifications = LinkModification.DOMAINS
 city_translations = Weather.CITY_TRANSLATIONS
 weather_emojis = Weather.CONDITION_EMOJIS

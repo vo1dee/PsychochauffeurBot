@@ -28,7 +28,7 @@ from modules.utils import (
 from modules.image_downloader import ImageDownloader
 from modules.const import (
     TOKEN, OPENAI_API_KEY, KYIV_TZ, ALIEXPRESS_STICKER_ID,
-    VideoPlatforms, LinkModification, Config
+    VideoPlatforms, LinkModification, Config, RESTRICTION_STICKERS
 )
 from modules.gpt import (
     ask_gpt_command, analyze_command, answer_from_gpt, handle_photo_analysis,
@@ -152,7 +152,29 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if needs_response:
         await gpt_response(update, context, response_type=response_type, message_text_override=cleaned_text)
         return
-        
+
+    # --- RANDOM GPT RESPONSE LOGIC ---
+    # Only in group chats, not private
+    if update.effective_chat.type in {"group", "supergroup"}:
+        chat_id = str(update.effective_chat.id)
+        chat_type = update.effective_chat.type
+        config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior")
+        overrides = config.get("overrides", {})
+        random_settings = overrides.get("random_response_settings", {})
+        enabled = random_settings.get("enabled", False)
+        min_words = random_settings.get("min_words", 5)
+        message_threshold = random_settings.get("message_threshold", 50)
+        probability = random_settings.get("probability", 0.02)
+        # Only consider messages with enough words
+        if enabled and len(message_text.split()) >= min_words:
+            count = message_counter.increment(update.effective_chat.id)
+            if count >= message_threshold:
+                import random
+                if random.random() < probability:
+                    message_counter.reset(update.effective_chat.id)
+                    await gpt_response(update, context, response_type="random", message_text_override=cleaned_text)
+                    return
+
     # Handle modified links if any were found
     if modified_links:
         await process_urls(update, context, modified_links, cleaned_text)
@@ -208,11 +230,28 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
     if not update.message or not update.message.sticker:
         return
     sticker = update.message.sticker
+    general_logger.info(f"Sticker received: file_id={sticker.file_id}, file_unique_id={sticker.file_unique_id}")
+    # AliExpress sticker logic
     if sticker.file_unique_id == ALIEXPRESS_STICKER_ID:
         await update.message.reply_text(
             "🔗 *AliExpress Link Detected*\n\nPlease send the product link and I'll optimize it for you\\!",
             parse_mode=ParseMode.MARKDOWN_V2
         )
+        return
+
+    # Restrict user if they send the specific sticker in a supergroup (never in private chats)
+    if update.effective_chat and update.effective_chat.type == 'supergroup':
+        chat_id = str(update.effective_chat.id)
+        chat_type = update.effective_chat.type
+        config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior")
+        overrides = config.get("overrides", {})
+        restriction_sticker_id = overrides.get("restriction_sticker_id")
+        # Log all possible sticker IDs for debugging
+        general_logger.info(f"Restriction sticker config: {restriction_sticker_id}, default stickers: {RESTRICTION_STICKERS}")
+        # Compare against config and default stickers
+        if sticker.file_id == restriction_sticker_id or sticker.file_id in RESTRICTION_STICKERS:
+            await restrict_user(update, context)
+            return
 
 @handle_errors(feedback_message="An error occurred in /ping command.")
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

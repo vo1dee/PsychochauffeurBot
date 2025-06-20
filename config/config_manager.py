@@ -287,7 +287,8 @@ class ConfigManager:
                                 "min_words": 5,
                                 "message_threshold": 50,
                                 "probability": 0.02
-                            }
+                            },
+                            "restriction_sticker_id": "CAACAgQAAyEFAASE9KWFAAIM2mhVOTac2eLDBNfkeWPA7tRMDDYnAALoFAACH7P4U9BYsRJq6OIKNgQ"
                         }
                     },
                     "safety": {
@@ -604,7 +605,8 @@ class ConfigManager:
                             "min_words": 5,
                             "message_threshold": 50,
                             "probability": 0.02
-                        }
+                        },
+                        "restriction_sticker_id": "CAACAgQAAyEFAASE9KWFAAIM2mhVOTac2eLDBNfkeWPA7tRMDDYnAALoFAACH7P4U9BYsRJq6OIKNgQ"
                     }
                 },
                 "safety": {
