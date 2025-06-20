@@ -34,7 +34,7 @@ async def main():
         print("Configuration directory migration completed")
         for chat_id, result in migration_results.items():
             print(f"Chat {chat_id}: {result}")
-        
+
         # Then migrate to modular structure
         modular_results = await config_manager.migrate_all_to_modular()
         print("Modular configuration migration completed")
