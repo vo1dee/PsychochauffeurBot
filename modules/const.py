@@ -84,15 +84,12 @@ class Weather:
         range(30, 100): '🥵',  # Very hot
     }
 
-# For backwards compatibility
-TOKEN = Config.TELEGRAM_BOT_TOKEN
-OPENAI_API_KEY = Config.OPENROUTER_API_KEY
-OPENROUTER_BASE_URL = Config.OPENROUTER_BASE_URL
-SCREENSHOT_DIR = Config.SCREENSHOT_DIR
-ALIEXPRESS_STICKER_ID = Stickers.ALIEXPRESS
-RESTRICTION_STICKERS = Stickers.RESTRICTION_STICKERS
-domain_modifications = LinkModification.DOMAINS
-city_translations = Weather.CITY_TRANSLATIONS
-weather_emojis = Weather.CONDITION_EMOJIS
-feels_like_emojis = Weather.FEELS_LIKE_EMOJIS
-platforms = VideoPlatforms.SUPPORTED_PLATFORMS
+    HUMIDITY_EMOJIS: Dict[range, str] = {
+        range(0, 40): '🌵',    # Dry
+        range(40, 70): '😊',   # Comfortable
+        range(70, 101): '💧',  # Humid
+    }
+
+class GPT:
+    """GPT model configurations."""
+    # GPT model parameters

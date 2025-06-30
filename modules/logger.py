@@ -609,51 +609,43 @@ def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger
 
     return general_logger, chat_logger, error_logger, analytics_logger
 
-async def init_telegram_error_handler(bot_token: str, error_channel_id: str):
-    """Initializes and starts the Telegram error handler."""
-    global _telegram_error_handler_instance
-    error_logger = logging.getLogger('error')
-    general_logger = logging.getLogger('general') # For logging init status
+async def init_telegram_error_handler(bot: Bot, error_channel_id: Optional[str] = None):
+    """
+    Initializes and starts the Telegram error handler.
 
-    if not bot_token:
-        error_logger.error("Telegram Bot Token is not configured. Cannot initialize Telegram error handler.")
-        return
+    This function should be called once at application startup.
+
+    Args:
+        bot (Bot): The bot instance to use for sending messages.
+        error_channel_id (str): The channel ID to send error messages to.
+    """
     if not error_channel_id:
-         error_logger.error("Telegram Error Channel ID is not configured. Cannot initialize Telegram error handler.")
-         return
+        general_logger.warning("No error_channel_id provided; Telegram error handler will not be started.")
+        return
 
+    global _telegram_error_handler_instance
     if _telegram_error_handler_instance is not None:
-         general_logger.warning("Telegram error handler already initialized.")
-         return
+        general_logger.warning("Telegram error handler is already initialized.")
+        return
 
     try:
-        # Use the detailed formatter for the *content* of the Telegram message
-        formatter = ChatContextFormatter( # Using ChatContextFormatter for detail in the <pre> block
-            '%(asctime)s - %(name)s - %(levelname)s\n'
-            'File: %(pathname)s:%(lineno)d\n'
-            'Function: %(funcName)s\n'
-            # Context handled by format_error_message, base message here:
-            'Message: %(message)s'
+        # Create and start the handler
+        telegram_handler = TelegramErrorHandler(
+            bot_token=bot.token, # Get token from bot instance
+            channel_id=error_channel_id
         )
-        handler = TelegramErrorHandler(
-            bot_token=bot_token,
-            channel_id=error_channel_id,
-            rate_limit=TELEGRAM_ERROR_RATE_LIMIT
-        )
-        handler.setFormatter(formatter)
-        handler.setLevel(logging.ERROR) # Ensure it only handles errors
+        await telegram_handler.start()
 
-        await handler.start() # Start the background task
+        # Add the handler to the root logger to catch all errors
+        logging.getLogger().addHandler(telegram_handler)
+        general_logger.info("Telegram error handler initialized and attached to root logger.")
 
-        if handler._worker_task is not None: # Check if start was successful
-             error_logger.addHandler(handler)
-             _telegram_error_handler_instance = handler # Store instance
-             general_logger.info(f"Telegram error handler initialized successfully for channel ID: {error_channel_id}")
-        else:
-             error_logger.error("Telegram error handler started, but worker task is missing.")
+        # Store reference for graceful shutdown
+        # This might be better handled in a more structured application context
+        _telegram_error_handler_instance = telegram_handler
 
     except Exception as e:
-        error_logger.error(f"Failed to initialize Telegram error handler: {e}", exc_info=True)
+        general_logger.error(f"Failed to initialize Telegram error handler: {e}", exc_info=True)
 
 
 async def shutdown_logging():

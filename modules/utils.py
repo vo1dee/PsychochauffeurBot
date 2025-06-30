@@ -14,7 +14,7 @@ from telegram.ext import CallbackContext
 # Avoid running code at module import time
 from modules.logger import error_logger, LOG_DIR, general_logger
 from modules.const import (
-    SCREENSHOT_DIR, DATA_DIR, LOG_DIR, DOWNLOADS_DIR, Weather
+    Weather, Config, DATA_DIR, DOWNLOADS_DIR
 )
 from config.config_manager import ConfigManager
 # Constants
@@ -88,7 +88,7 @@ def ensure_directory_permissions(path: str) -> None:
 
 def init_directories() -> None:
     """Initialize necessary directories for the application."""
-    directories = [LOG_DIR, DATA_DIR, DOWNLOADS_DIR, SCREENSHOT_DIR]
+    directories = [LOG_DIR, DATA_DIR, DOWNLOADS_DIR, Config.SCREENSHOT_DIR]
     for directory in directories:
         try:
             # First ensure directory exists
@@ -165,6 +165,19 @@ async def get_feels_like_emoji(feels_like: float) -> str:
         if feels_like_int in rng:
             return emoji
     return '🌈'
+
+async def get_humidity_emoji(humidity: int) -> str:
+    """
+    Get emoji based on humidity percentage. Use config if available, else fallback to HUMIDITY_EMOJIS from const.
+    """
+    weather_config = await config_manager.get_config("weather_config", None, None)
+    config_emojis = weather_config.get("HUMIDITY_EMOJIS", {})
+    emojis = config_emojis if config_emojis else Weather.HUMIDITY_EMOJIS
+    general_logger.info(f"HUMIDITY_EMOJIS used: {emojis}")
+    for rng, emoji in emojis.items():
+        if humidity in rng:
+            return emoji
+    return '💧'
 
 async def get_city_translation(city: str) -> str:
     """
@@ -254,27 +267,31 @@ class ScreenshotManager:
             self._initialized = True
 
     def get_screenshot_path(self) -> str:
-        """
-        Generate screenshot path for current date.
+        """Constructs a path for storing screenshots with a timestamp."""
+        # Ensure timezone is correctly handled
+        if not self.timezone:
+            self.timezone = pytz.timezone('Europe/Kyiv') # Fallback
         
-        Returns:
-            str: Path to the screenshot file
-        """
         kyiv_time = datetime.now(self.timezone)
         date_str = kyiv_time.strftime('%Y-%m-%d')
-        return os.path.join(SCREENSHOT_DIR, f'flares_{date_str}_kyiv.png')
+        return os.path.join(Config.SCREENSHOT_DIR, f'flares_{date_str}_kyiv.png')
 
     def get_latest_screenshot(self) -> Optional[str]:
         """
-        Get the path to the latest screenshot.
-        
-        Returns:
-            Optional[str]: Path to screenshot or None if not found
+        Get the latest screenshot from the screenshot directory.
         """
-        screenshot_path = self.get_screenshot_path()
-        if os.path.exists(screenshot_path):
-            return screenshot_path
-        return None
+        try:
+            files = [os.path.join(Config.SCREENSHOT_DIR, f) for f in os.listdir(Config.SCREENSHOT_DIR) if f.endswith('.png')]
+            if not files:
+                return None
+            latest_file = max(files, key=os.path.getctime)
+            return latest_file
+        except FileNotFoundError:
+            general_logger.info("Screenshot directory not found.")
+            return None
+        except Exception as e:
+            error_logger.error(f"Error getting latest screenshot: {e}")
+            return None
 
     async def take_screenshot(self, url: str, output_path: str) -> Optional[str]:
         """
