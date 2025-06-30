@@ -9,7 +9,7 @@ from .message_processor import (
 from .url_processor import extract_urls, shorten_url
 from .user_management import restrict_user
 from .gpt import gpt_response
-from .const import ALIEXPRESS_STICKER_ID
+from .const import Stickers
 from .logger import error_logger, general_logger
 from .chat_streamer import chat_streamer
 
@@ -39,7 +39,7 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
                 urls = extract_urls(update.message.text)
                 if any("aliexpress.com" in url for url in urls):
                     try:
-                        await update.message.reply_sticker(sticker=ALIEXPRESS_STICKER_ID)
+                        await update.message.reply_sticker(sticker=Stickers.ALIEXPRESS)
                     except Exception as e:
                         error_logger.error(f"Failed to send AliExpress sticker: {e}")
             # --- End AliExpress sticker logic ---

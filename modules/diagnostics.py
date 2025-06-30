@@ -4,7 +4,7 @@ import platform
 import asyncio
 from modules.logger import general_logger, error_logger
 from urllib.parse import urlparse
-from modules.const import OPENROUTER_BASE_URL
+from modules.const import Config
 
 import asyncio
 from datetime import datetime
@@ -152,16 +152,16 @@ async def monitor_api_health():
                 api_health["status"] = "healthy"
                 api_health["consecutive_failures"] = 0
                 api_health["last_successful"] = datetime.now()
-                general_logger.info(f"API health check passed: {OPENROUTER_BASE_URL}")
+                general_logger.info(f"API health check passed: {Config.OPENROUTER_BASE_URL}")
             else:
                 api_health["status"] = "unhealthy"
                 api_health["consecutive_failures"] += 1
-                general_logger.warning(f"API health check failed: {OPENROUTER_BASE_URL}. Consecutive failures: {api_health['consecutive_failures']}")
+                general_logger.warning(f"API health check failed: {Config.OPENROUTER_BASE_URL}. Consecutive failures: {api_health['consecutive_failures']}")
                 
                 # If multiple consecutive failures, run diagnostics
                 if api_health["consecutive_failures"] >= 3:
                     general_logger.error(f"Multiple consecutive API failures detected. Running diagnostics...")
-                    diagnosis = await run_api_diagnostics(OPENROUTER_BASE_URL)
+                    diagnosis = await run_api_diagnostics(Config.OPENROUTER_BASE_URL)
                     general_logger.error(f"Diagnosis result: {diagnosis}")
         
         except Exception as e:
@@ -205,7 +205,7 @@ def start_api_monitoring():
     Start the API monitoring as a background task
     """
     asyncio.create_task(monitor_api_health())
-    general_logger.info(f"API health monitoring started for {OPENROUTER_BASE_URL}")
+    general_logger.info(f"API health monitoring started for {Config.OPENROUTER_BASE_URL}")
 
 # Call this during application startup
 # start_api_monitoring()

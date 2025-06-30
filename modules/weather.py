@@ -11,7 +11,8 @@ from modules.utils import (
     get_weather_emoji,
     get_city_translation,
     get_feels_like_emoji,
-    get_last_used_city
+    get_last_used_city,
+    get_humidity_emoji
 )
 from config.config_manager import ConfigManager
 from modules.const import Config, Weather
@@ -37,11 +38,13 @@ class WeatherData:
     description: str
     temperature: float
     feels_like: float
+    humidity: int
 
     async def get_clothing_advice(self, update: Update = None, context: CallbackContext = None) -> WeatherCommand:
         prompt = f"""Дай коротку пораду, що краще вдягнути при такій погоді. 2-3 речення.:
         Температура: {round(self.temperature)}°C
         Відчувається як: {round(self.feels_like)}°C
+        Вологість: {self.humidity}%
         Погода: {self.description}
         
         """
@@ -84,6 +87,7 @@ class WeatherData:
         weather_emoji = await get_weather_emoji(self.weather_id)
         country_flag = country_code_to_emoji(self.country_code)
         feels_like_emoji = await get_feels_like_emoji(self.feels_like)
+        humidity_emoji = await get_humidity_emoji(self.humidity)
         
         # Get clothing advice
         clothing_advice = await self.get_clothing_advice(update, context)
@@ -92,7 +96,8 @@ class WeatherData:
             f"Погода в {self.city_name}, {self.country_code} {country_flag}:\n"
             f"{weather_emoji} {self.description.capitalize()}\n"
             f"🌡 Температура: {round(self.temperature)}°C\n"
-            f"{feels_like_emoji} Відчувається як: {round(self.feels_like)}°C"
+            f"{feels_like_emoji} Відчувається як: {round(self.feels_like)}°C\n"
+            f"{humidity_emoji} Вологість: {self.humidity}%\n"
             f"\n👕 {clothing_advice.clothing_advice}"
         )
 
@@ -105,6 +110,10 @@ class WeatherAPI:
     def __init__(self):
         self.cache = {}
         self.api_key = Config.OPENWEATHER_API_KEY
+        if self.api_key and len(self.api_key) > 4:
+            general_logger.info(f"WeatherAPI initialized with key ending in '...{self.api_key[-4:]}'")
+        else:
+            general_logger.error("WeatherAPI initialized WITHOUT a valid API key.")
         self.client = httpx.AsyncClient()
     
     async def fetch_weather(self, city: str) -> Optional[WeatherData]:
@@ -146,7 +155,8 @@ class WeatherAPI:
                 weather_id=weather.get("id", 0),
                 description=weather.get("description", "No description"),
                 temperature=main.get("temp", 0),
-                feels_like=main.get("feels_like", 0)
+                feels_like=main.get("feels_like", 0),
+                humidity=main.get("humidity", 0)
             )
             
             self.cache[city] = weather_data

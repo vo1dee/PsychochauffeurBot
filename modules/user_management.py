@@ -9,7 +9,7 @@ from telegram.error import TelegramError
 
 from modules.logger import general_logger, error_logger
 from config.config_manager import ConfigManager
-from modules.const import RESTRICTION_STICKERS
+from modules.const import Stickers
 
 # Constants
 LOCAL_TZ = pytz.timezone('Europe/Kyiv')
@@ -97,7 +97,7 @@ async def restrict_user(update: Update, context: CallbackContext) -> None:
         
         # Send sticker (always random from RESTRICTION_STICKERS, never custom config)
         try:
-            await context.bot.send_sticker(chat_id=chat.id, sticker=random.choice(RESTRICTION_STICKERS))
+            await context.bot.send_sticker(chat_id=chat.id, sticker=random.choice(Stickers.RESTRICTION_STICKERS))
         except TelegramError as sticker_error:
             error_logger.warning(f"Failed to send restriction sticker: {sticker_error}")
 
@@ -168,7 +168,7 @@ async def handle_restriction_sticker(update: Update, context: CallbackContext) -
             f"Ви не можете надсилати повідомлення до {until_date_formatted}."
         )
         try:
-            await context.bot.send_sticker(chat_id=chat.id, sticker=random.choice(RESTRICTION_STICKERS))
+            await context.bot.send_sticker(chat_id=chat.id, sticker=random.choice(Stickers.RESTRICTION_STICKERS))
         except TelegramError as sticker_error:
             error_logger.warning(f"Failed to send restriction sticker: {sticker_error}")
         general_logger.info(f"[handle_restriction_sticker] Restricted user {user.id} for {restrict_duration} minutes until {until_date_formatted}")

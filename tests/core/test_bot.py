@@ -19,14 +19,18 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 from modules.utils import (
     extract_urls, ensure_directory, init_directories, 
     remove_links, country_code_to_emoji, get_weather_emoji,
-    get_feels_like_emoji, get_city_translation
+    get_feels_like_emoji, get_city_translation, get_humidity_emoji
 )
 from modules.file_manager import ensure_csv_headers, save_user_location
 from modules.utils import get_last_used_city
 from modules.weather import WeatherCommand, WeatherData, WeatherCommandHandler
-from modules.const import weather_emojis, feels_like_emojis
+from modules.const import Weather
 
 class TestBot(unittest.IsolatedAsyncioTestCase):
+
+    def setUp(self):
+        """Set up common resources for all tests."""
+        self.maxDiff = None  # Allow full diff for complex objects
 
     def test_extract_urls(self):
         """Test URL extraction from a message."""
@@ -288,6 +292,12 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         emoji = await get_feels_like_emoji(temp)
         # Temperature 25 is in range(20, 30) which maps to '😎'
         self.assertEqual(emoji, '😎')
+
+    async def test_get_humidity_emoji(self):
+        """Test getting humidity emoji based on humidity."""
+        humidity = 50  # Comfortable humidity
+        emoji = await get_humidity_emoji(humidity)
+        self.assertEqual(emoji, '😊')
 
     async def test_get_city_translation(self):
         """Test city name translation."""

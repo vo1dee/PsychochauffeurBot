@@ -19,8 +19,7 @@ from telegram.ext import CallbackContext, ContextTypes
 from .database import Database
 from .chat_streamer import chat_streamer
 from modules.const import (
-    OPENAI_API_KEY,
-    OPENROUTER_BASE_URL
+    Config
 )
 from modules.diagnostics import run_api_diagnostics
 from modules.logger import general_logger, error_logger, get_daily_log_path, chat_logger
@@ -79,12 +78,12 @@ DEFAULT_PROMPTS = {
 TIMEOUT_CONFIG = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=5.0)
 
 # OpenRouter specific settings (from first implementation)
-USE_OPENROUTER = bool(OPENROUTER_BASE_URL)  # Only use if defined
+USE_OPENROUTER = bool(Config.OPENROUTER_BASE_URL)  # Only use if defined
 
 # Initialize OpenAI client with proper configuration
 client = AsyncClient(
-    api_key=OPENAI_API_KEY, 
-    base_url=OPENROUTER_BASE_URL if USE_OPENROUTER else None,
+    api_key=Config.OPENROUTER_API_KEY, 
+    base_url=Config.OPENROUTER_BASE_URL if USE_OPENROUTER else None,
     timeout=TIMEOUT_CONFIG,
     max_retries=3,
 )
@@ -186,7 +185,7 @@ async def ensure_api_connectivity() -> str:
     )
     
     if needs_check:
-        api_endpoint = OPENROUTER_BASE_URL if USE_OPENROUTER else "https://api.openai.com/v1"
+        api_endpoint = Config.OPENROUTER_BASE_URL if USE_OPENROUTER else "https://api.openai.com/v1"
         last_diagnostic_result = await run_api_diagnostics(api_endpoint)
         last_diagnostic_time = now
     
@@ -339,7 +338,7 @@ async def verify_api_key() -> bool:
     Returns:
         bool: Whether the API key is valid
     """
-    if not OPENAI_API_KEY or not OPENAI_API_KEY.startswith("sk-"):
+    if not Config.OPENROUTER_API_KEY or not Config.OPENROUTER_API_KEY.startswith("sk-"):
         general_logger.error("Invalid or missing API key")
         return False
     return True
@@ -370,13 +369,13 @@ async def check_api_health() -> bool:
         bool: Whether the API is healthy
     """
     try:
-        api_endpoint = OPENROUTER_BASE_URL if USE_OPENROUTER else "https://api.openai.com/v1"
+        api_endpoint = Config.OPENROUTER_BASE_URL if USE_OPENROUTER else "https://api.openai.com/v1"
         health_endpoint = f"{api_endpoint}/health" if USE_OPENROUTER else f"{api_endpoint}/models"
         
         async with httpx.AsyncClient(timeout=TIMEOUT_CONFIG) as http_client:
             api_status_response = await http_client.get(
                 health_endpoint,
-                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"}
+                headers={"Authorization": f"Bearer {Config.OPENROUTER_API_KEY}"}
             )
             is_healthy = api_status_response.status_code == 200
             if not is_healthy:
