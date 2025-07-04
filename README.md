@@ -194,3 +194,30 @@ pytest --cov=modules tests/
 5. Submit a pull request
 
 For issues or suggestions, contact @vo1dee
+
+## Speech-to-Text (Speechmatics) Integration
+
+### Setup
+1. Get your Speechmatics API key from https://www.speechmatics.com/
+2. Add the following to your `.env` file:
+
+    SPEECHMATICS_API_KEY=your_api_key_here
+
+3. The bot will use this key for all speech-to-text requests.
+
+### Enabling Speech Recognition
+- By default, speech recognition is disabled in all chats.
+- To enable, use the `/speech on` command (admin only by default).
+- To disable, use `/speech off`.
+- You can allow all users to toggle speech recognition by setting `allow_all_users` to `true` in the chat's config (see `config/global/global_config.json` or use the config API if available).
+
+### Usage
+- When enabled, any Telegram voice or video note message sent in the chat will be transcribed using Speechmatics.
+- The transcription will be posted to the chat and logged in the chat history as:
+
+    [User Name] (Speech): Transcribed Text
+
+- Only `voice` and `video_note` messages are supported (not generic audio or video files).
+
+### Requirements
+- Ensure `httpx` and `python-dotenv` are installed (see `requirements.txt`).
