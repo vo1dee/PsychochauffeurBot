@@ -45,8 +45,14 @@ def mock_update():
 def mock_context():
     """Mock Telegram context object."""
     context = MagicMock()
-    context.chat_data = {
-        'message_history': [
+    return context
+
+@pytest.fixture
+def mock_chat_history_manager():
+    """Mock chat history manager with test messages."""
+    with patch('modules.utils.chat_history_manager') as mock_chm:
+        # Create test message history
+        test_history = [
             {'text': 'Message 1', 'is_user': True},
             {'text': 'Message 2', 'is_user': False},
             {'text': 'Message 3', 'is_user': True},
@@ -54,11 +60,11 @@ def mock_context():
             {'text': 'Message 5', 'is_user': True},
             {'text': 'Message 6', 'is_user': False},
         ]
-    }
-    return context
+        mock_chm.get_history.return_value = test_history
+        yield mock_chm
 
 @pytest.mark.asyncio
-async def test_random_response_context_count(mock_config_manager, mock_update, mock_context):
+async def test_random_response_context_count(mock_config_manager, mock_update, mock_context, mock_chat_history_manager):
     """Test that random responses use the correct context messages count."""
     
     # Mock chat config with custom context_messages_count
@@ -79,17 +85,16 @@ async def test_random_response_context_count(mock_config_manager, mock_update, m
     # Get context messages for random response
     messages = await get_context_messages(mock_update, mock_context, "random")
     
-    # Should include current message + 3 previous messages (total 4)
-    assert len(messages) == 4
+    # Should include 3 previous messages (current message is added later in gpt_response)
+    assert len(messages) == 3
     
     # Check that we got the most recent messages
     assert messages[0]["content"] == "Message 4"  # Oldest
     assert messages[1]["content"] == "Message 5"  # Middle
     assert messages[2]["content"] == "Message 6"  # Newest previous
-    assert messages[3]["content"] == "Test message"  # Current
 
 @pytest.mark.asyncio
-async def test_command_response_context_count(mock_config_manager, mock_update, mock_context):
+async def test_command_response_context_count(mock_config_manager, mock_update, mock_context, mock_chat_history_manager):
     """Test that command responses use GPT module context count."""
     
     # Mock chat config with GPT module context count
@@ -113,20 +118,19 @@ async def test_command_response_context_count(mock_config_manager, mock_update, 
     # Get context messages for command response
     messages = await get_context_messages(mock_update, mock_context, "command")
     
-    # Should include current message + 2 previous messages (total 3)
-    assert len(messages) == 3
+    # Should include 2 previous messages (current message is added later in gpt_response)
+    assert len(messages) == 2
     
     # Check that we got the most recent messages
     assert messages[0]["content"] == "Message 5"  # Oldest
     assert messages[1]["content"] == "Message 6"  # Newest previous
-    assert messages[2]["content"] == "Test message"  # Current
 
 @pytest.mark.asyncio
-async def test_fallback_to_global_config(mock_config_manager, mock_update, mock_context):
+async def test_fallback_to_global_config(mock_config_manager, mock_update, mock_context, mock_chat_history_manager):
     """Test fallback to global config when chat_behavior is disabled."""
     
     # Mock chat config with disabled chat_behavior
-    mock_config_manager.get_config.return_value = {
+    chat_config = {
         "config_modules": {
             "chat_behavior": {
                 "enabled": False,
@@ -139,12 +143,31 @@ async def test_fallback_to_global_config(mock_config_manager, mock_update, mock_
             }
         }
     }
+    global_config = {
+        "config_modules": {
+            "chat_behavior": {
+                "enabled": True,
+                "overrides": {
+                    "random_response_settings": {
+                        "enabled": True,
+                        "context_messages_count": 5
+                    }
+                }
+            }
+        }
+    }
+    
+    def get_config_side_effect(*args, **kwargs):
+        if not args and not kwargs:
+            return global_config
+        return chat_config
+    mock_config_manager.get_config.side_effect = get_config_side_effect
     
     # Get context messages for random response
     messages = await get_context_messages(mock_update, mock_context, "random")
     
-    # Should fallback to global config (5 messages) + current message
-    assert len(messages) == 6
+    # Should fallback to global config (5 messages, current message is added later in gpt_response)
+    assert len(messages) == 5
 
 if __name__ == "__main__":
     pytest.main([__file__]) 
