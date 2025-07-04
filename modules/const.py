@@ -27,6 +27,7 @@ class Config:
     OPENROUTER_BASE_URL: str = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
     ERROR_CHANNEL_ID: str = os.getenv('ERROR_CHANNEL_ID', '')
     SCREENSHOT_DIR: str = 'python-web-screenshots'
+    SPEECHMATICS_API_KEY: str = os.getenv('SPEECHMATICS_API_KEY', '')
 
 class Stickers:
     """Telegram sticker IDs."""

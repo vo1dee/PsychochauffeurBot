@@ -144,6 +144,12 @@
         "auto_notify": false,
         "include_forecast": true
       }
+    },
+    "speechmatics": {
+      "enabled": true,
+      "overrides": {
+        "allow_all_users": false
+      }
     }
   }
 }
