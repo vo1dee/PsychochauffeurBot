@@ -46,6 +46,12 @@ jobs:
         run: |
           pytest --ignore=tests/test_service.py
 
+      - name: Show gpt.py lines 80-100
+        run: sed -n '80,100p' modules/gpt.py
+
+      - name: Remove old venv
+        run: rm -rf .venv
+
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.deploy)
