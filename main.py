@@ -10,18 +10,20 @@ import signal
 import sys
 from datetime import datetime
 import re
+import hashlib
 
 # Third-party imports
 import nest_asyncio
-from telegram import Update, Bot
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
     CallbackContext, CallbackQueryHandler, ContextTypes, Application
 )
+from telegram.error import BadRequest
 
 # Local module imports
-from modules.keyboards import create_link_keyboard, button_callback
+from modules.keyboards import create_link_keyboard, button_callback, get_language_keyboard as original_get_language_keyboard
 from modules.utils import (
     ScreenshotManager, MessageCounter, screenshot_command, cat_command,
     init_directories
@@ -62,7 +64,7 @@ from modules.keyboard_translator import translate_text, keyboard_mapping
 from modules.database import Database
 from modules.message_handler import setup_message_handlers, handle_gpt_reply
 from modules.chat_streamer import chat_streamer
-from modules.speechmatics import transcribe_telegram_voice
+from modules.speechmatics import transcribe_telegram_voice, SpeechmaticsLanguageNotExpected
 
 # Apply nest_asyncio at the very beginning, as it's crucial for the event loop.
 nest_asyncio.apply()
@@ -71,6 +73,23 @@ nest_asyncio.apply()
 message_counter = MessageCounter()
 reminder_manager = ReminderManager()
 config_manager = ConfigManager()
+
+# Global persistent mapping for file_id hashes
+file_id_hash_map = {}
+
+def get_language_keyboard(file_id, context=None):
+    import hashlib
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
+    file_id_hash_map[file_hash] = file_id
+    print(f"[DEBUG] (keyboard) Storing file_id in file_id_hash_map: {file_id} -> {file_hash}")
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🇬🇧 English", callback_data=f"lang_en|{file_hash}"),
+            InlineKeyboardButton("🇮🇱 Hebrew", callback_data=f"lang_he|{file_hash}"),
+            InlineKeyboardButton("🇺🇦 Ukrainian", callback_data=f"lang_uk|{file_hash}")
+        ]
+    ])
 
 # --- Command Handlers ---
 @handle_errors(feedback_message="An error occurred in /start command.")
@@ -95,6 +114,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Contact @vo1dee"
     )
     await update.message.reply_text(welcome_text)
+    # Add a static test button for callback debugging
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    await update.message.reply_text(
+        "Test callback button:",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("Test Callback", callback_data="test_callback")]
+        ])
+    )
     general_logger.info(f"Handled /start command for user {update.effective_user.id}")
 
 @handle_errors(feedback_message="An error occurred while translating the last message.")
@@ -315,7 +342,7 @@ async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAU
         return
     progress_msg = await update.message.reply_text("📝 Transcribing voice message...")
     try:
-        transcript = await transcribe_telegram_voice(context.bot, file_id)
+        transcript = await transcribe_telegram_voice(context.bot, file_id, language="auto")
         username = user.username or user.first_name or f"ID:{user.id}"
         text = f"🗣️ {username} (Speech):\n{transcript}"
         # Log to chat history
@@ -328,11 +355,73 @@ async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAU
         # Save to database as a bot message
         await context.bot.send_message(chat_id=chat_id, text=text)
     except Exception as e:
-        await progress_msg.edit_text(f"❌ Speech recognition failed: {e}")
-        await asyncio.sleep(3)
-        await progress_msg.delete()
-        return
+        import asyncio
+        error_text = str(e)
+        if (
+            "not one of the expected languages" in error_text or
+            "language identification" in error_text or
+            "timed out" in error_text or
+            isinstance(e, TimeoutError) or
+            isinstance(e, asyncio.TimeoutError)
+        ):
+            keyboard = get_language_keyboard(file_id, context)
+            try:
+                await update.message.reply_text(
+                    "❌ Couldn't recognize the language or timed out. Please choose the correct language:",
+                    reply_markup=keyboard
+                )
+            except BadRequest as br:
+                error_logger.error(f"Failed to send language selection keyboard: {br}")
+                await update.message.reply_text("❌ Couldn't recognize the language or timed out. Please try again.")
+            await progress_msg.delete()
+            return
+        else:
+            await progress_msg.edit_text(f"❌ Speech recognition failed: {e}")
+            await asyncio.sleep(3)
+            await progress_msg.delete()
+            return
     await progress_msg.delete()
+
+@handle_errors(feedback_message="An error occurred during manual language selection.")
+async def language_selection_callback(update: Update, context: CallbackContext):
+    print("[DEBUG] Callback handler entered (any callback)")
+    print(f"[DEBUG] Full update: {update}")
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    print(f"[DEBUG] Language selection callback triggered. Data: {data}")
+    if data == "test_callback":
+        await query.edit_message_text("✅ Test callback received and handled!")
+        return
+    if '|' not in data:
+        print(f"[DEBUG] Invalid callback data received: {data}")
+        await query.edit_message_text("❌ Invalid callback data. Please try again.")
+        return
+    lang_code, file_hash = data.split('|', 1)
+    lang_code = lang_code.replace('lang_', '')
+    file_id = file_id_hash_map.get(file_hash)
+    print(f"[DEBUG] (callback) Callback data hash lookup: {file_hash} -> {file_id}")
+    if not file_id:
+        print(f"[DEBUG] (callback) Hash {file_hash} not found in file_id_hash_map. Callback data: {data}")
+        await query.edit_message_text("❌ This button has expired or is invalid. Please try again.")
+        return
+    
+    # Show progress immediately
+    await query.edit_message_text(f"🔄 Processing with {lang_code} language...", reply_markup=None)
+    
+    try:
+        transcript = await transcribe_telegram_voice(context.bot, file_id, language=lang_code)
+        await query.edit_message_text(f"🗣️ Recognized ({lang_code}):\n{transcript}")
+    except SpeechmaticsLanguageNotExpected as e:
+        print(f"[DEBUG] Speechmatics identified language not expected: {e}")
+        keyboard = get_language_keyboard(file_id, context)
+        await query.edit_message_text(
+            "❌ Couldn't recognize the language. Please choose the correct language:",
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        print(f"[DEBUG] Error during manual language selection: {e}")
+        await query.edit_message_text(f"❌ Speech recognition failed: {e}", reply_markup=None)
 
 def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
     """Register all command and message handlers in the correct order."""
@@ -366,12 +455,15 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     # It has a filter to specifically ignore commands.
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Callback query handler for buttons.
+    # Register the callback handler for language selection FIRST (no pattern)
+    application.add_handler(CallbackQueryHandler(language_selection_callback))
+    # Callback query handler for buttons (link modifications, etc)
     application.add_handler(CallbackQueryHandler(button_callback))
 
     # Group 1: Video handlers. These have a higher group number so they are checked
     # after all of the default group 0 handlers.
     setup_video_handlers(application, extract_urls_func=extract_urls)
+
     general_logger.info("All handlers registered.")
 
 async def initialize_all_components():
