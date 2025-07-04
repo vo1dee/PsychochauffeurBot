@@ -54,6 +54,36 @@ class MessageCounter:
         self.counts[chat_id] = 0
 
 
+class ChatHistoryManager:
+    """Manages chat history for context in GPT responses."""
+    def __init__(self):
+        self.chat_histories = {}  # chat_id -> list of messages
+
+    def add_message(self, chat_id: int, message: dict) -> None:
+        """Add a message to chat history."""
+        if chat_id not in self.chat_histories:
+            self.chat_histories[chat_id] = []
+        
+        self.chat_histories[chat_id].append(message)
+        
+        # Keep only the last 50 messages to prevent memory issues
+        if len(self.chat_histories[chat_id]) > 50:
+            self.chat_histories[chat_id] = self.chat_histories[chat_id][-50:]
+
+    def get_history(self, chat_id: int) -> list:
+        """Get chat history for a specific chat."""
+        return self.chat_histories.get(chat_id, [])
+
+    def clear_history(self, chat_id: int) -> None:
+        """Clear chat history for a specific chat."""
+        if chat_id in self.chat_histories:
+            del self.chat_histories[chat_id]
+
+
+# Global instances
+message_counter = MessageCounter()
+chat_history_manager = ChatHistoryManager()
+
 def ensure_directory(path: str) -> None:
     """
     Ensure a directory exists.
