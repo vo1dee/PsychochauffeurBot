@@ -343,3 +343,12 @@ def modify_language(link, lang):
         return f"{base_link}/{lang}"
     return base_link
 
+def get_language_keyboard(file_id):
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🇬🇧 English", callback_data=f"lang_en|{file_id}"),
+            InlineKeyboardButton("🇮🇱 Hebrew", callback_data=f"lang_he|{file_id}"),
+            InlineKeyboardButton("🇺🇦 Ukrainian", callback_data=f"lang_uk|{file_id}")
+        ]
+    ])
+
