@@ -11,6 +11,10 @@ SPEECHMATICS_API_URL = "https://asr.api.speechmatics.com/v2/jobs/"
 class SpeechmaticsLanguageNotExpected(Exception):
     pass
 
+class SpeechmaticsRussianDetected(Exception):
+    """Exception raised when Russian is detected and should be converted to Ukrainian."""
+    pass
+
 async def transcribe_telegram_voice(bot: Bot, file_id: str, language: str = "uk") -> str:
     """
     Download a Telegram voice or video_note file and send it to Speechmatics for transcription.
@@ -39,6 +43,7 @@ async def transcribe_telegram_voice(bot: Bot, file_id: str, language: str = "uk"
                 }
             }
             if language == "auto":
+                # Only include supported languages, exclude Russian
                 job_config["language_identification_config"] = {
                     "expected_languages": ["en", "he", "uk"]
                 }
@@ -55,6 +60,10 @@ async def transcribe_telegram_voice(bot: Bot, file_id: str, language: str = "uk"
             if job_resp.status_code >= 400:
                 # Check for 'not one of the expected languages' error
                 if "not one of the expected languages" in job_resp.text:
+                    # Check if Russian was detected
+                    if "'ru'" in job_resp.text:
+                        logging.warning(f"Speechmatics detected Russian, will retry with Ukrainian")
+                        raise SpeechmaticsRussianDetected("Russian detected, retrying with Ukrainian")
                     logging.warning(f"Speechmatics identified language not expected: {job_resp.text}")
                     raise SpeechmaticsLanguageNotExpected(job_resp.text)
                 logging.error(f"Speechmatics job creation failed (attempt {attempt}): {job_resp.status_code} {job_resp.text}")
@@ -79,6 +88,10 @@ async def transcribe_telegram_voice(bot: Bot, file_id: str, language: str = "uk"
                     elif status == "failed" or status == "rejected":
                         # Check for 'not one of the expected languages' error in failure/rejection
                         if "not one of the expected languages" in status_resp.text:
+                            # Check if Russian was detected
+                            if "'ru'" in status_resp.text:
+                                logging.warning(f"Speechmatics detected Russian during polling, will retry with Ukrainian")
+                                raise SpeechmaticsRussianDetected("Russian detected, retrying with Ukrainian")
                             logging.warning(f"Speechmatics identified language not expected: {status_resp.text}")
                             raise SpeechmaticsLanguageNotExpected(status_resp.text)
                         logging.error(f"Speechmatics job {status}: {status_resp.text}")
@@ -86,7 +99,7 @@ async def transcribe_telegram_voice(bot: Bot, file_id: str, language: str = "uk"
                     await asyncio.sleep(1.0)
                 except Exception as e:
                     logging.error(f"Error polling Speechmatics job status (attempt {attempt}, poll {poll_num+1}): {e}")
-                    if isinstance(e, SpeechmaticsLanguageNotExpected):
+                    if isinstance(e, SpeechmaticsLanguageNotExpected) or isinstance(e, SpeechmaticsRussianDetected):
                         raise  # Immediately break out of the polling loop
                     if poll_num == 59:
                         raise
@@ -94,7 +107,8 @@ async def transcribe_telegram_voice(bot: Bot, file_id: str, language: str = "uk"
             else:
                 logging.error("Speechmatics transcription timed out after 60 seconds.")
                 raise TimeoutError("Speechmatics transcription timed out.")
-            # 3. Get the transcript
+            
+            # 3. Get the transcript and check for Russian detection
             transcript_url = f"{SPEECHMATICS_API_URL}{job_id}/transcript?format=txt"
             try:
                 transcript_resp = await client.get(transcript_url, headers=headers)
@@ -102,6 +116,7 @@ async def transcribe_telegram_voice(bot: Bot, file_id: str, language: str = "uk"
                 transcript_resp.raise_for_status()
                 transcript_text = transcript_resp.text.strip()
                 logging.info(f"[Speechmatics] Transcript text: {transcript_text}")
+                
                 return transcript_text
             except Exception as e:
                 logging.error(f"[Speechmatics] Error fetching transcript for job {job_id}: {e}")
