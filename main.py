@@ -11,6 +11,7 @@ import sys
 from datetime import datetime
 import re
 import hashlib
+import logging
 
 # Third-party imports
 import nest_asyncio
@@ -64,7 +65,7 @@ from modules.keyboard_translator import translate_text, keyboard_mapping
 from modules.database import Database
 from modules.message_handler import setup_message_handlers, handle_gpt_reply
 from modules.chat_streamer import chat_streamer
-from modules.speechmatics import transcribe_telegram_voice, SpeechmaticsLanguageNotExpected
+from modules.speechmatics import transcribe_telegram_voice, SpeechmaticsLanguageNotExpected, SpeechmaticsRussianDetected
 
 # Apply nest_asyncio at the very beginning, as it's crucial for the event loop.
 nest_asyncio.apply()
@@ -354,8 +355,30 @@ async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAU
         })
         # Save to database as a bot message
         await context.bot.send_message(chat_id=chat_id, text=text)
+    except SpeechmaticsRussianDetected as e:
+        # Russian was detected, automatically retry with Ukrainian
+        logging.info(f"[Auto-management] Russian detected, retrying with Ukrainian: {e}")
+        await progress_msg.edit_text("🔄 Russian detected, retrying with Ukrainian...")
+        try:
+            transcript = await transcribe_telegram_voice(context.bot, file_id, language="uk")
+            username = user.username or user.first_name or f"ID:{user.id}"
+            text = f"🗣️ {username} (Speech - Ukrainian):\n{transcript}"
+            # Log to chat history
+            chat_streamer._chat_logger.info(f"[{username}] (Speech - Ukrainian): {transcript}", extra={
+                'chat_id': chat_id,
+                'chat_type': chat_type,
+                'chattitle': update.effective_chat.title or f"Private_{chat_id}",
+                'username': username
+            })
+            # Save to database as a bot message
+            await context.bot.send_message(chat_id=chat_id, text=text)
+        except Exception as retry_error:
+            logging.error(f"[Auto-management] Ukrainian retry failed: {retry_error}")
+            await progress_msg.edit_text(f"❌ Speech recognition failed: {retry_error}")
+            await asyncio.sleep(3)
+            await progress_msg.delete()
+            return
     except Exception as e:
-        import asyncio
         error_text = str(e)
         if (
             "not one of the expected languages" in error_text or
