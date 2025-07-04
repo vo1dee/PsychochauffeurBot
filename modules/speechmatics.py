@@ -32,6 +32,11 @@ async def transcribe_telegram_voice(bot: Bot, file_id: str, language: str = "uk"
                 "language": language
             }
         }
+        # If using automatic language detection, add expected_languages
+        if language == "auto":
+            job_config["language_identification_config"] = {
+                "expected_languages": ["en", "he", "uk"]
+            }
         job_resp = await client.post(
             SPEECHMATICS_API_URL,
             headers=headers,
