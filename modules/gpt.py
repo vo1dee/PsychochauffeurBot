@@ -70,7 +70,13 @@ DEFAULT_PROMPTS = {
     "command": "You are a helpful assistant.",
     "mention": "You are a helpful assistant who responds to mentions in group chats.",
     "private": "You are a helpful assistant for private conversations.",
-    "random": "You are a friendly assistant who occasionally joins conversations.",
+    "random": """You are a friendly assistant who occasionally joins conversations in group chats. 
+    IMPORTANT: Always read and understand the conversation context before responding. 
+    Reference specific topics, themes, or details from the ongoing discussion. 
+    Keep your responses casual and engaging. 
+    If the user's request appears to be in Russian, respond in Ukrainian instead. 
+    Do not reply in Russian under any circumstance.
+    Make your responses feel natural and contextual to the conversation flow.""",
     "weather": "You are a weather information assistant. Provide concise weather updates and forecasts."
 }
 
@@ -306,6 +312,66 @@ async def analyze_image(
         return "Error analyzing image."
 
 
+async def get_context_messages(update: Update, context: CallbackContext, response_type: str = "command") -> List[Dict[str, str]]:
+    """
+    Get context messages for GPT response.
+    
+    Args:
+        update: Telegram update object
+        context: Telegram callback context
+        response_type: Type of response (command, mention, random, etc.)
+        
+    Returns:
+        List[Dict[str, str]]: List of message dictionaries for context
+    """
+    messages = []
+    
+    try:
+        if not update.message or not update.message.text:
+            return messages
+            
+        # Get chat configuration
+        chat_id = str(update.effective_chat.id)
+        chat_type = update.effective_chat.type
+        chat_config = await config_manager.get_config(chat_id, chat_type)
+        
+        # Get context messages count from config
+        # For random responses, check chat_behavior module first
+        if response_type == "random":
+            chat_behavior = chat_config.get("config_modules", {}).get("chat_behavior", {})
+            if chat_behavior.get("enabled", False):
+                random_settings = chat_behavior.get("overrides", {}).get("random_response_settings", {})
+                context_messages_count = random_settings.get("context_messages_count", 3)
+            else:
+                # Fallback to global config
+                global_config = await config_manager.get_config()
+                global_chat_behavior = global_config.get("config_modules", {}).get("chat_behavior", {})
+                global_random_settings = global_chat_behavior.get("overrides", {}).get("random_response_settings", {})
+                context_messages_count = global_random_settings.get("context_messages_count", 3)
+        else:
+            # For other response types, use GPT module setting
+            gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
+            context_messages_count = gpt_module.get("context_messages_count", 3)  # Default to 3 if not specified
+        
+        # Get previous messages from the global chat history manager
+        from modules.utils import chat_history_manager
+        chat_history = chat_history_manager.get_history(update.effective_chat.id)
+        
+        # Add up to context_messages_count previous messages (excluding current message)
+        for msg in reversed(chat_history[-context_messages_count:]):
+            if msg.get('text'):
+                messages.insert(0, {
+                    "role": "user" if msg.get('is_user') else "assistant",
+                    "content": msg['text']
+                })
+        
+    except Exception as e:
+        from modules.logger import error_logger
+        error_logger.error(f"Error getting context messages: {e}")
+        
+    return messages
+
+
 async def get_chat_context(update: Optional[Update]) -> str:
     """
     Get recent chat messages as context for GPT requests.
@@ -386,57 +452,6 @@ async def check_api_health() -> bool:
         return False
 
 
-async def get_context_messages(update: Update, context: CallbackContext) -> List[Dict[str, str]]:
-    """
-    Get context messages for GPT response.
-    
-    Args:
-        update: Telegram update object
-        context: Telegram callback context
-        
-    Returns:
-        List[Dict[str, str]]: List of message dictionaries for context
-    """
-    messages = []
-    
-    try:
-        if not update.message or not update.message.text:
-            return messages
-            
-        # Get chat configuration
-        chat_id = str(update.effective_chat.id)
-        chat_type = update.effective_chat.type
-        chat_config = await config_manager.get_config(chat_id, chat_type)
-        
-        # Get context messages count from config
-        gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
-        context_messages_count = gpt_module.get("context_messages_count", 3)  # Default to 3 if not specified
-            
-        # Add the current message
-        messages.append({
-            "role": "user",
-            "content": update.message.text
-        })
-        
-        # Get previous messages if available
-        if context and hasattr(context, 'chat_data'):
-            chat_id = update.effective_chat.id
-            chat_history = context.chat_data.get('message_history', [])
-            
-            # Add up to context_messages_count previous messages
-            for msg in reversed(chat_history[-context_messages_count:]):
-                if msg.get('text'):
-                    messages.insert(0, {
-                        "role": "user" if msg.get('is_user') else "assistant",
-                        "content": msg['text']
-                    })
-                    
-    except Exception as e:
-        error_logger.error(f"Error getting context messages: {e}")
-        
-    return messages
-
-
 async def gpt_response(
     update: Update, 
     context: CallbackContext, 
@@ -489,19 +504,24 @@ async def gpt_response(
             bot_username = f"@{context.bot.username}"
             message_text_override = message_text_override.replace(bot_username, "").strip()
 
-        # Get context messages
-        context_messages = await get_context_messages(update, context)
+        # Get context messages (previous conversation history)
+        context_messages = await get_context_messages(update, context, response_type)
         
-        # If message_text_override is provided, replace the last user message
+        # Add the current message
+        current_message = message_text_override or update.message.text
+        current_user_message = {"role": "user", "content": current_message}
+        
+        # If message_text_override is provided, replace the last user message in context
         if message_text_override and context_messages:
             for i in range(len(context_messages)-1, -1, -1):
                 if context_messages[i]["role"] == "user":
                     context_messages[i]["content"] = message_text_override
                     break
             else:
-                context_messages.append({"role": "user", "content": message_text_override})
-        elif message_text_override:
-            context_messages = [{"role": "user", "content": message_text_override}]
+                context_messages.append(current_user_message)
+        else:
+            # Add current message to the end of context messages
+            context_messages.append(current_user_message)
         
         # Prepare messages for GPT
         messages = [
@@ -542,6 +562,15 @@ async def gpt_response(
         if return_text:
             return response_text
         else:
+            # Store bot response in chat history for context
+            from modules.utils import chat_history_manager
+            chat_history_manager.add_message(update.effective_chat.id, {
+                'text': response_text,
+                'is_user': False,
+                'user_id': None,
+                'timestamp': update.message.date
+            })
+            
             await update.message.reply_text(response_text)
             return None
         

@@ -27,7 +27,7 @@ from telegram.error import BadRequest
 from modules.keyboards import create_link_keyboard, button_callback, get_language_keyboard as original_get_language_keyboard
 from modules.utils import (
     ScreenshotManager, MessageCounter, screenshot_command, cat_command,
-    init_directories
+    init_directories, chat_history_manager
 )
 from modules.image_downloader import ImageDownloader
 from modules.const import (
@@ -158,6 +158,14 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Update message history
     update_message_history(user_id, message_text)
     
+    # Update chat history for context using the global manager
+    chat_history_manager.add_message(chat_id, {
+        'text': message_text,
+        'is_user': True,
+        'user_id': user_id,
+        'timestamp': update.message.date
+    })
+    
     # Check for user restrictions
     if should_restrict_user(message_text):
         await restrict_user(update, context)
@@ -189,21 +197,37 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         chat_id = str(update.effective_chat.id)
         chat_type = update.effective_chat.type
         config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior")
+        
+        # Check if chat_behavior module is enabled
+        module_enabled = config.get("enabled", False)
         overrides = config.get("overrides", {})
         random_settings = overrides.get("random_response_settings", {})
-        enabled = random_settings.get("enabled", False)
-        min_words = random_settings.get("min_words", 5)
-        message_threshold = random_settings.get("message_threshold", 50)
-        probability = random_settings.get("probability", 0.02)
-        # Only consider messages with enough words
-        if enabled and len(message_text.split()) >= min_words:
-            count = message_counter.increment(update.effective_chat.id)
-            if count >= message_threshold:
-                import random
-                if random.random() < probability:
-                    message_counter.reset(update.effective_chat.id)
-                    await gpt_response(update, context, response_type="random", message_text_override=cleaned_text)
-                    return
+        random_enabled = random_settings.get("enabled", False)
+        
+        # Both module and random settings must be enabled
+        if module_enabled and random_enabled:
+            min_words = random_settings.get("min_words", 5)
+            message_threshold = random_settings.get("message_threshold", 50)
+            probability = random_settings.get("probability", 0.02)
+            
+            # Only consider messages with enough words
+            if len(message_text.split()) >= min_words:
+                count = message_counter.increment(update.effective_chat.id)
+                general_logger.info(f"Random response check: chat_id={chat_id}, count={count}/{message_threshold}, probability={probability}")
+                
+                if count >= message_threshold:
+                    import random
+                    if random.random() < probability:
+                        message_counter.reset(update.effective_chat.id)
+                        general_logger.info(f"Triggering random response in chat {chat_id}")
+                        await gpt_response(update, context, response_type="random", message_text_override=cleaned_text)
+                        return
+        else:
+            # Log why random responses are disabled
+            if not module_enabled:
+                general_logger.debug(f"Random responses disabled: chat_behavior module not enabled in chat {chat_id}")
+            elif not random_enabled:
+                general_logger.debug(f"Random responses disabled: random_response_settings not enabled in chat {chat_id}")
 
     # Handle modified links if any were found
     if modified_links:

@@ -286,7 +286,8 @@ class ConfigManager:
                                 "enabled": True,
                                 "min_words": 5,
                                 "message_threshold": 50,
-                                "probability": 0.02
+                                "probability": 0.02,
+                                "context_messages_count": 3
                             },
                             "restriction_sticker_unique_id": "AgAD6BQAAh-z-FM"
                         }
@@ -602,7 +603,8 @@ class ConfigManager:
                             "enabled": True,
                             "min_words": 5,
                             "message_threshold": 50,
-                            "probability": 0.02
+                            "probability": 0.02,
+                            "context_messages_count": 3
                         },
                         "restriction_sticker_unique_id": "AgAD6BQAAh-z-FM"
                     }
