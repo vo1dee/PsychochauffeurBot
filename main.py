@@ -9,6 +9,7 @@ import os
 import signal
 import sys
 from datetime import datetime
+import re
 
 # Third-party imports
 import nest_asyncio
@@ -33,6 +34,7 @@ from modules.gpt import (
     ask_gpt_command, analyze_command, answer_from_gpt, handle_photo_analysis,
     gpt_response, mystats_command
 )
+from modules.count_command import count_command
 from modules.weather import WeatherCommandHandler
 from modules.logger import (
     TelegramErrorHandler,
@@ -60,6 +62,7 @@ from modules.keyboard_translator import translate_text, keyboard_mapping
 from modules.database import Database
 from modules.message_handler import setup_message_handlers, handle_gpt_reply
 from modules.chat_streamer import chat_streamer
+from modules.speechmatics import transcribe_telegram_voice
 
 # Apply nest_asyncio at the very beginning, as it's crucial for the event loop.
 nest_asyncio.apply()
@@ -247,6 +250,90 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Pong! 🏓")
     general_logger.info(f"Handled /ping command for user {update.effective_user.id}")
 
+# --- Speech Recognition State Management ---
+async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    chat = update.effective_chat
+    user = update.effective_user
+    if chat.type == 'private':
+        return True
+    member = await context.bot.get_chat_member(chat.id, user.id)
+    return member.status in {"administrator", "creator"}
+
+async def get_speech_config(chat_id: str, chat_type: str):
+    config = await config_manager.get_config(chat_id, chat_type)
+    return config.get("config_modules", {}).get("speechmatics", {})
+
+@handle_errors(feedback_message="An error occurred in /speech command.")
+async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = str(update.effective_chat.id)
+    chat_type = update.effective_chat.type
+    user_id = update.effective_user.id
+    args = context.args if hasattr(context, 'args') else []
+    speech_config = await get_speech_config(chat_id, chat_type)
+    # Ensure 'overrides' exists in config before updating
+    if 'overrides' not in speech_config:
+        speech_config['overrides'] = {}
+        # Save the updated config immediately
+        config = await config_manager.get_config(chat_id, chat_type)
+        config['config_modules']['speechmatics'] = speech_config
+        await config_manager.save_config(config, chat_id, chat_type)
+    overrides = speech_config.get("overrides", {})
+    allow_all = overrides.get("allow_all_users", False)
+    if not allow_all and not await is_admin(update, context):
+        await update.message.reply_text("❌ Only admins can use this command.")
+        return
+    if not args or args[0] not in ("on", "off"):
+        await update.message.reply_text("Usage: /speech on|off")
+        return
+    enabled = args[0] == "on"
+    # Update config
+    await config_manager.update_module_setting(
+        module_name="speechmatics",
+        setting_path="overrides.enabled",
+        value=enabled,
+        chat_id=chat_id,
+        chat_type=chat_type
+    )
+    await update.message.reply_text(f"Speech recognition {'enabled' if enabled else 'disabled'}.")
+
+# --- Voice/Video Note Handler ---
+@handle_errors(feedback_message="An error occurred during speech recognition.")
+async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = str(update.effective_chat.id)
+    chat_type = update.effective_chat.type
+    speech_config = await get_speech_config(chat_id, chat_type)
+    if not speech_config.get("enabled", False):
+        return
+    message = update.message
+    user = message.from_user
+    file_id = None
+    if message.voice:
+        file_id = message.voice.file_id
+    elif message.video_note:
+        file_id = message.video_note.file_id
+    else:
+        return
+    progress_msg = await update.message.reply_text("📝 Transcribing voice message...")
+    try:
+        transcript = await transcribe_telegram_voice(context.bot, file_id)
+        username = user.username or user.first_name or f"ID:{user.id}"
+        text = f"🗣️ {username} (Speech):\n{transcript}"
+        # Log to chat history
+        chat_streamer._chat_logger.info(f"[{username}] (Speech): {transcript}", extra={
+            'chat_id': chat_id,
+            'chat_type': chat_type,
+            'chattitle': update.effective_chat.title or f"Private_{chat_id}",
+            'username': username
+        })
+        # Save to database as a bot message
+        await context.bot.send_message(chat_id=chat_id, text=text)
+    except Exception as e:
+        await progress_msg.edit_text(f"❌ Speech recognition failed: {e}")
+        await asyncio.sleep(3)
+        await progress_msg.delete()
+        return
+    await progress_msg.delete()
+
 def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
     """Register all command and message handlers in the correct order."""
     
@@ -267,10 +354,13 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     application.add_handler(CommandHandler("flares", screenshot_command))
     application.add_handler(CommandHandler("gm", GeomagneticCommandHandler()))
     application.add_handler(CommandHandler("remind", reminder_manager.remind))
+    application.add_handler(CommandHandler("count", count_command))
+    application.add_handler(CommandHandler("speech", speech_command))
     
     # Group 0: Other specific message handlers.
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_analysis))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+    application.add_handler(MessageHandler(filters.VOICE | filters.VIDEO_NOTE, handle_voice_or_video_note))
 
     # General text message handler for non-command messages.
     # It has a filter to specifically ignore commands.
