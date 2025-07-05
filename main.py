@@ -283,18 +283,35 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
     """Handle sticker messages."""
     if not update.message or not update.message.sticker:
         return
+        
     sticker = update.message.sticker
-    general_logger.info(f"Sticker received: file_id={sticker.file_id}, file_unique_id={sticker.file_unique_id}")
-    # AliExpress sticker logic
-    if sticker.file_unique_id == Stickers.ALIEXPRESS:
-        await update.message.reply_text(
-            "🔗 *AliExpress Link Detected*\n\nPlease send the product link and I'll optimize it for you\\!",
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
-        return
+    general_logger.info(f"Received sticker: {sticker.file_id} ({sticker.file_unique_id})")
+    
+    # Check if this is a restriction sticker
+    if sticker.file_unique_id in [
+        "AgAD9hQAAtMUCVM",
+        "AgADrBgAAk_x0Es",
+        "AgADJSsAArOEUEo",
+        "AgAD32YAAvgziEo"
+    ]:
+        await handle_restriction_sticker(update, context)
 
-    # Restrict user if they send the specific sticker in a supergroup (never in private chats)
-    await handle_restriction_sticker(update, context)
+@handle_errors(feedback_message="An error occurred while handling location.")
+async def handle_location(update: Update, context: CallbackContext) -> None:
+    """Handle location messages by replying with a sticker."""
+    if not update.message or not update.message.location:
+        return
+        
+    location = update.message.location
+    general_logger.info(f"Received location: lat={location.latitude}, lon={location.longitude}")
+    
+    try:
+        # Reply with the location sticker
+        await update.message.reply_sticker(sticker=Stickers.LOCATION)
+        general_logger.info(f"Sent location sticker in response to location message")
+    except Exception as e:
+        error_logger.error(f"Failed to send location sticker: {e}")
+        await update.message.reply_text("📍 Location received!")
 
 @handle_errors(feedback_message="An error occurred in /ping command.")
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -496,6 +513,7 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     # Group 0: Other specific message handlers.
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_analysis))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+    application.add_handler(MessageHandler(filters.LOCATION, handle_location))
     application.add_handler(MessageHandler(filters.VOICE | filters.VIDEO_NOTE, handle_voice_or_video_note))
 
     # General text message handler for non-command messages.
