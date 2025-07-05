@@ -268,12 +268,22 @@ async def construct_and_send_message(
             escaped_links.append(escaped_url)
         message = f"@{escaped_username} хотів відправити:\n{escaped_text}"
         keyboard = create_link_keyboard(escaped_links, context)
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=message,
-            reply_markup=keyboard,
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
+        
+        # Check if the original message was a reply to another message
+        if update.message.reply_to_message:
+            # If it was a reply, send the modified link message as a reply to the parent message
+            await update.message.reply_to_message.reply_text(
+                text=message,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+        else:
+            # If it wasn't a reply, send the modified link message as a reply to the original message
+            await update.message.reply_text(
+                text=message,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
     except Exception as e:
         error_logger.error(f"Failed to send message: {str(e)}", exc_info=True)
         raise
