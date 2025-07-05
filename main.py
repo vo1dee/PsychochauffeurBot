@@ -520,8 +520,8 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     # It has a filter to specifically ignore commands.
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Register the callback handler for language selection FIRST (no pattern)
-    application.add_handler(CallbackQueryHandler(language_selection_callback))
+    # Register the callback handler for language selection with pattern filter
+    application.add_handler(CallbackQueryHandler(language_selection_callback, pattern=r"^lang_"))
     # Callback query handler for buttons (link modifications, etc)
     application.add_handler(CallbackQueryHandler(button_callback))
 
@@ -560,7 +560,7 @@ async def initialize_all_components():
                 "• Database: ✅\n"
                 "• Error Handler: ✅\n"
                 "• Config Manager: ✅\n"
-                f"• Config Update: ✅ \({success_count}/{total_count}\)\n"
+                f"• Config Update: ✅ ({success_count}/{total_count})\n"
                 "• Reminder Manager: ✅\n"
                 "• Safety Manager: ✅"
             )
@@ -629,7 +629,7 @@ async def main():
     application = ApplicationBuilder().token(Config.TELEGRAM_BOT_TOKEN).build()
 
     # Initialize error handler with the bot instance
-    init_telegram_error_handler(application.bot, Config.ERROR_CHANNEL_ID)
+    await init_telegram_error_handler(application.bot, Config.ERROR_CHANNEL_ID)
 
     # Register command handlers
     register_handlers(application, application.bot, config_manager)
