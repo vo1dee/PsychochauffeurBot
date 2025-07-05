@@ -515,11 +515,21 @@ class VideoDownloader:
                 caption += f"\n\n🔗 [Посилання]({escaped_url})"
 
             with open(filename, 'rb') as video_file:
-                await update.message.reply_video(
-                    video=video_file,
-                    caption=caption,
-                    parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
-                )
+                # Check if the original message was a reply to another message
+                if update.message.reply_to_message:
+                    # If it was a reply, send the video as a reply to the parent message
+                    await update.message.reply_to_message.reply_video(
+                        video=video_file,
+                        caption=caption,
+                        parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
+                    )
+                else:
+                    # If it wasn't a reply, send the video as a reply to the original message
+                    await update.message.reply_video(
+                        video=video_file,
+                        caption=caption,
+                        parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
+                    )
                 
             # Delete the original message after successful video send
             try:
