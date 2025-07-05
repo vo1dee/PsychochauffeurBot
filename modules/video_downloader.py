@@ -474,7 +474,7 @@ class VideoDownloader:
             for url in urls:
                 filename, title = await self.download_video(url)
                 if filename and os.path.exists(filename):
-                    await self._send_video(update, filename, title, source_url=url)
+                    await self._send_video(update, context, filename, title, source_url=url)
                 else:
                     await self._handle_download_error(update, url)
 
@@ -483,7 +483,7 @@ class VideoDownloader:
         finally:
             await self._cleanup(processing_msg, filename, update)
 
-    async def _send_video(self, update: Update, filename: str, title: str, source_url: str = None) -> None:
+    async def _send_video(self, update: Update, context: ContextTypes.DEFAULT_TYPE, filename: str, title: str, source_url: str = None) -> None:
         try:
             file_size = os.path.getsize(filename)
             max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
@@ -524,8 +524,9 @@ class VideoDownloader:
                         parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
                     )
                 else:
-                    # If it wasn't a reply, send the video as a reply to the original message
-                    await update.message.reply_video(
+                    # If it wasn't a reply, send the video as a new message (not as a reply)
+                    await context.bot.send_video(
+                        chat_id=update.effective_chat.id,
                         video=video_file,
                         caption=caption,
                         parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
