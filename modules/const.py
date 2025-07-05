@@ -32,6 +32,7 @@ class Config:
 class Stickers:
     """Telegram sticker IDs."""
     ALIEXPRESS: str = 'CAACAgQAAxkBAAEuNplnAqatdmo-G7S_065k9AXXnqUn4QACwhQAAlKL8FNCof7bbA2jAjYE'
+    LOCATION: str = 'CAACAgQAAxkBAAE3R61oaOg4WXbVWO3aeHPbKFcvKR8JRAACMhsAAl0KGFDROvkaE3ex5jYE'
     RESTRICTION_STICKERS = [
         "CAACAgQAAxkBAAEt8tNm9Wc6jYEQdAgQzvC917u3e8EKPgAC9hQAAtMUCVP4rJSNEWepBzYE",
         "CAACAgIAAxkBAAEyoUxn0vCR2hi81ZEkZTuffMFmG9AexQACrBgAAk_x0Es_t_KsbxvdnTYE",
