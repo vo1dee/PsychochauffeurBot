@@ -5,9 +5,9 @@ import json
 import asyncio
 import logging
 from typing import Dict, Any, Optional, Literal, List, Union
-import aiofiles
 from pathlib import Path
 import datetime
+import aiofiles
 
 from modules.logger import general_logger, error_logger
 
@@ -19,15 +19,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Try to import GPT_PROMPTS, use empty dict if not available
-try:
-    from modules.prompts import GPT_PROMPTS
-except ImportError:
-    logger.warning("Could not import GPT_PROMPTS, using empty dict")
-    GPT_PROMPTS = {
-        'image_analysis': 'Default image analysis prompt',
-        'gpt_summary': 'Default summary prompt'
-    }
+# Default GPT prompts
+GPT_PROMPTS = {
+    'image_analysis': 'Default image analysis prompt',
+    'gpt_summary': 'Default summary prompt'
+}
 
 
 class ConfigManager:
@@ -1109,4 +1105,11 @@ class ConfigManager:
             return results
         except Exception as e:
             logger.error(f"Error in update_chat_configs_with_template: {e}", exc_info=True)
-            return results 
+            return results
+
+    def get_analysis_cache_config(self) -> Dict[str, Any]:
+        """Return analysis cache config from env or defaults."""
+        return {
+            "enabled": os.getenv("ENABLE_ANALYSIS_CACHE", "True").lower() == "true",
+            "ttl": int(os.getenv("ANALYSIS_CACHE_TTL", "86400")),
+        }
