@@ -87,6 +87,53 @@ USE_OPENROUTER = bool(Config.OPENROUTER_BASE_URL)  # Only use if defined
 last_diagnostic_result = None
 last_diagnostic_time = datetime.min
 
+class OpenAIAsyncClient:
+    def __init__(self, api_key, base_url):
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://vo1dee.com",
+            "X-Title": "PsychochauffeurBot"
+        }
+        self._client = httpx.AsyncClient(timeout=TIMEOUT_CONFIG)
+
+    class Chat:
+        def __init__(self, outer):
+            self.outer = outer
+
+        class Completions:
+            def __init__(self, outer):
+                self.outer = outer
+
+            async def create(self, model, messages, max_tokens, temperature, **kwargs):
+                payload = {
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                }
+                payload.update(kwargs)
+                url = f"{self.outer.outer.base_url}/chat/completions"
+                response = await self.outer.outer._client.post(url, headers=self.outer.outer.headers, json=payload)
+                response.raise_for_status()
+                return response.json()  # Return dict for compatibility
+
+        @property
+        def completions(self):
+            return OpenAIAsyncClient.Chat.Completions(self)
+
+    @property
+    def chat(self):
+        return OpenAIAsyncClient.Chat(self)
+
+# Instantiate the client for use in this module and diagnostics
+client = OpenAIAsyncClient(
+    api_key=Config.OPENROUTER_API_KEY,
+    base_url=Config.OPENROUTER_BASE_URL or "https://api.openai.com/v1"
+)
+
 async def get_system_prompt(response_type: str, chat_config: Dict[str, Any]) -> str:
     """
     Get the system prompt for a specific response type from the chat configuration.
@@ -244,7 +291,7 @@ async def analyze_image(
                 error_logger.error(f"Failed to load chat config for image analysis: {e}")
         
         # Call GPT with the image using image_analysis response type
-        response = await httpx.AsyncClient().chat.completions.create(
+        response = await client.chat.completions.create(
             model=GPT_MODEL_TEXT,
             messages=[
                 {
@@ -263,7 +310,7 @@ async def analyze_image(
             temperature=0.2
         )
         
-        description = response.choices[0].message.content.strip()
+        description = response["choices"][0]["message"]["content"].strip()
         
         # Log the description if update is provided
         if update and update.effective_chat:
@@ -512,7 +559,7 @@ async def gpt_response(
         ]
         
         # Call GPT API
-        response = await httpx.AsyncClient().chat.completions.create(
+        response = await client.chat.completions.create(
             model=GPT_MODEL_TEXT,
             messages=messages,
             max_tokens=max_tokens,
@@ -520,7 +567,7 @@ async def gpt_response(
         )
         
         # Get response text
-        response_text = response.choices[0].message.content.strip()
+        response_text = response["choices"][0]["message"]["content"].strip()
         
         # Check if response is too long for Telegram
         if len(response_text) > MAX_TELEGRAM_MESSAGE_LENGTH:
@@ -686,7 +733,7 @@ async def gpt_summary_function(messages: List[str]) -> str:
             error_logger.error(f"Failed to load config for summary: {e}")
 
         # Call the API to get the summary
-        response = await httpx.AsyncClient().chat.completions.create(
+        response = await client.chat.completions.create(
             model="openai/gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -697,7 +744,7 @@ async def gpt_summary_function(messages: List[str]) -> str:
         )
 
         # Extract the summary from the response
-        summary = response.choices[0].message.content.strip()
+        summary = response["choices"][0]["message"]["content"].strip()
         return summary
     except Exception as e:
         error_logger.error(f"Error in GPT summarization: {e}")
