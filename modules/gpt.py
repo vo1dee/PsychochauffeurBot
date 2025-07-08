@@ -925,14 +925,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
         # Get GPT analysis
-        # Patch: capture gpt_response output
-        from io import StringIO
-        import sys
-        old_stdout = sys.stdout
-        sys.stdout = mystdout = StringIO()
-        await gpt_response(update, context, response_type="analyze", message_text_override=analysis_text)
-        sys.stdout = old_stdout
-        gpt_result = mystdout.getvalue().strip()
+        gpt_result = await gpt_response(update, context, response_type="analyze", message_text_override=analysis_text, return_text=True)
         if not gpt_result:
             gpt_result = "(No summary returned)"
 
