@@ -180,10 +180,38 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     
     # Check for Meta platform links
     urls = extract_urls(message_text)
-    for url in urls:
-        if is_meta_platform(url):
-            await update.message.reply_text("цукерберг уйобок, мета - корпорація гівна")
-            return
+    meta_urls = [url for url in urls if is_meta_platform(url)]
+    if meta_urls:
+        # Try to use the video downloader for Meta links
+        video_downloader = context.application.bot_data.get('video_downloader') if hasattr(context, 'application') else None
+        if video_downloader:
+            # Use the same logic as handle_video_link, but only for meta_urls
+            processing_msg = await update.message.reply_text("⏳ Processing your Meta video link...")
+            filename = None
+            try:
+                # Filter out story URLs (handled by downloader)
+                for url in meta_urls:
+                    filename, title = await video_downloader.download_video(url)
+                    if filename and os.path.exists(filename):
+                        await video_downloader._send_video(update, context, filename, title, source_url=url)
+                    else:
+                        await video_downloader._handle_download_error(update, url)
+            except Exception as e:
+                await update.message.reply_text(f"❌ Error processing Meta video: {e}")
+            finally:
+                if processing_msg:
+                    try:
+                        await processing_msg.delete()
+                    except Exception:
+                        pass
+                if filename and os.path.exists(filename):
+                    try:
+                        os.remove(filename)
+                    except Exception:
+                        pass
+        else:
+            await update.message.reply_text("❌ Video downloader is not available for Meta links.")
+        return
     
     # Check for GPT response
     needs_response, response_type = needs_gpt_response(update, context, message_text)
