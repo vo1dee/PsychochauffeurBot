@@ -937,6 +937,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await status_message.edit_text(
             f"📊 Аналіз повідомлень за {date_str} ({len(messages_text)} повідомлень) завершено."
         )
+        # Send the summary to the chat
+        await update.message.reply_text(gpt_result)
 
     except Exception as e:
         error_logger.error(f"Error in analyze command: {e}", exc_info=True)
