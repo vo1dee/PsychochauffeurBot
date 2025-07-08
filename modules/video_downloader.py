@@ -321,6 +321,9 @@ class VideoDownloader:
     async def download_video(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         try:
             url = url.strip().strip('\\')
+            if self._is_story_url(url):
+                error_logger.info(f"Story URL detected and skipped: {url}")
+                return None, None
             platform = self._get_platform(url)
             error_logger.info(f"Starting video download for URL: {url}")
             error_logger.info(f"Detected platform: {platform}")
@@ -467,6 +470,12 @@ class VideoDownloader:
             
             if not urls:
                 await self.send_error_sticker(update)
+                return
+
+            # Filter out story URLs
+            urls = [url for url in urls if not self._is_story_url(url)]
+            if not urls:
+                await update.message.reply_text("❌ Stories are not supported for download.")
                 return
 
             processing_msg = await update.message.reply_text("⏳ Processing your request...")
@@ -726,106 +735,47 @@ class VideoDownloader:
             if special_config is not None:
                 config = special_config
             else:
-                config = self.platform_configs.get(platform, self.platform_configs[Platform.OTHER])
-                
+                # Use minimal parameters for max quality
+                config = DownloadConfig(format="bestvideo+bestaudio/best", extra_args=["--merge-output-format", "mp4"])
             error_logger.info(f"Using download config: {config}")
-            
             # Force mp4 extension
             unique_filename = f"video_{uuid.uuid4()}.mp4"
-            output_template = os.path.join(self.download_path, unique_filename) 
-            
-            # Add more verbose logging for YouTube content
-            is_youtube_shorts = "youtube.com/shorts" in url.lower()
-            is_youtube_clips = "youtube.com/clip" in url.lower()
-            is_youtube_special = is_youtube_shorts or is_youtube_clips
-            
-            if is_youtube_special:
-                content_type = "Shorts" if is_youtube_shorts else "Clips"
-                error_logger.info(f"YouTube {content_type} direct download attempt: {url}")
-                error_logger.info(f"Using yt-dlp path: {self.yt_dlp_path}")
-                error_logger.info(f"Output template: {output_template}")
-                error_logger.info(f"Format: {config.format}")
-                
-                # For clips, try to use a more reliable format option
-                format_option = config.format
-                if is_youtube_clips:
-                    # Use a simpler format for clips to increase reliability
-                    format_option = "best[ext=mp4]/best"
-                    error_logger.info(f"Using simplified format for YouTube Clips: {format_option}")
-                
-                # Build args with potential extra options for clips
-                yt_dlp_args = [
-                    self.yt_dlp_path,
-                    url,
-                    '-f', format_option,
-                    '-o', output_template,
-                    '--merge-output-format', 'mp4',
-                    '--verbose',  # Enable verbose output for debugging
-                ]
-                
-                # Add specific args for clips if needed
-                if is_youtube_clips:
-                    # Add additional options that might help with clip downloads
-                    yt_dlp_args.extend([
-                        '--extractor-retries', '3',
-                        '--fragment-retries', '10',
-                        '--retry-sleep', '5',
-                        '--no-check-certificate',
-                        '--geo-bypass',
-                    ])
-                    error_logger.info("Added extra retry options for YouTube Clips")
-            else:
-                # Use standard args for other platforms
-                yt_dlp_args = [
-                    self.yt_dlp_path,
-                    url,
-                    '-f', config.format,
-                    '-o', output_template,
-                    '--merge-output-format', 'mp4',
-                    '--verbose',  # Enable verbose output for debugging
-                ]
-                
-                # Add platform-specific headers if available
-                if config.headers:
-                    for key, value in config.headers.items():
-                        yt_dlp_args.extend(['--add-header', f'{key}:{value}'])
-                        error_logger.info(f"Added header: {key}:{value}")
-                
-                # Add any extra args from the config
-                if config.extra_args:
-                    yt_dlp_args.extend(config.extra_args)
-                    error_logger.info(f"Added extra args: {config.extra_args}")
-            
+            output_template = os.path.join(self.download_path, unique_filename)
+            yt_dlp_args = [
+                self.yt_dlp_path,
+                url,
+                '-f', config.format,
+                '-o', output_template,
+                '--merge-output-format', 'mp4',
+            ]
+            if config.headers:
+                for key, value in config.headers.items():
+                    yt_dlp_args.extend(['--add-header', f'{key}:{value}'])
+            if config.extra_args:
+                yt_dlp_args.extend(config.extra_args)
             error_logger.info(f"Executing yt-dlp command: {' '.join(yt_dlp_args)}")
             process = await asyncio.create_subprocess_exec(
                 *yt_dlp_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            
             try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)  # 60 second timeout
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
             except asyncio.TimeoutError:
                 error_logger.error(f"Download timeout after 60 seconds for URL: {url}")
-                process.kill()  # Kill the process if it's still running
+                process.kill()
                 return None, None
-            
-            # Log output for debugging
             if stdout:
                 error_logger.info(f"Download stdout: {stdout.decode()}")
             if stderr:
                 error_logger.info(f"Download stderr: {stderr.decode()}")
-            
             if process.returncode == 0:
-                # Find the downloaded file
                 found_files = []
                 for file in os.listdir(self.download_path):
                     if file.endswith(('.mp4', '.webm')):
                         filepath = os.path.join(self.download_path, file)
                         file_info = {"path": filepath, "size": os.path.getsize(filepath)}
                         found_files.append(file_info)
-                        
-                # If files were found, use the largest one
                 if found_files:
                     found_files.sort(key=lambda x: x["size"], reverse=True)
                     largest_file = found_files[0]["path"]
@@ -833,28 +783,27 @@ class VideoDownloader:
                     return largest_file, await self._get_video_title(url)
                 else:
                     error_logger.error(f"No video files found in {self.download_path} after successful download")
-                    
-            # If direct download failed for clips, try using the service method as fallback
-            if is_youtube_clips and process.returncode != 0:
-                error_logger.info(f"YouTube Clips direct download failed, trying service method as fallback")
-                if hasattr(self, '_download_from_service'):
-                    # Use a specialized format string for clips via the service
-                    clip_format = "best[ext=mp4]/best"
-                    return await self._download_from_service(url, format=clip_format)
-                
-            if is_youtube_special:
-                content_type = "Shorts" if is_youtube_shorts else "Clips"
-                error_logger.error(f"YouTube {content_type} download failed (returncode: {process.returncode})")
-            else:
-                error_logger.error(f"Generic download failed: {stderr.decode()}")
-            
+            error_logger.error(f"Generic download failed: {stderr.decode()}")
             return None, None
-            
         except Exception as e:
-            import traceback
             error_logger.error(f"Generic download error: {str(e)}")
-            error_logger.error(f"Traceback: {traceback.format_exc()}")
             return None, None
+
+    def _is_story_url(self, url: str) -> bool:
+        """Detect if the URL is a story (Instagram, Facebook, etc)."""
+        # Add more patterns as needed for other platforms
+        story_patterns = [
+            r"instagram\.com/stories/",
+            r"facebook\.com/stories/",
+            r"snapchat\.com/add/",  # Snapchat stories
+            r"tiktok\.com/@[\w\.-]+/story/",  # TikTok stories
+            r"youtube\.com/stories/",
+            r"youtu\.be/stories/"
+        ]
+        for pattern in story_patterns:
+            if re.search(pattern, url, re.IGNORECASE):
+                return True
+        return False
 
 def setup_video_handlers(application, extract_urls_func=None):
     """Set up video handlers with improved configuration."""
