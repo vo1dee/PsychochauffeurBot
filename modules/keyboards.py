@@ -116,7 +116,13 @@ BUTTONS_CONFIG = [
         'check': lambda link: ('x.com' in link or 'fixupx.com' in link) and '/status/' in link,
         'modify': lambda link: link
     },
-]
+    {
+        'action': 'download_instagram_service',
+        'text': '⬇️ Download',
+        'check': lambda link: 'instagram.com' in link or 'ddinstagram.com' in link,
+        'modify': lambda link: link
+    },
+] 
 
 
 LANGUAGE_OPTIONS_CONFIG = [
@@ -200,7 +206,32 @@ async def button_callback(update: Update, context: CallbackContext):
                 error_logger.error(f"Error in video download: {str(e)}")
                 await query.message.edit_text("❌ An error occurred while downloading the video.")
                 return
-            
+        
+        # Handle Instagram service download action
+        if action == 'download_instagram_service':
+            video_downloader = context.bot_data.get('video_downloader')
+            if not video_downloader:
+                await query.message.edit_text("❌ Video downloader not initialized.")
+                return
+            try:
+                await query.message.edit_text("🔄 Downloading Instagram video via service...")
+                filename, title = await video_downloader.download_video(original_link)
+                if filename and os.path.exists(filename):
+                    with open(filename, 'rb') as video_file:
+                        await context.bot.send_video(
+                            chat_id=chat_id,
+                            video=video_file,
+                            caption=f"📹 {title or 'Instagram Video'}"
+                        )
+                    os.remove(filename)
+                    await query.message.edit_text("✅ Download complete!")
+                else:
+                    await query.message.edit_text("❌ Instagram video download failed. Check the link and try again.")
+                return
+            except Exception as e:
+                error_logger.error(f"Error in Instagram service download: {str(e)}")
+                await query.message.edit_text("❌ An error occurred while downloading the Instagram video.")
+                return
         # Handle translate action (language menu)
         if action == 'translate':
             general_logger.info("Creating language menu")
