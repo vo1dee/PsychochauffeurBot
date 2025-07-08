@@ -329,6 +329,19 @@ class VideoDownloader:
             error_logger.info(f"Detected platform: {platform}")
             is_youtube_shorts = "youtube.com/shorts" in url.lower()
             is_youtube_clips = "youtube.com/clip" in url.lower()
+            is_instagram = "instagram.com" in url.lower()
+            if is_instagram:
+                error_logger.info(f"Instagram URL detected, rerouting to external service: {url}")
+                service_healthy = await self._check_service_health()
+                if service_healthy:
+                    result = await self._download_from_service(url)
+                    if result[0]:
+                        error_logger.info("Service download successful for Instagram")
+                        return result
+                    error_logger.warning("Service download failed for Instagram")
+                else:
+                    error_logger.warning("Service health check failed for Instagram")
+                return None, None
             if is_youtube_shorts or is_youtube_clips:
                 error_logger.info(f"YouTube {'Shorts' if is_youtube_shorts else 'Clips'} URL detected: {url}")
                 service_healthy = await self._check_service_health()
