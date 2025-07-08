@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any, Union
 import base64
 from io import BytesIO
+import hashlib
 
 # Third-party imports
 from PIL import Image
@@ -25,10 +26,6 @@ from modules.diagnostics import run_api_diagnostics
 from modules.logger import general_logger, error_logger, get_daily_log_path, chat_logger
 from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
 from config.config_manager import ConfigManager
-
-from telegram import Update
-from telegram.ext import CallbackContext, ContextTypes
-from openai import AsyncClient, APIStatusError
 
 from modules.chat_analysis import (
     get_messages_for_chat_today,
@@ -85,21 +82,6 @@ TIMEOUT_CONFIG = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=5.0)
 
 # OpenRouter specific settings (from first implementation)
 USE_OPENROUTER = bool(Config.OPENROUTER_BASE_URL)  # Only use if defined
-
-# Initialize OpenAI client with proper configuration
-client = AsyncClient(
-    api_key=Config.OPENROUTER_API_KEY, 
-    base_url=Config.OPENROUTER_BASE_URL if USE_OPENROUTER else None,
-    timeout=TIMEOUT_CONFIG,
-    max_retries=3,
-)
-
-# Add OpenRouter specific headers if using it
-if USE_OPENROUTER:
-    client.default_headers.update({
-        "HTTP-Referer": "https://vo1dee.com", 
-        "X-Title": "PsychochauffeurBot"     
-    })
 
 # Cache for network diagnostic results
 last_diagnostic_result = None
@@ -262,7 +244,7 @@ async def analyze_image(
                 error_logger.error(f"Failed to load chat config for image analysis: {e}")
         
         # Call GPT with the image using image_analysis response type
-        response = await client.chat.completions.create(
+        response = await httpx.AsyncClient().chat.completions.create(
             model=GPT_MODEL_TEXT,
             messages=[
                 {
@@ -530,7 +512,7 @@ async def gpt_response(
         ]
         
         # Call GPT API
-        response = await client.chat.completions.create(
+        response = await httpx.AsyncClient().chat.completions.create(
             model=GPT_MODEL_TEXT,
             messages=messages,
             max_tokens=max_tokens,
@@ -704,7 +686,7 @@ async def gpt_summary_function(messages: List[str]) -> str:
             error_logger.error(f"Failed to load config for summary: {e}")
 
         # Call the API to get the summary
-        response = await client.chat.completions.create(
+        response = await httpx.AsyncClient().chat.completions.create(
             model="openai/gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -758,15 +740,32 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
     username = update.effective_user.username or f"ID:{user_id}"
-    
+
+    # Admin-only cache flush
+    if context.args and context.args[0].lower() == "flush-cache":
+        # Only allow admins to flush
+        member = await update.effective_chat.get_member(user_id)
+        if not (member.status in ("administrator", "creator")):
+            await update.message.reply_text("❌ Тільки адміністратор може очищати кеш аналізу.")
+            return
+        await Database.invalidate_analysis_cache(chat_id)
+        await update.message.reply_text("✅ Кеш аналізу очищено для цього чату.")
+        return
+
+    # Get config
+    cache_cfg = config_manager.get_analysis_cache_config()
+    cache_enabled = cache_cfg["enabled"]
+    cache_ttl = cache_cfg["ttl"]
+
     # Get messages based on command arguments
     messages = []
     date_str = "сьогодні"
-    
+    time_period_key = None
+
     try:
         if not context.args:
-            # Default: today's messages
             messages = await get_messages_for_chat_today(chat_id)
+            time_period_key = "today"
         else:
             args = context.args
             if args[0].lower() == "last":
@@ -790,9 +789,11 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 if args[2].lower() == "messages":
                     messages = await get_last_n_messages_in_chat(chat_id, number)
                     date_str = f"останні {number} повідомлень"
+                    time_period_key = f"last_{number}_messages"
                 elif args[2].lower() == "days":
                     messages = await get_messages_for_chat_last_n_days(chat_id, number)
                     date_str = f"останні {number} днів"
+                    time_period_key = f"last_{number}_days"
                 else:
                     await update.message.reply_text(
                         "❌ Неправильний формат команди. Використовуйте:\n"
@@ -821,7 +822,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     
                 messages = await get_messages_for_chat_date_period(chat_id, start_date, end_date)
                 date_str = f"період {args[1]} - {args[2]}"
-                
+                time_period_key = f"period_{args[1]}_{args[2]}"
             elif args[0].lower() == "date":
                 if len(args) != 2:
                     await update.message.reply_text(
@@ -838,7 +839,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     
                 messages = await get_messages_for_chat_single_date(chat_id, target_date)
                 date_str = args[1]
-                
+                time_period_key = f"date_{args[1]}"
             else:
                 await update.message.reply_text(
                     "❌ Невідома команда. Доступні варіанти:\n"
@@ -853,28 +854,50 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not messages:
             await update.message.reply_text(f"📊 Немає повідомлень для аналізу за {date_str}.")
             return
-            
+
         # Format messages for GPT analysis
         messages_text = []
         for timestamp, sender, text in messages:
-            if text:  # Skip empty messages
+            if text:
                 time_str = timestamp.strftime('%H:%M')
                 messages_text.append(f"[{time_str}] {sender}: {text}")
-                
+        analysis_text = "\n".join(messages_text)
+        # Hash for cache key
+        message_content_hash = hashlib.sha256(analysis_text.encode("utf-8")).hexdigest()
+
+        # Check cache
+        if cache_enabled and time_period_key:
+            cached = await Database.get_analysis_cache(chat_id, time_period_key, message_content_hash, cache_ttl)
+            if cached:
+                await update.message.reply_text(f"⚡️ (З кешу)\n{cached}")
+                return
+
         # Send initial message
         status_message = await update.message.reply_text(
             f"🔄 Аналізую {len(messages_text)} повідомлень за {date_str}..."
         )
-        
+
         # Get GPT analysis
-        analysis_text = "\n".join(messages_text)
+        # Patch: capture gpt_response output
+        from io import StringIO
+        import sys
+        old_stdout = sys.stdout
+        sys.stdout = mystdout = StringIO()
         await gpt_response(update, context, response_type="analyze", message_text_override=analysis_text)
-        
+        sys.stdout = old_stdout
+        gpt_result = mystdout.getvalue().strip()
+        if not gpt_result:
+            gpt_result = "(No summary returned)"
+
+        # Store in cache
+        if cache_enabled and time_period_key:
+            await Database.set_analysis_cache(chat_id, time_period_key, message_content_hash, gpt_result)
+
         # Update status message
         await status_message.edit_text(
             f"📊 Аналіз повідомлень за {date_str} ({len(messages_text)} повідомлень) завершено."
         )
-        
+
     except Exception as e:
         error_logger.error(f"Error in analyze command: {e}", exc_info=True)
         await update.message.reply_text(

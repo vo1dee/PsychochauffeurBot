@@ -63,6 +63,17 @@ A versatile Telegram bot that downloads videos and images from social media plat
   - `/errors` - Error analytics (admin)
   - `/start` - Bot information
 
+### 🧠 Analysis Caching (NEW)
+- The `/analyze` command now caches results to reduce API usage and speed up repeated requests.
+- **How it works:**
+  - Results are cached per chat, time period, and message content hash.
+  - Cached results are returned instantly for repeated analysis of the same data (default cache window: 24h).
+  - Cache is invalidated if new messages are added in the analyzed period or via admin command.
+- **Admin command:** `/analyze flush-cache` clears the cache for the current chat.
+- **Config:**
+  - `ENABLE_ANALYSIS_CACHE` (default: True)
+  - `ANALYSIS_CACHE_TTL` (default: 86400 seconds)
+
 ## 🛠 Setup
 
 ### Prerequisites

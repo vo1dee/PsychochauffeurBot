@@ -53,6 +53,16 @@ CREATE TABLE IF NOT EXISTS messages (
     UNIQUE(chat_id, message_id)
 );
 
+-- Create analysis_cache table
+CREATE TABLE IF NOT EXISTS analysis_cache (
+    chat_id BIGINT NOT NULL,
+    time_period TEXT NOT NULL,
+    message_content_hash TEXT NOT NULL,
+    result TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (chat_id, time_period, message_content_hash)
+);
+
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
 CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
@@ -205,8 +215,58 @@ class Database:
             )
 
     @classmethod
+    async def get_analysis_cache(cls, chat_id: int, time_period: str, message_content_hash: str, ttl_seconds: int) -> Optional[str]:
+        """Fetch cached analysis result if not expired."""
+        pool = await cls.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT result, created_at FROM analysis_cache
+                WHERE chat_id = $1 AND time_period = $2 AND message_content_hash = $3
+                """,
+                chat_id, time_period, message_content_hash
+            )
+            if row:
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc)
+                if (now - row["created_at"]).total_seconds() < ttl_seconds:
+                    return row["result"]
+        return None
+
+    @classmethod
+    async def set_analysis_cache(cls, chat_id: int, time_period: str, message_content_hash: str, result: str):
+        """Store analysis result in cache."""
+        pool = await cls.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO analysis_cache (chat_id, time_period, message_content_hash, result, created_at)
+                VALUES ($1, $2, $3, $4, NOW())
+                ON CONFLICT (chat_id, time_period, message_content_hash)
+                DO UPDATE SET result = EXCLUDED.result, created_at = EXCLUDED.created_at
+                """,
+                chat_id, time_period, message_content_hash, result
+            )
+
+    @classmethod
+    async def invalidate_analysis_cache(cls, chat_id: int, time_period: Optional[str] = None):
+        """Invalidate cache for a chat (optionally for a specific period)."""
+        pool = await cls.get_pool()
+        async with pool.acquire() as conn:
+            if time_period:
+                await conn.execute(
+                    "DELETE FROM analysis_cache WHERE chat_id = $1 AND time_period = $2",
+                    chat_id, time_period
+                )
+            else:
+                await conn.execute(
+                    "DELETE FROM analysis_cache WHERE chat_id = $1",
+                    chat_id
+                )
+
+    @classmethod
     async def close(cls):
         """Close the database connection pool."""
         if cls._pool:
             await cls._pool.close()
-            cls._pool = None 
+            cls._pool = None
