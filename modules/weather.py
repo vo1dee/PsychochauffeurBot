@@ -1,7 +1,8 @@
 """Weather module for fetching and displaying weather information."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Tuple
+import time
 import httpx
 from telegram import Update
 from telegram.ext import CallbackContext
@@ -19,6 +20,9 @@ from modules.const import Config, Weather
 from modules.logger import error_logger, general_logger
 from modules.file_manager import save_user_location
 from modules.gpt import ask_gpt_command, gpt_response
+
+# Cache expiration time in seconds (10 minutes)
+CACHE_EXPIRATION = 600
 
 
 @dataclass
@@ -115,7 +119,8 @@ class WeatherAPI:
     BASE_URL = "http://api.openweathermap.org/data/2.5/weather"
     
     def __init__(self):
-        self.cache = {}
+        # Cache structure: {city: (weather_data, timestamp)}
+        self.cache: Dict[str, Tuple[WeatherData, float]] = {}
         self.api_key = Config.OPENWEATHER_API_KEY
         if self.api_key and len(self.api_key) > 4:
             general_logger.info(f"WeatherAPI initialized with key ending in '...{self.api_key[-4:]}'")
@@ -123,13 +128,30 @@ class WeatherAPI:
             general_logger.error("WeatherAPI initialized WITHOUT a valid API key.")
         self.client = httpx.AsyncClient()
     
+    def _is_cache_valid(self, city: str) -> bool:
+        """Check if cached data for a city is still valid."""
+        if city not in self.cache:
+            return False
+        
+        _, timestamp = self.cache[city]
+        current_time = time.time()
+        return (current_time - timestamp) < CACHE_EXPIRATION
+    
     async def fetch_weather(self, city: str) -> Optional[WeatherData]:
         """Fetch weather data from OpenWeatherMap API."""
+        # Check if we have valid cached data
+        if self._is_cache_valid(city):
+            weather_data, _ = self.cache[city]
+            general_logger.info(f"Using cached weather data for {city} (cache is still valid)")
+            return weather_data
+        
+        # Clear expired cache entry if it exists
         if city in self.cache:
-            general_logger.info(f"Using cached weather data for {city}")
-            return self.cache[city]
+            del self.cache[city]
+            general_logger.info(f"Cleared expired cache for {city}")
+        
         translated_city = await get_city_translation(city)
-        general_logger.info(f"Fetching weather for city: {translated_city} (original: {city})")
+        general_logger.info(f"Fetching fresh weather data for city: {translated_city} (original: {city})")
         
         params = {
             "q": translated_city,
@@ -168,7 +190,9 @@ class WeatherAPI:
                 local_time=data.get("dt", 0)
             )
             
-            self.cache[city] = weather_data
+            # Cache the new data with current timestamp
+            self.cache[city] = (weather_data, time.time())
+            general_logger.info(f"Cached fresh weather data for {city}")
             return weather_data
         except httpx.RequestError as e:
             error_logger.error(f"Network or request error fetching weather data: {e}")
