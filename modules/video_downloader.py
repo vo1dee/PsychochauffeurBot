@@ -101,7 +101,7 @@ class VideoDownloader:
                 "--no-playlist",     # Don't download playlists
                 "--geo-bypass",      # Try to bypass geo-restrictions
                 "--socket-timeout", "30",  # Increased timeout for better reliability
-                "--concurrent-fragment-downloads", "1",  # Reduce concurrent downloads for better reliability
+                "--concurrent-fragment-downloads", "1",  # <--- REMOVE THIS LINE IF yt-dlp IS OLD
                 "--retries", "10",  # More retries for better reliability
                 "--fragment-retries", "10",  # More fragment retries
                 "--merge-output-format", "mp4",  # Ensure MP4 output
