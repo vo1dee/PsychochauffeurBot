@@ -39,14 +39,19 @@ class WeatherData:
     temperature: float
     feels_like: float
     humidity: int
+    timezone_offset: int  # seconds from UTC
+    local_time: int      # unix timestamp (UTC)
 
     async def get_clothing_advice(self, update: Update = None, context: CallbackContext = None) -> WeatherCommand:
-        prompt = f"""Дай коротку пораду, що краще вдягнути при такій погоді. 2-3 речення.:
+        # Convert local_time to local time string
+        from datetime import datetime, timezone, timedelta
+        local_dt = datetime.utcfromtimestamp(self.local_time) + timedelta(seconds=self.timezone_offset)
+        local_time_str = local_dt.strftime('%H:%M %d.%m.%Y')
+        prompt = f"""Дай коротку пораду, що краще вдягнути при такій погоді в місті {self.city_name}, {self.country_code} о {local_time_str}. 2-3 речення.:
         Температура: {round(self.temperature)}°C
         Відчувається як: {round(self.feels_like)}°C
         Вологість: {self.humidity}%
         Погода: {self.description}
-        
         """
         try:
             advice = await gpt_response(update, context, response_type="weather", message_text_override=prompt, return_text=True)
@@ -88,12 +93,14 @@ class WeatherData:
         country_flag = country_code_to_emoji(self.country_code)
         feels_like_emoji = await get_feels_like_emoji(self.feels_like)
         humidity_emoji = await get_humidity_emoji(self.humidity)
-        
+        from datetime import datetime, timedelta
+        local_dt = datetime.utcfromtimestamp(self.local_time) + timedelta(seconds=self.timezone_offset)
+        local_time_str = local_dt.strftime('%H:%M %d.%m.%Y')
         # Get clothing advice
         clothing_advice = await self.get_clothing_advice(update, context)
 
         return (
-            f"Погода в {self.city_name}, {self.country_code} {country_flag}:\n"
+            f"Погода в {self.city_name}, {self.country_code} {country_flag} (місцевий час: {local_time_str}):\n"
             f"{weather_emoji} {self.description.capitalize()}\n"
             f"🌡 Температура: {round(self.temperature)}°C\n"
             f"{feels_like_emoji} Відчувається як: {round(self.feels_like)}°C\n"
@@ -156,7 +163,9 @@ class WeatherAPI:
                 description=weather.get("description", "No description"),
                 temperature=main.get("temp", 0),
                 feels_like=main.get("feels_like", 0),
-                humidity=main.get("humidity", 0)
+                humidity=main.get("humidity", 0),
+                timezone_offset=data.get("timezone", 0),
+                local_time=data.get("dt", 0)
             )
             
             self.cache[city] = weather_data
