@@ -61,7 +61,7 @@ from modules.message_processor import (
     get_previous_message, process_message_content,
     should_restrict_user
 )
-from modules.keyboard_translator import translate_text, keyboard_mapping
+from modules.keyboard_translator import keyboard_mapping
 from modules.database import Database
 from modules.message_handler import setup_message_handlers, handle_gpt_reply
 from modules.chat_streamer import chat_streamer
@@ -146,17 +146,30 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if not update.message or not update.message.text:
         return
         
-    message_text = update.message.text
-    
+    message_text = update.message.text.strip()
+    user_id = update.message.from_user.id
+    # Update message history at the very start
+    update_message_history(user_id, message_text)
+
     # Safeguard: Explicitly ignore commands to prevent interference with CommandHandlers
     if message_text.startswith('/'):
         return
-        
-    user_id = update.message.from_user.id
-    chat_id = update.effective_chat.id
     
-    # Update message history
-    update_message_history(user_id, message_text)
+    # --- БЛЯ! TRANSLATION COMMAND ---
+    if message_text.lower() == "бля!":
+        username = update.message.from_user.username or "User"
+        previous_message = get_previous_message(user_id)
+        if not previous_message:
+            await update.message.reply_text("Немає попереднього повідомлення для перекладу.")
+            return
+        from modules.keyboard_translator import auto_translate_text
+        converted_text = auto_translate_text(previous_message)
+        response_text = f"@{username} хотів сказати: {converted_text}"
+        await update.message.reply_text(response_text)
+        return
+    # --- END БЛЯ! TRANSLATION COMMAND ---
+
+    chat_id = update.effective_chat.id
     
     # Update chat history for context using the global manager
     chat_history_manager.add_message(chat_id, {
@@ -170,7 +183,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     if should_restrict_user(message_text):
         await restrict_user(update, context)
         return
-        
+    
     # Process message content and extract URLs
     cleaned_text, modified_links = process_message_content(message_text)
     
