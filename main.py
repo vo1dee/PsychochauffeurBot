@@ -65,7 +65,7 @@ from modules.keyboard_translator import translate_text, keyboard_mapping
 from modules.database import Database
 from modules.message_handler import setup_message_handlers, handle_gpt_reply
 from modules.chat_streamer import chat_streamer
-from modules.speechmatics import transcribe_telegram_voice, SpeechmaticsLanguageNotExpected, SpeechmaticsRussianDetected
+from modules.speechmatics import transcribe_telegram_voice, SpeechmaticsLanguageNotExpected, SpeechmaticsRussianDetected, SpeechmaticsNoSpeechDetected
 
 # Apply nest_asyncio at the very beginning, as it's crucial for the event loop.
 nest_asyncio.apply()
@@ -385,70 +385,71 @@ async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAU
         file_id = message.video_note.file_id
     else:
         return
-    progress_msg = await update.message.reply_text("📝 Transcribing voice message...")
+    # Instead of auto recognition, send the button
+    await send_speech_recognition_button(update, context)
+    # If you want to keep auto recognition as fallback, comment out the next lines
+    # progress_msg = await update.message.reply_text("📝 Transcribing voice message...")
+    # try:
+    #     transcript = await transcribe_telegram_voice(context.bot, file_id, language="auto")
+    #     username = user.username or user.first_name or f"ID:{user.id}"
+    #     text = f"🗣️ {username} (Speech):\n{transcript}"
+    #     chat_streamer._chat_logger.info(f"[{username}] (Speech): {transcript}", extra={
+    #         'chat_id': chat_id,
+    #         'chat_type': chat_type,
+    #         'chattitle': update.effective_chat.title or f"Private_{chat_id}",
+    #         'username': username
+    #     })
+    #     await context.bot.send_message(chat_id=chat_id, text=text)
+    # except ...
+    #     ...
+    # await progress_msg.delete()
+
+# --- Speech Recognition Callback Handler ---
+@handle_errors(feedback_message="An error occurred during manual speech recognition.")
+async def speechrec_callback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    # Debug log for callback data
+    print(f"[DEBUG] speechrec_callback received data: {data}")
+    print(f"[DEBUG] file_id_hash_map keys: {list(file_id_hash_map.keys())}")
+    if not data.startswith("speechrec_"):
+        await query.edit_message_text("❌ Invalid callback data format. Please try again with a new voice message. If the bot was restarted, old buttons will not work.")
+        return
+    file_hash = data[len("speechrec_"):]
+    file_id = file_id_hash_map.get(file_hash)
+    if not file_id:
+        print(f"[DEBUG] speechrec_callback: file_hash '{file_hash}' not found in file_id_hash_map.")
+        await query.edit_message_text("❌ This speech recognition button has expired or is invalid. Please send a new voice message and use the new button. If the bot was restarted, old buttons will not work.")
+        return
+    print(f"[DEBUG] speechrec_callback: found file_id for hash {file_hash}")
+    await query.edit_message_text("🔄 Recognizing speech, please wait...")
     try:
         transcript = await transcribe_telegram_voice(context.bot, file_id, language="auto")
-        username = user.username or user.first_name or f"ID:{user.id}"
-        text = f"🗣️ {username} (Speech):\n{transcript}"
-        # Log to chat history
-        chat_streamer._chat_logger.info(f"[{username}] (Speech): {transcript}", extra={
-            'chat_id': chat_id,
-            'chat_type': chat_type,
-            'chattitle': update.effective_chat.title or f"Private_{chat_id}",
-            'username': username
-        })
-        # Save to database as a bot message
-        await context.bot.send_message(chat_id=chat_id, text=text)
-    except SpeechmaticsRussianDetected as e:
-        # Russian was detected, automatically retry with Ukrainian
-        logging.info(f"[Auto-management] Russian detected, retrying with Ukrainian: {e}")
-        await progress_msg.edit_text("🔄 Russian detected, retrying with Ukrainian...")
-        try:
-            transcript = await transcribe_telegram_voice(context.bot, file_id, language="uk")
-            username = user.username or user.first_name or f"ID:{user.id}"
-            text = f"🗣️ {username} (Speech - Ukrainian):\n{transcript}"
-            # Log to chat history
-            chat_streamer._chat_logger.info(f"[{username}] (Speech - Ukrainian): {transcript}", extra={
-                'chat_id': chat_id,
-                'chat_type': chat_type,
-                'chattitle': update.effective_chat.title or f"Private_{chat_id}",
-                'username': username
-            })
-            # Save to database as a bot message
-            await context.bot.send_message(chat_id=chat_id, text=text)
-        except Exception as retry_error:
-            logging.error(f"[Auto-management] Ukrainian retry failed: {retry_error}")
-            await progress_msg.edit_text(f"❌ Speech recognition failed: {retry_error}")
-            await asyncio.sleep(3)
-            await progress_msg.delete()
-            return
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"🗣️ Recognized speech:\n{transcript}"
+        )
+    except SpeechmaticsNoSpeechDetected:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ No speech was detected in the audio. Please try again with a clearer voice message."
+        )
+    except SpeechmaticsLanguageNotExpected:
+        from modules.keyboards import get_language_keyboard
+        keyboard = get_language_keyboard(file_id, context)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Couldn't recognize the language. Please choose the correct language:",
+            reply_markup=keyboard
+        )
     except Exception as e:
-        error_text = str(e)
-        if (
-            "not one of the expected languages" in error_text or
-            "language identification" in error_text or
-            "timed out" in error_text or
-            isinstance(e, TimeoutError) or
-            isinstance(e, asyncio.TimeoutError)
-        ):
-            keyboard = get_language_keyboard(file_id, context)
-            try:
-                await update.message.reply_text(
-                    "❌ Couldn't recognize the language or timed out. Please choose the correct language:",
-                    reply_markup=keyboard
-                )
-            except BadRequest as br:
-                error_logger.error(f"Failed to send language selection keyboard: {br}")
-                await update.message.reply_text("❌ Couldn't recognize the language or timed out. Please try again.")
-            await progress_msg.delete()
-            return
-        else:
-            await progress_msg.edit_text(f"❌ Speech recognition failed: {e}")
-            await asyncio.sleep(3)
-            await progress_msg.delete()
-            return
-    await progress_msg.delete()
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"❌ Speech recognition failed: {e}"
+        )
 
+# --- Restore language_selection_callback for language selection buttons ---
 @handle_errors(feedback_message="An error occurred during manual language selection.")
 async def language_selection_callback(update: Update, context: CallbackContext):
     print("[DEBUG] Callback handler entered (any callback)")
@@ -472,10 +473,8 @@ async def language_selection_callback(update: Update, context: CallbackContext):
         print(f"[DEBUG] (callback) Hash {file_hash} not found in file_id_hash_map. Callback data: {data}")
         await query.edit_message_text("❌ This button has expired or is invalid. Please try again.")
         return
-    
     # Show progress immediately
     await query.edit_message_text(f"🔄 Processing with {lang_code} language...", reply_markup=None)
-    
     try:
         transcript = await transcribe_telegram_voice(context.bot, file_id, language=lang_code)
         await query.edit_message_text(f"🗣️ Recognized ({lang_code}):\n{transcript}")
@@ -489,6 +488,28 @@ async def language_selection_callback(update: Update, context: CallbackContext):
     except Exception as e:
         print(f"[DEBUG] Error during manual language selection: {e}")
         await query.edit_message_text(f"❌ Speech recognition failed: {e}", reply_markup=None)
+
+# --- Add Speech Recognition Button ---
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+# Utility to send a speech recognition button as a reply to a voice message
+async def send_speech_recognition_button(update, context):
+    message = update.message
+    if not message or not message.voice:
+        return
+    file_id = message.voice.file_id
+    file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
+    # Store file_id for callback lookup
+    file_id_hash_map[file_hash] = file_id
+    print(f"[DEBUG] Added file_id_hash_map entry: {file_hash} -> {file_id}")
+    print(f"[DEBUG] Current file_id_hash_map: {file_id_hash_map}")
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎤 Recognize Speech", callback_data=f"speechrec_{file_hash}")]
+    ])
+    await message.reply_text(
+        "Press the button to recognize speech in this voice message.\n\n⚠️ If the bot was recently restarted, old buttons will not work. Please send a new voice message if you see an error.",
+        reply_markup=keyboard
+    )
 
 def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
     """Register all command and message handlers in the correct order."""
@@ -526,6 +547,8 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     
     # Register the callback handler for language selection with pattern filter
     application.add_handler(CallbackQueryHandler(language_selection_callback, pattern=r"^lang_"))
+    # Register the callback handler for speech recognition button (move this up)
+    application.add_handler(CallbackQueryHandler(speechrec_callback, pattern=r"^speechrec_"))
     # Callback query handler for buttons (link modifications, etc)
     application.add_handler(CallbackQueryHandler(button_callback))
 
@@ -641,10 +664,10 @@ async def main():
     
     # Run polling with proper error handling
     try:
+        # Fix: Remove unsupported 'close_loop' argument to avoid NoneType error
         await application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
-            close_loop=False,
             stop_signals=None  # We handle signals in run_bot
         )
     except Exception as e:
