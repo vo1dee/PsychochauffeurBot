@@ -125,21 +125,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
     general_logger.info(f"Handled /start command for user {update.effective_user.id}")
 
-@handle_errors(feedback_message="An error occurred while translating the last message.")
-async def translate_last_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the keyboard layout translation command."""
-    user_id = update.message.from_user.id
-    username = update.message.from_user.username or "User"
-    previous_message = get_previous_message(user_id)
-    
-    if not previous_message:
-        await update.message.reply_text("No previous message found to convert.")
-        return
-        
-    converted_text = translate_text(previous_message)
-    response_text = f"@{username} хотів сказати: {converted_text}"
-    await update.message.reply_text(response_text)
-
 @handle_errors(feedback_message="An error occurred while processing your message.")
 async def handle_message(update: Update, context: CallbackContext) -> None:
     """Handle incoming non-command text messages."""
