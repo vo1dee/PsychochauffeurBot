@@ -15,6 +15,10 @@ class SpeechmaticsRussianDetected(Exception):
     """Exception raised when Russian is detected and should be converted to Ukrainian."""
     pass
 
+class SpeechmaticsNoSpeechDetected(Exception):
+    """Exception raised when no speech is detected in the audio."""
+    pass
+
 async def transcribe_telegram_voice(bot: Bot, file_id: str, language: str = "uk") -> str:
     """
     Download a Telegram voice or video_note file and send it to Speechmatics for transcription.
@@ -94,10 +98,17 @@ async def transcribe_telegram_voice(bot: Bot, file_id: str, language: str = "uk"
                                 raise SpeechmaticsRussianDetected("Russian detected, retrying with Ukrainian")
                             logging.warning(f"Speechmatics identified language not expected: {status_resp.text}")
                             raise SpeechmaticsLanguageNotExpected(status_resp.text)
+                        # Check for 'No speech found' error
+                        if "No speech found for language identification" in status_resp.text or "No speech found in the audio." in status_resp.text:
+                            logging.warning(f"Speechmatics job rejected (no speech found): {status_resp.text}")
+                            raise SpeechmaticsNoSpeechDetected("No speech found in the audio.")
                         logging.error(f"Speechmatics job {status}: {status_resp.text}")
                         raise RuntimeError(f"Speechmatics job {status}: {status_resp.text}")
                     await asyncio.sleep(1.0)
                 except Exception as e:
+                    if isinstance(e, SpeechmaticsNoSpeechDetected):
+                        # Immediately propagate to stop polling and return error to user
+                        raise
                     logging.error(f"Error polling Speechmatics job status (attempt {attempt}, poll {poll_num+1}): {e}")
                     if isinstance(e, SpeechmaticsLanguageNotExpected) or isinstance(e, SpeechmaticsRussianDetected):
                         raise  # Immediately break out of the polling loop
