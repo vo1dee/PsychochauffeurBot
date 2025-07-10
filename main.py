@@ -37,7 +37,7 @@ from modules.gpt import (
     ask_gpt_command, analyze_command, answer_from_gpt, handle_photo_analysis,
     gpt_response, mystats_command
 )
-from modules.count_command import count_command
+from modules.count_command import count_command, missing_command
 from modules.weather import WeatherCommandHandler
 from modules.logger import (
     TelegramErrorHandler,
@@ -511,6 +511,7 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     application.add_handler(CommandHandler("gm", GeomagneticCommandHandler()))
     application.add_handler(CommandHandler("remind", reminder_manager.remind))
     application.add_handler(CommandHandler("count", count_command))
+    application.add_handler(CommandHandler("missing", missing_command))
     application.add_handler(CommandHandler("speech", speech_command))
     
     # Group 0: Other specific message handlers.

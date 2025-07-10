@@ -42,4 +42,56 @@ async def count_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         error_logger.error(f"Error in /count command: {e}", exc_info=True)
         await update.message.reply_text(
             "❌ Виникла помилка при підрахунку. Спробуйте пізніше."
-        ) 
+        )
+
+async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Usage: /missing @username
+    Shows how long the user was missing, when was their last message, and what it was.
+    """
+    from modules.chat_analysis import get_last_message_for_user_in_chat
+    from datetime import datetime
+    import pytz
+
+    chat_id = update.effective_chat.id
+    args = context.args if hasattr(context, 'args') else []
+    if not args or not args[0]:
+        await update.message.reply_text(
+            "❌ Будь ласка, вкажіть username для перевірки.\nПриклад: /missing @username або /missing username"
+        )
+        return
+    username = args[0].lstrip('@')
+    # Try to get last message for this username
+    last_message = await get_last_message_for_user_in_chat(chat_id, username=username)
+    if not last_message:
+        await update.message.reply_text(f"❌ Не знайдено повідомлень від @{username} у цьому чаті.")
+        return
+    last_time, last_username, last_text = last_message
+    # Fetch chat title
+    chat_title = update.effective_chat.title or str(update.effective_chat.id)
+    # Check if last message was a command
+    command_used = None
+    if last_text and last_text.startswith('/'):
+        command_used = last_text.split()[0]
+    now = datetime.now(pytz.timezone('Europe/Kyiv'))
+    if last_time.tzinfo is None:
+        last_time = last_time.replace(tzinfo=pytz.UTC).astimezone(pytz.timezone('Europe/Kyiv'))
+    delta = now - last_time
+    days = delta.days
+    hours, remainder = divmod(delta.seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    if days > 0:
+        ago_str = f"{days} дн. {hours} год. {minutes} хв."
+    elif hours > 0:
+        ago_str = f"{hours} год. {minutes} хв."
+    else:
+        ago_str = f"{minutes} хв."
+    time_str = last_time.strftime('%H:%M %d.%m.%Y')
+    msg = (
+        f"@{last_username} востаннє писав(ла) {ago_str} тому\n"
+        f"Час: {time_str}\n"
+        f"Останні слова: {last_text if last_text else '[без тексту]'}"
+    )
+    if command_used:
+        msg += f"\nОстання команда: {command_used}"
+    await update.message.reply_text(msg) 
