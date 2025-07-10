@@ -495,9 +495,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 # Utility to send a speech recognition button as a reply to a voice message
 async def send_speech_recognition_button(update, context):
     message = update.message
-    if not message or not message.voice:
+    if not message or (not message.voice and not message.video_note):
         return
-    file_id = message.voice.file_id
+    file_id = message.voice.file_id if message.voice else message.video_note.file_id
     file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
     # Store file_id for callback lookup
     file_id_hash_map[file_hash] = file_id
@@ -507,7 +507,7 @@ async def send_speech_recognition_button(update, context):
         [InlineKeyboardButton("🎤 Recognize Speech", callback_data=f"speechrec_{file_hash}")]
     ])
     await message.reply_text(
-        "Press the button to recognize speech in this voice message.\n\n⚠️ If the bot was recently restarted, old buttons will not work. Please send a new voice message if you see an error.",
+        "Press the button to recognize speech in this voice or video message.\n\n⚠️ If the bot was recently restarted, old buttons will not work. Please send a new message if you see an error.",
         reply_markup=keyboard
     )
 
