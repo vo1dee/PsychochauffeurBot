@@ -295,3 +295,40 @@ async def get_user_chat_stats_with_fallback(chat_id: int, user_id: int, username
             'first_message': first_message,
             'last_message': last_message
         } 
+
+async def get_last_message_for_user_in_chat(chat_id: int, user_id: int = None, username: str = None):
+    """
+    Get the last message (timestamp, username, text) for a user in a chat.
+    If username is provided, will aggregate all user_ids with that username (for username changes).
+    Returns None if not found.
+    """
+    pool = await Database.get_pool()
+    async with pool.acquire() as conn:
+        user_ids = set()
+        if username:
+            rows = await conn.fetch("""
+                SELECT user_id FROM users WHERE username = $1
+            """, username)
+            for row in rows:
+                user_ids.add(row['user_id'])
+        if user_id is not None:
+            user_ids.add(user_id)
+        if not user_ids:
+            return None
+        # Debug log
+        try:
+            from modules.logger import general_logger
+            general_logger.info(f"[missing] get_last_message_for_user_in_chat user_ids: {list(user_ids)} for chat_id={chat_id}")
+        except Exception:
+            pass
+        row = await conn.fetchrow("""
+            SELECT m.timestamp, u.username, m.text
+            FROM messages m
+            LEFT JOIN users u ON m.user_id = u.user_id
+            WHERE m.chat_id = $1 AND m.user_id = ANY($2::bigint[])
+            ORDER BY m.timestamp DESC
+            LIMIT 1
+        """, chat_id, list(user_ids))
+        if row:
+            return (row['timestamp'], row['username'] or 'Unknown', row['text'])
+        return None 
