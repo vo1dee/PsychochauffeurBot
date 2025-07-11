@@ -986,13 +986,19 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if stats['most_active_hour'] is not None:
             message_parts.append(f"Найактивніша година: {stats['most_active_hour']}:00")
             
+        # List of allowed commands (must match those registered in main.py)
+        allowed_commands = {
+            'start', 'help', 'ping', 'cat', 'error_report', 'ask', 'analyze', 'mystats',
+            'weather', 'flares', 'gm', 'remind', 'count', 'missing', 'speech'
+        }
         if stats['command_stats']:
             message_parts.extend([
                 "",
-                "Використані команди:"  # Removed bold formatting
+                "Використані команди:"
             ])
             for cmd, count in stats['command_stats']:
-                message_parts.append(f"- /{cmd}: {count}")
+                if cmd in allowed_commands:
+                    message_parts.append(f"- /{cmd}: {count}")
                 
         if stats['first_message']:
             first_msg_date = stats['first_message'].strftime('%Y-%m-%d')
