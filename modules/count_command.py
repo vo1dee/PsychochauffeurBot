@@ -41,7 +41,8 @@ async def count_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
               AND text ~* $1
             """
             
-            word_pattern = rf'\b{re.escape(word)}\b'
+            # Use a simpler pattern that matches the word as a whole word
+            word_pattern = rf'\m{re.escape(word)}\M'
             
             count = await conn.fetchval(query, word_pattern, word, chat_id)
             
