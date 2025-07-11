@@ -23,13 +23,17 @@ async def count_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         from modules.chat_analysis import get_last_n_messages_in_chat
         # Use a very large number to fetch all messages (e.g., 1_000_000)
         messages = await get_last_n_messages_in_chat(chat_id, 1_000_000)
+        from modules.logger import general_logger
+        general_logger.info(f"Fetched {len(messages)} messages for chat {chat_id}")
+        for msg in messages[-5:]:
+            general_logger.info(f"Recent message: {msg}")
         count = 0
         for _, _, text in messages:
             if not text:
                 continue
             # Whole word, case-insensitive match
             import re
-            count += len(re.findall(rf'\\b{re.escape(word)}\\b', text, flags=re.IGNORECASE))
+            count += len(re.findall(rf'\b{re.escape(word)}\b', text, flags=re.IGNORECASE))
         if count == 0:
             msg = f"📊 Слово '{word}' не зустрічалося в історії цього чату."
         elif count == 1:

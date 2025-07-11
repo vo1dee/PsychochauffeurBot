@@ -67,6 +67,7 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
             # --- End URL shortening logic ---
             
             if should_save:
+                general_logger.info(f"Attempting to save message: {update.message.text!r}")
                 await Database.save_message(update.message)
                 general_logger.info("Message saved to database")
             
