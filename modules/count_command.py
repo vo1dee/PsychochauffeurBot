@@ -1,5 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes
+import re
 
 async def count_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -8,39 +9,54 @@ async def count_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """
     chat_id = update.effective_chat.id
     args = context.args if hasattr(context, 'args') else []
+    
     if not args or len(args) != 1:
         await update.message.reply_text(
             "❌ Будь ласка, вкажіть одне слово для підрахунку.\nПриклад: /count сонце"
         )
         return
+    
     word = args[0].strip().lower()
     if not word.isalpha():
         await update.message.reply_text(
             "❌ Слово повинно містити лише літери."
         )
         return
+    
     try:
-        from modules.chat_analysis import get_last_n_messages_in_chat
-        # Use a very large number to fetch all messages (e.g., 1_000_000)
-        messages = await get_last_n_messages_in_chat(chat_id, 1_000_000)
+        from modules.database import Database
         from modules.logger import general_logger
-        general_logger.info(f"Fetched {len(messages)} messages for chat {chat_id}")
-        for msg in messages[-5:]:
-            general_logger.info(f"Recent message: {msg}")
-        count = 0
-        for _, _, text in messages:
-            if not text:
-                continue
-            # Whole word, case-insensitive match
-            import re
-            count += len(re.findall(rf'\b{re.escape(word)}\b', text, flags=re.IGNORECASE))
+
+        pool = await Database.get_pool()
+        async with pool.acquire() as conn:
+            # Use PostgreSQL regex to count ALL occurrences (not just messages containing word)
+            query = """
+            SELECT COALESCE(SUM(
+                (LENGTH(text) - LENGTH(REGEXP_REPLACE(text, $1, '', 'gi'))) 
+                / LENGTH($2)
+            ), 0)::INTEGER as total_count
+            FROM messages 
+            WHERE chat_id = $3 
+              AND text IS NOT NULL 
+              AND text ~* $1
+            """
+            
+            word_pattern = rf'\b{re.escape(word)}\b'
+            
+            count = await conn.fetchval(query, word_pattern, word, chat_id)
+            
+            general_logger.info(f"Word count for '{word}' in chat {chat_id}: {count}")
+        
+        # Format response (same as original)
         if count == 0:
             msg = f"📊 Слово '{word}' не зустрічалося в історії цього чату."
         elif count == 1:
             msg = f"📊 Слово '{word}' зустрілося 1 раз в історії цього чату."
         else:
             msg = f"📊 Слово '{word}' зустрілося {count} разів в історії цього чату."
+            
         await update.message.reply_text(msg)
+        
     except Exception as e:
         from modules.logger import error_logger
         error_logger.error(f"Error in /count command: {e}", exc_info=True)
@@ -98,4 +114,4 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
     if command_used:
         msg += f"\nОстання команда: {command_used}"
-    await update.message.reply_text(msg) 
+    await update.message.reply_text(msg)

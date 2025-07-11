@@ -18,6 +18,9 @@ DB_PASSWORD = os.getenv('DB_PASSWORD', '')
 
 # SQL for creating tables
 CREATE_TABLES_SQL = """
+-- Create extensions (required for text search)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- Create chats table
 CREATE TABLE IF NOT EXISTS chats (
     chat_id BIGINT PRIMARY KEY,
@@ -69,6 +72,13 @@ CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_is_command ON messages(is_command);
 CREATE INDEX IF NOT EXISTS idx_messages_is_gpt_reply ON messages(is_gpt_reply);
+
+-- Text search indexes for /count command optimization
+CREATE INDEX IF NOT EXISTS idx_messages_text_gin ON messages USING GIN(text gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_messages_text_search ON messages USING GIN(to_tsvector('english', text));
+
+-- Composite index for faster chat-specific text searches
+CREATE INDEX IF NOT EXISTS idx_messages_chat_text ON messages(chat_id) WHERE text IS NOT NULL;
 """
 
 class Database:
