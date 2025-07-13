@@ -71,6 +71,7 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     Shows how long the user was missing, when was their last message, and what it was.
     """
     from modules.chat_analysis import get_last_message_for_user_in_chat
+    from modules.database import Database
     from datetime import datetime
     import pytz
 
@@ -82,10 +83,61 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
     username = args[0].lstrip('@')
+    
+    # Enhanced user lookup with better error messages
+    pool = await Database.get_pool()
+    async with pool.acquire() as conn:
+        # Check if user exists
+        user_rows = await conn.fetch("""
+            SELECT user_id, username, first_name, last_name
+            FROM users 
+            WHERE username = $1
+        """, username)
+        
+        if not user_rows:
+            # Check for similar usernames
+            similar_users = await conn.fetch("""
+                SELECT username
+                FROM users 
+                WHERE username ILIKE $1
+                ORDER BY username
+                LIMIT 5
+            """, f"%{username}%")
+            
+            if similar_users:
+                similar_list = ", ".join([f"@{u['username']}" for u in similar_users])
+                await update.message.reply_text(
+                    f"❌ Користувача @{username} не знайдено.\n\n"
+                    f"Можливо, ви мали на увазі одного з цих користувачів:\n{similar_list}"
+                )
+            else:
+                await update.message.reply_text(
+                    f"❌ Користувача @{username} не знайдено в базі даних.\n"
+                    f"Можливо, цей користувач ще не писав повідомлення в чатах з ботом."
+                )
+            return
+    
     # Try to get last message for this username
     last_message = await get_last_message_for_user_in_chat(chat_id, username=username)
     if not last_message:
-        await update.message.reply_text(f"❌ Не знайдено повідомлень від @{username} у цьому чаті.")
+        # Check if user has messages in other chats
+        user_ids = [row['user_id'] for row in user_rows]
+        total_messages = await conn.fetchval("""
+            SELECT COUNT(*) 
+            FROM messages 
+            WHERE user_id = ANY($1::bigint[])
+        """, user_ids)
+        
+        if total_messages > 0:
+            await update.message.reply_text(
+                f"❌ Не знайдено повідомлень від @{username} у цьому чаті.\n"
+                f"Але користувач має {total_messages} повідомлень в інших чатах."
+            )
+        else:
+            await update.message.reply_text(
+                f"❌ Не знайдено повідомлень від @{username} у цьому чаті.\n"
+                f"Користувач ще не писав повідомлень в жодному чаті."
+            )
         return
     last_time, last_username, last_text = last_message
     # Fetch chat title
