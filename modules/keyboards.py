@@ -374,12 +374,16 @@ def modify_language(link, lang):
         return f"{base_link}/{lang}"
     return base_link
 
-def get_language_keyboard(file_id):
+def get_language_keyboard(file_hash):
+    """
+    Create a language selection keyboard for speech recognition.
+    The callback_data uses a short file_hash, not the raw file_id, to comply with Telegram limits.
+    """
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🇬🇧 English", callback_data=f"lang_en|{file_id}"),
-            InlineKeyboardButton("🇮🇱 Hebrew", callback_data=f"lang_he|{file_id}"),
-            InlineKeyboardButton("🇺🇦 Ukrainian", callback_data=f"lang_uk|{file_id}")
+            InlineKeyboardButton("🇬🇧 English", callback_data=f"lang_en|{file_hash}"),
+            InlineKeyboardButton("🇮🇱 Hebrew", callback_data=f"lang_he|{file_hash}"),
+            InlineKeyboardButton("🇺🇦 Ukrainian", callback_data=f"lang_uk|{file_hash}")
         ]
     ])
 

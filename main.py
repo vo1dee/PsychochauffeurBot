@@ -24,7 +24,7 @@ from telegram.ext import (
 from telegram.error import BadRequest
 
 # Local module imports
-from modules.keyboards import create_link_keyboard, button_callback, get_language_keyboard as original_get_language_keyboard
+from modules.keyboards import create_link_keyboard, button_callback, get_language_keyboard
 from modules.utils import (
     ScreenshotManager, MessageCounter, screenshot_command, cat_command,
     init_directories, chat_history_manager
@@ -77,20 +77,6 @@ config_manager = ConfigManager()
 
 # Global persistent mapping for file_id hashes
 file_id_hash_map = {}
-
-def get_language_keyboard(file_id, context=None):
-    import hashlib
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
-    file_id_hash_map[file_hash] = file_id
-    print(f"[DEBUG] (keyboard) Storing file_id in file_id_hash_map: {file_id} -> {file_hash}")
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🇬🇧 English", callback_data=f"lang_en|{file_hash}"),
-            InlineKeyboardButton("🇮🇱 Hebrew", callback_data=f"lang_he|{file_hash}"),
-            InlineKeyboardButton("🇺🇦 Ukrainian", callback_data=f"lang_uk|{file_hash}")
-        ]
-    ])
 
 # --- Command Handlers ---
 @handle_errors(feedback_message="An error occurred in /start command.")
@@ -434,8 +420,9 @@ async def speechrec_callback(update: Update, context: CallbackContext):
             text="❌ No speech was detected in the audio. Please try again with a clearer voice message."
         )
     except SpeechmaticsLanguageNotExpected:
-        from modules.keyboards import get_language_keyboard
-        keyboard = get_language_keyboard(file_id, context)
+        file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
+        file_id_hash_map[file_hash] = file_id
+        keyboard = get_language_keyboard(file_hash)
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="❌ Couldn't recognize the language. Please choose the correct language:",
@@ -474,13 +461,18 @@ async def language_selection_callback(update: Update, context: CallbackContext):
     # Show progress immediately
     await query.edit_message_text(f"🔄 Processing with {lang_code} language...", reply_markup=None)
     try:
+        file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
+        file_id_hash_map[file_hash] = file_id
+        keyboard = get_language_keyboard(file_hash)
         transcript = await transcribe_telegram_voice(context.bot, file_id, language=lang_code)
         await query.edit_message_text(f"🗣️ Recognized ({lang_code}):\n{transcript}")
     except SpeechmaticsLanguageNotExpected as e:
         print(f"[DEBUG] Speechmatics identified language not expected: {e}")
-        keyboard = get_language_keyboard(file_id, context)
+        file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
+        file_id_hash_map[file_hash] = file_id
+        keyboard = get_language_keyboard(file_hash)
         await query.edit_message_text(
-            "❌ Couldn't recognize the language. Please choose the correct language:",
+            "❌ Couldn't recognize the language or it is not supported. Please choose another language:",
             reply_markup=keyboard
         )
     except Exception as e:
