@@ -130,6 +130,11 @@ class DatabaseConnectionManager:
             async with self._pool_lock:
                 if self._pool is None:
                     try:
+                        # Default server settings for the connection pool
+                        server_settings = {
+                            'application_name': 'PsychochauffeurBot',
+                            'search_path': 'public',
+                        }
                         self._pool = await asyncpg.create_pool(
                             host=DB_HOST,
                             port=int(DB_PORT),
@@ -139,13 +144,7 @@ class DatabaseConnectionManager:
                             min_size=POOL_MIN_SIZE,
                             max_size=POOL_MAX_SIZE,
                             command_timeout=QUERY_TIMEOUT,
-                            server_settings={
-                                'application_name': 'psychochauffeur_bot_v2',
-                                'jit': 'off',
-                                'shared_preload_libraries': 'pg_stat_statements',
-                                'log_statement': 'none',
-                                'log_min_duration_statement': '1000'  # Log slow queries
-                            },
+                            server_settings=server_settings,
                             init=self._init_connection
                         )
                         self._connection_stats['total_connections'] += 1
@@ -160,8 +159,9 @@ class DatabaseConnectionManager:
         """Initialize connection with optimizations."""
         # Set connection-level optimizations
         await conn.execute("SET synchronous_commit = off")  # Faster writes for non-critical data
-        await conn.execute("SET wal_buffers = '16MB'")
-        await conn.execute("SET checkpoint_completion_target = 0.9")
+        # Remove invalid runtime parameter change for wal_buffers
+        # await conn.execute("SET wal_buffers = '16MB'")
+        # await conn.execute("SET checkpoint_completion_target = 0.9")
     
     @asynccontextmanager
     async def get_connection(self):

@@ -12,6 +12,8 @@ from datetime import datetime
 import re
 import hashlib
 import logging
+import asyncpg
+import subprocess
 
 # Third-party imports
 import nest_asyncio
@@ -664,6 +666,26 @@ async def main():
         error_logger.error(f"Error during polling: {str(e)}", exc_info=True)
         raise
 
+async def ensure_db_initialized():
+    try:
+        conn = await asyncpg.connect(
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=int(os.getenv('DB_PORT', '5432')),
+            database=os.getenv('DB_NAME', 'telegram_bot'),
+            user=os.getenv('DB_USER', 'postgres'),
+            password=os.getenv('DB_PASSWORD', ''),
+        )
+        result = await conn.fetchval("SELECT to_regclass('public.chats')")
+        await conn.close()
+        if result is None:
+            print("[INFO] Database not initialized, running scripts/init_database.py ...")
+            subprocess.run([sys.executable, 'scripts/init_database.py'], check=True)
+        else:
+            print("[INFO] Database already initialized.")
+    except Exception as e:
+        print(f"[ERROR] Could not check or initialize database: {e}")
+        subprocess.run([sys.executable, 'scripts/init_database.py'], check=True)
+
 def run_bot():
     """Run the bot with proper event loop handling and graceful shutdown."""
     # Register signal handlers for graceful shutdown
@@ -688,4 +710,5 @@ def run_bot():
         # The loop and tasks should be handled by run_until_complete and graceful shutdown logic.
 
 if __name__ == "__main__":
+    asyncio.run(ensure_db_initialized())
     run_bot()
