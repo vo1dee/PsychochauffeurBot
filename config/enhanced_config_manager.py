@@ -16,13 +16,29 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, Callable, Set
 import hashlib
 import aiofiles
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+try:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+    WATCHDOG_AVAILABLE = True
+except ImportError:
+    Observer = None
+    FileSystemEventHandler = None
+    WATCHDOG_AVAILABLE = False
 
 from modules.service_registry import ServiceInterface
 from modules.event_system import event_bus, EventType
 
 logger = logging.getLogger(__name__)
+
+
+class ConfigChangeEvent:
+    """Event object for configuration changes."""
+    def __init__(self, scope: 'ConfigScope', config_id: str, change_type: str, old_value: Any = None, new_value: Any = None):
+        self.scope = scope
+        self.config_id = config_id
+        self.change_type = change_type
+        self.old_value = old_value
+        self.new_value = new_value
 
 
 class ConfigScope(Enum):
@@ -127,36 +143,43 @@ class ConfigChangeHandler(ABC):
         pass
 
 
-class ConfigWatcher(FileSystemEventHandler):
-    """File system watcher for configuration changes."""
-    
-    def __init__(self, config_manager: 'EnhancedConfigManager'):
-        self.config_manager = config_manager
-        self.debounce_delay = 1.0  # seconds
-        self.pending_changes: Dict[str, float] = {}
-    
-    def on_modified(self, event):
-        """Handle file modification events."""
-        if event.is_directory:
-            return
+if WATCHDOG_AVAILABLE:
+    class ConfigWatcher(FileSystemEventHandler):
+        """File system watcher for configuration changes."""
         
-        file_path = event.src_path
-        if file_path.endswith('.json'):
-            # Debounce rapid changes
-            current_time = asyncio.get_event_loop().time()
-            self.pending_changes[file_path] = current_time
+        def __init__(self, config_manager: 'EnhancedConfigManager'):
+            self.config_manager = config_manager
+            self.debounce_delay = 1.0  # seconds
+            self.pending_changes: Dict[str, float] = {}
+        
+        def on_modified(self, event):
+            """Handle file modification events."""
+            if event.is_directory:
+                return
             
-            # Schedule reload after debounce delay
-            asyncio.create_task(self._debounced_reload(file_path, current_time))
-    
-    async def _debounced_reload(self, file_path: str, change_time: float):
-        """Reload configuration after debounce delay."""
-        await asyncio.sleep(self.debounce_delay)
+            file_path = event.src_path
+            if file_path.endswith('.json'):
+                # Debounce rapid changes
+                current_time = asyncio.get_event_loop().time()
+                self.pending_changes[file_path] = current_time
+                
+                # Schedule reload after debounce delay
+                asyncio.create_task(self._debounced_reload(file_path, current_time))
         
-        # Check if this is still the latest change
-        if self.pending_changes.get(file_path) == change_time:
-            await self.config_manager._reload_config_file(file_path)
-            del self.pending_changes[file_path]
+        async def _debounced_reload(self, file_path: str, change_time: float):
+            """Reload configuration after debounce delay."""
+            await asyncio.sleep(self.debounce_delay)
+            
+            # Check if this is still the latest change
+            if self.pending_changes.get(file_path) == change_time:
+                await self.config_manager._reload_config_file(file_path)
+                del self.pending_changes[file_path]
+else:
+    class ConfigWatcher:
+        """Dummy watcher when watchdog is not available."""
+        
+        def __init__(self, config_manager: 'EnhancedConfigManager'):
+            self.config_manager = config_manager
 
 
 class EnhancedConfigManager(ServiceInterface):
@@ -455,26 +478,31 @@ class EnhancedConfigManager(ServiceInterface):
             return self._cache[cache_key]
         
         # Get configuration based on scope
-        if scope == ConfigScope.GLOBAL:
-            config = self._configs.get("global", {})
-        elif scope == ConfigScope.MODULE:
-            config = self._configs.get(f"module_{key}", {})
-        else:
-            # For chat/user scope, implement hierarchical lookup
-            config = await self._get_hierarchical_config(key, scope)
+        config_key = key if scope == ConfigScope.GLOBAL else f"{scope.value}_{key}"
         
-        # Navigate to nested key if needed
-        if "." in key:
-            parts = key.split(".")
-            value = config
-            for part in parts:
-                if isinstance(value, dict) and part in value:
-                    value = value[part]
-                else:
-                    value = default
-                    break
+        if scope == ConfigScope.GLOBAL:
+            # For global scope, the config_key is the same as the key
+            config = self._configs.get(key, {})
+            # Navigate to nested key if needed
+            if "." in key:
+                parts = key.split(".")
+                value = config
+                for part in parts:
+                    if isinstance(value, dict) and part in value:
+                        value = value[part]
+                    else:
+                        value = default
+                        break
+            else:
+                # For global scope, return the entire config for that key
+                value = config if config else default
+        elif scope == ConfigScope.MODULE:
+            # For module scope, return the entire module config
+            value = self._configs.get(f"module_{key}", default)
         else:
-            value = config.get(key, default)
+            # For chat/user scope, return the entire config for that key
+            value = self._configs.get(config_key, default)
+            logger.info(f"get_config for {config_key}: returning {value}")
         
         # Cache the result
         self._set_cache(cache_key, value)
@@ -509,17 +537,25 @@ class EnhancedConfigManager(ServiceInterface):
                     errors = self._schemas[schema_key].validate({"value": value})
                     if errors:
                         raise ConfigValidationError(f"Validation errors: {errors}")
+                else:
+                    # Basic validation for known config structures
+                    validation_errors = self._basic_validation(value)
+                    if validation_errors:
+                        logger.error(f"Basic validation failed: {validation_errors}")
+                        return False
             
             # Get current config
             config_key = key if scope == ConfigScope.GLOBAL else f"{scope.value}_{key}"
             current_config = self._configs.get(config_key, {})
-            old_value = current_config.get(key)
+            old_value = current_config.copy() if isinstance(current_config, dict) else current_config
             
             # Update configuration
-            if config_key not in self._configs:
-                self._configs[config_key] = {}
-            
-            self._configs[config_key][key] = value
+            if scope == ConfigScope.GLOBAL:
+                # For global scope, store the entire value as the config
+                self._configs[config_key] = value
+            else:
+                # For non-global scopes, store the entire value as the config
+                self._configs[config_key] = value
             
             # Update metadata
             now = datetime.now()
@@ -530,12 +566,22 @@ class EnhancedConfigManager(ServiceInterface):
                 "source": "api_update"
             }
             
-            if "_metadata" not in self._configs[config_key]:
-                metadata["created_at"] = now.isoformat()
+            if scope == ConfigScope.GLOBAL:
+                if "_metadata" not in self._configs[config_key]:
+                    metadata["created_at"] = now.isoformat()
+                else:
+                    metadata["created_at"] = self._configs[config_key]["_metadata"].get("created_at", now.isoformat())
+                
+                self._configs[config_key]["_metadata"] = metadata
             else:
-                metadata["created_at"] = self._configs[config_key]["_metadata"].get("created_at", now.isoformat())
-            
-            self._configs[config_key]["_metadata"] = metadata
+                # For non-global scopes, add metadata to the config if it's a dict
+                if isinstance(self._configs[config_key], dict):
+                    if "_metadata" not in self._configs[config_key]:
+                        metadata["created_at"] = now.isoformat()
+                    else:
+                        metadata["created_at"] = self._configs[config_key]["_metadata"].get("created_at", now.isoformat())
+                    
+                    self._configs[config_key]["_metadata"] = metadata
             
             # Save to file
             await self._save_config_to_file(config_key, self._configs[config_key])
@@ -543,12 +589,24 @@ class EnhancedConfigManager(ServiceInterface):
             # Notify change handlers
             for handler in self._change_handlers:
                 try:
-                    await handler.handle_change(key, old_value, value, scope)
+                    if hasattr(handler, 'handle_change'):
+                        await handler.handle_change(key, old_value, value, scope)
+                    elif callable(handler):
+                        # Support simple function callbacks
+                        event = ConfigChangeEvent(scope, key, "set", old_value, value)
+                        if asyncio.iscoroutinefunction(handler):
+                            await handler(event)
+                        else:
+                            handler(event)
                 except Exception as e:
                     logger.error(f"Error in config change handler: {e}")
             
-            # Clear cache
-            self._clear_cache_for_key(config_key)
+            # Clear cache - use the correct cache key format
+            cache_key = f"{scope.value}:{key}"
+            if cache_key in self._cache:
+                del self._cache[cache_key]
+            if cache_key in self._cache_ttl:
+                del self._cache_ttl[cache_key]
             
             logger.info(f"Configuration updated: {config_key}.{key}")
             return True
@@ -607,6 +665,165 @@ class EnhancedConfigManager(ServiceInterface):
         
         return validation_results
     
+    async def list_configs(self, scope: ConfigScope = ConfigScope.GLOBAL) -> List[str]:
+        """List all configuration keys for a given scope."""
+        try:
+            if scope == ConfigScope.GLOBAL:
+                # For global scope, return keys within the global config
+                global_config = self._configs.get("global", {})
+                return [key for key in global_config.keys() if not key.startswith("_")]
+            elif scope == ConfigScope.MODULE:
+                # For module scope, return module names
+                module_keys = [key for key in self._configs.keys() if key.startswith("module_")]
+                return [key[7:] for key in module_keys]  # Remove "module_" prefix
+            else:
+                # For chat/user scope, return the config IDs
+                scope_prefix = f"{scope.value}_"
+                scope_keys = [key for key in self._configs.keys() if key.startswith(scope_prefix)]
+                return [key[len(scope_prefix):] for key in scope_keys]
+                
+        except Exception as e:
+            logger.error(f"Failed to list configurations for scope {scope}: {e}")
+            return []
+    
+    async def delete_config(
+        self, 
+        key: str, 
+        scope: ConfigScope = ConfigScope.GLOBAL
+    ) -> bool:
+        """Delete configuration."""
+        try:
+            config_key = key if scope == ConfigScope.GLOBAL else f"{scope.value}_{key}"
+            
+            if config_key in self._configs:
+                # For global scope, delete the specific key within the config
+                if scope == ConfigScope.GLOBAL:
+                    if key in self._configs[config_key]:
+                        del self._configs[config_key][key]
+                        logger.info(f"Configuration key deleted: {config_key}.{key}")
+                        return True
+                else:
+                    # For other scopes, delete the entire config entry
+                    del self._configs[config_key]
+                    
+                    # Remove file if it exists
+                    if config_key.startswith("module_"):
+                        module_name = config_key[7:]  # Remove "module_" prefix
+                        file_path = self.module_config_path / f"{module_name}.json"
+                    else:
+                        # For chat/user configs
+                        file_path = self.base_path / "custom" / f"{config_key}.json"
+                    
+                    if file_path.exists():
+                        file_path.unlink()
+                    
+                    # Clear related cache entries
+                    cache_key = f"{scope.value}:{key}"
+                    if cache_key in self._cache:
+                        del self._cache[cache_key]
+                    if cache_key in self._cache_ttl:
+                        del self._cache_ttl[cache_key]
+                    
+                    logger.info(f"Configuration deleted: {config_key}")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to delete configuration {key}: {e}")
+            return False
+    
+    def _basic_validation(self, config_data: Any) -> List[str]:
+        """Perform basic validation on configuration data."""
+        errors = []
+        
+        if isinstance(config_data, dict):
+            # Check for common config structures and validate types
+            if "config_modules" in config_data:
+                modules = config_data["config_modules"]
+                if isinstance(modules, dict):
+                    for module_name, module_config in modules.items():
+                        if isinstance(module_config, dict) and "enabled" in module_config:
+                            enabled_value = module_config["enabled"]
+                            if not isinstance(enabled_value, bool):
+                                errors.append(f"Module '{module_name}' enabled field must be boolean, got {type(enabled_value).__name__}")
+        
+        return errors
+    
+    def subscribe_to_changes(self, handler):
+        """Subscribe to configuration change events."""
+        if handler not in self._change_handlers:
+            self._change_handlers.append(handler)
+    
+    def unsubscribe_from_changes(self, handler):
+        """Unsubscribe from configuration change events."""
+        if handler in self._change_handlers:
+            self._change_handlers.remove(handler)
+    
+    async def update_config(self, key: str, updates: Dict[str, Any], scope: ConfigScope = ConfigScope.GLOBAL, strategy: str = "deep_merge") -> bool:
+        """Update existing configuration with merge strategy."""
+        try:
+            # Get current config
+            current_config = await self.get_config(key, scope)
+            if current_config is None:
+                current_config = {}
+            
+            if strategy == "deep_merge":
+                # Deep merge the updates
+                merged_config = self._deep_merge(current_config, updates)
+            else:
+                # Replace strategy - replace matching sections
+                merged_config = self._replace_merge(current_config, updates)
+            
+            # Set the merged config
+            return await self.set_config(key, merged_config, scope)
+            
+        except Exception as e:
+            logger.error(f"Failed to update configuration {key}: {e}")
+            return False
+    
+    def _deep_merge(self, base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Deep merge two dictionaries."""
+        import copy
+        result = copy.deepcopy(base)
+        
+        for key, value in updates.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                result[key] = copy.deepcopy(value)
+        
+        return result
+    
+    def _replace_merge(self, base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Replace merge - replace entire sections completely."""
+        import copy
+        result = copy.deepcopy(base)
+        
+        for key, value in updates.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                # For nested dictionaries, use replace nested logic
+                result[key] = self._replace_nested(result[key], value)
+            else:
+                result[key] = copy.deepcopy(value)
+        
+        return result
+    
+    def _replace_nested(self, base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Helper for nested replace merge - replaces specific nested sections while preserving others."""
+        import copy
+        result = copy.deepcopy(base)
+        
+        for key, value in updates.items():
+            if isinstance(value, dict) and key in result and isinstance(result[key], dict):
+                # For nested dictionaries, completely replace the section
+                result[key] = copy.deepcopy(value)
+            else:
+                # For non-dict values or new keys, just set the value
+                result[key] = copy.deepcopy(value)
+        
+        return result
+    
     def get_config_info(self) -> Dict[str, Any]:
         """Get information about loaded configurations."""
         return {
@@ -617,3 +834,213 @@ class EnhancedConfigManager(ServiceInterface):
             "hot_reload_enabled": self.enable_hot_reload,
             "validation_enabled": self.enable_validation
         }
+    
+    async def get_effective_config(self, scope: ConfigScope, key: str) -> Dict[str, Any]:
+        """Get effective configuration by merging global defaults with scope-specific overrides."""
+        try:
+            # Start with global defaults
+            global_config = await self.get_config("default", ConfigScope.GLOBAL) or {}
+            
+            # Get scope-specific config
+            scope_config = await self.get_config(key, scope) or {}
+            
+            # Create effective config by merging
+            effective_config = self._deep_merge_configs(global_config, scope_config)
+            
+            return effective_config
+            
+        except Exception as e:
+            logger.error(f"Failed to get effective config for {scope.value}:{key}: {e}")
+            return {}
+    
+    def _deep_merge_configs(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+        """Deep merge configuration with special handling for config_modules."""
+        import copy
+        result = copy.deepcopy(base)
+        
+        # Handle the case where base has default_modules and override has config_modules
+        if "default_modules" in result and "config_modules" in override:
+            # Convert default_modules to config_modules for merging
+            if "config_modules" not in result:
+                result["config_modules"] = copy.deepcopy(result["default_modules"])
+            
+            # Merge config_modules
+            base_modules = result["config_modules"]
+            override_modules = override["config_modules"]
+            
+            if isinstance(base_modules, dict) and isinstance(override_modules, dict):
+                for module_name, module_config in override_modules.items():
+                    if module_name in base_modules:
+                        # Merge module config, handling overrides specially
+                        base_module = base_modules[module_name]
+                        override_module = module_config
+                        
+                        # Start with base module config
+                        merged_module = copy.deepcopy(base_module)
+                        
+                        # Apply overrides
+                        if "overrides" in override_module:
+                            if "settings" not in merged_module:
+                                merged_module["settings"] = {}
+                            # Merge overrides into settings
+                            merged_module["settings"].update(override_module["overrides"])
+                        
+                        # Apply other fields from override
+                        for field, field_value in override_module.items():
+                            if field != "overrides":
+                                merged_module[field] = copy.deepcopy(field_value)
+                        
+                        result["config_modules"][module_name] = merged_module
+                    else:
+                        result["config_modules"][module_name] = copy.deepcopy(module_config)
+            
+            # Remove default_modules from result since we've converted it to config_modules
+            if "default_modules" in result:
+                del result["default_modules"]
+        
+        # Handle other keys normally
+        for key, value in override.items():
+            if key == "config_modules":
+                # Already handled above
+                continue
+            elif key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._deep_merge_configs(result[key], value)
+            else:
+                result[key] = copy.deepcopy(value)
+        
+        return result
+    
+    async def create_backup(self, scope: ConfigScope, key: str) -> str:
+        """Create a backup of the specified configuration."""
+        try:
+            config_key = key if scope == ConfigScope.GLOBAL else f"{scope.value}_{key}"
+            config_data = self._configs.get(config_key)
+            
+            if config_data is None:
+                raise ValueError(f"Configuration {config_key} not found")
+            
+            # Deep copy the config data to avoid reference issues
+            import copy
+            backup_data = copy.deepcopy(config_data)
+            
+            # Generate backup ID
+            backup_id = f"{config_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            # Create backup directory if it doesn't exist
+            backup_dir = self.base_path / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save backup
+            backup_file = backup_dir / f"{backup_id}.json"
+            async with aiofiles.open(backup_file, 'w') as f:
+                await f.write(json.dumps(backup_data, indent=2))
+            
+            logger.info(f"Created backup {backup_id} for {config_key}")
+            return backup_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create backup for {config_key}: {e}")
+            return None
+    
+    async def restore_backup(self, backup_id: str) -> bool:
+        """Restore configuration from backup."""
+        try:
+            backup_file = self.base_path / "backups" / f"{backup_id}.json"
+            
+            if not backup_file.exists():
+                logger.error(f"Backup file {backup_id} not found")
+                return False
+            
+            # Load backup data
+            async with aiofiles.open(backup_file, 'r') as f:
+                backup_data = json.loads(await f.read())
+            
+            # Extract config key from backup ID
+            config_key = "_".join(backup_id.split("_")[:-2])  # Remove timestamp
+            
+            logger.info(f"Restoring backup {backup_id} to config_key {config_key}: {backup_data}")
+            
+            # Restore configuration
+            self._configs[config_key] = backup_data
+            
+            # Save to file
+            await self._save_config_to_file(config_key, backup_data)
+            
+            # Clear cache more thoroughly
+            self._clear_cache_for_key(config_key)
+            # Also clear any cache entries that might be related to this config
+            # The cache key format is "scope:key", so we need to clear that too
+            scope_name = config_key.split("_")[0]  # Extract scope from config_key
+            key_name = "_".join(config_key.split("_")[1:])  # Extract key from config_key
+            cache_key_format = f"{scope_name}:{key_name}"
+            self._cache.pop(cache_key_format, None)
+            self._cache_ttl.pop(cache_key_format, None)
+            
+            # Clear any other related cache entries
+            cache_keys_to_remove = [k for k in self._cache.keys() if config_key in k or key_name in k]
+            for cache_key in cache_keys_to_remove:
+                self._cache.pop(cache_key, None)
+                self._cache_ttl.pop(cache_key, None)
+            
+            logger.info(f"Restored configuration from backup {backup_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to restore backup {backup_id}: {e}")
+            return False
+    
+    def _get_config_file_path(self, scope: ConfigScope, key: str) -> Path:
+        """Get the file path for a configuration."""
+        if scope == ConfigScope.GLOBAL:
+            config_key = "global"
+        else:
+            config_key = f"{scope.value}_{key}"
+        
+        if config_key == "global":
+            return self.global_config_path / "global_config.json"
+        elif config_key.startswith("module_"):
+            module_name = config_key[7:]  # Remove "module_" prefix
+            return self.module_config_path / f"{module_name}.json"
+        else:
+            # For chat/user configs
+            return self.base_path / "custom" / f"{config_key}.json"
+    
+    async def migrate_config(self, old_config: Dict[str, Any], from_version: str, to_version: str) -> Dict[str, Any]:
+        """Migrate configuration from one version to another."""
+        try:
+            migrated_config = {}
+            
+            # Handle migration from version 1.0 to 2.0
+            if from_version == "1.0" and to_version == "2.0":
+                # Migrate chat_id to chat_metadata structure
+                if "chat_id" in old_config:
+                    migrated_config["chat_metadata"] = {
+                        "chat_id": old_config["chat_id"]
+                    }
+                
+                # Migrate GPT settings to config_modules structure
+                config_modules = {}
+                if "gpt_enabled" in old_config or "gpt_temperature" in old_config:
+                    gpt_config = {"enabled": old_config.get("gpt_enabled", False)}
+                    
+                    if "gpt_temperature" in old_config:
+                        gpt_config["overrides"] = {"temperature": old_config["gpt_temperature"]}
+                    
+                    config_modules["gpt"] = gpt_config
+                
+                if config_modules:
+                    migrated_config["config_modules"] = config_modules
+                
+                # Copy any other fields that don't need migration
+                for key, value in old_config.items():
+                    if key not in ["chat_id", "gpt_enabled", "gpt_temperature"]:
+                        migrated_config[key] = value
+            else:
+                # For unsupported migrations, return the original config
+                migrated_config = old_config.copy()
+            
+            return migrated_config
+            
+        except Exception as e:
+            logger.error(f"Failed to migrate configuration from {from_version} to {to_version}: {e}")
+            return old_config

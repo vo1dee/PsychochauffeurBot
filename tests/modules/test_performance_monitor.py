@@ -10,19 +10,18 @@ from unittest.mock import Mock, AsyncMock, patch
 from typing import Dict, Any, List
 
 from modules.performance_monitor import (
-    PerformanceMonitor, MetricCollector, PerformanceAlert,
-    ResourceMonitor, RequestTracker, MemoryProfiler,
-    CacheMonitor, DatabasePerformanceMonitor
+    PerformanceMonitor, MetricsCollector, PerformanceAlert,
+    ResourceUsage, RequestMetrics
 )
 
 
-class TestMetricCollector:
-    """Test cases for MetricCollector."""
+class TestMetricsCollector:
+    """Test cases for MetricsCollector."""
     
     @pytest.fixture
     def collector(self):
-        """Create a MetricCollector instance."""
-        return MetricCollector()
+        """Create a MetricsCollector instance."""
+        return MetricsCollector()
     
     def test_counter_metrics(self, collector):
         """Test counter metric operations."""
