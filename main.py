@@ -173,40 +173,44 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # --- RANDOM GPT RESPONSE LOGIC ---
     # Only in group chats, not private
     if update.effective_chat.type in {"group", "supergroup"}:
-        chat_id = str(update.effective_chat.id)
-        chat_type = update.effective_chat.type
-        config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior")
-        
-        # Check if chat_behavior module is enabled
-        module_enabled = config.get("enabled", False)
-        overrides = config.get("overrides", {})
-        random_settings = overrides.get("random_response_settings", {})
-        random_enabled = random_settings.get("enabled", False)
-        
-        # Both module and random settings must be enabled
-        if module_enabled and random_enabled:
-            min_words = random_settings.get("min_words", 5)
-            message_threshold = random_settings.get("message_threshold", 50)
-            probability = random_settings.get("probability", 0.02)
-            
-            # Only consider messages with enough words
-            if len(message_text.split()) >= min_words:
-                count = message_counter.increment(update.effective_chat.id)
-                general_logger.info(f"Random response check: chat_id={chat_id}, count={count}/{message_threshold}, probability={probability}")
-                
-                if count >= message_threshold:
-                    import random
-                    if random.random() < probability:
-                        message_counter.reset(update.effective_chat.id)
-                        general_logger.info(f"Triggering random response in chat {chat_id}")
-                        await gpt_response(update, context, response_type="random", message_text_override=cleaned_text)
-                        return
+        # Block random GPT response if message contains any link
+        if extract_urls(message_text):
+            pass  # Do not trigger random GPT
         else:
-            # Log why random responses are disabled
-            if not module_enabled:
-                general_logger.debug(f"Random responses disabled: chat_behavior module not enabled in chat {chat_id}")
-            elif not random_enabled:
-                general_logger.debug(f"Random responses disabled: random_response_settings not enabled in chat {chat_id}")
+            chat_id = str(update.effective_chat.id)
+            chat_type = update.effective_chat.type
+            config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior")
+            
+            # Check if chat_behavior module is enabled
+            module_enabled = config.get("enabled", False)
+            overrides = config.get("overrides", {})
+            random_settings = overrides.get("random_response_settings", {})
+            random_enabled = random_settings.get("enabled", False)
+            
+            # Both module and random settings must be enabled
+            if module_enabled and random_enabled:
+                min_words = random_settings.get("min_words", 5)
+                message_threshold = random_settings.get("message_threshold", 50)
+                probability = random_settings.get("probability", 0.02)
+                
+                # Only consider messages with enough words
+                if len(message_text.split()) >= min_words:
+                    count = message_counter.increment(update.effective_chat.id)
+                    general_logger.info(f"Random response check: chat_id={chat_id}, count={count}/{message_threshold}, probability={probability}")
+                    
+                    if count >= message_threshold:
+                        import random
+                        if random.random() < probability:
+                            message_counter.reset(update.effective_chat.id)
+                            general_logger.info(f"Triggering random response in chat {chat_id}")
+                            await gpt_response(update, context, response_type="random", message_text_override=cleaned_text)
+                            return
+            else:
+                # Log why random responses are disabled
+                if not module_enabled:
+                    general_logger.debug(f"Random responses disabled: chat_behavior module not enabled in chat {chat_id}")
+                elif not random_enabled:
+                    general_logger.debug(f"Random responses disabled: random_response_settings not enabled in chat {chat_id}")
 
     # Handle modified links if any were found
     if modified_links:

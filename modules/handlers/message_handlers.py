@@ -126,6 +126,11 @@ async def handle_random_gpt_response(
     cleaned_text: str
 ) -> None:
     """Handle random GPT responses in group chats."""
+    # Block random GPT response if message contains any link
+    from modules.url_processor import extract_urls
+    if extract_urls(message_text):
+        return
+
     chat_id: str = str(update.effective_chat.id)
     chat_type: str = update.effective_chat.type
     

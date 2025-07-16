@@ -28,6 +28,11 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
             - needs_response: Whether the message needs a GPT response
             - response_type: Type of response needed ('command', 'mention', 'private', 'random')
     """
+    # If the message contains any URL, do NOT trigger GPT response
+    from modules.url_processor import extract_urls
+    if extract_urls(message_text):
+        return False, ''
+
     bot_username = context.bot.username
     is_private_chat = update.effective_chat.type == 'private'
     mentioned = f"@{bot_username}" in message_text
