@@ -31,7 +31,7 @@ analytics_logger = logging.getLogger('analytics_logger')
 
 class ErrorTracker:
     """
-    Track and analyze errors for system diagnostics and improvement.
+    Enhanced error tracking and analytics for system diagnostics and improvement.
     
     This class maintains statistics about errors that occur in the application,
     including counts by category, severity, and time period.
