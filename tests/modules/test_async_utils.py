@@ -9,9 +9,9 @@ from unittest.mock import Mock, AsyncMock, patch
 from typing import List, Any
 
 from modules.async_utils import (
-    AsyncTaskManager, AsyncResourcePool, AsyncRateLimiter,
-    AsyncCircuitBreaker, AsyncRetryManager, AsyncBatchProcessor,
-    timeout_after, retry_async, rate_limit, circuit_breaker_async
+    AsyncTaskManager, AsyncConnectionPool, AsyncRateLimiter,
+    AsyncRetry, AsyncBatch, AsyncEventWaiter,
+    async_timeout, async_retry, async_rate_limit
 )
 
 

@@ -241,12 +241,8 @@ event_bus = EventBus()
 
 
 # Specific Event Classes
-@dataclass
 class MessageEvent(Event):
     """Event for message-related activities."""
-    user_id: int
-    chat_id: int
-    message_text: str
     
     def __init__(self, user_id: int, chat_id: int, message_text: str, source: str = "message_handler"):
         super().__init__(
@@ -264,13 +260,8 @@ class MessageEvent(Event):
         self.message_text = message_text
 
 
-@dataclass
 class CommandEvent(Event):
     """Event for command execution."""
-    command_name: str
-    user_id: int
-    chat_id: int
-    success: bool
     
     def __init__(self, command_name: str, user_id: int, chat_id: int, success: bool, source: str = "command_processor"):
         super().__init__(
@@ -290,13 +281,8 @@ class CommandEvent(Event):
         self.success = success
 
 
-@dataclass
 class ErrorEvent(Event):
     """Event for error occurrences."""
-    error_type: str
-    error_message: str
-    user_id: Optional[int] = None
-    chat_id: Optional[int] = None
     
     def __init__(self, error_type: str, error_message: str, user_id: Optional[int] = None, 
                  chat_id: Optional[int] = None, source: str = "error_handler"):
