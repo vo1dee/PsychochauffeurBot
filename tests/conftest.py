@@ -6,6 +6,7 @@ import pytest
 import asyncio
 import tempfile
 import shutil
+import logging
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, MagicMock
 from datetime import datetime, timezone
@@ -23,6 +24,13 @@ from modules.database import Database
 from modules.logger import general_logger, error_logger, chat_logger
 from modules.const import KYIV_TZ
 
+# Import base test classes to make them available
+from tests.base_test_classes import (
+    BaseTestCase, AsyncBaseTestCase, DatabaseTestCase, IntegrationTestCase,
+    MockTestCase, ParametrizedTestCase, ComprehensiveTestCase,
+    TelegramTestMixin, ConfigTestMixin, ErrorTestMixin
+)
+
 
 # ============================================================================
 # Event Loop and Async Configuration
@@ -31,9 +39,56 @@ from modules.const import KYIV_TZ
 @pytest.fixture(scope="session")
 def event_loop():
     """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
     loop.close()
+
+
+class AsyncTestManager:
+    """Centralized async test configuration and event loop management."""
+    
+    @staticmethod
+    def setup_event_loop():
+        """Set up event loop for async tests."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop
+    
+    @staticmethod
+    def cleanup_event_loop():
+        """Clean up event loop after async tests."""
+        try:
+            loop = asyncio.get_running_loop()
+            # Cancel all pending tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            # Wait for tasks to complete cancellation
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        except RuntimeError:
+            pass  # No running loop to clean up
+    
+    @staticmethod
+    async def run_async_test(coro):
+        """Run an async test with proper error handling."""
+        try:
+            return await coro
+        except Exception as e:
+            # Log the error for debugging
+            logging.error(f"Async test failed: {e}")
+            raise
+
+
+@pytest.fixture
+def async_test_manager():
+    """Provide access to async test manager."""
+    return AsyncTestManager()
 
 
 # ============================================================================
