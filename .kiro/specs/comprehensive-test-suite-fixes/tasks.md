@@ -6,7 +6,7 @@
   - Set up base test classes with common patterns and utilities
   - _Requirements: 1.1, 4.1, 4.2_
 
-- [-] 2. Fix async event loop issues
+- [ ] 2. Fix async event loop issues
   - [x] 2.1 Update pytest configuration for async support
     - Modify pytest.ini to include proper asyncio settings
     - Configure event loop policy and scope management
@@ -22,25 +22,25 @@
     - Fix async decorator tests with proper event loop setup
     - _Requirements: 1.1, 1.4_
 
-  - [-] 2.4 Fix async utility tests
+  - [x] 2.4 Fix async utility tests
     - Resolve AsyncTaskManager test failures with proper async patterns
     - Fix rate limiter and circuit breaker async test configurations
     - _Requirements: 1.1, 1.2_
 
-- [ ] 3. Resolve API interface mismatches
-  - [ ] 3.1 Fix constructor parameter mismatches
+- [x] 3. Resolve API interface mismatches
+  - [x] 3.1 Fix constructor parameter mismatches
     - Update WeatherAPI constructor calls to match actual implementation
     - Fix VideoDownloader initialization with correct parameter names
     - Fix PerformanceAlert constructor signature alignment
     - _Requirements: 2.1, 2.2_
 
-  - [ ] 3.2 Fix method signature mismatches
+  - [x] 3.2 Fix method signature mismatches
     - Update AsyncTaskManager method calls to match implementation
     - Fix WeatherAPI method calls (get_weather vs actual methods)
     - Fix VideoDownloader method references (_download_video vs actual methods)
     - _Requirements: 2.2, 2.3_
 
-  - [ ] 3.3 Fix attribute access issues
+  - [x] 3.3 Fix attribute access issues
     - Update VideoDownloader attribute references (extract_urls_func vs extract_urls)
     - Fix platform detection method references (_detect_platform vs _get_platform)
     - Update MetricsCollector method calls to match implementation

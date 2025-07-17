@@ -10,8 +10,10 @@ from typing import List, Any
 
 from modules.async_utils import (
     AsyncTaskManager, AsyncConnectionPool, AsyncRateLimiter,
-    AsyncRetry, AsyncBatch, AsyncEventWaiter,
-    async_timeout, async_retry, async_rate_limit
+    AsyncRetry, AsyncBatch, AsyncEventWaiter, AsyncResourcePool,
+    AsyncCircuitBreaker, AsyncRetryManager, AsyncBatchProcessor,
+    async_timeout, async_retry, async_rate_limit,
+    timeout_after, retry_async, rate_limit, circuit_breaker_async
 )
 
 
@@ -664,9 +666,9 @@ class TestAsyncUtilsIntegration:
                 # Circuit breaker protection
                 async def protected_operation():
                     # Retry logic for transient failures
-                    return await self.retry_manager.execute(
-                        lambda: self._actual_processing(request_id)
-                    )
+                    async def processing_func():
+                        return await self._actual_processing(request_id)
+                    return await self.retry_manager.execute(processing_func)
                 
                 return await self.circuit_breaker.call(protected_operation)
             

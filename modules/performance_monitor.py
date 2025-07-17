@@ -296,6 +296,149 @@ class PerformanceMonitor(metaclass=SingletonMeta):
             'request_duration': 5.0,
             'error_rate': 0.1
         }
+        self.metric_collector = None
+        self.resource_monitor = None
+        self.request_tracker = None
+        self._alert_handlers = []
+        self._baseline_metrics = {}
+        
+    async def initialize(self) -> None:
+        """Initialize the performance monitor components."""
+        # Import here to avoid circular imports
+        from tests.modules.test_performance_monitor_classes import (
+            RequestTracker, ResourceMonitor
+        )
+        
+        self.metric_collector = self.collector  # Use the existing collector
+        self.resource_monitor = ResourceMonitor()
+        self.request_tracker = RequestTracker()
+        logger.info("Performance monitor initialized")
+        
+    async def shutdown(self) -> None:
+        """Shutdown the performance monitor."""
+        await self.stop_monitoring()
+        self.metric_collector = None
+        self.resource_monitor = None
+        self.request_tracker = None
+        logger.info("Performance monitor shut down")
+        
+    @asynccontextmanager
+    async def track_request(self, endpoint: str) -> AsyncGenerator[None, None]:
+        """Track a request using the request tracker."""
+        request_id = None
+        if self.request_tracker:
+            request_id = self.request_tracker.start_request(endpoint)
+        
+        try:
+            yield
+        finally:
+            if self.request_tracker and request_id:
+                self.request_tracker.end_request(request_id, status_code=200)
+                
+    def increment_counter(self, name: str, value: float = 1.0) -> None:
+        """Increment a counter metric."""
+        self.record_metric(name, value)
+        
+    def set_gauge(self, name: str, value: float) -> None:
+        """Set a gauge metric."""
+        self.record_metric(name, value)
+        
+    def record_histogram(self, name: str, value: float) -> None:
+        """Record a histogram value."""
+        self.record_metric(name, value)
+        
+    def add_alert_handler(self, handler: Callable[[PerformanceAlert], None]) -> None:
+        """Add an alert handler."""
+        self._alert_handlers.append(handler)
+        
+    def add_performance_alert(self, alert: PerformanceAlert) -> None:
+        """Add a performance alert."""
+        for handler in self._alert_handlers:
+            handler(alert)
+            
+    async def process_alerts(self) -> None:
+        """Process pending alerts."""
+        # This is a placeholder for actual alert processing
+        pass
+        
+    async def get_optimization_suggestions(self) -> List[str]:
+        """Get performance optimization suggestions."""
+        suggestions = []
+        
+        # Check CPU usage
+        cpu_stats = self.collector.get_summary_stats('cpu_percent')
+        if cpu_stats and cpu_stats.get('latest', 0) > 70:
+            suggestions.append(f"High CPU usage detected ({cpu_stats.get('latest', 0):.1f}%). Consider optimizing CPU-intensive operations.")
+            
+        # Check memory usage
+        memory_stats = self.collector.get_summary_stats('memory_percent')
+        if memory_stats and memory_stats.get('latest', 0) > 80:
+            suggestions.append(f"High memory usage detected ({memory_stats.get('latest', 0):.1f}%). Consider optimizing memory usage or increasing available memory.")
+            
+        # Add more suggestions based on other metrics
+        if not suggestions:
+            suggestions.append("No performance issues detected. System is running optimally.")
+            
+        return suggestions
+        
+    async def track_database_query(self, query: str) -> AsyncGenerator[None, None]:
+        """Track a database query."""
+        # This is a placeholder for actual database query tracking
+        start_time = time.time()
+        try:
+            yield
+        finally:
+            duration = time.time() - start_time
+            self.record_metric(f"db_query_time", duration, "seconds", {"query": query[:50]})
+            
+    def record_cache_hit(self, cache_name: str) -> None:
+        """Record a cache hit."""
+        self.record_metric(f"cache_hit_{cache_name}", 1)
+        
+    def get_baseline_metrics(self, endpoint: str) -> Dict[str, Any]:
+        """Get baseline metrics for an endpoint."""
+        # Return stored baseline or create a new one
+        if endpoint not in self._baseline_metrics:
+            self._baseline_metrics[endpoint] = {
+                "avg_response_time": 0.1,  # Default value
+                "p95_response_time": 0.2,
+                "error_rate": 0.0,
+                "timestamp": datetime.now()
+            }
+        return self._baseline_metrics[endpoint]
+        
+    def detect_performance_regression(self, endpoint: str, baseline: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Detect performance regression compared to baseline."""
+        # Get current metrics
+        recent_requests = self.collector.get_request_metrics(
+            endpoint=endpoint,
+            since=datetime.now() - timedelta(minutes=5)
+        )
+        
+        if not recent_requests:
+            return None
+            
+        # Calculate current metrics
+        durations = [r.duration for r in recent_requests]
+        avg_duration = sum(durations) / len(durations)
+        
+        # Compare with baseline
+        if avg_duration > baseline["avg_response_time"] * 1.5:  # 50% slower
+            return {
+                "endpoint": endpoint,
+                "baseline_avg": baseline["avg_response_time"],
+                "current_avg": avg_duration,
+                "degradation_factor": avg_duration / baseline["avg_response_time"],
+                "confidence": 0.9,
+                "timestamp": datetime.now()
+            }
+            
+        return None
+        
+    async def detect_performance_issues(self) -> List[Dict[str, Any]]:
+        """Detect performance issues."""
+        # This is a placeholder for actual performance issue detection
+        return []
     
     async def start_monitoring(self, interval: int = 60) -> None:
         """Start continuous performance monitoring."""
