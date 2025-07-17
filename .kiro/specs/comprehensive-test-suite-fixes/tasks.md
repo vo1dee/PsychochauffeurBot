@@ -46,20 +46,20 @@
     - Update MetricsCollector method calls to match implementation
     - _Requirements: 2.3, 2.4_
 
-- [ ] 4. Implement missing dependencies
-  - [ ] 4.1 Create missing async utility classes
+- [x] 4. Implement missing dependencies
+  - [x] 4.1 Create missing async utility classes
     - Implement AsyncResourcePool class with required interface
     - Implement AsyncCircuitBreaker class for circuit breaker tests
     - Implement AsyncRetryManager class for retry pattern tests
     - _Requirements: 3.1, 3.2_
 
-  - [ ] 4.2 Create missing performance monitoring classes
+  - [x] 4.2 Create missing performance monitoring classes
     - Implement ResourceMonitor class for system resource monitoring
     - Implement RequestTracker class for request tracking functionality
     - Implement MemoryProfiler class for memory analysis
     - _Requirements: 3.1, 3.3_
 
-  - [ ] 4.3 Create missing async decorators
+  - [x] 4.3 Create missing async decorators
     - Implement timeout_after decorator for async timeout functionality
     - Implement retry_async decorator for async retry patterns
     - Implement rate_limit decorator for async rate limiting
