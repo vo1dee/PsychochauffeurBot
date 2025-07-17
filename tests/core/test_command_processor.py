@@ -237,14 +237,16 @@ class TestTextCommandHandler:
         """Create a mock update."""
         user = User(id=123, is_bot=False, first_name="Test")
         chat = Chat(id=123, type="private")
-        message = Message(
-            message_id=1,
-            date=None,
-            chat=chat,
-            from_user=user,
-            text="/test"
-        )
+        
+        # Create a mock message instead of real Message object
+        message = Mock(spec=Message)
+        message.message_id = 1
+        message.date = None
+        message.chat = chat
+        message.from_user = user
+        message.text = "/test"
         message.reply_text = AsyncMock()
+        
         return Update(update_id=1, message=message)
     
     @pytest.fixture
@@ -303,14 +305,16 @@ class TestCallbackQueryHandler:
             chat=chat,
             from_user=user
         )
-        callback_query = CallbackQuery(
-            id="test_callback",
-            from_user=user,
-            chat_instance="test_instance",
-            message=message,
-            data="test_data"
-        )
+        
+        # Create a mock callback query instead of real CallbackQuery object
+        callback_query = Mock(spec=CallbackQuery)
+        callback_query.id = "test_callback"
+        callback_query.from_user = user
+        callback_query.chat_instance = "test_instance"
+        callback_query.message = message
+        callback_query.data = "test_data"
         callback_query.answer = AsyncMock()
+        
         return Update(update_id=1, callback_query=callback_query)
     
     @pytest.fixture

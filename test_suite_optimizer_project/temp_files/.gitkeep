@@ -1,0 +1,2 @@
+# This file ensures the temp_files directory is tracked by git
+# Temporary files generated during analysis are stored here
