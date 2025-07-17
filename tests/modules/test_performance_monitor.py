@@ -16,8 +16,11 @@ from modules.performance_monitor import (
 )
 
 # Import test implementation classes
+from modules.performance_monitor import (
+    RequestTracker, MemoryProfiler
+)
 from tests.modules.test_performance_monitor_classes import (
-    RequestTracker, MemoryProfiler, CacheMonitor, DatabasePerformanceMonitor
+    CacheMonitor, DatabasePerformanceMonitor
 )
 
 
