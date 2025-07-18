@@ -736,8 +736,8 @@ class TestPerformanceMonitor:
         await monitor.initialize()
         
         # Simulate various performance scenarios
-        monitor.set_gauge("cpu_usage", 85)  # High CPU
-        monitor.set_gauge("memory_usage_percent", 90)  # High memory
+        monitor.set_gauge("cpu_percent", 85)  # High CPU
+        monitor.set_gauge("memory_percent", 90)  # High memory
         monitor.record_histogram("response_time", 2.5)  # Slow response
         
         suggestions = await monitor.get_optimization_suggestions()

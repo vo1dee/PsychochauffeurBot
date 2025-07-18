@@ -67,7 +67,7 @@
     - _Requirements: 3.2, 3.4_
 
 - [-] 5. Fix integration test configurations
-  - [-] 5.1 Fix service registry integration tests
+  - [ ] 5.1 Fix service registry integration tests
     - Update MockServiceWithDependency constructor to match expected interface
     - Fix dependency injection parameter passing in service tests
     - _Requirements: 6.1, 6.2_
