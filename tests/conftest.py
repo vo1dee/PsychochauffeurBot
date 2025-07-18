@@ -47,11 +47,11 @@ def event_loop():
 
 
 class AsyncTestManager:
-    """Centralized async test configuration and event loop management."""
+    """Centralized async test configuration and event loop management with enhanced patterns."""
     
     @staticmethod
     def setup_event_loop():
-        """Set up event loop for async tests."""
+        """Set up event loop for async tests with proper isolation."""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -61,34 +61,159 @@ class AsyncTestManager:
     
     @staticmethod
     def cleanup_event_loop():
-        """Clean up event loop after async tests."""
+        """Clean up event loop after async tests with comprehensive task cancellation."""
         try:
             loop = asyncio.get_running_loop()
             # Cancel all pending tasks
             pending = asyncio.all_tasks(loop)
             for task in pending:
-                task.cancel()
-            # Wait for tasks to complete cancellation
+                if not task.done():
+                    task.cancel()
+            
+            # Wait for tasks to complete cancellation with timeout
             if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                try:
+                    loop.run_until_complete(
+                        asyncio.wait_for(
+                            asyncio.gather(*pending, return_exceptions=True),
+                            timeout=5.0
+                        )
+                    )
+                except asyncio.TimeoutError:
+                    logging.warning("Some async tasks did not complete cancellation within timeout")
         except RuntimeError:
             pass  # No running loop to clean up
     
     @staticmethod
-    async def run_async_test(coro):
-        """Run an async test with proper error handling."""
+    async def run_async_test(coro, timeout=30.0):
+        """Run an async test with proper error handling and timeout."""
         try:
-            return await coro
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logging.error(f"Async test timed out after {timeout} seconds")
+            raise
         except Exception as e:
             # Log the error for debugging
             logging.error(f"Async test failed: {e}")
             raise
+    
+    @staticmethod
+    def create_async_mock_with_return(return_value):
+        """Create an AsyncMock that returns a specific value."""
+        async_mock = AsyncMock()
+        async_mock.return_value = return_value
+        return async_mock
+    
+    @staticmethod
+    def create_async_mock_with_side_effect(side_effect):
+        """Create an AsyncMock with a side effect."""
+        async_mock = AsyncMock()
+        async_mock.side_effect = side_effect
+        return async_mock
+    
+    @staticmethod
+    async def wait_for_async_operations(*awaitables, timeout=5.0):
+        """Wait for multiple async operations with timeout."""
+        try:
+            return await asyncio.wait_for(
+                asyncio.gather(*awaitables, return_exceptions=True),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            logging.error(f"Async operations timed out after {timeout} seconds")
+            raise
+    
+    @staticmethod
+    def assert_async_mock_called_correctly(async_mock, expected_call_count=1, expected_args=None, expected_kwargs=None):
+        """Assert that an async mock was called correctly."""
+        assert async_mock.call_count == expected_call_count, f"Expected {expected_call_count} calls, got {async_mock.call_count}"
+        
+        if expected_args is not None or expected_kwargs is not None:
+            if expected_args is None:
+                expected_args = ()
+            if expected_kwargs is None:
+                expected_kwargs = {}
+            
+            async_mock.assert_called_with(*expected_args, **expected_kwargs)
 
 
 @pytest.fixture
 def async_test_manager():
     """Provide access to async test manager."""
     return AsyncTestManager()
+
+
+@pytest.fixture
+async def async_test_environment():
+    """Set up and tear down async test environment."""
+    # Setup
+    loop = AsyncTestManager.setup_event_loop()
+    
+    yield loop
+    
+    # Cleanup
+    AsyncTestManager.cleanup_event_loop()
+
+
+@pytest.fixture
+def async_mock_factory():
+    """Factory for creating properly configured async mocks."""
+    created_mocks = []
+    
+    def create_mock(return_value=None, side_effect=None, **kwargs):
+        if side_effect is not None:
+            mock = AsyncMock(side_effect=side_effect, **kwargs)
+        else:
+            mock = AsyncMock(return_value=return_value, **kwargs)
+        created_mocks.append(mock)
+        return mock
+    
+    yield create_mock
+    
+    # Cleanup - reset all created mocks
+    for mock in created_mocks:
+        mock.reset_mock()
+
+
+@pytest.fixture
+async def async_database_mock():
+    """Provide a mock database with async methods."""
+    db_mock = AsyncMock()
+    
+    # Common database operations
+    db_mock.initialize = AsyncMock()
+    db_mock.close = AsyncMock()
+    db_mock.execute = AsyncMock()
+    db_mock.fetch_one = AsyncMock()
+    db_mock.fetch_all = AsyncMock()
+    db_mock.save_chat_info = AsyncMock()
+    db_mock.save_user_info = AsyncMock()
+    db_mock.get_message_count = AsyncMock(return_value=0)
+    db_mock.get_recent_messages = AsyncMock(return_value=[])
+    
+    yield db_mock
+    
+    # Cleanup
+    db_mock.reset_mock()
+
+
+@pytest.fixture
+async def async_config_manager_mock():
+    """Provide a mock config manager with async methods."""
+    config_mock = AsyncMock()
+    
+    # Common config operations
+    config_mock.initialize = AsyncMock()
+    config_mock.get_config = AsyncMock(return_value={})
+    config_mock.set_config = AsyncMock()
+    config_mock.update_config = AsyncMock()
+    config_mock.delete_config = AsyncMock()
+    config_mock.list_configs = AsyncMock(return_value=[])
+    
+    yield config_mock
+    
+    # Cleanup
+    config_mock.reset_mock()
 
 
 # ============================================================================
@@ -212,24 +337,150 @@ def sample_global_config():
 # Telegram Mock Fixtures
 # ============================================================================
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_bot():
-    """Create a mock Telegram Bot instance."""
+    """Create a mock Telegram Bot instance with function scope for proper isolation."""
     bot = Mock(spec=Bot)
     bot.token = "test_token"
-    bot.get_me = AsyncMock(return_value=Mock(username="test_bot"))
+    bot.id = 123456789
+    bot.username = "test_bot"
+    bot.first_name = "Test Bot"
+    bot.is_bot = True
+    bot.can_join_groups = True
+    bot.can_read_all_group_messages = True
+    bot.supports_inline_queries = False
+    
+    # Async methods
+    bot.get_me = AsyncMock(return_value=Mock(
+        id=bot.id,
+        username=bot.username,
+        first_name=bot.first_name,
+        is_bot=bot.is_bot
+    ))
     bot.send_message = AsyncMock()
     bot.send_photo = AsyncMock()
-    bot.send_sticker = AsyncMock()
+    bot.send_audio = AsyncMock()
     bot.send_document = AsyncMock()
+    bot.send_video = AsyncMock()
+    bot.send_animation = AsyncMock()
+    bot.send_voice = AsyncMock()
+    bot.send_video_note = AsyncMock()
+    bot.send_sticker = AsyncMock()
+    bot.send_location = AsyncMock()
+    bot.send_venue = AsyncMock()
+    bot.send_contact = AsyncMock()
+    bot.send_poll = AsyncMock()
+    bot.send_dice = AsyncMock()
+    bot.send_chat_action = AsyncMock()
+    bot.send_game = AsyncMock()
+    bot.send_invoice = AsyncMock()
+    bot.send_media_group = AsyncMock()
+    
+    bot.edit_message_text = AsyncMock()
+    bot.edit_message_caption = AsyncMock()
+    bot.edit_message_media = AsyncMock()
+    bot.edit_message_reply_markup = AsyncMock()
+    bot.edit_message_live_location = AsyncMock()
+    bot.stop_message_live_location = AsyncMock()
+    
+    bot.delete_message = AsyncMock()
+    bot.forward_message = AsyncMock()
+    bot.copy_message = AsyncMock()
+    bot.pin_chat_message = AsyncMock()
+    bot.unpin_chat_message = AsyncMock()
+    bot.unpin_all_chat_messages = AsyncMock()
+    
     bot.get_file = AsyncMock()
+    bot.get_user_profile_photos = AsyncMock()
+    bot.get_chat = AsyncMock()
+    bot.get_chat_administrators = AsyncMock()
     bot.get_chat_member = AsyncMock()
+    bot.get_chat_member_count = AsyncMock()
+    bot.get_chat_members_count = AsyncMock()  # Deprecated alias
+    
+    bot.kick_chat_member = AsyncMock()
+    bot.ban_chat_member = AsyncMock()
+    bot.unban_chat_member = AsyncMock()
+    bot.restrict_chat_member = AsyncMock()
+    bot.promote_chat_member = AsyncMock()
+    bot.set_chat_administrator_custom_title = AsyncMock()
+    bot.ban_chat_sender_chat = AsyncMock()
+    bot.unban_chat_sender_chat = AsyncMock()
+    
+    bot.set_chat_permissions = AsyncMock()
+    bot.export_chat_invite_link = AsyncMock()
+    bot.create_chat_invite_link = AsyncMock()
+    bot.edit_chat_invite_link = AsyncMock()
+    bot.revoke_chat_invite_link = AsyncMock()
+    bot.approve_chat_join_request = AsyncMock()
+    bot.decline_chat_join_request = AsyncMock()
+    
+    bot.set_chat_photo = AsyncMock()
+    bot.delete_chat_photo = AsyncMock()
+    bot.set_chat_title = AsyncMock()
+    bot.set_chat_description = AsyncMock()
+    bot.leave_chat = AsyncMock()
+    
+    bot.answer_callback_query = AsyncMock()
+    bot.answer_inline_query = AsyncMock()
+    bot.answer_web_app_query = AsyncMock()
+    bot.answer_shipping_query = AsyncMock()
+    bot.answer_pre_checkout_query = AsyncMock()
+    
+    bot.set_my_commands = AsyncMock()
+    bot.delete_my_commands = AsyncMock()
+    bot.get_my_commands = AsyncMock()
+    bot.set_my_name = AsyncMock()
+    bot.get_my_name = AsyncMock()
+    bot.set_my_description = AsyncMock()
+    bot.get_my_description = AsyncMock()
+    bot.set_my_short_description = AsyncMock()
+    bot.get_my_short_description = AsyncMock()
+    
+    bot.set_chat_menu_button = AsyncMock()
+    bot.get_chat_menu_button = AsyncMock()
+    bot.set_my_default_administrator_rights = AsyncMock()
+    bot.get_my_default_administrator_rights = AsyncMock()
+    
+    # Webhook methods
+    bot.set_webhook = AsyncMock()
+    bot.delete_webhook = AsyncMock()
+    bot.get_webhook_info = AsyncMock()
+    
+    # Game methods
+    bot.set_game_score = AsyncMock()
+    bot.get_game_high_scores = AsyncMock()
+    
+    # Sticker methods
+    bot.get_sticker_set = AsyncMock()
+    bot.get_custom_emoji_stickers = AsyncMock()
+    bot.upload_sticker_file = AsyncMock()
+    bot.create_new_sticker_set = AsyncMock()
+    bot.add_sticker_to_set = AsyncMock()
+    bot.set_sticker_position_in_set = AsyncMock()
+    bot.delete_sticker_from_set = AsyncMock()
+    bot.set_sticker_set_thumb = AsyncMock()
+    bot.set_sticker_set_thumbnail = AsyncMock()
+    
+    # Forum topic methods
+    bot.create_forum_topic = AsyncMock()
+    bot.edit_forum_topic = AsyncMock()
+    bot.close_forum_topic = AsyncMock()
+    bot.reopen_forum_topic = AsyncMock()
+    bot.delete_forum_topic = AsyncMock()
+    bot.unpin_all_forum_topic_messages = AsyncMock()
+    bot.edit_general_forum_topic = AsyncMock()
+    bot.close_general_forum_topic = AsyncMock()
+    bot.reopen_general_forum_topic = AsyncMock()
+    bot.hide_general_forum_topic = AsyncMock()
+    bot.unhide_general_forum_topic = AsyncMock()
+    
     return bot
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_user():
-    """Create a mock Telegram User."""
+    """Create a mock Telegram User with function scope for proper isolation."""
     return User(
         id=12345,
         is_bot=False,
@@ -240,9 +491,9 @@ def mock_user():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_private_chat():
-    """Create a mock private Telegram Chat."""
+    """Create a mock private Telegram Chat with function scope for proper isolation."""
     return Chat(
         id=12345,
         type=Chat.PRIVATE,
@@ -252,9 +503,9 @@ def mock_private_chat():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_group_chat():
-    """Create a mock group Telegram Chat."""
+    """Create a mock group Telegram Chat with function scope for proper isolation."""
     return Chat(
         id=-1001234567890,
         type=Chat.SUPERGROUP,
@@ -263,19 +514,159 @@ def mock_group_chat():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_message(mock_user, mock_private_chat):
-    """Create a mock Telegram Message."""
-    return Message(
-        message_id=1,
-        date=datetime.now(timezone.utc),
-        chat=mock_private_chat,
-        from_user=mock_user,
-        text="Test message"
-    )
+    """Create a mock Telegram Message with proper attribute configuration and function scope for isolation."""
+    message = Mock(spec=Message)
+    
+    # Core message attributes - ensure all required attributes are set
+    message.message_id = 1
+    message.date = datetime.now(timezone.utc)
+    message.chat = mock_private_chat
+    message.from_user = mock_user
+    message.text = "Test message"
+    message.chat_id = mock_private_chat.id
+    message.id = 1  # Alias for message_id
+    
+    # Ensure message can be modified by tests without affecting other tests
+    message.configure_mock = Mock(side_effect=lambda **kwargs: setattr(message, list(kwargs.keys())[0], list(kwargs.values())[0]) if kwargs else None)
+    
+    # Message content attributes
+    message.reply_markup = None
+    message.entities = []
+    message.caption = None
+    message.caption_entities = []
+    message.photo = None
+    message.document = None
+    message.video = None
+    message.audio = None
+    message.voice = None
+    message.sticker = None
+    message.animation = None
+    message.contact = None
+    message.location = None
+    message.venue = None
+    message.poll = None
+    message.dice = None
+    message.game = None
+    message.invoice = None
+    message.successful_payment = None
+    message.passport_data = None
+    message.web_app_data = None
+    
+    # Message metadata
+    message.edit_date = None
+    message.media_group_id = None
+    message.author_signature = None
+    message.forward_from = None
+    message.forward_from_chat = None
+    message.forward_from_message_id = None
+    message.forward_signature = None
+    message.forward_sender_name = None
+    message.forward_date = None
+    message.is_automatic_forward = False
+    message.reply_to_message = None
+    message.via_bot = None
+    message.sender_chat = None
+    message.is_topic_message = False
+    message.message_thread_id = None
+    message.has_protected_content = False
+    message.has_media_spoiler = False
+    
+    # Group/channel specific attributes
+    message.new_chat_members = []
+    message.left_chat_member = None
+    message.new_chat_title = None
+    message.new_chat_photo = []
+    message.delete_chat_photo = False
+    message.group_chat_created = False
+    message.supergroup_chat_created = False
+    message.channel_chat_created = False
+    message.migrate_to_chat_id = None
+    message.migrate_from_chat_id = None
+    message.pinned_message = None
+    
+    # Forum topic attributes
+    message.forum_topic_created = None
+    message.forum_topic_edited = None
+    message.forum_topic_closed = None
+    message.forum_topic_reopened = None
+    message.general_forum_topic_hidden = None
+    message.general_forum_topic_unhidden = None
+    
+    # Video chat attributes
+    message.video_chat_scheduled = None
+    message.video_chat_started = None
+    message.video_chat_ended = None
+    message.video_chat_participants_invited = None
+    
+    # Other attributes
+    message.connected_website = None
+    message.write_access_allowed = None
+    message.proximity_alert_triggered = None
+    message.chat_shared = None
+    message.user_shared = None
+    message.story = None
+    message.message_auto_delete_timer_changed = None
+    
+    # Async methods
+    message.reply_text = AsyncMock()
+    message.reply_photo = AsyncMock()
+    message.reply_document = AsyncMock()
+    message.reply_audio = AsyncMock()
+    message.reply_video = AsyncMock()
+    message.reply_voice = AsyncMock()
+    message.reply_sticker = AsyncMock()
+    message.reply_animation = AsyncMock()
+    message.reply_contact = AsyncMock()
+    message.reply_location = AsyncMock()
+    message.reply_venue = AsyncMock()
+    message.reply_poll = AsyncMock()
+    message.reply_dice = AsyncMock()
+    message.reply_game = AsyncMock()
+    message.reply_invoice = AsyncMock()
+    message.reply_media_group = AsyncMock()
+    message.reply_html = AsyncMock()
+    message.reply_markdown = AsyncMock()
+    message.reply_markdown_v2 = AsyncMock()
+    message.reply_copy = AsyncMock()
+    message.reply_chat_action = AsyncMock()
+    
+    message.edit_text = AsyncMock()
+    message.edit_caption = AsyncMock()
+    message.edit_media = AsyncMock()
+    message.edit_reply_markup = AsyncMock()
+    message.edit_live_location = AsyncMock()
+    message.stop_live_location = AsyncMock()
+    
+    message.delete = AsyncMock()
+    message.forward = AsyncMock()
+    message.copy = AsyncMock()
+    message.pin = AsyncMock()
+    message.unpin = AsyncMock()
+    message.stop_poll = AsyncMock()
+    
+    # Properties that return formatted text
+    message.text_html = message.text
+    message.text_markdown = message.text
+    message.text_markdown_v2 = message.text
+    message.caption_html = message.caption
+    message.caption_markdown = message.caption
+    message.caption_markdown_v2 = message.caption
+    
+    # Utility methods
+    message.parse_entities = Mock(return_value={})
+    message.parse_entity = Mock(return_value="")
+    message.parse_caption_entities = Mock(return_value={})
+    message.parse_caption_entity = Mock(return_value="")
+    
+    # Link property
+    message.link = f"https://t.me/c/{abs(mock_private_chat.id)}/{message.message_id}"
+    
+    return message
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_update(mock_message):
     """Create a mock Telegram Update."""
     return Update(
@@ -284,24 +675,78 @@ def mock_update(mock_message):
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_callback_query(mock_user, mock_private_chat):
-    """Create a mock Telegram CallbackQuery."""
-    message = Message(
-        message_id=1,
-        date=datetime.now(timezone.utc),
-        chat=mock_private_chat,
-        from_user=mock_user,
-        text="Original message"
-    )
+    """Create a mock Telegram CallbackQuery with proper attribute configuration and function scope for isolation."""
+    # Create mock message for the callback query using the same pattern as mock_message
+    message = Mock(spec=Message)
+    message.message_id = 1
+    message.date = datetime.now(timezone.utc)
+    message.chat = mock_private_chat
+    message.from_user = mock_user
+    message.text = "Original message"
+    message.chat_id = mock_private_chat.id
+    message.id = 1
     
-    return CallbackQuery(
-        id="test_callback_query",
-        from_user=mock_user,
-        chat_instance="test_chat_instance",
-        message=message,
-        data="test_callback_data"
-    )
+    # Ensure message can be modified by tests without affecting other tests
+    message.configure_mock = Mock(side_effect=lambda **kwargs: setattr(message, list(kwargs.keys())[0], list(kwargs.values())[0]) if kwargs else None)
+    
+    # Essential message attributes for callback queries
+    message.reply_markup = None
+    message.entities = []
+    message.caption = None
+    message.photo = None
+    message.document = None
+    message.video = None
+    message.audio = None
+    message.voice = None
+    message.sticker = None
+    
+    # Message methods
+    message.reply_text = AsyncMock()
+    message.edit_text = AsyncMock()
+    message.edit_caption = AsyncMock()
+    message.edit_media = AsyncMock()
+    message.edit_reply_markup = AsyncMock()
+    message.delete = AsyncMock()
+    message.pin = AsyncMock()
+    message.unpin = AsyncMock()
+    
+    # Create mock callback query
+    callback_query = Mock(spec=CallbackQuery)
+    callback_query.id = "test_callback_query"
+    callback_query.from_user = mock_user
+    callback_query.chat_instance = "test_chat_instance"
+    callback_query.message = message
+    callback_query.data = "test_callback_data"
+    callback_query.inline_message_id = None
+    callback_query.game_short_name = None
+    
+    # CallbackQuery methods
+    callback_query.answer = AsyncMock()
+    callback_query.edit_message_text = AsyncMock()
+    callback_query.edit_message_reply_markup = AsyncMock()
+    callback_query.edit_message_caption = AsyncMock()
+    callback_query.edit_message_media = AsyncMock()
+    callback_query.edit_message_live_location = AsyncMock()
+    callback_query.stop_message_live_location = AsyncMock()
+    callback_query.delete_message = AsyncMock()
+    callback_query.copy_message = AsyncMock()
+    callback_query.pin_message = AsyncMock()
+    callback_query.unpin_message = AsyncMock()
+    callback_query.set_game_score = AsyncMock()
+    callback_query.get_game_high_scores = AsyncMock()
+    
+    # Utility methods
+    callback_query.to_dict = Mock(return_value={
+        'id': callback_query.id,
+        'from': mock_user.to_dict(),
+        'chat_instance': callback_query.chat_instance,
+        'data': callback_query.data
+    })
+    callback_query.to_json = Mock(return_value='{"id": "test_callback_query"}')
+    
+    return callback_query
 
 
 @pytest.fixture
@@ -324,6 +769,164 @@ def mock_application(mock_bot):
     app.add_handler = Mock()
     app.run_polling = AsyncMock()
     return app
+
+
+# ============================================================================
+# Mock Object Factories for Better Test Isolation
+# ============================================================================
+
+class MockTelegramObjectFactory:
+    """Factory for creating properly configured Telegram mock objects."""
+    
+    @staticmethod
+    def create_message(
+        message_id: int = 1,
+        text: str = "Test message",
+        user_id: int = 12345,
+        chat_id: int = 12345,
+        chat_type: str = "private",
+        **kwargs
+    ) -> Mock:
+        """Create a mock Message with proper attribute configuration."""
+        # Create user and chat
+        user = User(
+            id=user_id,
+            is_bot=False,
+            first_name="Test",
+            last_name="User",
+            username="testuser",
+            language_code="en"
+        )
+        
+        if chat_type == "private":
+            chat = Chat(
+                id=chat_id,
+                type=Chat.PRIVATE,
+                username="testuser",
+                first_name="Test",
+                last_name="User"
+            )
+        else:
+            chat = Chat(
+                id=chat_id,
+                type=Chat.SUPERGROUP,
+                title="Test Group",
+                description="A test group chat"
+            )
+        
+        message = Mock(spec=Message)
+        
+        # Core attributes
+        message.message_id = message_id
+        message.date = datetime.now(timezone.utc)
+        message.chat = chat
+        message.from_user = user
+        message.text = text
+        message.chat_id = chat.id
+        message.id = message_id
+        
+        # Apply any additional kwargs
+        for key, value in kwargs.items():
+            setattr(message, key, value)
+        
+        # Content attributes - set to None by default to avoid AttributeError
+        default_attrs = {
+            'reply_markup': None,
+            'entities': [],
+            'caption': None,
+            'caption_entities': [],
+            'photo': None,
+            'document': None,
+            'video': None,
+            'audio': None,
+            'voice': None,
+            'sticker': None,
+            'animation': None,
+            'contact': None,
+            'location': None,
+            'venue': None,
+            'poll': None,
+            'dice': None,
+            'game': None,
+            'edit_date': None,
+            'media_group_id': None,
+            'forward_from': None,
+            'forward_from_chat': None,
+            'forward_date': None,
+            'reply_to_message': None,
+            'via_bot': None,
+            'sender_chat': None,
+            'is_topic_message': False,
+            'message_thread_id': None,
+            'has_protected_content': False,
+            'new_chat_members': [],
+            'left_chat_member': None,
+            'new_chat_title': None,
+            'new_chat_photo': [],
+            'delete_chat_photo': False,
+            'group_chat_created': False,
+            'supergroup_chat_created': False,
+            'channel_chat_created': False,
+            'pinned_message': None
+        }
+        
+        for attr, default_value in default_attrs.items():
+            if not hasattr(message, attr):
+                setattr(message, attr, default_value)
+        
+        # Async methods
+        message.reply_text = AsyncMock()
+        message.reply_photo = AsyncMock()
+        message.reply_document = AsyncMock()
+        message.edit_text = AsyncMock()
+        message.delete = AsyncMock()
+        message.pin = AsyncMock()
+        message.unpin = AsyncMock()
+        
+        return message
+    
+    @staticmethod
+    def create_callback_query(
+        callback_id: str = "test_callback",
+        data: str = "test_data",
+        user_id: int = 12345,
+        chat_id: int = 12345,
+        **kwargs
+    ) -> Mock:
+        """Create a mock CallbackQuery with proper attribute configuration."""
+        # Create associated message
+        message = MockTelegramObjectFactory.create_message(
+            user_id=user_id,
+            chat_id=chat_id,
+            text="Original message"
+        )
+        
+        callback_query = Mock(spec=CallbackQuery)
+        callback_query.id = callback_id
+        callback_query.from_user = message.from_user
+        callback_query.chat_instance = "test_chat_instance"
+        callback_query.message = message
+        callback_query.data = data
+        callback_query.inline_message_id = None
+        callback_query.game_short_name = None
+        
+        # Apply any additional kwargs
+        for key, value in kwargs.items():
+            setattr(callback_query, key, value)
+        
+        # CallbackQuery methods
+        callback_query.answer = AsyncMock()
+        callback_query.edit_message_text = AsyncMock()
+        callback_query.edit_message_reply_markup = AsyncMock()
+        callback_query.delete_message = AsyncMock()
+        
+        return callback_query
+
+
+@pytest.fixture
+def mock_telegram_factory():
+    """Provide access to Telegram mock object factory."""
+    return MockTelegramObjectFactory()
 
 
 # ============================================================================
@@ -435,6 +1038,202 @@ class TestDataFactory:
 def test_data_factory():
     """Provide access to test data factory."""
     return TestDataFactory()
+
+
+# ============================================================================
+# Standardized Mock Usage Patterns
+# ============================================================================
+
+class StandardMockPatterns:
+    """Standardized patterns for mock setup and teardown."""
+    
+    @staticmethod
+    def setup_telegram_mocks():
+        """Set up standard Telegram API mocks with consistent patterns."""
+        mocks = {}
+        
+        # Bot mock with all essential methods
+        bot_mock = Mock(spec=Bot)
+        bot_mock.token = "test_token"
+        bot_mock.id = 123456789
+        bot_mock.username = "test_bot"
+        bot_mock.first_name = "Test Bot"
+        bot_mock.is_bot = True
+        
+        # Essential async methods
+        essential_methods = [
+            'get_me', 'send_message', 'send_photo', 'send_document', 'send_audio',
+            'send_video', 'send_voice', 'send_sticker', 'send_animation', 'send_location',
+            'send_contact', 'send_poll', 'send_dice', 'send_chat_action', 'send_media_group',
+            'edit_message_text', 'edit_message_caption', 'edit_message_media', 
+            'edit_message_reply_markup', 'delete_message', 'forward_message', 'copy_message',
+            'pin_chat_message', 'unpin_chat_message', 'get_file', 'get_chat', 
+            'get_chat_member', 'answer_callback_query'
+        ]
+        
+        for method_name in essential_methods:
+            setattr(bot_mock, method_name, AsyncMock())
+        
+        # Special return values for common methods
+        bot_mock.get_me.return_value = Mock(
+            id=bot_mock.id,
+            username=bot_mock.username,
+            first_name=bot_mock.first_name,
+            is_bot=bot_mock.is_bot
+        )
+        
+        mocks['bot'] = bot_mock
+        
+        # Application mock
+        app_mock = Mock(spec=Application)
+        app_mock.bot = bot_mock
+        app_mock.add_handler = Mock()
+        app_mock.run_polling = AsyncMock()
+        app_mock.stop = AsyncMock()
+        mocks['application'] = app_mock
+        
+        return mocks
+    
+    @staticmethod
+    def setup_external_service_mocks():
+        """Set up standard external service mocks."""
+        mocks = {}
+        
+        # OpenAI mock
+        openai_mock = Mock()
+        openai_response = Mock()
+        openai_response.choices = [Mock()]
+        openai_response.choices[0].message = Mock()
+        openai_response.choices[0].message.content = "Test AI response"
+        openai_mock.chat.completions.create = AsyncMock(return_value=openai_response)
+        mocks['openai'] = openai_mock
+        
+        # Weather API mock
+        weather_mock = Mock()
+        weather_mock.get_current_weather = AsyncMock(return_value={
+            "temperature": 20.5,
+            "description": "Clear sky",
+            "humidity": 65,
+            "wind_speed": 3.2
+        })
+        mocks['weather'] = weather_mock
+        
+        # Video downloader mock
+        video_mock = Mock()
+        video_mock.download = AsyncMock(return_value={
+            "success": True,
+            "file_path": "/tmp/test_video.mp4",
+            "title": "Test Video",
+            "duration": 120
+        })
+        mocks['video_downloader'] = video_mock
+        
+        return mocks
+    
+    @staticmethod
+    def cleanup_mocks(mock_dict):
+        """Clean up mocks with standard teardown pattern."""
+        for mock_name, mock_obj in mock_dict.items():
+            if hasattr(mock_obj, 'reset_mock'):
+                mock_obj.reset_mock()
+            elif hasattr(mock_obj, 'stop'):
+                try:
+                    mock_obj.stop()
+                except (RuntimeError, AttributeError):
+                    pass  # Mock was already stopped or doesn't support stopping
+    
+    @staticmethod
+    def configure_telegram_message_mock(message_mock, **overrides):
+        """Configure a Telegram message mock with standard attributes."""
+        # Standard configuration
+        standard_config = {
+            'message_id': 1,
+            'text': 'Test message',
+            'chat_id': 12345,
+            'from_user': Mock(id=12345, first_name='Test', username='testuser'),
+            'date': datetime.now(timezone.utc),
+            'reply_markup': None,
+            'entities': [],
+            'photo': None,
+            'document': None,
+            'video': None,
+            'audio': None,
+            'voice': None,
+            'sticker': None
+        }
+        
+        # Apply overrides
+        standard_config.update(overrides)
+        
+        # Configure the mock
+        for attr, value in standard_config.items():
+            setattr(message_mock, attr, value)
+        
+        # Ensure essential methods are available
+        essential_methods = [
+            'reply_text', 'reply_photo', 'reply_document', 'edit_text', 
+            'delete', 'pin', 'unpin', 'forward', 'copy'
+        ]
+        
+        for method_name in essential_methods:
+            if not hasattr(message_mock, method_name):
+                setattr(message_mock, method_name, AsyncMock())
+        
+        return message_mock
+    
+    @staticmethod
+    def configure_callback_query_mock(callback_mock, **overrides):
+        """Configure a CallbackQuery mock with standard attributes."""
+        # Standard configuration
+        standard_config = {
+            'id': 'test_callback',
+            'data': 'test_data',
+            'chat_instance': 'test_chat_instance',
+            'from_user': Mock(id=12345, first_name='Test', username='testuser'),
+            'inline_message_id': None,
+            'game_short_name': None
+        }
+        
+        # Apply overrides
+        standard_config.update(overrides)
+        
+        # Configure the mock
+        for attr, value in standard_config.items():
+            setattr(callback_mock, attr, value)
+        
+        # Ensure essential methods are available
+        essential_methods = [
+            'answer', 'edit_message_text', 'edit_message_reply_markup',
+            'delete_message', 'copy_message'
+        ]
+        
+        for method_name in essential_methods:
+            if not hasattr(callback_mock, method_name):
+                setattr(callback_mock, method_name, AsyncMock())
+        
+        return callback_mock
+
+
+@pytest.fixture
+def standard_mocks():
+    """Provide access to standardized mock patterns."""
+    return StandardMockPatterns()
+
+
+@pytest.fixture
+def telegram_mocks():
+    """Provide pre-configured Telegram mocks."""
+    mocks = StandardMockPatterns.setup_telegram_mocks()
+    yield mocks
+    StandardMockPatterns.cleanup_mocks(mocks)
+
+
+@pytest.fixture
+def external_service_mocks():
+    """Provide pre-configured external service mocks."""
+    mocks = StandardMockPatterns.setup_external_service_mocks()
+    yield mocks
+    StandardMockPatterns.cleanup_mocks(mocks)
 
 
 # ============================================================================

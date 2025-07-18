@@ -66,8 +66,8 @@
     - Implement circuit_breaker_async decorator for async circuit breaking
     - _Requirements: 3.2, 3.4_
 
-- [-] 5. Fix integration test configurations
-  - [x] 5.1 Fix service registry integration tests
+- [ ] 5. Fix integration test configurations
+  - [ ] 5.1 Fix service registry integration tests
     - Update MockServiceWithDependency constructor to match expected interface
     - Fix dependency injection parameter passing in service tests
     - _Requirements: 6.1, 6.2_
@@ -82,23 +82,23 @@
     - Fix weather API method mocking to match actual implementation
     - _Requirements: 6.1, 6.4_
 
-- [ ] 6. Fix test configuration and patterns
-  - [ ] 6.1 Update test fixture configurations
+- [x] 6. Fix test configuration and patterns
+  - [x] 6.1 Update test fixture configurations
     - Fix Message and CallbackQuery mock attribute setting issues
     - Update test fixture scoping for proper isolation
     - _Requirements: 4.3, 5.1_
 
-  - [ ] 6.2 Standardize mock usage patterns
+  - [x] 6.2 Standardize mock usage patterns
     - Create consistent mock setup and teardown patterns
     - Fix mock object configuration for telegram API objects
     - _Requirements: 5.2, 5.3_
 
-  - [ ] 6.3 Fix async test patterns
+  - [x] 6.3 Fix async test patterns
     - Update all async test methods to use proper async/await patterns
     - Fix coroutine handling in test assertions and mocks
     - _Requirements: 1.3, 5.4_
 
-- [ ] 7. Validate and optimize test suite
+- [-] 7. Validate and optimize test suite
   - [ ] 7.1 Run comprehensive test validation
     - Execute full test suite and verify >90% pass rate
     - Identify and resolve any remaining test failures
