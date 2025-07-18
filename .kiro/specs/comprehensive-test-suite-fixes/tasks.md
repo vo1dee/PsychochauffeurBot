@@ -66,18 +66,18 @@
     - Implement circuit_breaker_async decorator for async circuit breaking
     - _Requirements: 3.2, 3.4_
 
-- [ ] 5. Fix integration test configurations
-  - [ ] 5.1 Fix service registry integration tests
+- [-] 5. Fix integration test configurations
+  - [x] 5.1 Fix service registry integration tests
     - Update MockServiceWithDependency constructor to match expected interface
     - Fix dependency injection parameter passing in service tests
     - _Requirements: 6.1, 6.2_
 
-  - [ ] 5.2 Fix video downloader integration tests
+  - [x] 5.2 Fix video downloader integration tests
     - Update DownloadConfig constructor to match actual implementation
     - Fix mock configuration for video download process testing
     - _Requirements: 6.2, 6.3_
 
-  - [ ] 5.3 Fix weather service integration tests
+  - [x] 5.3 Fix weather service integration tests
     - Update WeatherData and WeatherCommand constructors with correct parameters
     - Fix weather API method mocking to match actual implementation
     - _Requirements: 6.1, 6.4_

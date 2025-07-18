@@ -30,8 +30,16 @@ class MockService(ServiceInterface):
 class MockServiceWithDependency(ServiceInterface):
     """Mock service with dependencies for testing."""
     
-    def __init__(self, dependency: MockService):
-        self.dependency = dependency
+    def __init__(self, **kwargs):
+        # Extract dependency from kwargs - service registry passes dependencies by name
+        # Support both 'dependency' and 'base_service' for different test scenarios
+        self.dependency = kwargs.get('dependency') or kwargs.get('base_service')
+        if self.dependency is None:
+            # If no known dependency names, take the first available dependency
+            if kwargs:
+                self.dependency = next(iter(kwargs.values()))
+            else:
+                raise ValueError("MockServiceWithDependency requires at least one dependency parameter")
         self.initialized = False
         self.shutdown_called = False
     

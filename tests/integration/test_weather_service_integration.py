@@ -31,13 +31,16 @@ class TestWeatherServiceIntegration:
         """Create a mock Telegram update."""
         user = User(id=123, first_name="Test", is_bot=False)
         chat = Chat(id=-1001234567890, type="supergroup")
-        message = Message(
-            message_id=1,
-            date=None,
-            chat=chat,
-            from_user=user,
-            text="/weather London"
-        )
+        
+        # Create a mock message instead of using the real Message class
+        message = Mock()
+        message.message_id = 1
+        message.date = None
+        message.chat = chat
+        message.from_user = user
+        message.text = "/weather London"
+        message.reply_text = AsyncMock()  # Mock the reply_text method
+        
         update = Mock(spec=Update)
         update.message = message
         update.effective_user = user
@@ -125,8 +128,8 @@ class TestWeatherServiceIntegration:
         with patch.object(weather_api.client, 'get') as mock_request:
             mock_response_obj = Mock()
             mock_response_obj.json.return_value = mock_response
-            mock_request.return_value = asyncio.Future()
-            mock_request.return_value.set_result(mock_response_obj)
+            # Return the mock response object directly, not wrapped in a Future
+            mock_request.return_value = mock_response_obj
             
             weather_data = await weather_api.fetch_weather("London")
             
@@ -155,7 +158,7 @@ class TestWeatherServiceIntegration:
             await weather_handler(mock_update, mock_context)
             
             mock_get_weather.assert_called_once_with("London")
-            mock_context.bot.send_message.assert_called_once()
+            mock_update.message.reply_text.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_weather_error_handling(self, weather_handler, mock_update, mock_context):
@@ -166,9 +169,9 @@ class TestWeatherServiceIntegration:
             await weather_handler(mock_update, mock_context)
             
             # Should handle error gracefully and send error message
-            mock_context.bot.send_message.assert_called_once()
-            call_args = mock_context.bot.send_message.call_args
-            assert "error" in call_args[1]['text'].lower() or "sorry" in call_args[1]['text'].lower()
+            mock_update.message.reply_text.assert_called_once()
+            call_args = mock_update.message.reply_text.call_args
+            assert "error" in call_args[0][0].lower() or "помилка" in call_args[0][0].lower()
 
 
 class TestWeatherServiceErrorHandling:
@@ -185,8 +188,7 @@ class TestWeatherServiceErrorHandling:
         with patch.object(weather_api.client, 'get') as mock_request:
             mock_response = Mock()
             mock_response.json.return_value = {"cod": "404", "message": "City not found"}
-            mock_request.return_value = asyncio.Future()
-            mock_request.return_value.set_result(mock_response)
+            mock_request.return_value = mock_response
             
             result = await weather_api.fetch_weather("InvalidCityName123")
             assert result is None
@@ -197,8 +199,7 @@ class TestWeatherServiceErrorHandling:
         with patch.object(weather_api.client, 'get') as mock_request:
             mock_response = Mock()
             mock_response.json.return_value = {"cod": "401", "message": "Invalid API key"}
-            mock_request.return_value = asyncio.Future()
-            mock_request.return_value.set_result(mock_response)
+            mock_request.return_value = mock_response
             
             result = await weather_api.fetch_weather("London")
             assert result is None
@@ -294,8 +295,7 @@ class TestWeatherServicePerformance:
         with patch.object(weather_api.client, 'get') as mock_request:
             mock_response_obj = Mock()
             mock_response_obj.json.return_value = mock_response
-            mock_request.return_value = asyncio.Future()
-            mock_request.return_value.set_result(mock_response_obj)
+            mock_request.return_value = mock_response_obj
             
             # Make multiple requests for the same city
             result1 = await weather_api.fetch_weather("London")
@@ -304,8 +304,7 @@ class TestWeatherServicePerformance:
             weather_api.cache = {}
             
             # Set up the mock again for the second request
-            mock_request.return_value = asyncio.Future()
-            mock_request.return_value.set_result(mock_response_obj)
+            mock_request.return_value = mock_response_obj
             
             result2 = await weather_api.fetch_weather("London")
             
