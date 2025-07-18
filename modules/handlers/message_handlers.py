@@ -7,6 +7,7 @@ Contains handlers for text, photo, sticker, location, and voice messages.
 import hashlib
 import logging
 from typing import Dict, List, Optional, Any, Tuple
+from urllib.parse import urlparse
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
@@ -85,7 +86,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     cleaned_text, modified_links = process_message_content(message_text)
     
     # If all modified links are AliExpress, skip sending the "modified link" message
-    if modified_links and all("aliexpress.com" in link for link in modified_links):
+    if modified_links and all(urlparse(link).hostname and urlparse(link).hostname.endswith("aliexpress.com") for link in modified_links):
         return
     
     # Check for GPT response
