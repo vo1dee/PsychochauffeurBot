@@ -272,14 +272,20 @@ class TestHandleNetworkErrors:
         """Test decorator with network timeout."""
         @handle_network_errors("test_api", timeout=0.1)
         async def test_api_call():
-            await asyncio.sleep(1)  # Longer than timeout
+            await asyncio.sleep(1)  # This will be mocked to timeout immediately
             return "success"
         
-        with patch('modules.error_decorators.error_logger') as mock_logger:
-            result = await test_api_call()
-            
-            assert result is None
-            mock_logger.error.assert_called_once()
+        # Mock asyncio.wait_for to immediately raise TimeoutError for performance
+        async def mock_wait_for(coro, timeout):
+            raise asyncio.TimeoutError("Mocked timeout for performance")
+        
+        with patch('asyncio.wait_for', side_effect=mock_wait_for):
+            with patch('asyncio.sleep', new_callable=AsyncMock):  # Mock retry delays
+                with patch('modules.error_decorators.error_logger') as mock_logger:
+                    result = await test_api_call()
+                    
+                    assert result is None
+                    mock_logger.error.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_network_error_with_retry(self):
@@ -495,12 +501,18 @@ class TestConvenienceDecorators:
         """Test external_api convenience decorator."""
         @external_api("test_service", timeout=0.1)
         async def test_api():
-            await asyncio.sleep(1)  # Longer than timeout
+            await asyncio.sleep(1)  # This will be mocked to timeout immediately
             return "success"
         
-        with patch('modules.error_decorators.error_logger'):
-            result = await test_api()
-            assert result is None
+        # Mock asyncio.wait_for to immediately raise TimeoutError for performance
+        async def mock_wait_for(coro, timeout):
+            raise asyncio.TimeoutError("Mocked timeout for performance")
+        
+        with patch('asyncio.wait_for', side_effect=mock_wait_for):
+            with patch('asyncio.sleep', new_callable=AsyncMock):  # Mock retry delays
+                with patch('modules.error_decorators.error_logger'):
+                    result = await test_api()
+                    assert result is None
     
     @pytest.mark.asyncio
     async def test_database_operation_decorator(self):

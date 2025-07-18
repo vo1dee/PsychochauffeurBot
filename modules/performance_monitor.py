@@ -737,7 +737,9 @@ class ResourceMonitor:
     
     def get_cpu_usage(self):
         """Get current CPU usage."""
-        return psutil.cpu_percent(interval=0.1)
+        # Use interval=None for non-blocking call (returns immediately)
+        # This gives the CPU usage since the last call or system boot
+        return psutil.cpu_percent(interval=None)
     
     def get_memory_usage(self):
         """Get current memory usage."""

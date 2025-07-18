@@ -38,12 +38,47 @@ from tests.base_test_classes import (
 
 @pytest.fixture(scope="session")
 def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    policy = asyncio.get_event_loop_policy()
-    loop = policy.new_event_loop()
-    asyncio.set_event_loop(loop)
+    """Create an instance of the default event loop for the test session with performance optimizations."""
+    try:
+        # Try to get existing loop first
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop, create a new one with optimizations
+        policy = asyncio.get_event_loop_policy()
+        loop = policy.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Performance optimizations
+        if hasattr(loop, 'set_debug'):
+            loop.set_debug(False)  # Disable debug mode for performance
+    
     yield loop
-    loop.close()
+    
+    # Optimized cleanup with timeout
+    try:
+        # Cancel all pending tasks with timeout
+        pending = asyncio.all_tasks(loop)
+        if pending:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            
+            # Wait for tasks to complete cancellation with timeout
+            try:
+                loop.run_until_complete(
+                    asyncio.wait_for(
+                        asyncio.gather(*pending, return_exceptions=True),
+                        timeout=2.0  # Reduced timeout for faster cleanup
+                    )
+                )
+            except asyncio.TimeoutError:
+                # Force cleanup if timeout exceeded
+                pass
+        
+        if not loop.is_closed():
+            loop.close()
+    except Exception:
+        pass  # Ignore cleanup errors
 
 
 class AsyncTestManager:
@@ -148,6 +183,22 @@ async def async_test_environment():
     """Set up and tear down async test environment."""
     # Setup
     loop = AsyncTestManager.setup_event_loop()
+    
+    yield loop
+    
+    # Cleanup
+    AsyncTestManager.cleanup_event_loop()
+
+
+@pytest.fixture(autouse=True)
+def ensure_event_loop():
+    """Automatically ensure event loop is available for all tests."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop, create one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
     
     yield loop
     
@@ -334,146 +385,97 @@ def sample_global_config():
 
 
 # ============================================================================
-# Telegram Mock Fixtures
+# Performance-Optimized Session Fixtures
 # ============================================================================
 
-@pytest.fixture(scope="function")
-def mock_bot():
-    """Create a mock Telegram Bot instance with function scope for proper isolation."""
+@pytest.fixture(scope="session")
+def session_mock_bot():
+    """Create a session-scoped mock bot for expensive setup operations."""
     bot = Mock(spec=Bot)
     bot.token = "test_token"
     bot.id = 123456789
     bot.username = "test_bot"
     bot.first_name = "Test Bot"
     bot.is_bot = True
+    
+    # Pre-configure common async methods to avoid repeated setup
+    async_methods = [
+        'get_me', 'send_message', 'send_photo', 'send_document', 'edit_message_text',
+        'delete_message', 'answer_callback_query', 'set_my_commands'
+    ]
+    
+    for method_name in async_methods:
+        setattr(bot, method_name, AsyncMock())
+    
+    return bot
+
+
+@pytest.fixture(scope="session")
+def session_test_config():
+    """Create a session-scoped test configuration to avoid repeated setup."""
+    return {
+        "test_mode": True,
+        "database_url": "sqlite:///:memory:",
+        "log_level": "ERROR",  # Reduce logging overhead in tests
+        "timeout_settings": {
+            "default": 5.0,
+            "network": 2.0,
+            "database": 1.0
+        }
+    }
+
+
+# ============================================================================
+# Telegram Mock Fixtures
+# ============================================================================
+
+@pytest.fixture(scope="function")
+def mock_bot(session_mock_bot):
+    """Create a mock Telegram Bot instance with optimized setup using session fixture."""
+    # Create a fresh mock based on the session fixture to avoid cross-test contamination
+    bot = Mock(spec=Bot)
+    
+    # Copy basic attributes from session fixture
+    bot.token = session_mock_bot.token
+    bot.id = session_mock_bot.id
+    bot.username = session_mock_bot.username
+    bot.first_name = session_mock_bot.first_name
+    bot.is_bot = session_mock_bot.is_bot
     bot.can_join_groups = True
     bot.can_read_all_group_messages = True
     bot.supports_inline_queries = False
     
-    # Async methods
-    bot.get_me = AsyncMock(return_value=Mock(
-        id=bot.id,
-        username=bot.username,
-        first_name=bot.first_name,
-        is_bot=bot.is_bot
-    ))
-    bot.send_message = AsyncMock()
-    bot.send_photo = AsyncMock()
-    bot.send_audio = AsyncMock()
-    bot.send_document = AsyncMock()
-    bot.send_video = AsyncMock()
-    bot.send_animation = AsyncMock()
-    bot.send_voice = AsyncMock()
-    bot.send_video_note = AsyncMock()
-    bot.send_sticker = AsyncMock()
-    bot.send_location = AsyncMock()
-    bot.send_venue = AsyncMock()
-    bot.send_contact = AsyncMock()
-    bot.send_poll = AsyncMock()
-    bot.send_dice = AsyncMock()
-    bot.send_chat_action = AsyncMock()
-    bot.send_game = AsyncMock()
-    bot.send_invoice = AsyncMock()
-    bot.send_media_group = AsyncMock()
+    # Only configure commonly used async methods to reduce setup overhead
+    essential_methods = {
+        'get_me': AsyncMock(return_value=Mock(
+            id=bot.id,
+            username=bot.username,
+            first_name=bot.first_name,
+            is_bot=bot.is_bot
+        )),
+        'send_message': AsyncMock(),
+        'send_photo': AsyncMock(),
+        'send_document': AsyncMock(),
+        'edit_message_text': AsyncMock(),
+        'delete_message': AsyncMock(),
+        'answer_callback_query': AsyncMock(),
+        'set_my_commands': AsyncMock(),
+        'get_chat': AsyncMock(),
+        'get_chat_member': AsyncMock(),
+        'send_chat_action': AsyncMock()
+    }
     
-    bot.edit_message_text = AsyncMock()
-    bot.edit_message_caption = AsyncMock()
-    bot.edit_message_media = AsyncMock()
-    bot.edit_message_reply_markup = AsyncMock()
-    bot.edit_message_live_location = AsyncMock()
-    bot.stop_message_live_location = AsyncMock()
+    # Configure essential methods
+    for method_name, mock_method in essential_methods.items():
+        setattr(bot, method_name, mock_method)
     
-    bot.delete_message = AsyncMock()
-    bot.forward_message = AsyncMock()
-    bot.copy_message = AsyncMock()
-    bot.pin_chat_message = AsyncMock()
-    bot.unpin_chat_message = AsyncMock()
-    bot.unpin_all_chat_messages = AsyncMock()
+    # Use __getattr__ to lazily create other methods when accessed
+    def lazy_async_mock(name):
+        if not hasattr(bot, name):
+            setattr(bot, name, AsyncMock())
+        return getattr(bot, name)
     
-    bot.get_file = AsyncMock()
-    bot.get_user_profile_photos = AsyncMock()
-    bot.get_chat = AsyncMock()
-    bot.get_chat_administrators = AsyncMock()
-    bot.get_chat_member = AsyncMock()
-    bot.get_chat_member_count = AsyncMock()
-    bot.get_chat_members_count = AsyncMock()  # Deprecated alias
-    
-    bot.kick_chat_member = AsyncMock()
-    bot.ban_chat_member = AsyncMock()
-    bot.unban_chat_member = AsyncMock()
-    bot.restrict_chat_member = AsyncMock()
-    bot.promote_chat_member = AsyncMock()
-    bot.set_chat_administrator_custom_title = AsyncMock()
-    bot.ban_chat_sender_chat = AsyncMock()
-    bot.unban_chat_sender_chat = AsyncMock()
-    
-    bot.set_chat_permissions = AsyncMock()
-    bot.export_chat_invite_link = AsyncMock()
-    bot.create_chat_invite_link = AsyncMock()
-    bot.edit_chat_invite_link = AsyncMock()
-    bot.revoke_chat_invite_link = AsyncMock()
-    bot.approve_chat_join_request = AsyncMock()
-    bot.decline_chat_join_request = AsyncMock()
-    
-    bot.set_chat_photo = AsyncMock()
-    bot.delete_chat_photo = AsyncMock()
-    bot.set_chat_title = AsyncMock()
-    bot.set_chat_description = AsyncMock()
-    bot.leave_chat = AsyncMock()
-    
-    bot.answer_callback_query = AsyncMock()
-    bot.answer_inline_query = AsyncMock()
-    bot.answer_web_app_query = AsyncMock()
-    bot.answer_shipping_query = AsyncMock()
-    bot.answer_pre_checkout_query = AsyncMock()
-    
-    bot.set_my_commands = AsyncMock()
-    bot.delete_my_commands = AsyncMock()
-    bot.get_my_commands = AsyncMock()
-    bot.set_my_name = AsyncMock()
-    bot.get_my_name = AsyncMock()
-    bot.set_my_description = AsyncMock()
-    bot.get_my_description = AsyncMock()
-    bot.set_my_short_description = AsyncMock()
-    bot.get_my_short_description = AsyncMock()
-    
-    bot.set_chat_menu_button = AsyncMock()
-    bot.get_chat_menu_button = AsyncMock()
-    bot.set_my_default_administrator_rights = AsyncMock()
-    bot.get_my_default_administrator_rights = AsyncMock()
-    
-    # Webhook methods
-    bot.set_webhook = AsyncMock()
-    bot.delete_webhook = AsyncMock()
-    bot.get_webhook_info = AsyncMock()
-    
-    # Game methods
-    bot.set_game_score = AsyncMock()
-    bot.get_game_high_scores = AsyncMock()
-    
-    # Sticker methods
-    bot.get_sticker_set = AsyncMock()
-    bot.get_custom_emoji_stickers = AsyncMock()
-    bot.upload_sticker_file = AsyncMock()
-    bot.create_new_sticker_set = AsyncMock()
-    bot.add_sticker_to_set = AsyncMock()
-    bot.set_sticker_position_in_set = AsyncMock()
-    bot.delete_sticker_from_set = AsyncMock()
-    bot.set_sticker_set_thumb = AsyncMock()
-    bot.set_sticker_set_thumbnail = AsyncMock()
-    
-    # Forum topic methods
-    bot.create_forum_topic = AsyncMock()
-    bot.edit_forum_topic = AsyncMock()
-    bot.close_forum_topic = AsyncMock()
-    bot.reopen_forum_topic = AsyncMock()
-    bot.delete_forum_topic = AsyncMock()
-    bot.unpin_all_forum_topic_messages = AsyncMock()
-    bot.edit_general_forum_topic = AsyncMock()
-    bot.close_general_forum_topic = AsyncMock()
-    bot.reopen_general_forum_topic = AsyncMock()
-    bot.hide_general_forum_topic = AsyncMock()
-    bot.unhide_general_forum_topic = AsyncMock()
+    bot.__getattr__ = lazy_async_mock
     
     return bot
 
