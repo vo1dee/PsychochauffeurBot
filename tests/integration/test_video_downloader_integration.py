@@ -91,7 +91,8 @@ class TestVideoDownloaderIntegration:
         urls = video_downloader.extract_urls(text)
         
         assert len(urls) == 1
-        assert "tiktok.com" in urls[0]
+        from urllib.parse import urlparse
+        assert urlparse(urls[0]).hostname == "www.tiktok.com"
     
     @pytest.mark.asyncio
     async def test_download_process_mock(self, video_downloader, mock_update, mock_context):
