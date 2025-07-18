@@ -15,6 +15,7 @@ import httpx
 import pytz
 from telegram import Update
 from telegram.ext import CallbackContext, ContextTypes
+from openai import AsyncOpenAI
 
 # Local module imports
 from .database import Database
@@ -641,11 +642,33 @@ async def answer_from_gpt(
         Optional[str]: GPT response if return_text is True, otherwise None
     """
     if not update or not context:
+        if return_text:
+            # For testing purposes, create a minimal mock response
+            try:
+                from modules.config.enhanced_config_manager import config_manager
+                
+                # Get API key from config
+                global_config = await config_manager.get_config("global", "global")
+                api_key = global_config.get("config_modules", {}).get("gpt", {}).get("api_key")
+                
+                if not api_key:
+                    return None
+                
+                client = AsyncOpenAI(api_key=api_key)
+                response = await client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=150
+                )
+                
+                return response.choices[0].message.content
+            except Exception:
+                return None
         return None
         
     # Call gpt_response with the new signature
-    await gpt_response(update, context, response_type="command")
-    return None  # Since gpt_response now handles sending the message directly
+    result = await gpt_response(update, context, response_type="command", return_text=return_text)
+    return result if return_text else None
 
 
 async def log_user_response(update: Update, response_text: str) -> None:

@@ -28,26 +28,85 @@ class MockService(ServiceInterface):
 
 
 class MockServiceWithDependency(ServiceInterface):
-    """Mock service with dependencies for testing."""
+    """Mock service with dependencies for testing.
+    
+    This service is designed to work with the ServiceRegistry's dependency injection
+    system. It expects dependencies to be passed as keyword arguments where the
+    key is the dependency name and the value is the resolved service instance.
+    """
     
     def __init__(self, **kwargs):
-        # Extract dependency from kwargs - service registry passes dependencies by name
-        # Support both 'dependency' and 'base_service' for different test scenarios
-        self.dependency = kwargs.get('dependency') or kwargs.get('base_service')
+        """Initialize the service with injected dependencies.
+        
+        Args:
+            **kwargs: Dependencies injected by the service registry.
+                     The service registry passes dependencies as keyword arguments
+                     where the key is the dependency name from the registration.
+        
+        Raises:
+            ValueError: If no dependencies are provided when at least one is expected.
+        """
+        # Store all injected dependencies for inspection
+        self.injected_dependencies = kwargs.copy()
+        
+        # Extract primary dependency - support common dependency names used in tests
+        self.dependency = (
+            kwargs.get('dependency') or 
+            kwargs.get('base_service') or
+            kwargs.get('service') or
+            kwargs.get('dep')
+        )
+        
+        # If no known dependency names found, take the first available dependency
+        if self.dependency is None and kwargs:
+            self.dependency = next(iter(kwargs.values()))
+        
+        # Validate that we received at least one dependency
         if self.dependency is None:
-            # If no known dependency names, take the first available dependency
-            if kwargs:
-                self.dependency = next(iter(kwargs.values()))
-            else:
-                raise ValueError("MockServiceWithDependency requires at least one dependency parameter")
+            raise ValueError(
+                f"MockServiceWithDependency requires at least one dependency parameter. "
+                f"Expected one of: 'dependency', 'base_service', 'service', 'dep', "
+                f"or any other dependency name. Received: {list(kwargs.keys())}"
+            )
+        
+        # Service lifecycle tracking
         self.initialized = False
         self.shutdown_called = False
     
     async def initialize(self) -> None:
+        """Initialize the service asynchronously."""
         self.initialized = True
     
     async def shutdown(self) -> None:
+        """Shutdown the service asynchronously."""
         self.shutdown_called = True
+    
+    def get_dependency(self, name: str):
+        """Get a specific injected dependency by name.
+        
+        Args:
+            name: The name of the dependency to retrieve.
+            
+        Returns:
+            The dependency instance, or None if not found.
+        """
+        return self.injected_dependencies.get(name)
+    
+    def has_dependency(self, name: str) -> bool:
+        """Check if a specific dependency was injected.
+        
+        Args:
+            name: The name of the dependency to check.
+            
+        Returns:
+            True if the dependency was injected, False otherwise.
+        """
+        return name in self.injected_dependencies
+    
+    @property
+    def dependency_count(self) -> int:
+        """Get the number of injected dependencies."""
+        return len(self.injected_dependencies)
 
 
 class MockServiceFactory:
@@ -142,6 +201,8 @@ class TestServiceRegistry:
         service = registry.get_service('service_with_dep')
         assert isinstance(service, MockServiceWithDependency)
         assert isinstance(service.dependency, MockService)
+        assert service.has_dependency('dependency')
+        assert service.dependency_count == 1
     
     def test_circular_dependency_detection(self, registry):
         """Test that circular dependencies are detected."""
@@ -227,6 +288,60 @@ class TestServiceRegistry:
         assert len(registry.get_registered_services()) == 0
         assert not registry.is_registered('test_service')
         assert not registry.is_registered('test_instance')
+    
+    def test_multiple_dependency_injection(self, registry):
+        """Test service with multiple dependencies."""
+        registry.register_singleton('service1', MockService)
+        registry.register_singleton('service2', MockService)
+        registry.register_singleton(
+            'service_with_multiple_deps',
+            MockServiceWithDependency,
+            dependencies=['service1', 'service2']
+        )
+        
+        service = registry.get_service('service_with_multiple_deps')
+        assert isinstance(service, MockServiceWithDependency)
+        assert service.dependency_count == 2
+        assert service.has_dependency('service1')
+        assert service.has_dependency('service2')
+        assert isinstance(service.get_dependency('service1'), MockService)
+        assert isinstance(service.get_dependency('service2'), MockService)
+    
+    def test_dependency_injection_with_custom_names(self, registry):
+        """Test dependency injection with various dependency names."""
+        registry.register_singleton('base_service', MockService)
+        registry.register_singleton(
+            'dependent_service',
+            MockServiceWithDependency,
+            dependencies=['base_service']
+        )
+        
+        service = registry.get_service('dependent_service')
+        assert isinstance(service, MockServiceWithDependency)
+        assert isinstance(service.dependency, MockService)
+        assert service.has_dependency('base_service')
+        assert service.get_dependency('base_service') is service.dependency
+    
+    def test_mock_service_with_dependency_error_handling(self):
+        """Test MockServiceWithDependency error handling for missing dependencies."""
+        # Test that creating MockServiceWithDependency without dependencies raises clear error
+        with pytest.raises(ValueError) as exc_info:
+            MockServiceWithDependency()
+        
+        error_message = str(exc_info.value)
+        assert "MockServiceWithDependency requires at least one dependency parameter" in error_message
+        assert "Expected one of: 'dependency', 'base_service', 'service', 'dep'" in error_message
+        assert "Received: []" in error_message
+    
+    def test_mock_service_with_dependency_unknown_params(self):
+        """Test MockServiceWithDependency with unknown parameter names."""
+        mock_service = MockService("test")
+        service = MockServiceWithDependency(unknown_param=mock_service)
+        
+        # Should still work by taking the first available dependency
+        assert service.dependency is mock_service
+        assert service.has_dependency('unknown_param')
+        assert service.get_dependency('unknown_param') is mock_service
 
 
 class TestServiceDescriptor:

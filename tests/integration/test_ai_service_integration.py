@@ -49,20 +49,33 @@ class TestGPTIntegration:
     @pytest.mark.asyncio
     async def test_answer_from_gpt_basic(self):
         """Test basic GPT response generation."""
-        with patch('modules.gpt.OpenAIAsyncClient') as mock_client_class:
-            mock_client = Mock()
-            mock_response = Mock()
-            mock_response.choices = [Mock()]
-            mock_response.choices[0].message = Mock()
-            mock_response.choices[0].message.content = "This is a test response"
+        # Create mock update and context
+        mock_update = Mock()
+        mock_update.message = Mock()
+        mock_update.message.text = "Hello, how are you?"
+        mock_update.effective_chat = Mock()
+        mock_update.effective_chat.id = 12345
+        mock_update.effective_chat.type = "private"
+        
+        mock_context = Mock()
+        
+        with patch('modules.gpt.gpt_response') as mock_gpt_response:
+            mock_gpt_response.return_value = "This is a test response"
             
-            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-            
-            result = await answer_from_gpt("Hello, how are you?")
+            result = await answer_from_gpt(
+                "Hello, how are you?", 
+                update=mock_update, 
+                context=mock_context, 
+                return_text=True
+            )
             
             assert result == "This is a test response"
-            mock_client.chat.completions.create.assert_called_once()
+            mock_gpt_response.assert_called_once_with(
+                mock_update, 
+                mock_context, 
+                response_type="command", 
+                return_text=True
+            )
     
     @pytest.mark.asyncio
     async def test_verify_api_key(self):

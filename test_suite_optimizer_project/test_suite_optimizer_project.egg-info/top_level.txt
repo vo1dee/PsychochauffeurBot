@@ -1,0 +1,7 @@
+analyzers
+core
+detectors
+interfaces
+models
+reporters
+utils

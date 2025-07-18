@@ -121,3 +121,6 @@ downloads/
 *.m4v
 *.part
 *.temp
+
+# Ignore analysis results
+analysis_results/

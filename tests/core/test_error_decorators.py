@@ -234,7 +234,7 @@ class TestHandleDatabaseErrors:
         
         with patch('asyncio.sleep', new_callable=AsyncMock):
             with patch('modules.error_decorators.error_logger') as mock_logger:
-                with patch('modules.error_decorators.track_error') as mock_track:
+                with patch('modules.error_analytics.track_error') as mock_track:
                     result = await test_db_operation()
                     
                     assert result is None
