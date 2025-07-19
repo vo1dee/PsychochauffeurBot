@@ -23,7 +23,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
     CallbackContext, CallbackQueryHandler, ContextTypes, Application
 )
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from telegram.error import BadRequest
 
 # Local module imports
@@ -121,6 +121,8 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
         return
         
     message_text = update.message.text.strip()
+    if not update.message.from_user:
+        return
     user_id = update.message.from_user.id
     # Update message history at the very start
     update_message_history(user_id, message_text)
@@ -131,6 +133,8 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
     
     # --- БЛЯ! TRANSLATION COMMAND ---
     if message_text.lower() == "бля!":
+        if not update.message.from_user:
+            return
         username = update.message.from_user.username or "User"
         previous_message = get_previous_message(user_id)
         if not previous_message:
@@ -227,6 +231,8 @@ async def process_urls(update: Update, context: CallbackContext[Any, Any, Any, A
         print("[DEBUG] No effective chat found in update")
         return
     chat_id = update.effective_chat.id
+    if not update.message.from_user:
+        return
     username = update.message.from_user.username or f"ID:{update.message.from_user.id}"
     
     if urls:
@@ -260,7 +266,7 @@ async def construct_and_send_message(
         keyboard = create_link_keyboard(escaped_links, context)
         
         # Check if the original message was a reply to another message
-        if update.message.reply_to_message:
+        if update.message and update.message.reply_to_message:
             # If it was a reply, send the modified link message as a reply to the parent message
             await update.message.reply_to_message.reply_text(
                 text=message,
@@ -328,7 +334,7 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     member = await context.bot.get_chat_member(chat.id, user.id)
     return member.status in {"administrator", "creator"}
 
-async def get_speech_config(chat_id: str, chat_type: str):
+async def get_speech_config(chat_id: str, chat_type: str) -> Optional[Dict[str, Any]]:
     config = await config_manager.get_config(chat_id, chat_type)
     return config.get("config_modules", {}).get("speechmatics", {})
 
@@ -403,13 +409,16 @@ async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAU
 
 # --- Speech Recognition Callback Handler ---
 @handle_errors(feedback_message="An error occurred during manual speech recognition.")
-async def speechrec_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]):
+async def speechrec_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     query = update.callback_query
     if query is None:
         print("[DEBUG] No callback query found in update")
         return
     await query.answer()
     data = query.data
+    if data is None:
+        await query.edit_message_text("❌ Invalid callback data.")
+        return
     # Debug log for callback data
     print(f"[DEBUG] speechrec_callback received data: {data}")
     print(f"[DEBUG] file_id_hash_map keys: {list(file_id_hash_map.keys())}")
@@ -464,7 +473,7 @@ async def speechrec_callback(update: Update, context: CallbackContext[Any, Any, 
 
 # --- Restore language_selection_callback for language selection buttons ---
 @handle_errors(feedback_message="An error occurred during manual language selection.")
-async def language_selection_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]):
+async def language_selection_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     print("[DEBUG] Callback handler entered (any callback)")
     print(f"[DEBUG] Full update: {update}")
     query = update.callback_query
@@ -473,11 +482,14 @@ async def language_selection_callback(update: Update, context: CallbackContext[A
         return
     await query.answer()
     data = query.data
+    if data is None:
+        await query.edit_message_text("❌ Invalid callback data.")
+        return
     print(f"[DEBUG] Language selection callback triggered. Data: {data}")
     if data == "test_callback":
         await query.edit_message_text("✅ Test callback received and handled!")
         return
-    if '|' not in data:
+    if data is None or '|' not in data:
         print(f"[DEBUG] Invalid callback data received: {data}")
         await query.edit_message_text("❌ Invalid callback data. Please try again.")
         return
@@ -514,7 +526,7 @@ async def language_selection_callback(update: Update, context: CallbackContext[A
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 # Utility to send a speech recognition button as a reply to a voice message
-async def send_speech_recognition_button(update, context):
+async def send_speech_recognition_button(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     message = update.message
     if not message or (not message.voice and not message.video_note):
         return
@@ -579,7 +591,7 @@ def register_handlers(application: Application[Any, Any, Any, Any, Any, Any], bo
 
     general_logger.info("All handlers registered.")
 
-async def initialize_all_components():
+async def initialize_all_components() -> None:
     """Initialize all bot components in the correct order."""
     try:
         init_directories()
@@ -638,7 +650,7 @@ async def initialize_all_components():
         error_logger.error(f"Failed to initialize components: {str(e)}", exc_info=True)
         raise
 
-async def cleanup_all_components():
+async def cleanup_all_components() -> None:
     """Cleanup all bot components in reverse order of initialization."""
     general_logger.info("Cleaning up all components...")
     try:
@@ -655,14 +667,14 @@ async def cleanup_all_components():
     except Exception as e:
         error_logger.error(f"Error during component cleanup: {e}", exc_info=True)
 
-def handle_shutdown_signal(signum, frame):
+def handle_shutdown_signal(signum: int, frame: Any) -> None:
     """Handle shutdown signals gracefully."""
     general_logger.info(f"Received signal {signum}, initiating graceful shutdown...")
     # This will cause the asyncio event loop to stop.
     # The 'finally' block in run_bot will then handle cleanup.
     raise SystemExit("Shutdown signal received.")
 
-async def main():
+async def main() -> None:
     """
     Initialize and run the bot application.
     """
@@ -695,7 +707,7 @@ async def main():
         error_logger.error(f"Error during polling: {str(e)}", exc_info=True)
         raise
 
-async def ensure_db_initialized():
+async def ensure_db_initialized() -> None:
     try:
         conn = await asyncpg.connect(
             host=os.getenv('DB_HOST', 'localhost'),
@@ -715,7 +727,7 @@ async def ensure_db_initialized():
         print(f"[ERROR] Could not check or initialize database: {e}")
         subprocess.run([sys.executable, 'scripts/init_database.py'], check=True)
 
-def run_bot():
+def run_bot() -> None:
     """Run the bot with proper event loop handling and graceful shutdown."""
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, handle_shutdown_signal)
