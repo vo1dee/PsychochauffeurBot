@@ -11,7 +11,6 @@ from urllib.parse import urlparse
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
-from typing import Any
 
 from modules.service_registry import service_registry
 from modules.shared_constants import StickerIds, ConfigKeys
@@ -47,6 +46,8 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
         return
         
     message_text: str = update.message.text.strip()
+    if not update.message.from_user:
+        return
     user_id: UserId = update.message.from_user.id
     
     # Validate input
@@ -67,6 +68,8 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
         return
     # --- END БЛЯ! TRANSLATION COMMAND ---
 
+    if not update.effective_chat:
+        return
     chat_id: ChatId = update.effective_chat.id
     
     # Update chat history for context using the global manager
@@ -110,22 +113,26 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
 
 async def _handle_translation_command(update: Update, user_id: UserId) -> None:
     """Handle the БЛЯ! translation command."""
+    if not update.message or not update.message.from_user:
+        return
     username: str = update.message.from_user.username or "User"
     previous_message: Optional[str] = get_previous_message(user_id)
     
     if not previous_message:
-        await update.message.reply_text("Немає попереднього повідомлення для перекладу.")
+        if update.message:
+            await update.message.reply_text("Немає попереднього повідомлення для перекладу.")
         return
         
     from modules.keyboard_translator import auto_translate_text
     converted_text: str = auto_translate_text(previous_message)
     response_text: str = f"@{username} хотів сказати: {converted_text}"
-    await update.message.reply_text(response_text)
+    if update.message:
+        await update.message.reply_text(response_text)
 
 
 async def handle_random_gpt_response(
     update: Update, 
-    context: CallbackContext, 
+    context: CallbackContext[Any, Any, Any, Any], 
     message_text: str, 
     cleaned_text: str
 ) -> None:
@@ -135,6 +142,8 @@ async def handle_random_gpt_response(
     if extract_urls(message_text):
         return
 
+    if not update.effective_chat:
+        return
     chat_id: str = str(update.effective_chat.id)
     chat_type: str = update.effective_chat.type
     
@@ -195,7 +204,11 @@ async def process_urls(
     message_text: str
 ) -> None:
     """Process URLs in the message."""
+    if not update.effective_chat:
+        return
     chat_id: ChatId = update.effective_chat.id
+    if not update.message or not update.message.from_user:
+        return
     username: str = update.message.from_user.username or f"ID:{update.message.from_user.id}"
     
     if urls:
@@ -224,7 +237,7 @@ async def construct_and_send_message(
         keyboard = create_link_keyboard(escaped_links, context)
         
         # Check if the original message was a reply to another message
-        if update.message.reply_to_message:
+        if update.message and update.message.reply_to_message:
             # If it was a reply, send the modified link message as a reply to the parent message
             await update.message.reply_to_message.reply_text(
                 text=message,
@@ -233,7 +246,8 @@ async def construct_and_send_message(
             )
         else:
             # If it wasn't a reply, send the modified link message as a reply to the original message
-            await update.message.reply_text(
+            if update.message:
+                await update.message.reply_text(
                 text=message,
                 reply_markup=keyboard,
                 parse_mode=ParseMode.MARKDOWN_V2
@@ -243,12 +257,12 @@ async def construct_and_send_message(
         raise
 
 
-async def handle_photo_analysis(update: Update, context: CallbackContext) -> None:
+async def handle_photo_analysis(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle photo messages."""
     await _handle_photo(update, context)
 
 
-async def handle_sticker(update: Update, context: CallbackContext) -> None:
+async def handle_sticker(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle sticker messages."""
     if not update.message or not update.message.sticker:
         return
@@ -267,7 +281,7 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         await handle_restriction_sticker(update, context)
 
 
-async def handle_location(update: Update, context: CallbackContext) -> None:
+async def handle_location(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle location messages by replying with a sticker."""
     if not update.message or not update.message.location:
         return
@@ -284,8 +298,10 @@ async def handle_location(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("📍 Location received!")
 
 
-async def handle_voice_or_video_note(update: Update, context: CallbackContext) -> None:
+async def handle_voice_or_video_note(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle voice and video note messages."""
+    if not update.effective_chat:
+        return
     chat_id = str(update.effective_chat.id)
     chat_type = update.effective_chat.type
     
@@ -295,7 +311,11 @@ async def handle_voice_or_video_note(update: Update, context: CallbackContext) -
     if not speech_config.get("enabled", False):
         return
     
+    if not update.message:
+        return
     message = update.message
+    if not message.from_user:
+        return
     user = message.from_user
     file_id = None
     
@@ -310,19 +330,25 @@ async def handle_voice_or_video_note(update: Update, context: CallbackContext) -
     await send_speech_recognition_button(update, context)
 
 
-async def get_speech_config(chat_id: str, chat_type: str, config_manager):
+async def get_speech_config(chat_id: str, chat_type: str, config_manager) -> Dict[str, Any]:
     """Get speech configuration for a chat."""
     config = await config_manager.get_config(chat_id, chat_type)
     return config.get("config_modules", {}).get("speechmatics", {})
 
 
-async def send_speech_recognition_button(update, context):
+async def send_speech_recognition_button(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Send a speech recognition button as a reply to a voice message."""
     message = update.message
     if not message or (not message.voice and not message.video_note):
         return
     
-    file_id = message.voice.file_id if message.voice else message.video_note.file_id
+    # Fix: Check for None before accessing attributes
+    if message.voice is not None:
+        file_id = message.voice.file_id
+    elif message.video_note is not None:
+        file_id = message.video_note.file_id
+    else:
+        return
     file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
     
     # Store file_id for callback lookup
