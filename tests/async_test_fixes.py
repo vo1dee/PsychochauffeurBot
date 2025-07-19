@@ -18,7 +18,7 @@ def async_test_wrapper(func: Callable) -> Callable:
     Wrapper to ensure async tests run properly with event loop management.
     """
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args, **kwargs) -> None:
         # Ensure we have an event loop
         try:
             loop = asyncio.get_running_loop()
@@ -48,7 +48,7 @@ class AsyncTestHelper:
     """Helper class for async test operations."""
     
     @staticmethod
-    def ensure_event_loop():
+    def ensure_event_loop() -> None:
         """Ensure there's an active event loop."""
         try:
             return asyncio.get_running_loop()
@@ -67,7 +67,7 @@ class AsyncTestHelper:
             raise
     
     @staticmethod
-    def cleanup_tasks():
+    def cleanup_tasks() -> None:
         """Clean up any pending async tasks."""
         try:
             loop = asyncio.get_running_loop()

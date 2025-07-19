@@ -16,7 +16,7 @@ import asyncio
 import asyncpg
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
 from contextlib import asynccontextmanager
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Generator, AsyncGenerator
 
 from modules.async_database_service import (
     AsyncDatabaseConnectionManager,
@@ -29,14 +29,14 @@ class TestAsyncDatabaseConnectionManager:
     """Test AsyncDatabaseConnectionManager class."""
     
     @pytest.fixture
-    def connection_manager(self):
+    def connection_manager(self) -> Generator[AsyncDatabaseConnectionManager, None, None]:
         """Create a connection manager instance."""
         with patch('modules.async_database_service.AsyncRateLimiter') as mock_rate_limiter:
             mock_rate_limiter.return_value = AsyncMock()
             return AsyncDatabaseConnectionManager()
     
     @pytest.fixture
-    def mock_pool(self):
+    def mock_pool(self) -> AsyncMock:
         """Create a mock connection pool."""
         pool = AsyncMock(spec=asyncpg.Pool)
         pool.acquire = AsyncMock()
@@ -45,14 +45,14 @@ class TestAsyncDatabaseConnectionManager:
         return pool
     
     @pytest.fixture
-    def mock_connection(self):
+    def mock_connection(self) -> AsyncMock:
         """Create a mock database connection."""
         connection = AsyncMock(spec=asyncpg.Connection)
         connection.execute = AsyncMock()
         return connection
     
     @pytest.mark.asyncio
-    async def test_initialization(self, connection_manager):
+    async def test_initialization(self, connection_manager: AsyncDatabaseConnectionManager) -> None:
         """Test connection manager initialization."""
         assert connection_manager.pool is None
         assert connection_manager._connection_pool is None
@@ -60,7 +60,7 @@ class TestAsyncDatabaseConnectionManager:
         # since it uses incorrect parameters in the original code
     
     @pytest.mark.asyncio
-    async def test_acquire_connection_initializes_pool(self, connection_manager, mock_pool):
+    async def test_acquire_connection_initializes_pool(self, connection_manager: AsyncDatabaseConnectionManager, mock_pool: AsyncMock) -> None:
         """Test that acquire initializes the pool if not exists."""
         with patch('asyncpg.create_pool', new_callable=AsyncMock, return_value=mock_pool):
             connection = await connection_manager.acquire()
@@ -69,7 +69,7 @@ class TestAsyncDatabaseConnectionManager:
             assert connection == mock_pool.acquire.return_value
     
     @pytest.mark.asyncio
-    async def test_acquire_connection_uses_existing_pool(self, connection_manager, mock_pool):
+    async def test_acquire_connection_uses_existing_pool(self, connection_manager: AsyncDatabaseConnectionManager, mock_pool: AsyncMock) -> None:
         """Test that acquire uses existing pool."""
         connection_manager.pool = mock_pool
         
@@ -79,7 +79,7 @@ class TestAsyncDatabaseConnectionManager:
         mock_pool.acquire.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_release_connection(self, connection_manager, mock_pool, mock_connection):
+    async def test_release_connection(self, connection_manager: AsyncDatabaseConnectionManager, mock_pool: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test releasing a connection."""
         connection_manager.pool = mock_pool
         
@@ -88,13 +88,13 @@ class TestAsyncDatabaseConnectionManager:
         mock_pool.release.assert_called_once_with(mock_connection)
     
     @pytest.mark.asyncio
-    async def test_release_connection_no_pool(self, connection_manager, mock_connection):
+    async def test_release_connection_no_pool(self, connection_manager: AsyncDatabaseConnectionManager, mock_connection: AsyncMock) -> None:
         """Test releasing a connection when no pool exists."""
         # Should not raise an exception
         await connection_manager.release(mock_connection)
     
     @pytest.mark.asyncio
-    async def test_cleanup(self, connection_manager, mock_pool):
+    async def test_cleanup(self, connection_manager: AsyncDatabaseConnectionManager, mock_pool: AsyncMock) -> None:
         """Test cleanup of connection manager."""
         connection_manager.pool = mock_pool
         
@@ -104,13 +104,13 @@ class TestAsyncDatabaseConnectionManager:
         assert connection_manager.pool is None
     
     @pytest.mark.asyncio
-    async def test_cleanup_no_pool(self, connection_manager):
+    async def test_cleanup_no_pool(self, connection_manager: AsyncDatabaseConnectionManager) -> None:
         """Test cleanup when no pool exists."""
         # Should not raise an exception
         await connection_manager.cleanup()
     
     @pytest.mark.asyncio
-    async def test_initialize_pool(self, connection_manager, mock_pool):
+    async def test_initialize_pool(self, connection_manager: AsyncDatabaseConnectionManager, mock_pool: AsyncMock) -> None:
         """Test pool initialization."""
         with patch('asyncpg.create_pool', new_callable=AsyncMock, return_value=mock_pool):
             await connection_manager._initialize_pool()
@@ -118,7 +118,7 @@ class TestAsyncDatabaseConnectionManager:
             assert connection_manager.pool == mock_pool
     
     @pytest.mark.asyncio
-    async def test_init_connection(self, connection_manager, mock_connection):
+    async def test_init_connection(self, connection_manager: AsyncDatabaseConnectionManager, mock_connection: AsyncMock) -> None:
         """Test connection initialization."""
         await connection_manager._init_connection(mock_connection)
         
@@ -130,14 +130,14 @@ class TestAsyncDatabaseService:
     """Test AsyncDatabaseService class."""
     
     @pytest.fixture
-    def db_service(self):
+    def db_service(self) -> Generator[AsyncDatabaseService, None, None]:
         """Create a database service instance."""
         with patch('modules.async_database_service.AsyncRateLimiter') as mock_rate_limiter:
             mock_rate_limiter.return_value = AsyncMock()
             return AsyncDatabaseService()
     
     @pytest.fixture
-    def mock_connection_manager(self):
+    def mock_connection_manager(self) -> AsyncMock:
         """Create a mock connection manager."""
         manager = AsyncMock(spec=AsyncDatabaseConnectionManager)
         manager._initialize_pool = AsyncMock()
@@ -147,7 +147,7 @@ class TestAsyncDatabaseService:
         return manager
     
     @pytest.fixture
-    def mock_connection(self):
+    def mock_connection(self) -> AsyncMock:
         """Create a mock database connection."""
         connection = AsyncMock(spec=asyncpg.Connection)
         connection.execute = AsyncMock()
@@ -159,21 +159,21 @@ class TestAsyncDatabaseService:
         return connection
     
     @pytest.fixture
-    def mock_transaction(self):
+    def mock_transaction(self) -> Generator[AsyncMock, None, None]:
         """Create a mock transaction context."""
         transaction = AsyncMock()
         transaction.__aenter__ = AsyncMock(return_value=transaction)
         transaction.__aexit__ = AsyncMock(return_value=None)
         return transaction
     
-    def create_async_context_manager_mock(self, return_value):
+    def create_async_context_manager_mock(self, return_value: Any) -> Generator[AsyncMock, None, None]:
         """Helper to create a proper async context manager mock."""
         context_mock = AsyncMock()
         context_mock.__aenter__ = AsyncMock(return_value=return_value)
         context_mock.__aexit__ = AsyncMock(return_value=None)
         return context_mock
     
-    def create_transaction_mock(self, connection):
+    def create_transaction_mock(self, connection: Any) -> Generator[AsyncMock, None, None]:
         """Helper to create a proper transaction mock."""
         # Create a mock that behaves like an async context manager
         transaction = AsyncMock()
@@ -181,7 +181,7 @@ class TestAsyncDatabaseService:
         transaction.__aexit__ = AsyncMock(return_value=None)
         return transaction
     
-    def setup_connection_with_transaction(self, mock_connection):
+    def setup_connection_with_transaction(self, mock_connection: Any) -> Generator[AsyncMock, None, None]:
         """Helper to setup a connection with proper transaction mocking."""
         # Create a transaction mock that returns the connection when entered
         transaction = AsyncMock()
@@ -193,7 +193,7 @@ class TestAsyncDatabaseService:
         return mock_connection
     
     @pytest.mark.asyncio
-    async def test_initialization(self, db_service):
+    async def test_initialization(self, db_service: AsyncDatabaseService) -> None:
         """Test service initialization."""
         assert db_service.connection_manager is not None
         assert isinstance(db_service._query_cache, dict)
@@ -201,7 +201,7 @@ class TestAsyncDatabaseService:
         assert db_service._batch_size == 100
     
     @pytest.mark.asyncio
-    async def test_initialize(self, db_service, mock_connection_manager):
+    async def test_initialize(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock) -> None:
         """Test service initialization."""
         db_service.connection_manager = mock_connection_manager
         
@@ -210,7 +210,7 @@ class TestAsyncDatabaseService:
         mock_connection_manager._initialize_pool.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_shutdown(self, db_service, mock_connection_manager):
+    async def test_shutdown(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock) -> None:
         """Test service shutdown."""
         db_service.connection_manager = mock_connection_manager
         db_service._query_cache = {"test": "data"}
@@ -221,7 +221,7 @@ class TestAsyncDatabaseService:
         assert db_service._query_cache == {}
     
     @pytest.mark.asyncio
-    async def test_get_connection(self, db_service, mock_connection_manager, mock_connection):
+    async def test_get_connection(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test getting a connection."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -233,7 +233,7 @@ class TestAsyncDatabaseService:
         mock_connection_manager.release.assert_called_once_with(mock_connection)
     
     @pytest.mark.asyncio
-    async def test_get_transaction(self, db_service, mock_connection_manager, mock_connection):
+    async def test_get_transaction(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test getting a transaction."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -254,7 +254,7 @@ class TestAsyncDatabaseService:
         mock_connection.transaction.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_execute_query_none_mode(self, db_service, mock_connection_manager, mock_connection):
+    async def test_execute_query_none_mode(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test execute_query with fetch_mode='none'."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -267,7 +267,7 @@ class TestAsyncDatabaseService:
         mock_connection.execute.assert_called_once_with("SELECT 1")
     
     @pytest.mark.asyncio
-    async def test_execute_query_one_mode(self, db_service, mock_connection_manager, mock_connection):
+    async def test_execute_query_one_mode(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test execute_query with fetch_mode='one'."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -280,7 +280,7 @@ class TestAsyncDatabaseService:
         mock_connection.fetchrow.assert_called_once_with("SELECT * FROM users WHERE id = $1", 1)
     
     @pytest.mark.asyncio
-    async def test_execute_query_all_mode(self, db_service, mock_connection_manager, mock_connection):
+    async def test_execute_query_all_mode(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test execute_query with fetch_mode='all'."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -293,7 +293,7 @@ class TestAsyncDatabaseService:
         mock_connection.fetch.assert_called_once_with("SELECT * FROM users")
     
     @pytest.mark.asyncio
-    async def test_execute_query_val_mode(self, db_service, mock_connection_manager, mock_connection):
+    async def test_execute_query_val_mode(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test execute_query with fetch_mode='val'."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -306,7 +306,7 @@ class TestAsyncDatabaseService:
         mock_connection.fetchval.assert_called_once_with("SELECT COUNT(*) FROM users")
     
     @pytest.mark.asyncio
-    async def test_execute_batch(self, db_service, mock_connection_manager, mock_connection):
+    async def test_execute_batch(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test execute_batch method."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -322,7 +322,7 @@ class TestAsyncDatabaseService:
         )
     
     @pytest.mark.asyncio
-    async def test_execute_transaction(self, db_service, mock_connection_manager, mock_connection):
+    async def test_execute_transaction(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test execute_transaction method."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -352,7 +352,7 @@ class TestAsyncDatabaseService:
         assert results[3] == "executed"
     
     @pytest.mark.asyncio
-    async def test_execute_transaction_with_2_tuple_queries(self, db_service, mock_connection_manager, mock_connection):
+    async def test_execute_transaction_with_2_tuple_queries(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test execute_transaction with 2-tuple queries (no fetch_mode)."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -375,7 +375,7 @@ class TestAsyncDatabaseService:
         assert results[1] == "executed"
     
     @pytest.mark.asyncio
-    async def test_get_cached_query_cache_hit(self, db_service):
+    async def test_get_cached_query_cache_hit(self, db_service: AsyncDatabaseService) -> None:
         """Test get_cached_query with cache hit."""
         import time
         
@@ -388,7 +388,7 @@ class TestAsyncDatabaseService:
         assert result == cache_data
     
     @pytest.mark.asyncio
-    async def test_get_cached_query_cache_miss(self, db_service, mock_connection_manager, mock_connection):
+    async def test_get_cached_query_cache_miss(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test get_cached_query with cache miss."""
         import time
         
@@ -406,7 +406,7 @@ class TestAsyncDatabaseService:
         assert time.time() - cached_time < 1  # Should be very recent
     
     @pytest.mark.asyncio
-    async def test_get_cached_query_with_custom_ttl(self, db_service):
+    async def test_get_cached_query_with_custom_ttl(self, db_service: AsyncDatabaseService) -> None:
         """Test get_cached_query with custom TTL."""
         import time
         
@@ -422,7 +422,7 @@ class TestAsyncDatabaseService:
         assert result == [{"id": 2, "name": "new"}]
     
     @pytest.mark.asyncio
-    async def test_clear_cache_all(self, db_service):
+    async def test_clear_cache_all(self, db_service: AsyncDatabaseService) -> None:
         """Test clear_cache without pattern."""
         db_service._query_cache = {
             "key1": ("data1", 123),
@@ -435,7 +435,7 @@ class TestAsyncDatabaseService:
         assert db_service._query_cache == {}
     
     @pytest.mark.asyncio
-    async def test_clear_cache_with_pattern(self, db_service):
+    async def test_clear_cache_with_pattern(self, db_service: AsyncDatabaseService) -> None:
         """Test clear_cache with pattern."""
         db_service._query_cache = {
             "user_stats_1": ("data1", 123),
@@ -450,7 +450,7 @@ class TestAsyncDatabaseService:
         assert "chat_messages_1" in db_service._query_cache
     
     @pytest.mark.asyncio
-    async def test_save_chat_info_async_success(self, db_service, mock_connection_manager, mock_connection):
+    async def test_save_chat_info_async_success(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test save_chat_info_async success."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -469,7 +469,7 @@ class TestAsyncDatabaseService:
         mock_connection.execute.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_save_chat_info_async_failure(self, db_service, mock_connection_manager, mock_connection):
+    async def test_save_chat_info_async_failure(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test save_chat_info_async failure."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -487,7 +487,7 @@ class TestAsyncDatabaseService:
         assert result is False
     
     @pytest.mark.asyncio
-    async def test_save_user_info_async_success(self, db_service, mock_connection_manager, mock_connection):
+    async def test_save_user_info_async_success(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test save_user_info_async success."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -508,7 +508,7 @@ class TestAsyncDatabaseService:
         mock_connection.execute.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_save_user_info_async_failure(self, db_service, mock_connection_manager, mock_connection):
+    async def test_save_user_info_async_failure(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test save_user_info_async failure."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -528,7 +528,7 @@ class TestAsyncDatabaseService:
         assert result is False
     
     @pytest.mark.asyncio
-    async def test_save_message_async_success(self, db_service, mock_connection_manager, mock_connection):
+    async def test_save_message_async_success(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test save_message_async success."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -566,7 +566,7 @@ class TestAsyncDatabaseService:
         assert mock_connection.execute.call_count == 3
     
     @pytest.mark.asyncio
-    async def test_save_message_async_failure(self, db_service, mock_connection_manager, mock_connection, mock_transaction):
+    async def test_save_message_async_failure(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock, mock_transaction: AsyncMock) -> None:
         """Test save_message_async failure."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -587,7 +587,7 @@ class TestAsyncDatabaseService:
         assert result is False
     
     @pytest.mark.asyncio
-    async def test_get_chat_messages_async_with_cache(self, db_service):
+    async def test_get_chat_messages_async_with_cache(self, db_service: AsyncDatabaseService) -> None:
         """Test get_chat_messages_async with caching."""
         import time
         
@@ -600,7 +600,7 @@ class TestAsyncDatabaseService:
         assert result == cache_data
     
     @pytest.mark.asyncio
-    async def test_get_chat_messages_async_without_cache(self, db_service, mock_connection_manager, mock_connection):
+    async def test_get_chat_messages_async_without_cache(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test get_chat_messages_async without caching."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -613,7 +613,7 @@ class TestAsyncDatabaseService:
         mock_connection.fetch.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_search_messages_async(self, db_service, mock_connection_manager, mock_connection):
+    async def test_search_messages_async(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test search_messages_async."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -626,7 +626,7 @@ class TestAsyncDatabaseService:
         mock_connection.fetch.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_get_user_stats_async(self, db_service):
+    async def test_get_user_stats_async(self, db_service: AsyncDatabaseService) -> None:
         """Test get_user_stats_async."""
         import time
         
@@ -639,7 +639,7 @@ class TestAsyncDatabaseService:
         assert result == {"total_messages": 10, "chats_participated": 2}
     
     @pytest.mark.asyncio
-    async def test_get_user_stats_async_no_data(self, db_service):
+    async def test_get_user_stats_async_no_data(self, db_service: AsyncDatabaseService) -> None:
         """Test get_user_stats_async with no data."""
         with patch('modules.async_database_service.async_timeout'):
             result = await db_service.get_user_stats_async(999)
@@ -649,7 +649,7 @@ class TestAsyncDatabaseService:
         assert result.get('total_messages') == 0
     
     @pytest.mark.asyncio
-    async def test_get_chat_stats_async(self, db_service):
+    async def test_get_chat_stats_async(self, db_service: AsyncDatabaseService) -> None:
         """Test get_chat_stats_async."""
         import time
         
@@ -662,7 +662,7 @@ class TestAsyncDatabaseService:
         assert result == {"total_messages": 100, "unique_users": 5}
     
     @pytest.mark.asyncio
-    async def test_get_chat_stats_async_no_data(self, db_service):
+    async def test_get_chat_stats_async_no_data(self, db_service: AsyncDatabaseService) -> None:
         """Test get_chat_stats_async with no data."""
         with patch('modules.async_database_service.async_timeout'):
             result = await db_service.get_chat_stats_async(999)
@@ -672,7 +672,7 @@ class TestAsyncDatabaseService:
         assert result.get('total_messages') == 0
     
     @pytest.mark.asyncio
-    async def test_health_check_success(self, db_service, mock_connection_manager, mock_connection):
+    async def test_health_check_success(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test health_check success."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -694,7 +694,7 @@ class TestAsyncDatabaseService:
         assert result["cache_entries"] == 0
     
     @pytest.mark.asyncio
-    async def test_health_check_failure(self, db_service, mock_connection_manager, mock_connection):
+    async def test_health_check_failure(self, db_service: AsyncDatabaseService, mock_connection_manager: AsyncMock, mock_connection: AsyncMock) -> None:
         """Test health_check failure."""
         db_service.connection_manager = mock_connection_manager
         mock_connection_manager.acquire.return_value = mock_connection
@@ -714,7 +714,7 @@ class TestAsyncDatabaseServiceIntegration:
     """Integration tests for AsyncDatabaseService."""
     
     @pytest.mark.asyncio
-    async def test_full_lifecycle(self):
+    async def test_full_lifecycle(self) -> None:
         """Test full service lifecycle."""
         with patch('modules.async_database_service.AsyncRateLimiter') as mock_rate_limiter:
             mock_rate_limiter.return_value = AsyncMock()
@@ -734,7 +734,7 @@ class TestAsyncDatabaseServiceIntegration:
             mock_manager.cleanup.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_connection_context_manager(self):
+    async def test_connection_context_manager(self) -> None:
         """Test connection context manager behavior."""
         with patch('modules.async_database_service.AsyncRateLimiter') as mock_rate_limiter:
             mock_rate_limiter.return_value = AsyncMock()
@@ -752,7 +752,7 @@ class TestAsyncDatabaseServiceIntegration:
             mock_manager.release.assert_called_once_with(mock_connection)
     
     @pytest.mark.asyncio
-    async def test_transaction_context_manager(self):
+    async def test_transaction_context_manager(self) -> None:
         """Test transaction context manager behavior."""
         with patch('modules.async_database_service.AsyncRateLimiter') as mock_rate_limiter:
             mock_rate_limiter.return_value = AsyncMock()

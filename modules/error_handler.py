@@ -69,7 +69,7 @@ class StandardError(Exception):
 
         super().__init__(formatted_message)
 
-    def __str__(self):
+    def __str__(self) -> str:
         """String representation of the error"""
         base = f"[{self.severity.value.upper()}] {self.category.value}: {self.message}"
         if self.original_exception:
@@ -226,14 +226,10 @@ class ErrorHandler:
             base_context = {
                 "update_id": update.update_id if update and hasattr(update, 'update_id') else None,
                 "chat_id": (
-                    update.effective_chat.id
-                    if update and hasattr(update, 'effective_chat')
-                    else None
+                    update.effective_chat.id if (update and hasattr(update, 'effective_chat') and update.effective_chat is not None) else None
                 ),
                 "user_id": (
-                    update.effective_user.id
-                    if update and hasattr(update, 'effective_user')
-                    else None
+                    update.effective_user.id if (update and hasattr(update, 'effective_user') and update.effective_user is not None) else None
                 ),
             }
 

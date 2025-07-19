@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class AsyncDatabaseConnectionManager(AsyncResourceManager):
     """Async resource manager for database connections."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.pool: Optional[asyncpg.Pool] = None
         self._connection_pool: Optional[AsyncConnectionPool] = None
         self._rate_limiter = AsyncRateLimiter(max_calls=100, time_window=1.0)  # 100 queries/sec
@@ -88,7 +88,7 @@ class AsyncDatabaseService(ServiceInterface):
     - Query batching
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.connection_manager = AsyncDatabaseConnectionManager()
         self._query_cache: Dict[str, Any] = {}
         self._cache_ttl = 300  # 5 minutes

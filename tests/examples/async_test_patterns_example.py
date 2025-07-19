@@ -20,7 +20,7 @@ class TestAsyncPatterns(ComprehensiveTestCase):
         # Setup any additional test-specific mocks or data
         self.test_data = {"key": "value"}
     
-    async def test_basic_async_operation(self):
+    async def test_basic_async_operation(self) -> None:
         """Example of testing a basic async operation."""
         # Create an async mock
         async_service = self.create_async_mock(return_value="success")
@@ -32,7 +32,7 @@ class TestAsyncPatterns(ComprehensiveTestCase):
         self.assertEqual(result, "success")
         self.assert_async_mock_called(async_service)
     
-    async def test_async_operation_with_timeout(self):
+    async def test_async_operation_with_timeout(self) -> None:
         """Example of testing async operation with timeout."""
         async def slow_operation():
             await asyncio.sleep(0.1)  # Simulate work
@@ -42,7 +42,7 @@ class TestAsyncPatterns(ComprehensiveTestCase):
         result = await self.run_async_test_with_timeout(slow_operation(), timeout=1.0)
         self.assertEqual(result, "completed")
     
-    async def test_async_exception_handling(self):
+    async def test_async_exception_handling(self) -> None:
         """Example of testing async exception handling."""
         async def failing_operation():
             raise ValueError("Test error")
@@ -181,7 +181,7 @@ class TestAsyncPatterns(ComprehensiveTestCase):
 class TestAsyncTelegramPatterns(ComprehensiveTestCase):
     """Example test class for async Telegram-specific patterns."""
     
-    async def test_async_message_handling(self):
+    async def test_async_message_handling(self) -> None:
         """Example of testing async message handling."""
         # Create standard Telegram objects
         telegram_objects = self.setup_standard_telegram_objects()
@@ -199,7 +199,7 @@ class TestAsyncTelegramPatterns(ComprehensiveTestCase):
         self.assertEqual(result, "handled")
         message_mock.reply_text.assert_called_once_with("Hello, user!")
     
-    async def test_async_callback_query_handling(self):
+    async def test_async_callback_query_handling(self) -> None:
         """Example of testing async callback query handling."""
         # Create callback query mock
         callback_mock = self.create_standard_callback_query_mock(data="button_clicked")

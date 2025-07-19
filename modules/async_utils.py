@@ -56,12 +56,12 @@ class AsyncConnectionPool(AsyncResourceManager):
         self.min_size = min_size
         self.max_idle_time = max_idle_time
         
-        self._pool: asyncio.Queue = asyncio.Queue(maxsize=max_size)
-        self._active_connections: set = set()
+        self._pool: asyncio.Queue[Any] = asyncio.Queue(maxsize=max_size)
+        self._active_connections: set[Any] = set()
         self._connection_times: Dict[Any, float] = {}
         self._lock = asyncio.Lock()
         self._closed = False
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: Optional[asyncio.Task[None]] = None
         
         # Start cleanup task
         self._cleanup_task = asyncio.create_task(self._cleanup_idle_connections())
@@ -229,7 +229,7 @@ class AsyncRetry:
         base_delay: float = 1.0,
         max_delay: float = 60.0,
         exponential_base: float = 2.0,
-        exceptions: tuple = (Exception,)
+        exceptions: tuple[type[Exception], ...] = (Exception,)
     ):
         self.max_attempts = max_attempts
         self.base_delay = base_delay
@@ -237,9 +237,9 @@ class AsyncRetry:
         self.exponential_base = exponential_base
         self.exceptions = exceptions
     
-    async def __call__(self, func: Callable, *args, **kwargs) -> Any:
+    async def __call__(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Execute function with retry logic."""
-        last_exception = None
+        last_exception: Optional[Exception] = None
         
         for attempt in range(self.max_attempts):
             try:
@@ -262,7 +262,10 @@ class AsyncRetry:
                 logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay:.2f}s")
                 await asyncio.sleep(delay)
         
-        raise last_exception
+        if last_exception is not None:
+            raise last_exception
+        else:
+            raise RuntimeError("Retry failed with no exception recorded")
 
 
 def async_retry(
@@ -270,14 +273,14 @@ def async_retry(
     base_delay: float = 1.0,
     max_delay: float = 60.0,
     exponential_base: float = 2.0,
-    exceptions: tuple = (Exception,)
-):
+    exceptions: tuple[type[Exception], ...] = (Exception,)
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for async retry functionality."""
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         retry_handler = AsyncRetry(max_attempts, base_delay, max_delay, exponential_base, exceptions)
         
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             return await retry_handler(func, *args, **kwargs)
         
         return wrapper
@@ -290,7 +293,7 @@ class AsyncRateLimiter:
     def __init__(self, max_calls: int, time_window: float):
         self.max_calls = max_calls
         self.time_window = time_window
-        self.calls = []
+        self.calls: list[float] = []
         self._lock = asyncio.Lock()
     
     async def acquire(self) -> None:
@@ -318,7 +321,7 @@ class AsyncRateLimiter:
 @asynccontextmanager
 async def async_rate_limit(rate: float, burst: int = 1) -> AsyncGenerator[None, None]:
     """Context manager for rate limiting."""
-    limiter = AsyncRateLimiter(rate, burst)
+    limiter = AsyncRateLimiter(burst, rate)
     await limiter.acquire()
     yield
 
@@ -330,16 +333,16 @@ class AsyncBatch:
         self,
         batch_size: int = 100,
         max_wait_time: float = 1.0,
-        processor: Optional[Callable] = None
+        processor: Optional[Callable[..., Any]] = None
     ):
         self.batch_size = batch_size
         self.max_wait_time = max_wait_time
         self.processor = processor
         
-        self._queue: asyncio.Queue = asyncio.Queue()
+        self._queue: asyncio.Queue[Any] = asyncio.Queue()
         self._batch: List[Any] = []
         self._last_process_time = time.time()
-        self._processing_task: Optional[asyncio.Task] = None
+        self._processing_task: Optional[asyncio.Task[None]] = None
         self._closed = False
     
     async def add(self, item: Any) -> None:
@@ -357,7 +360,7 @@ class AsyncBatch:
         while not self._closed:
             try:
                 # Collect items for batch
-                batch = []
+                batch: list[Any] = []
                 deadline = time.time() + self.max_wait_time
                 
                 while len(batch) < self.batch_size and time.time() < deadline:
@@ -372,7 +375,7 @@ class AsyncBatch:
                         break
                 
                 # Process batch if not empty
-                if batch and self.processor:
+                if batch and self.processor is not None:
                     try:
                         if asyncio.iscoroutinefunction(self.processor):
                             await self.processor(batch)
@@ -426,12 +429,12 @@ class AsyncBatch:
 class AsyncTaskManager:
     """Manager for async tasks with lifecycle management."""
     
-    def __init__(self):
-        self._tasks: Dict[str, asyncio.Task] = {}
-        self._task_refs: weakref.WeakSet = weakref.WeakSet()
+    def __init__(self) -> None:
+        self._tasks: Dict[str, asyncio.Task[Any]] = {}
+        self._task_refs: weakref.WeakSet[asyncio.Task[Any]] = weakref.WeakSet()
         self._task_counter = 0
     
-    async def create_task(self, coro, name: Optional[str] = None, timeout: Optional[float] = None) -> str:
+    async def create_task(self, coro: Any, name: Optional[str] = None, timeout: Optional[float] = None) -> str:
         """Create and track an async task."""
         # Generate unique task ID if name not provided
         if name is None:
@@ -451,7 +454,7 @@ class AsyncTaskManager:
         
         return name
     
-    def _task_done_callback(self, task: asyncio.Task) -> None:
+    def _task_done_callback(self, task: asyncio.Task[Any]) -> None:
         """Callback when task is done."""
         # Remove from named tasks
         for name, tracked_task in list(self._tasks.items()):
@@ -467,7 +470,7 @@ class AsyncTaskManager:
         else:
             logger.debug(f"Task {task.get_name()} completed successfully")
     
-    def get_task(self, name: str) -> Optional[asyncio.Task]:
+    def get_task(self, name: str) -> Optional[asyncio.Task[Any]]:
         """Get task by name."""
         return self._tasks.get(name)
     
@@ -539,22 +542,22 @@ class AsyncTaskManager:
 task_manager = AsyncTaskManager()
 
 
-def async_background_task(name: Optional[str] = None):
+def async_background_task(name: Optional[str] = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to run function as background task."""
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             coro = func(*args, **kwargs)
             return task_manager.create_task(coro, name=name or func.__name__)
         return wrapper
     return decorator
 
 
-async def gather_with_concurrency(limit: int, *coroutines) -> List[Any]:
+async def gather_with_concurrency(limit: int, *coroutines: Any) -> List[Any]:
     """Execute coroutines with concurrency limit."""
     semaphore = asyncio.Semaphore(limit)
     
-    async def limited_coro(coro):
+    async def limited_coro(coro: Any) -> Any:
         async with semaphore:
             return await coro
     
@@ -575,12 +578,12 @@ async def async_lock_timeout(lock: asyncio.Lock, timeout: float) -> AsyncGenerat
 class AsyncResourcePool:
     """Generic async resource pool."""
     
-    def __init__(self, resource_factory: Callable, max_size: int = 10, health_check: Optional[Callable] = None):
+    def __init__(self, resource_factory: Callable[[], Any], max_size: int = 10, health_check: Optional[Callable[[Any], bool]] = None):
         self.resource_factory = resource_factory
         self.max_size = max_size
         self.health_check = health_check
-        self._pool: asyncio.Queue = asyncio.Queue(maxsize=max_size)
-        self._active_resources: set = set()
+        self._pool: asyncio.Queue[Any] = asyncio.Queue(maxsize=max_size)
+        self._active_resources: set[Any] = set()
         self._total_created = 0
         self._lock = asyncio.Lock()
         self._initialized = False
@@ -704,16 +707,16 @@ class AsyncCircuitBreaker:
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.failure_count = 0
-        self.last_failure_time = None
+        self.last_failure_time: Optional[float] = None
         self.state = "closed"  # closed, open, half-open
         self._lock = asyncio.Lock()
     
-    async def call(self, func: Callable, *args, **kwargs) -> Any:
+    async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Execute function through circuit breaker."""
         async with self._lock:
             # Check if we should transition from open to half-open
             if self.state == "open":
-                if self.last_failure_time and time.time() - self.last_failure_time >= self.recovery_timeout:
+                if self.last_failure_time is not None and time.time() - self.last_failure_time >= self.recovery_timeout:
                     self.state = "half-open"
                 else:
                     raise Exception("Circuit breaker is open")
@@ -744,16 +747,16 @@ class AsyncCircuitBreaker:
 class AsyncRetryManager:
     """Async retry manager with configurable strategies."""
     
-    def __init__(self, max_attempts: int = 3, base_delay: float = 1.0, exponential_base: float = 2.0, backoff_multiplier: float = None):
+    def __init__(self, max_attempts: int = 3, base_delay: float = 1.0, exponential_base: float = 2.0, backoff_multiplier: Optional[float] = None):
         self.max_attempts = max_attempts
         self.base_delay = base_delay
         self.exponential_base = exponential_base
         # Support both parameter names for compatibility
         self.backoff_multiplier = backoff_multiplier if backoff_multiplier is not None else exponential_base
     
-    async def execute(self, func: Callable, *args, **kwargs) -> Any:
+    async def execute(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Execute function with retry logic."""
-        last_exception = None
+        last_exception: Optional[Exception] = None
         
         for attempt in range(self.max_attempts):
             try:
@@ -772,18 +775,21 @@ class AsyncRetryManager:
                 logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay:.2f}s")
                 await asyncio.sleep(delay)
         
-        raise last_exception
+        if last_exception is not None:
+            raise last_exception
+        else:
+            raise RuntimeError("Retry failed with no exception recorded")
 
 
 class AsyncBatchProcessor:
     """Async batch processor for efficient bulk operations."""
     
-    def __init__(self, processor: Callable, batch_size: int = 100, flush_interval: float = 1.0):
+    def __init__(self, processor: Callable[[List[Any]], Any], batch_size: int = 100, flush_interval: float = 1.0):
         self.processor = processor
         self.batch_size = batch_size
         self.flush_interval = flush_interval
-        self._queue: asyncio.Queue = asyncio.Queue()
-        self._processing_task: Optional[asyncio.Task] = None
+        self._queue: asyncio.Queue[Any] = asyncio.Queue()
+        self._processing_task: Optional[asyncio.Task[None]] = None
         self._started = False
         self._closed = False
     
@@ -811,7 +817,7 @@ class AsyncBatchProcessor:
         while not self._closed:
             try:
                 # Collect items for batch
-                batch = []
+                batch: list[Any] = []
                 deadline = time.time() + self.flush_interval
                 
                 while len(batch) < self.batch_size and time.time() < deadline:
@@ -826,7 +832,7 @@ class AsyncBatchProcessor:
                         break
                 
                 # Process batch if not empty
-                if batch and self.processor:
+                if batch and self.processor is not None:
                     try:
                         if asyncio.iscoroutinefunction(self.processor):
                             await self.processor(batch)
@@ -864,7 +870,7 @@ class AsyncBatchProcessor:
             except asyncio.QueueEmpty:
                 break
         
-        if remaining_items and self.processor:
+        if remaining_items:
             try:
                 if asyncio.iscoroutinefunction(self.processor):
                     await self.processor(remaining_items)
@@ -879,11 +885,11 @@ class AsyncBatchProcessor:
 
 
 # Async decorators
-def timeout_after(seconds: float):
+def timeout_after(seconds: float) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to add timeout to async functions."""
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return await asyncio.wait_for(func(*args, **kwargs), timeout=seconds)
             except asyncio.TimeoutError:
@@ -892,37 +898,37 @@ def timeout_after(seconds: float):
     return decorator
 
 
-def retry_async(max_attempts: int = 3, delay: float = 1.0):
+def retry_async(max_attempts: int = 3, delay: float = 1.0) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for async retry functionality."""
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             retry_manager = AsyncRetryManager(max_attempts=max_attempts, base_delay=delay)
             return await retry_manager.execute(func, *args, **kwargs)
         return wrapper
     return decorator
 
 
-def rate_limit(max_calls: int, time_window: float):
+def rate_limit(max_calls: int, time_window: float) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for async rate limiting."""
     limiter = AsyncRateLimiter(max_calls=max_calls, time_window=time_window)
     
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             await limiter.acquire()
             return await func(*args, **kwargs)
         return wrapper
     return decorator
 
 
-def circuit_breaker_async(failure_threshold: int = 5, recovery_timeout: float = 60.0):
+def circuit_breaker_async(failure_threshold: int = 5, recovery_timeout: float = 60.0) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for async circuit breaker functionality."""
     breaker = AsyncCircuitBreaker(failure_threshold=failure_threshold, recovery_timeout=recovery_timeout)
     
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             return await breaker.call(func, *args, **kwargs)
         return wrapper
     return decorator
@@ -931,7 +937,7 @@ def circuit_breaker_async(failure_threshold: int = 5, recovery_timeout: float = 
 class AsyncEventWaiter:
     """Utility for waiting on async events."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._events: Dict[str, asyncio.Event] = {}
         self._results: Dict[str, Any] = {}
     

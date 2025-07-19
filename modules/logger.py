@@ -5,7 +5,7 @@ import asyncio
 import html
 from logging.handlers import RotatingFileHandler, BaseRotatingHandler
 import threading
-from typing import Set, Optional, Tuple, Dict, IO
+from typing import Set, Optional, Tuple, Dict, IO, Any
 from datetime import datetime, date
 import pytz
 import time
@@ -33,7 +33,7 @@ DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
 
 # --- Utility Functions ---
-def ensure_directories():
+def ensure_directories() -> bool:
     """Ensure all required directories exist with proper permissions."""
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     log_dir = os.path.join(project_root, 'logs')
@@ -128,9 +128,10 @@ def save_chat_title(chat_id: str, chat_title: str) -> None:
 
 class KyivTimezoneFormatter(logging.Formatter):
     """Base formatter that uses Kyiv timezone for timestamps."""
-    converter = lambda *args: datetime.fromtimestamp(args[1], KYIV_TZ).timetuple()
+    # The base expects converter: Callable[[Optional[float]], struct_time]
+    converter = staticmethod(lambda timestamp: datetime.fromtimestamp(timestamp, KYIV_TZ).timetuple())
 
-    def formatTime(self, record, datefmt=None):
+    def formatTime(self, record: logging.LogRecord, datefmt: Optional[str] = None) -> str:
         """Formats the timestamp to always include milliseconds."""
         dt = datetime.fromtimestamp(record.created, KYIV_TZ)
         if datefmt:
@@ -140,7 +141,7 @@ class KyivTimezoneFormatter(logging.Formatter):
 
 class ChatContextFormatter(KyivTimezoneFormatter):
     """Formatter that includes Kyiv timezone AND chat context details."""
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
         # Ensure chat attributes exist on the record, providing defaults
         record.chat_id = getattr(record, 'chat_id', 'N/A')
         record.chat_type = getattr(record, 'chat_type', 'N/A')
@@ -157,14 +158,17 @@ class DailyLogHandler(logging.Handler):
     Logs messages to chat-specific daily files, managing file handles.
     (Manages file handles internally)
     """
-    def __init__(self, encoding='utf-8'):
+    _files: Dict[Tuple[Optional[str], date], IO[str]]
+    _lock: threading.Lock
+    _known_titles: Dict[str, str]
+    def __init__(self, encoding: str = 'utf-8') -> None:
         super().__init__()
         self.encoding = encoding
-        self._files: Dict[Tuple[Optional[str], date], IO] = {} # (chat_id, date) -> file handle
+        self._files: Dict[Tuple[Optional[str], date], IO[str]] = {} # (chat_id, date) -> file handle
         self._lock = threading.Lock() # Protect access to self._files dict
         self._known_titles: Dict[str, str] = {} # Cache saved titles chat_id -> title
 
-    def _get_file(self, record: logging.LogRecord) -> Optional[IO]:
+    def _get_file(self, record: logging.LogRecord) -> Optional[IO[str]]:
         """Gets or creates the file handle for the record's chat and date."""
         try:
             record_time = datetime.fromtimestamp(record.created, KYIV_TZ)
@@ -228,7 +232,7 @@ class DailyLogHandler(logging.Handler):
             return None
 
 
-    def emit(self, record: logging.LogRecord):
+    def emit(self, record: logging.LogRecord) -> None:
         """Emit a record."""
         try:
             # Add default attributes if missing BEFORE formatting
@@ -248,7 +252,7 @@ class DailyLogHandler(logging.Handler):
         except Exception:
             self.handleError(record)
 
-    def close(self):
+    def close(self) -> None:
         """Close all open file handles."""
         with self._lock:
             for handle in self._files.values():
@@ -265,27 +269,38 @@ class TelegramErrorHandler(logging.Handler):
     Sends error logs to a Telegram channel asynchronously using a queue.
     (Queue-based, non-blocking emit, inherent async safety)
     """
-    def __init__(self, bot_token: str, channel_id: str, rate_limit: int = 2):
+    channel_id: str
+    message_thread_id: Optional[int]
+    rate_limit: int
+    bot_token: str
+    _queue: asyncio.Queue[Optional[logging.LogRecord]]
+    _worker_task: Optional[asyncio.Task[Any]]
+    _last_sent_time: float
+    _buffer: deque[str]
+    _loop: Optional[asyncio.AbstractEventLoop]
+    _bot_instance: Optional[Bot]
+    _start_lock: asyncio.Lock
+    def __init__(self, bot_token: str, channel_id: str, rate_limit: int = 2) -> None:
         super().__init__()
         # Parse channel_id to handle topic-based messages
         if ':' in channel_id:
-            self.channel_id, self.message_thread_id = channel_id.split(':')
-            self.message_thread_id = int(self.message_thread_id)
+            self.channel_id, thread_id = channel_id.split(':')
+            self.message_thread_id = int(thread_id)
         else:
             self.channel_id = channel_id
             self.message_thread_id = None
         self.rate_limit = rate_limit
         self.bot_token = bot_token # Store token to create bot internally
 
-        self._queue: asyncio.Queue = asyncio.Queue()
-        self._worker_task: Optional[asyncio.Task] = None
+        self._queue: asyncio.Queue[Optional[logging.LogRecord]] = asyncio.Queue()
+        self._worker_task: Optional[asyncio.Task[Any]] = None
         self._last_sent_time: float = 0
-        self._buffer: deque = deque() # Use deque for efficient buffering if needed
+        self._buffer: deque[str] = deque() # Use deque for efficient buffering if needed
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._bot_instance: Optional[Bot] = None
         self._start_lock = asyncio.Lock() # Protect against concurrent start attempts
 
-    async def _ensure_bot(self):
+    async def _ensure_bot(self) -> None:
         """Creates the bot instance if it doesn't exist."""
         if self._bot_instance is None:
             self._bot_instance = Bot(token=self.bot_token)
@@ -297,7 +312,7 @@ class TelegramErrorHandler(logging.Handler):
                 print(f"ERROR: Failed to connect Telegram bot for error reporting: {e}", file=sys.stderr)
                 self._bot_instance = None # Reset if connection failed
 
-    async def _send_message_async(self, text: str):
+    async def _send_message_async(self, text: str) -> None:
         """Internal async sending logic with retries."""
         if not self._bot_instance:
             print(f"ERROR: Telegram bot not initialized. Cannot send error: {text[:100]}...", file=sys.stderr)
@@ -321,7 +336,7 @@ class TelegramErrorHandler(logging.Handler):
                 
                 # Add message_thread_id if it exists
                 if self.message_thread_id is not None:
-                    message_params['message_thread_id'] = self.message_thread_id
+                    message_params['message_thread_id'] = str(self.message_thread_id) # Ensure it's a string
 
                 await self._bot_instance.send_message(**message_params)
                 return # Success
@@ -335,10 +350,10 @@ class TelegramErrorHandler(logging.Handler):
                         message_params = {
                             'chat_id': self.channel_id,
                             'text': f"Fallback (Markdown failed):\n{plain_text[:3800]}", # Limit length
-                            'parse_mode': None
+                            'parse_mode': ''
                         }
                         if self.message_thread_id is not None:
-                            message_params['message_thread_id'] = self.message_thread_id
+                            message_params['message_thread_id'] = str(self.message_thread_id) # Ensure it's a string
 
                         await self._bot_instance.send_message(**message_params)
                     except Exception as final_e:
@@ -388,13 +403,13 @@ class TelegramErrorHandler(logging.Handler):
         )
         return error_msg[:4090] # Ensure message fits Telegram limits
 
-    async def _process_queue(self):
+    async def _process_queue(self) -> None:
         """The core worker task that processes logs from the queue."""
         await self._ensure_bot() # Make sure bot is ready
 
         while True:
             try:
-                record: logging.LogRecord = await self._queue.get()
+                record: Optional[logging.LogRecord] = await self._queue.get()
                 if record is None: # Sentinel value to stop
                     self._queue.task_done()
                     break
@@ -428,7 +443,7 @@ class TelegramErrorHandler(logging.Handler):
                 await asyncio.sleep(5)
 
 
-    def emit(self, record: logging.LogRecord):
+    def emit(self, record: logging.LogRecord) -> None:
         """Puts the record onto the async queue. Non-blocking."""
         if self._worker_task is None or self._loop is None:
             # Handler not started or loop not available
@@ -444,7 +459,7 @@ class TelegramErrorHandler(logging.Handler):
              self.handleError(record)
 
 
-    async def start(self):
+    async def start(self) -> None:
         """Starts the background worker task."""
         async with self._start_lock:
             if self._worker_task is None:
@@ -457,7 +472,7 @@ class TelegramErrorHandler(logging.Handler):
                 except Exception as e:
                     print(f"ERROR: Failed to start TelegramErrorHandler: {e}", file=sys.stderr)
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stops the background worker task gracefully."""
         async with self._start_lock: # Ensure stop doesn't race with start
             if self._worker_task is not None and self._loop is not None:
@@ -609,7 +624,7 @@ def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger
 
     return general_logger, chat_logger, error_logger, analytics_logger
 
-async def init_telegram_error_handler(bot: Bot, error_channel_id: Optional[str] = None):
+async def init_telegram_error_handler(bot: Bot, error_channel_id: Optional[str] = None) -> None:
     """
     Initializes and starts the Telegram error handler.
 
@@ -648,7 +663,7 @@ async def init_telegram_error_handler(bot: Bot, error_channel_id: Optional[str] 
         general_logger.error(f"Failed to initialize Telegram error handler: {e}", exc_info=True)
 
 
-async def shutdown_logging():
+async def shutdown_logging() -> None:
     """Gracefully shuts down logging handlers, especially the Telegram one."""
     general_logger = logging.getLogger('general')
     general_logger.info("Shutting down logging system...")

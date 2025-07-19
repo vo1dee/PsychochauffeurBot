@@ -14,23 +14,23 @@ from contextlib import contextmanager
 class ResourceMonitor:
     """Resource monitoring implementation for tests."""
     
-    def __init__(self):
-        self.alert_handlers = []
+    def __init__(self) -> None:
+        self.alert_handlers: List[Callable[[Any], None]] = []
         self.is_monitoring = False
     
-    async def start_monitoring(self):
+    async def start_monitoring(self) -> None:
         """Start monitoring resources."""
         self.is_monitoring = True
     
-    async def stop_monitoring(self):
+    async def stop_monitoring(self) -> None:
         """Stop monitoring resources."""
         self.is_monitoring = False
     
-    def get_cpu_usage(self):
+    def get_cpu_usage(self) -> float:
         """Get current CPU usage."""
         return 5.0  # Mock value
     
-    def get_memory_usage(self):
+    def get_memory_usage(self) -> Dict[str, Any]:
         """Get current memory usage."""
         return {
             "used": 500,
@@ -38,7 +38,7 @@ class ResourceMonitor:
             "percent": 25.0
         }
     
-    def get_disk_usage(self):
+    def get_disk_usage(self) -> Dict[str, Any]:
         """Get current disk usage."""
         return {
             "used": 50000,
@@ -46,18 +46,18 @@ class ResourceMonitor:
             "percent": 25.0
         }
     
-    def get_network_io(self):
+    def get_network_io(self) -> Dict[str, Any]:
         """Get current network I/O stats."""
         return {
             "bytes_sent": 1024,
             "bytes_recv": 2048
         }
     
-    def add_alert_handler(self, handler):
+    def add_alert_handler(self, handler: Callable[[Any], None]) -> None:
         """Add an alert handler."""
         self.alert_handlers.append(handler)
     
-    def add_alert(self, alert):
+    def add_alert(self, alert: Any) -> None:
         """Add an alert."""
         for handler in self.alert_handlers:
             handler(alert)
@@ -66,12 +66,12 @@ class ResourceMonitor:
 class RequestTracker:
     """Request tracking implementation for tests."""
     
-    def __init__(self):
-        self.requests = {}
-        self.start_times = {}
-        self.status_codes = {}
-        self.response_sizes = {}
-        self.endpoints = {}
+    def __init__(self) -> None:
+        self.requests: Dict[str, Dict[str, Any]] = {}
+        self.start_times: Dict[str, float] = {}
+        self.status_codes: Dict[str, int] = {}
+        self.response_sizes: Dict[str, int] = {}
+        self.endpoints: Dict[str, Dict[str, Any]] = {}
         self.start_timestamp = time.time()
     
     def start_request(self, endpoint: str, metadata: Optional[Dict[str, Any]] = None) -> str:
@@ -149,11 +149,11 @@ class RequestTracker:
 class MemoryProfiler:
     """Memory profiling implementation for tests."""
     
-    def __init__(self):
-        self.snapshots = []
+    def __init__(self) -> None:
+        self.snapshots: List[Dict[str, Any]] = []
         self.tracking = False
-        self.usage_history = []
-        self.start_time = None
+        self.usage_history: List[Dict[str, Any]] = []
+        self.start_time: Optional[float] = None
     
     def take_snapshot(self) -> Dict[str, Any]:
         """Take a memory snapshot."""
@@ -207,8 +207,9 @@ class MemoryProfiler:
         process = psutil.Process()
         memory_info = process.memory_info()
         
+        start_time = self.start_time if self.start_time is not None else time.time()
         self.usage_history.append({
-            "timestamp": time.time() - self.start_time,
+            "timestamp": time.time() - start_time,
             "memory_mb": memory_info.rss / 1024 / 1024
         })
     
@@ -257,10 +258,10 @@ class MemoryProfiler:
 class CacheMonitor:
     """Cache monitoring implementation for tests."""
     
-    def __init__(self):
-        self.cache_stats = {}
-        self.cache_sizes = {}
-        self.eviction_stats = {}
+    def __init__(self) -> None:
+        self.cache_stats: Dict[str, Dict[str, int]] = {}
+        self.cache_sizes: Dict[str, int] = {}
+        self.eviction_stats: Dict[str, Dict[str, int]] = {}
     
     def record_hit(self, cache_name: str) -> None:
         """Record a cache hit."""
@@ -325,14 +326,14 @@ class CacheMonitor:
 class DatabasePerformanceMonitor:
     """Database performance monitoring implementation for tests."""
     
-    def __init__(self):
-        self.query_stats = {}
-        self.pool_stats = {"active": 0, "idle": 0, "max": 0}
+    def __init__(self) -> None:
+        self.query_stats: Dict[str, Dict[str, Any]] = {}
+        self.pool_stats: Dict[str, Any] = {"active": 0, "idle": 0, "max": 0}
         self.slow_query_threshold = 0.1
-        self.slow_queries = []
+        self.slow_queries: List[Dict[str, Any]] = []
     
     @contextmanager
-    def track_query(self, query: str):
+    def track_query(self, query: str) -> Any:
         """Track a database query execution."""
         start_time = time.time()
         try:

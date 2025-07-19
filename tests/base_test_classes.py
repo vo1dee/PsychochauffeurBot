@@ -321,7 +321,7 @@ class AsyncBaseTestCase(BaseTestCase):
                 except RuntimeError:
                     pass  # Loop might be closed
     
-    def setup_async_mocks(self):
+    def setup_async_mocks(self) -> None:
         """Set up async mocks with proper coroutine handling."""
         # Common async mock patterns
         self.async_mocks['database'] = AsyncMock()
@@ -330,14 +330,14 @@ class AsyncBaseTestCase(BaseTestCase):
         
         return self.async_mocks
     
-    def cleanup_async_mocks(self):
+    def cleanup_async_mocks(self) -> None:
         """Clean up async mocks to prevent cross-test contamination."""
         for mock_name, mock_obj in self.async_mocks.items():
             if hasattr(mock_obj, 'reset_mock'):
                 mock_obj.reset_mock()
         self.async_mocks.clear()
     
-    async def run_async_test(self, coro):
+    async def run_async_test(self, coro) -> None:
         """Run an async test with proper error handling and timeout."""
         try:
             # Add timeout to prevent hanging tests
@@ -347,7 +347,7 @@ class AsyncBaseTestCase(BaseTestCase):
         except Exception as e:
             self.fail(f"Async test failed: {e}")
     
-    def run_async(self, coro):
+    def run_async(self, coro) -> None:
         """Helper to run async code in sync test methods with proper error handling."""
         try:
             if hasattr(self, 'loop') and self.loop and not self.loop.is_closed():
@@ -357,7 +357,7 @@ class AsyncBaseTestCase(BaseTestCase):
         except Exception as e:
             self.fail(f"Failed to run async code: {e}")
     
-    def create_async_mock(self, return_value=None, side_effect=None, **kwargs):
+    def create_async_mock(self, return_value=None, side_effect=None, **kwargs) -> AsyncMock:
         """Create an AsyncMock with standardized configuration."""
         mock = AsyncMock(**kwargs)
         
@@ -369,21 +369,21 @@ class AsyncBaseTestCase(BaseTestCase):
         
         return mock
     
-    def assert_async_mock_called(self, async_mock, *args, **kwargs):
+    def assert_async_mock_called(self, async_mock, *args, **kwargs) -> None:
         """Assert that an async mock was called with specific arguments."""
         async_mock.assert_called()
         
         if args or kwargs:
             async_mock.assert_called_with(*args, **kwargs)
     
-    async def assert_async_mock_awaited(self, async_mock, *args, **kwargs):
+    async def assert_async_mock_awaited(self, async_mock, *args, **kwargs) -> None:
         """Assert that an async mock was awaited with specific arguments."""
         async_mock.assert_awaited()
         
         if args or kwargs:
             async_mock.assert_awaited_with(*args, **kwargs)
     
-    def patch_async_method(self, target, method_name, return_value=None, side_effect=None):
+    def patch_async_method(self, target, method_name, return_value=None, side_effect=None) -> AsyncMock:
         """Patch an async method with proper AsyncMock configuration."""
         async_mock = self.create_async_mock(return_value=return_value, side_effect=side_effect)
         patcher = patch.object(target, method_name, async_mock)

@@ -14,12 +14,12 @@ import time
 class FastAsyncMock(AsyncMock):
     """Optimized AsyncMock that doesn't introduce unnecessary delays."""
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         # Pre-configure common return values to avoid computation overhead
         self._fast_returns = {}
     
-    async def __call__(self, *args, **kwargs):
+    async def __call__(self, *args, **kwargs) -> None:
         """Fast async call that returns immediately."""
         # Skip actual async behavior for performance
         return self.return_value
@@ -32,7 +32,7 @@ class OptimizedTimeoutMock:
         self.timeout_duration = timeout_duration
         self.call_count = 0
     
-    async def __call__(self, *args, **kwargs):
+    async def __call__(self, *args, **kwargs) -> None:
         """Simulate timeout without actual waiting."""
         self.call_count += 1
         # Immediately raise timeout for performance
@@ -44,7 +44,7 @@ class PerformanceOptimizedFixtures:
     
     @staticmethod
     @pytest.fixture
-    def fast_async_sleep():
+    def fast_async_sleep() -> None:
         """Replace asyncio.sleep with immediate return for performance."""
         async def mock_sleep(duration):
             # Don't actually sleep, just return immediately
@@ -55,7 +55,7 @@ class PerformanceOptimizedFixtures:
     
     @staticmethod
     @pytest.fixture
-    def optimized_timeout_context():
+    def optimized_timeout_context() -> None:
         """Provide optimized timeout context for tests."""
         async def fast_timeout(coro, timeout):
             # Immediately raise timeout for performance testing
@@ -66,7 +66,7 @@ class PerformanceOptimizedFixtures:
     
     @staticmethod
     @pytest.fixture
-    def batch_async_operations():
+    def batch_async_operations() -> None:
         """Optimize batch async operations for better performance."""
         async def run_batch(operations: List[Callable]):
             # Run operations concurrently for better performance

@@ -1,5 +1,6 @@
+from typing import Any, Optional, Tuple, ClassVar
 import datetime as dt
-from datetime import timedelta
+from datetime import timedelta, datetime
 from dateutil.parser import isoparse
 from dateutil.relativedelta import relativedelta
 from modules.const import KYIV_TZ
@@ -7,7 +8,17 @@ from modules.logger import general_logger
 from unittest.mock import MagicMock
 
 class Reminder:
-    def __init__(self, task, frequency, delay, date_modifier, next_execution, user_id, chat_id, user_mention_md=None, reminder_id=None):
+    reminder_id: Optional[int]
+    task: str
+    frequency: Optional[str]
+    delay: Optional[str]
+    date_modifier: Optional[str]
+    next_execution: Optional[dt.datetime]
+    user_id: int
+    chat_id: int
+    user_mention_md: Optional[str]
+
+    def __init__(self, task: str, frequency: Optional[str], delay: Optional[str], date_modifier: Optional[str], next_execution: Optional[dt.datetime], user_id: int, chat_id: int, user_mention_md: Optional[str] = None, reminder_id: Optional[int] = None) -> None:
         self.reminder_id = reminder_id
         self.task = task
         self.frequency = frequency
@@ -18,9 +29,8 @@ class Reminder:
         self.chat_id = chat_id
         self.user_mention_md = user_mention_md
 
-    def calculate_next_execution(self):
-        now = dt.datetime.now(KYIV_TZ)
-
+    def calculate_next_execution(self) -> None:
+        now: dt.datetime = dt.datetime.now(KYIV_TZ)
         if self.date_modifier:
             if self.date_modifier == 'first day of every month':
                 self._calc_first_month(now)
@@ -28,10 +38,8 @@ class Reminder:
             elif self.date_modifier == 'last day of every month':
                 self._calc_last_month(now)
                 return
-
         if not self.frequency:
             return
-
         if self.frequency == 'daily':
             self._advance_daily(now)
         elif self.frequency == 'weekly':
@@ -40,20 +48,14 @@ class Reminder:
             self._advance_monthly(now)
         elif self.frequency == 'yearly':
             self._advance_yearly(now)
-    
-    def _advance_daily(self, now):
-        # Ensure both datetimes are timezone-aware
+
+    def _advance_daily(self, now: dt.datetime) -> None:
         if now.tzinfo is None:
             now = KYIV_TZ.localize(now)
-        
         if self.next_execution:
-            # Ensure next_execution is timezone-aware
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
-            
-            # If the next execution time has passed
             if self.next_execution <= now:
-                # Set to today at the same time if that hasn't passed yet
                 today_at_time = dt.datetime(
                     now.year,
                     now.month,
@@ -63,20 +65,15 @@ class Reminder:
                     self.next_execution.second,
                     tzinfo=self.next_execution.tzinfo
                 )
-                
                 if today_at_time <= now:
-                    # If today's time has also passed, set to tomorrow using timedelta
                     self.next_execution = today_at_time + timedelta(days=1)
                     general_logger.debug(f"Daily reminder time passed today, adjusted to tomorrow: {self.next_execution}")
                 else:
-                    # Set to today's time since it hasn't passed yet
                     self.next_execution = today_at_time
                     general_logger.debug(f"Daily reminder set to today's time: {self.next_execution}")
             else:
-                # Keep the current next_execution time since it hasn't passed yet
                 general_logger.debug(f"Daily reminder time hasn't passed yet, keeping current time: {self.next_execution}")
         else:
-            # For new reminders, start from today if the time hasn't passed, otherwise tomorrow
             today_at_time = dt.datetime(
                 now.year,
                 now.month,
@@ -86,167 +83,121 @@ class Reminder:
                 0,
                 tzinfo=now.tzinfo
             )
-            
-            # If the time has passed today, start from tomorrow using timedelta
             if today_at_time <= now:
                 self.next_execution = today_at_time + timedelta(days=1)
                 general_logger.debug(f"New daily reminder time passed today, starting from tomorrow: {self.next_execution}")
             else:
                 self.next_execution = today_at_time
                 general_logger.debug(f"New daily reminder starting from today: {self.next_execution}")
-    
-    def _advance_weekly(self, now):
-        # Handle MagicMock objects
+
+    def _advance_weekly(self, now: dt.datetime) -> None:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
-
         if self.next_execution:
-            # Ensure both datetimes are timezone-aware
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
             if self.next_execution <= now:
-                self.next_execution += timedelta(weeks=1)
+                self.next_execution = self.next_execution + timedelta(weeks=1)
         elif not self.next_execution:
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
-            self.next_execution = now + timedelta(weeks=1)
-    
-    def _advance_monthly(self, now):
-        # Handle MagicMock objects
+            self.next_execution = (now + timedelta(weeks=1)) if isinstance(now, dt.datetime) else None
+
+    def _advance_monthly(self, now: dt.datetime) -> None:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
-
         if self.next_execution:
-            # Ensure both datetimes are timezone-aware
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
             if self.next_execution <= now:
-                self.next_execution += relativedelta(months=1)
+                next_exec = self.next_execution + relativedelta(months=1)
+                if isinstance(next_exec, datetime):
+                    self.next_execution = next_exec
         elif not self.next_execution:
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
-            self.next_execution = now + relativedelta(months=1)
-    
-    def _advance_yearly(self, now):
-        # Handle MagicMock objects
+            next_exec = now + relativedelta(months=1)
+            if isinstance(next_exec, datetime):
+                self.next_execution = next_exec
+
+    def _advance_yearly(self, now: dt.datetime) -> None:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
-
         if self.next_execution:
-            # Ensure both datetimes are timezone-aware
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
-            
-            # If the next execution time has passed
             if self.next_execution <= now:
-                # Keep the same month and day, but advance to next year
                 self.next_execution = self.next_execution.replace(year=self.next_execution.year + 1)
                 general_logger.debug(f"Yearly reminder advanced to next year: {self.next_execution}")
         elif not self.next_execution:
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
-            # For new reminders, start from next year
             self.next_execution = now.replace(year=now.year + 1)
             general_logger.debug(f"New yearly reminder set for next year: {self.next_execution}")
 
-    def _calc_first_month(self, now):
-        # Handle MagicMock objects
+    def _calc_first_month(self, now: dt.datetime) -> None:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
-
-        # Ensure both datetimes are timezone-aware
         if now.tzinfo is None:
             now = KYIV_TZ.localize(now)
         if self.next_execution and self.next_execution.tzinfo is None:
             self.next_execution = KYIV_TZ.localize(self.next_execution)
-
-        # Log input values for debugging
         general_logger.debug(f"_calc_first_month: now={now}, next_execution={self.next_execution}")
-        
-        # If we have a next_execution date, use that as the base
         base_date = self.next_execution if self.next_execution else now
-        
-        # Move to the first day of the next month relative to the base date
         if base_date.month == 12:
             first_of_next = dt.datetime(base_date.year + 1, 1, 1, tzinfo=KYIV_TZ)
         else:
             first_of_next = dt.datetime(base_date.year, base_date.month + 1, 1, tzinfo=KYIV_TZ)
-        
-        # If the calculated date is in the past, move to the month after next
         if first_of_next <= now:
             if first_of_next.month == 12:
                 first_of_next = dt.datetime(first_of_next.year + 1, 1, 1, tzinfo=KYIV_TZ)
             else:
                 first_of_next = dt.datetime(first_of_next.year, first_of_next.month + 1, 1, tzinfo=KYIV_TZ)
-        
-        # Set the time
         hour = self.next_execution.hour if self.next_execution else 9
         minute = self.next_execution.minute if self.next_execution else 0
         self.next_execution = first_of_next.replace(hour=hour, minute=minute, second=0, microsecond=0, tzinfo=KYIV_TZ)
-        
-        # Log final next_execution
         general_logger.debug(f"_calc_first_month: final next_execution = {self.next_execution}")
 
-    def _calc_last_month(self, now):
-        """Calculate last day of next month"""
-        # Handle MagicMock objects
+    def _calc_last_month(self, now: dt.datetime) -> None:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
-
-        # Ensure both datetimes are timezone-aware
         if now.tzinfo is None:
             now = KYIV_TZ.localize(now)
         if self.next_execution and self.next_execution.tzinfo is None:
             self.next_execution = KYIV_TZ.localize(self.next_execution)
-
-        # Log input values for debugging
         general_logger.debug(f"_calc_last_month: now={now}, next_execution={self.next_execution}")
-        
-        # If we have a next_execution date, use that as the base
         base_date = self.next_execution if self.next_execution else now
-        
-        # Move to the first day of the next month relative to the base date
         if base_date.month == 12:
             first_of_next = dt.datetime(base_date.year + 1, 1, 1, tzinfo=KYIV_TZ)
         else:
             first_of_next = dt.datetime(base_date.year, base_date.month + 1, 1, tzinfo=KYIV_TZ)
-        
-        # Calculate the last day of that month
         if first_of_next.month == 12:
             end = dt.datetime(first_of_next.year + 1, 1, 1, tzinfo=KYIV_TZ) - timedelta(days=1)
         else:
             end = dt.datetime(first_of_next.year, first_of_next.month + 1, 1, tzinfo=KYIV_TZ) - timedelta(days=1)
-        
-        # Log calculated end date
         general_logger.debug(f"_calc_last_month: calculated end date = {end}")
-                
         hour = self.next_execution.hour if self.next_execution else 9
         minute = self.next_execution.minute if self.next_execution else 0
         self.next_execution = end.replace(hour=hour, minute=minute, second=0, microsecond=0, tzinfo=KYIV_TZ)
-        
-        # Log final next_execution
         general_logger.debug(f"_calc_last_month: final next_execution = {self.next_execution}")
 
-    def to_tuple(self):
-        """Convert the reminder to a tuple for database storage."""
-        next_execution_str = None
+    def to_tuple(self) -> Tuple[Optional[int], str, Optional[str], Optional[str], Optional[str], Optional[str], int, int, Optional[str]]:
+        next_execution_str: Optional[str] = None
         if self.next_execution:
-            # Ensure the datetime is timezone-aware
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
             next_execution_str = self.next_execution.isoformat()
-
         return (
             self.reminder_id,
             self.task,
@@ -260,16 +211,13 @@ class Reminder:
         )
 
     @classmethod
-    def from_tuple(cls, data):
-        """Create a reminder from a tuple from the database."""
+    def from_tuple(cls, data: Tuple[Any, ...]) -> 'Reminder':
         reminder_id, task, frequency, delay, date_modifier, next_execution_str, user_id, chat_id, user_mention_md = data
-        next_execution = None
+        next_execution: Optional[dt.datetime] = None
         if next_execution_str:
             next_execution = isoparse(next_execution_str)
-            # Ensure the datetime is timezone-aware
             if next_execution.tzinfo is None:
                 next_execution = KYIV_TZ.localize(next_execution)
-
         return cls(
             task=task,
             frequency=frequency,

@@ -42,7 +42,7 @@ class Event:
     data: Dict[str, Any]
     event_id: Optional[str] = None
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.event_id is None:
             import uuid
             self.event_id = str(uuid.uuid4())
@@ -87,14 +87,14 @@ class AsyncEventObserver(EventObserver):
 class EventBus:
     """Central event bus for managing events and observers."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._observers: Dict[EventType, List[EventObserver]] = {}
         self._global_observers: List[EventObserver] = []
         self._event_history: List[Event] = []
         self._max_history_size = 1000
         self._running = False
-        self._event_queue = asyncio.Queue()
-        self._processor_task: Optional[asyncio.Task] = None
+        self._event_queue: asyncio.Queue[Event] = asyncio.Queue()
+        self._processor_task: Optional[asyncio.Task[None]] = None
     
     def subscribe(self, observer: EventObserver) -> None:
         """Subscribe an observer to events."""
@@ -146,7 +146,7 @@ class EventBus:
         self, 
         event_type: EventType, 
         source: str, 
-        data: Dict[str, Any] = None
+        data: Optional[Dict[str, Any]] = None
     ) -> None:
         """Publish an event with the given parameters."""
         event = Event(
@@ -307,7 +307,7 @@ class ErrorEvent(Event):
 class LoggingObserver(EventObserver):
     """Observer that logs all events."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger(f"{__name__}.LoggingObserver")
     
     async def handle_event(self, event: Event) -> None:
@@ -322,8 +322,8 @@ class LoggingObserver(EventObserver):
 class MetricsObserver(EventObserver):
     """Observer that collects metrics from events."""
     
-    def __init__(self):
-        self.metrics = {
+    def __init__(self) -> None:
+        self.metrics: Dict[str, Any] = {
             "total_events": 0,
             "events_by_type": {},
             "errors_count": 0,

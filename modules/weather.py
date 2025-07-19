@@ -1,7 +1,7 @@
 """Weather module for fetching and displaying weather information."""
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Any
 import time
 import httpx
 from telegram import Update
@@ -46,7 +46,7 @@ class WeatherData:
     timezone_offset: int  # seconds from UTC
     local_time: int      # unix timestamp (UTC)
 
-    async def get_clothing_advice(self, update: Update = None, context: CallbackContext = None) -> WeatherCommand:
+    async def get_clothing_advice(self, update: Optional[Update] = None, context: Optional[CallbackContext[Any, Any, Any, Any]] = None) -> WeatherCommand:
         # Convert local_time to local time string
         from datetime import datetime, timezone, timedelta
         local_dt = datetime.utcfromtimestamp(self.local_time) + timedelta(seconds=self.timezone_offset)
@@ -57,41 +57,25 @@ class WeatherData:
         Вологість: {self.humidity}%
         Погода: {self.description}
         """
-        try:
-            advice = await gpt_response(update, context, response_type="weather", message_text_override=prompt, return_text=True)
-            general_logger.info(f"Clothing advice: {advice}")
-            return WeatherCommand(
-                temperature=self.temperature,
-                feels_like=self.feels_like,
-                description=self.description,
-                clothing_advice=advice
-            )
-        except httpx.HTTPStatusError as e:
-            error_logger.error(f"HTTP status error getting clothing advice: {e}")
-            return WeatherCommand(
-                temperature=self.temperature,
-                feels_like=self.feels_like,
-                description=self.description,
-                clothing_advice=""
-            )
-        except httpx.RequestError as e:
-            error_logger.error(f"Request error getting clothing advice: {e}")
-            return WeatherCommand(
-                temperature=self.temperature,
-                feels_like=self.feels_like,
-                description=self.description,
-                clothing_advice=""
-            )
-        except Exception as e:
-            error_logger.error(f"Unexpected error getting clothing advice: {e}")
-            return WeatherCommand(
-                temperature=self.temperature,
-                feels_like=self.feels_like,
-                description=self.description,
-                clothing_advice=""
-            )
+        advice: str = ""
+        if update is not None and context is not None:
+            try:
+                advice = await gpt_response(update, context, response_type="weather", message_text_override=prompt, return_text=True)
+                general_logger.info(f"Clothing advice: {advice}")
+            except httpx.HTTPStatusError as e:
+                error_logger.error(f"HTTP status error getting clothing advice: {e}")
+            except httpx.RequestError as e:
+                error_logger.error(f"Request error getting clothing advice: {e}")
+            except Exception as e:
+                error_logger.error(f"Unexpected error getting clothing advice: {e}")
+        return WeatherCommand(
+            temperature=self.temperature,
+            feels_like=self.feels_like,
+            description=self.description,
+            clothing_advice=advice or ""
+        )
 
-    async def format_message(self, update: Update = None, context: CallbackContext = None) -> str:
+    async def format_message(self, update: Optional[Update] = None, context: Optional[CallbackContext[Any, Any, Any, Any]] = None) -> str:
         """Format weather data into a readable message."""
         weather_emoji = await get_weather_emoji(self.weather_id)
         country_flag = country_code_to_emoji(self.country_code)
@@ -118,7 +102,7 @@ class WeatherAPI:
     
     BASE_URL = "http://api.openweathermap.org/data/2.5/weather"
     
-    def __init__(self):
+    def __init__(self) -> None:
         # Cache structure: {city: (weather_data, timestamp)}
         self.cache: Dict[str, Tuple[WeatherData, float]] = {}
         self.api_key = Config.OPENWEATHER_API_KEY
@@ -208,8 +192,6 @@ class WeatherAPI:
             return None
 
 
-from typing import Protocol, Any
-
 class WeatherCommandHandler:
     """Handler for weather-related telegram commands."""
     
@@ -217,7 +199,7 @@ class WeatherCommandHandler:
         self.weather_api = WeatherAPI()
         self.config_manager = ConfigManager()
     
-    async def handle_weather_request(self, city: str, update: Update = None, context: CallbackContext = None) -> str:
+    async def handle_weather_request(self, city: str, update: Optional[Update] = None, context: Optional[CallbackContext[Any, Any, Any, Any]] = None) -> str:
         """Process weather request and return formatted message."""
         weather_data = await self.weather_api.fetch_weather(city)
         if weather_data:
@@ -226,21 +208,22 @@ class WeatherCommandHandler:
     
     async def __call__(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle /weather command."""
-        user_id = update.effective_user.id
-        chat_id = str(update.effective_chat.id) if update.effective_chat else None
+        user_id: Optional[int] = update.effective_user.id if update.effective_user else None
+        chat_id: Optional[int] = update.effective_chat.id if update.effective_chat else None
         
         try:
             if context.args:
                 city = " ".join(context.args)
-                # Save with chat_id for group chats
-                save_user_location(user_id, city, chat_id)
+                if user_id is not None:
+                    save_user_location(user_id, city, chat_id)
             else:
-                # Try to get city for this specific chat first, then fallback to user's default
-                city = get_last_used_city(user_id, chat_id)
+                # get_last_used_city expects (int, Optional[int])
+                city = get_last_used_city(user_id if user_id is not None else 0, chat_id) or ""
                 if not city:
-                    await update.message.reply_text(
-                        "Будь ласка, вкажіть назву міста або задайте його спочатку."
-                    )
+                    if update.message:
+                        await update.message.reply_text(
+                            "Будь ласка, вкажіть назву міста або задайте його спочатку."
+                        )
                     return
             
             # Get weather info and pass update, context parameters
@@ -251,21 +234,25 @@ class WeatherCommandHandler:
                 
         except httpx.HTTPStatusError as e:
             error_logger.error(f"HTTP status error in weather command: {e}")
-            await update.message.reply_text(
-                f"Виникла помилка HTTP при отриманні погоди. {e}."
-            )
+            if update.message:
+                await update.message.reply_text(
+                    f"Виникла помилка HTTP при отриманні погоди. {e}."
+                )
         except httpx.RequestError as e:
             error_logger.error(f"Request error in weather command: {e}")
-            await update.message.reply_text(
-                f"Виникла помилка запиту при отриманні погоди. {e}."
-            )
+            if update.message:
+                await update.message.reply_text(
+                    f"Виникла помилка запиту при отриманні погоди. {e}."
+                )
         except ValueError as e:
             error_logger.error(f"Value error in weather command: {e}")
-            await update.message.reply_text(
-                f"Виникла помилка значення при отриманні погоди. {e}."
-            )
+            if update.message:
+                await update.message.reply_text(
+                    f"Виникла помилка значення при отриманні погоди. {e}."
+                )
         except Exception as e:
             error_logger.error(f"Unexpected error in weather command: {e}")
-            await update.message.reply_text(
-                f"Виникла несподівана помилка при отриманні погоди. {e}."
-            )
+            if update.message:
+                await update.message.reply_text(
+                    f"Виникла несподівана помилка при отриманні погоди. {e}."
+                )

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from modules.handlers import speech_commands
 
 @pytest.mark.asyncio
-async def test_speech_command_admin_on():
+async def test_speech_command_admin_on() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.effective_chat.type = "group"
@@ -20,7 +20,7 @@ async def test_speech_command_admin_on():
         update.message.reply_text.assert_awaited_with("Speech recognition enabled.")
 
 @pytest.mark.asyncio
-async def test_speech_command_non_admin():
+async def test_speech_command_non_admin() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.effective_chat.type = "group"
@@ -36,7 +36,7 @@ async def test_speech_command_non_admin():
         update.message.reply_text.assert_awaited_with("❌ Only admins can use this command.")
 
 @pytest.mark.asyncio
-async def test_speech_command_invalid_args():
+async def test_speech_command_invalid_args() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.effective_chat.type = "group"
@@ -52,7 +52,7 @@ async def test_speech_command_invalid_args():
         update.message.reply_text.assert_awaited_with("Usage: /speech on|off")
 
 @pytest.mark.asyncio
-async def test_speech_command_config_update():
+async def test_speech_command_config_update() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.effective_chat.type = "group"
@@ -70,14 +70,14 @@ async def test_speech_command_config_update():
         update.message.reply_text.assert_awaited_with("Speech recognition disabled.")
 
 @pytest.mark.asyncio
-async def test_get_speech_config():
+async def test_get_speech_config() -> None:
     config_manager = AsyncMock()
     config_manager.get_config = AsyncMock(return_value={"config_modules": {"speechmatics": {"foo": "bar"}}})
     result = await speech_commands.get_speech_config("1", "group", config_manager)
     assert result == {"foo": "bar"}
 
 @pytest.mark.asyncio
-async def test_is_admin_private():
+async def test_is_admin_private() -> None:
     update = MagicMock()
     update.effective_chat.type = "private"
     context = MagicMock()
@@ -85,7 +85,7 @@ async def test_is_admin_private():
     assert result is True
 
 @pytest.mark.asyncio
-async def test_is_admin_group_admin():
+async def test_is_admin_group_admin() -> None:
     update = MagicMock()
     update.effective_chat.type = "group"
     update.effective_chat.id = 1
@@ -96,7 +96,7 @@ async def test_is_admin_group_admin():
     assert result is True
 
 @pytest.mark.asyncio
-async def test_is_admin_group_non_admin():
+async def test_is_admin_group_non_admin() -> None:
     update = MagicMock()
     update.effective_chat.type = "group"
     update.effective_chat.id = 1
@@ -107,7 +107,7 @@ async def test_is_admin_group_non_admin():
     assert result is False
 
 @pytest.mark.asyncio
-async def test_is_admin_group_exception():
+async def test_is_admin_group_exception() -> None:
     update = MagicMock()
     update.effective_chat.type = "group"
     update.effective_chat.id = 1

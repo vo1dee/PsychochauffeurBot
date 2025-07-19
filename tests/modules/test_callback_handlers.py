@@ -1,9 +1,10 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from modules.handlers import callback_handlers
+import typing
 
 @pytest.mark.asyncio
-async def test_button_callback_delegates():
+async def test_button_callback_delegates() -> None:
     update = MagicMock()
     context = MagicMock()
     with patch("modules.handlers.callback_handlers._button_callback", new=AsyncMock()) as mock_btn:
@@ -11,7 +12,7 @@ async def test_button_callback_delegates():
         mock_btn.assert_awaited_once_with(update, context)
 
 @pytest.mark.asyncio
-async def test_speechrec_callback_invalid_prefix():
+async def test_speechrec_callback_invalid_prefix(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "invalid_data"
@@ -22,7 +23,7 @@ async def test_speechrec_callback_invalid_prefix():
     query.edit_message_text.assert_awaited()
 
 @pytest.mark.asyncio
-async def test_speechrec_callback_file_id_not_found():
+async def test_speechrec_callback_file_id_not_found(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "speechrec_hash123"
@@ -34,7 +35,7 @@ async def test_speechrec_callback_file_id_not_found():
         query.edit_message_text.assert_awaited()
 
 @pytest.mark.asyncio
-async def test_speechrec_callback_success():
+async def test_speechrec_callback_success(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "speechrec_hash123"
@@ -48,7 +49,7 @@ async def test_speechrec_callback_success():
             context.bot.send_message.assert_awaited()
 
 @pytest.mark.asyncio
-async def test_speechrec_callback_no_speech():
+async def test_speechrec_callback_no_speech(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "speechrec_hash123"
@@ -62,7 +63,7 @@ async def test_speechrec_callback_no_speech():
             context.bot.send_message.assert_awaited()
 
 @pytest.mark.asyncio
-async def test_speechrec_callback_language_not_expected():
+async def test_speechrec_callback_language_not_expected(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "speechrec_hash123"
@@ -78,7 +79,7 @@ async def test_speechrec_callback_language_not_expected():
             context.bot.send_message.assert_awaited()
 
 @pytest.mark.asyncio
-async def test_speechrec_callback_generic_exception():
+async def test_speechrec_callback_generic_exception(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "speechrec_hash123"
@@ -92,7 +93,7 @@ async def test_speechrec_callback_generic_exception():
             context.bot.send_message.assert_awaited()
 
 @pytest.mark.asyncio
-async def test_language_selection_callback_test_callback():
+async def test_language_selection_callback_test_callback(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "test_callback"
@@ -103,7 +104,7 @@ async def test_language_selection_callback_test_callback():
     query.edit_message_text.assert_awaited_with("✅ Test callback received and handled!")
 
 @pytest.mark.asyncio
-async def test_language_selection_callback_invalid_data():
+async def test_language_selection_callback_invalid_data(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "invalid"
@@ -114,7 +115,7 @@ async def test_language_selection_callback_invalid_data():
     query.edit_message_text.assert_awaited()
 
 @pytest.mark.asyncio
-async def test_language_selection_callback_success():
+async def test_language_selection_callback_success(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "lang_en|hash123"
@@ -129,7 +130,7 @@ async def test_language_selection_callback_success():
         query.edit_message_text.assert_awaited()
 
 @pytest.mark.asyncio
-async def test_language_selection_callback_language_not_expected():
+async def test_language_selection_callback_language_not_expected(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "lang_en|hash123"
@@ -144,7 +145,7 @@ async def test_language_selection_callback_language_not_expected():
         query.edit_message_text.assert_awaited()
 
 @pytest.mark.asyncio
-async def test_language_selection_callback_generic_exception():
+async def test_language_selection_callback_generic_exception(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     query = update.callback_query
     query.data = "lang_en|hash123"

@@ -26,7 +26,7 @@ class TestAsyncTaskManager:
         return AsyncTaskManager()
     
     @pytest.mark.asyncio
-    async def test_task_creation_and_tracking(self, task_manager):
+    async def test_task_creation_and_tracking(self, task_manager) -> None:
         """Test task creation and tracking."""
         async def test_task():
             await asyncio.sleep(0.1)
@@ -42,7 +42,7 @@ class TestAsyncTaskManager:
         assert task_manager.get_task_count() == 0
     
     @pytest.mark.asyncio
-    async def test_task_cancellation(self, task_manager):
+    async def test_task_cancellation(self, task_manager) -> None:
         """Test task cancellation."""
         async def long_running_task():
             await asyncio.sleep(10)

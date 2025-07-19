@@ -232,7 +232,7 @@ async def get_user_chat_stats(chat_id: int, user_id: int) -> Dict[str, Any]:
             'last_message': last_message
         }
 
-async def get_user_chat_stats_with_fallback(chat_id: int, user_id: int, username: str) -> dict:
+async def get_user_chat_stats_with_fallback(chat_id: int, user_id: int, username: str) -> Dict[str, Any]:
     pool = await Database.get_pool()
     async with pool.acquire() as conn:
         # Get all user_ids for this username
@@ -296,7 +296,7 @@ async def get_user_chat_stats_with_fallback(chat_id: int, user_id: int, username
             'last_message': last_message
         } 
 
-async def get_last_message_for_user_in_chat(chat_id: int, user_id: int = None, username: str = None):
+async def get_last_message_for_user_in_chat(chat_id: int, user_id: Optional[int] = None, username: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Get the last message (timestamp, username, text) for a user in a chat.
     If username is provided, will aggregate all user_ids with that username (for username changes).
@@ -330,5 +330,9 @@ async def get_last_message_for_user_in_chat(chat_id: int, user_id: int = None, u
             LIMIT 1
         """, chat_id, list(user_ids))
         if row:
-            return (row['timestamp'], row['username'] or 'Unknown', row['text'])
+            return {
+                'timestamp': row['timestamp'],
+                'username': row['username'] or 'Unknown',
+                'text': row['text']
+            }
         return None 

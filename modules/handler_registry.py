@@ -9,7 +9,8 @@ import logging
 from typing import List
 
 from telegram.ext import Application
-from typing import Any, filters
+from typing import Any
+from telegram.ext import filters
 
 from modules.service_registry import ServiceInterface, service_registry
 from modules.command_processor import CommandProcessor

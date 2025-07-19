@@ -1,17 +1,18 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from modules.count_command import count_command, missing_command
+import typing
 
 class AsyncContextManagerMock:
-    def __init__(self, value):
+    def __init__(self, value) -> None:
         self.value = value
-    async def __aenter__(self):
+    async def __aenter__(self) -> None:
         return self.value
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb) -> None:
         return None
 
 @pytest.mark.asyncio
-async def test_count_command_missing_args():
+async def test_count_command_missing_args() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.message.reply_text = AsyncMock()
@@ -22,7 +23,7 @@ async def test_count_command_missing_args():
     assert "вкажіть одне слово" in update.message.reply_text.await_args[0][0]
 
 @pytest.mark.asyncio
-async def test_count_command_nonalpha_word():
+async def test_count_command_nonalpha_word() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.message.reply_text = AsyncMock()
@@ -33,7 +34,7 @@ async def test_count_command_nonalpha_word():
     assert "лише літери" in update.message.reply_text.await_args[0][0]
 
 @pytest.mark.asyncio
-async def test_count_command_db_error():
+async def test_count_command_db_error() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.message.reply_text = AsyncMock()
@@ -52,7 +53,7 @@ async def test_count_command_db_error():
     (1, "зустрілося 1 раз"),
     (5, "зустрілося 5 разів")
 ])
-async def test_count_command_valid(count, expected):
+async def test_count_command_valid(count: int, expected: str) -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.message.reply_text = AsyncMock()
@@ -69,7 +70,7 @@ async def test_count_command_valid(count, expected):
             assert expected in update.message.reply_text.await_args[0][0]
 
 @pytest.mark.asyncio
-async def test_missing_command_missing_args():
+async def test_missing_command_missing_args() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.message.reply_text = AsyncMock()
@@ -80,7 +81,7 @@ async def test_missing_command_missing_args():
     assert "вкажіть username" in update.message.reply_text.await_args[0][0]
 
 @pytest.mark.asyncio
-async def test_missing_command_user_not_found_and_no_similar():
+async def test_missing_command_user_not_found_and_no_similar() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.message.reply_text = AsyncMock()
@@ -97,7 +98,7 @@ async def test_missing_command_user_not_found_and_no_similar():
             assert "не знайдено в базі даних" in update.message.reply_text.await_args[0][0]
 
 @pytest.mark.asyncio
-async def test_missing_command_user_not_found_but_similar():
+async def test_missing_command_user_not_found_but_similar() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.message.reply_text = AsyncMock()
@@ -114,7 +115,7 @@ async def test_missing_command_user_not_found_but_similar():
             assert "ви мали на увазі" in update.message.reply_text.await_args[0][0]
 
 @pytest.mark.asyncio
-async def test_missing_command_user_with_messages_in_other_chats():
+async def test_missing_command_user_with_messages_in_other_chats() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.effective_chat.title = "Test Chat"
@@ -133,7 +134,7 @@ async def test_missing_command_user_with_messages_in_other_chats():
             assert "інших чатах" in update.message.reply_text.await_args[0][0]
 
 @pytest.mark.asyncio
-async def test_missing_command_user_with_no_messages_anywhere():
+async def test_missing_command_user_with_no_messages_anywhere() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.effective_chat.title = "Test Chat"
@@ -152,7 +153,7 @@ async def test_missing_command_user_with_no_messages_anywhere():
             assert "жодному чаті" in update.message.reply_text.await_args[0][0]
 
 @pytest.mark.asyncio
-async def test_missing_command_valid_last_message():
+async def test_missing_command_valid_last_message() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.effective_chat.title = "Test Chat"

@@ -43,7 +43,7 @@ class TestAsyncInfrastructure(AsyncBaseTestCase):
     """Test the async test infrastructure."""
     
     @pytest.mark.asyncio
-    async def test_async_test_case_setup(self):
+    async def test_async_test_case_setup(self) -> None:
         """Test that async test case sets up correctly."""
         self.assertIsNotNone(self.loop)
         
@@ -56,7 +56,7 @@ class TestAsyncInfrastructure(AsyncBaseTestCase):
         self.assertEqual(result, "async_result")
     
     @pytest.mark.asyncio
-    async def test_run_async_test_helper(self):
+    async def test_run_async_test_helper(self) -> None:
         """Test the run_async_test helper."""
         async def test_coro():
             return "test_result"
