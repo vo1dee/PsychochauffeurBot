@@ -15,7 +15,8 @@ import httpx
 import pytz
 from telegram import Update
 from telegram.ext import CallbackContext
-from typing import Any, ContextTypes
+from typing import Any
+from telegram.ext import ContextTypes
 from openai import AsyncOpenAI
 
 # Local module imports
