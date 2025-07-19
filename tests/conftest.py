@@ -313,9 +313,12 @@ def temp_log_dir(temp_dir):
 @pytest.fixture
 async def test_database():
     """Create a test database instance with proper cleanup."""
-    # Use in-memory SQLite for testing
+    # Use PostgreSQL if DATABASE_URL is set (CI environment), otherwise use SQLite
     original_db_url = os.environ.get('DATABASE_URL')
-    os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+    
+    if not original_db_url or not original_db_url.startswith('postgresql://'):
+        # Use in-memory SQLite for local testing
+        os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
     
     try:
         await Database.initialize()

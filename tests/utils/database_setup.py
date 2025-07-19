@@ -25,17 +25,27 @@ class TestDatabaseManager:
     
     async def setup(self) -> None:
         """Set up the test database."""
-        if self.use_sqlite:
-            await self._setup_sqlite()
-        else:
+        # Check if PostgreSQL is available via DATABASE_URL
+        database_url = os.environ.get('DATABASE_URL')
+        
+        if database_url and database_url.startswith('postgresql://'):
+            # Use PostgreSQL if available (CI environment)
             await self._setup_postgresql()
+        else:
+            # Use SQLite for local testing
+            await self._setup_sqlite()
     
     async def teardown(self) -> None:
         """Tear down the test database."""
-        if self.use_sqlite:
-            await self._teardown_sqlite()
-        else:
+        # Check if PostgreSQL is available via DATABASE_URL
+        database_url = os.environ.get('DATABASE_URL')
+        
+        if database_url and database_url.startswith('postgresql://'):
+            # Use PostgreSQL if available (CI environment)
             await self._teardown_postgresql()
+        else:
+            # Use SQLite for local testing
+            await self._teardown_sqlite()
     
     async def _setup_sqlite(self) -> None:
         """Set up SQLite test database."""
@@ -63,17 +73,24 @@ class TestDatabaseManager:
     
     async def _setup_postgresql(self) -> None:
         """Set up PostgreSQL test database."""
-        # This would require a test PostgreSQL instance
-        # For now, we'll use a mock
-        self.pool = Mock()
-        self.pool.acquire = AsyncMock()
-        self.pool.close = AsyncMock()
-        Database._pool = self.pool
+        # Use the existing DATABASE_URL if it's PostgreSQL, otherwise use SQLite
+        original_url = os.environ.get('DATABASE_URL')
+        
+        if not original_url or not original_url.startswith('postgresql://'):
+            # Fall back to SQLite if no PostgreSQL URL is provided
+            await self._setup_sqlite()
+            return
+        
+        # Initialize the database with PostgreSQL
+        await Database.initialize()
+        
+        # Create test tables
+        await self._create_test_tables()
     
     async def _teardown_postgresql(self) -> None:
         """Tear down PostgreSQL test database."""
-        if self.pool:
-            await self.pool.close()
+        if Database._pool:
+            await Database.close()
         Database._pool = None
     
     async def _create_test_tables(self) -> None:
@@ -136,8 +153,20 @@ class TestDatabaseManager:
             """
         ]
         
-        if self.use_sqlite:
-            # Use sqlite3 directly for table creation
+        # Check if we're using PostgreSQL or SQLite
+        database_url = os.environ.get('DATABASE_URL')
+        
+        if database_url and database_url.startswith('postgresql://'):
+            # Use PostgreSQL
+            pool = await Database.get_pool()
+            async with pool.acquire() as conn:
+                for table_sql in tables:
+                    # Convert SQLite syntax to PostgreSQL
+                    pg_sql = table_sql.replace('AUTOINCREMENT', 'SERIAL')
+                    pg_sql = pg_sql.replace('INTEGER PRIMARY KEY', 'BIGSERIAL PRIMARY KEY')
+                    await conn.execute(pg_sql)
+        else:
+            # Use SQLite
             conn = sqlite3.connect(self.temp_db_path)
             try:
                 for table_sql in tables:
@@ -151,7 +180,24 @@ class TestDatabaseManager:
         if not data:
             return
         
-        if self.use_sqlite:
+        # Check if we're using PostgreSQL or SQLite
+        database_url = os.environ.get('DATABASE_URL')
+        
+        if database_url and database_url.startswith('postgresql://'):
+            # Use PostgreSQL
+            pool = await Database.get_pool()
+            async with pool.acquire() as conn:
+                # Build insert statement
+                columns = list(data[0].keys())
+                placeholders = ', '.join([f'${i+1}' for i in range(len(columns))])
+                sql = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
+                
+                # Insert data
+                for row in data:
+                    values = [row[col] for col in columns]
+                    await conn.execute(sql, *values)
+        else:
+            # Use SQLite
             conn = sqlite3.connect(self.temp_db_path)
             try:
                 # Build insert statement
@@ -170,7 +216,17 @@ class TestDatabaseManager:
     
     async def query_test_data(self, sql: str, params: Optional[tuple] = None) -> List[Dict[str, Any]]:
         """Query test data from the database."""
-        if self.use_sqlite:
+        # Check if we're using PostgreSQL or SQLite
+        database_url = os.environ.get('DATABASE_URL')
+        
+        if database_url and database_url.startswith('postgresql://'):
+            # Use PostgreSQL
+            pool = await Database.get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(sql, *(params or ()))
+                return [dict(row) for row in rows]
+        else:
+            # Use SQLite
             conn = sqlite3.connect(self.temp_db_path)
             conn.row_factory = sqlite3.Row  # Enable dict-like access
             try:
@@ -179,12 +235,19 @@ class TestDatabaseManager:
                 return [dict(row) for row in rows]
             finally:
                 conn.close()
-        
-        return []
     
     async def clear_table(self, table: str) -> None:
         """Clear all data from a table."""
-        if self.use_sqlite:
+        # Check if we're using PostgreSQL or SQLite
+        database_url = os.environ.get('DATABASE_URL')
+        
+        if database_url and database_url.startswith('postgresql://'):
+            # Use PostgreSQL
+            pool = await Database.get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(f"DELETE FROM {table}")
+        else:
+            # Use SQLite
             conn = sqlite3.connect(self.temp_db_path)
             try:
                 conn.execute(f"DELETE FROM {table}")
