@@ -29,11 +29,25 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Database connection configuration with type hints
-DB_HOST: str = os.getenv('DB_HOST', 'localhost')
-DB_PORT: str = os.getenv('DB_PORT', '5432')
-DB_NAME: str = os.getenv('DB_NAME', 'telegram_bot')
-DB_USER: str = os.getenv('DB_USER', 'postgres')
-DB_PASSWORD: str = os.getenv('DB_PASSWORD', '')
+# Support both DATABASE_URL and individual environment variables
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+if DATABASE_URL and DATABASE_URL.startswith('postgresql://'):
+    # Parse DATABASE_URL for PostgreSQL
+    from urllib.parse import urlparse
+    parsed = urlparse(DATABASE_URL)
+    DB_HOST: str = parsed.hostname or 'localhost'
+    DB_PORT: str = str(parsed.port or 5432)
+    DB_NAME: str = parsed.path.lstrip('/') or 'telegram_bot'
+    DB_USER: str = parsed.username or 'postgres'
+    DB_PASSWORD: str = parsed.password or ''
+else:
+    # Use individual environment variables
+    DB_HOST: str = os.getenv('DB_HOST', 'localhost')
+    DB_PORT: str = os.getenv('DB_PORT', '5432')
+    DB_NAME: str = os.getenv('DB_NAME', 'telegram_bot')
+    DB_USER: str = os.getenv('DB_USER', 'postgres')
+    DB_PASSWORD: str = os.getenv('DB_PASSWORD', '')
 
 # Connection pool configuration
 POOL_MIN_SIZE: int = int(os.getenv('DB_POOL_MIN_SIZE', '5'))
