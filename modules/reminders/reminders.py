@@ -14,6 +14,7 @@ from dateutil.tz import tzlocal
 
 from telegram import Update, CallbackQuery
 from telegram.ext import CallbackContext
+from typing import Any
 from unittest.mock import MagicMock
 from modules.reminders.reminder_models import Reminder
 from modules.reminders.reminder_db import ReminderDB
@@ -65,7 +66,7 @@ class ReminderManager:
     # Add an alias for backward compatibility if needed
     delete_reminder = remove_reminder
 
-    async def remind(self, update: Update, context: CallbackContext):
+    async def remind(self, update: Update, context: CallbackContext[Any, Any, Any, Any]):
         args = context.args or []
         chat_id = update.effective_chat.id if update.effective_chat else None  # Keep as int
         chat_type = 'private' if update.effective_chat and update.effective_chat.type == 'private' else 'group'
@@ -629,7 +630,7 @@ class ReminderManager:
                     "• `/remind delete {id}` - delete a reminder"
                 )
 
-    async def send_reminder(self, context: CallbackContext):
+    async def send_reminder(self, context: CallbackContext[Any, Any, Any, Any]):
         rem = context.job.data
 
         escaped_task = escape_markdown(rem.task, version=2)
@@ -670,7 +671,7 @@ class ReminderManager:
                 delay = seconds_until(rem.next_execution)
                 job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
 
-    async def button_callback(self, update: Update, context: CallbackContext):
+    async def button_callback(self, update: Update, context: CallbackContext[Any, Any, Any, Any]):
         """Handle button callbacks for reminder actions."""
         query = update.callback_query
         await query.answer()
@@ -713,7 +714,7 @@ class ReminderManager:
             error_logger.error(f"Error in button callback: {e}", exc_info=True)
             await query.message.edit_text("❌ An error occurred while processing your request.")
 
-    async def list_reminders(self, update: Update, context: CallbackContext):
+    async def list_reminders(self, update: Update, context: CallbackContext[Any, Any, Any, Any]):
         """List all active reminders in a visually appealing format."""
         chat_id = update.effective_chat.id
         user_reminders = [r for r in self.reminders if r.chat_id == chat_id]

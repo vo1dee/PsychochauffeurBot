@@ -23,6 +23,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
     CallbackContext, CallbackQueryHandler, ContextTypes, Application
 )
+from typing import Any, Dict
 from telegram.error import BadRequest
 
 # Local module imports
@@ -78,7 +79,7 @@ reminder_manager = ReminderManager()
 config_manager = ConfigManager()
 
 # Global persistent mapping for file_id hashes
-file_id_hash_map = {}
+file_id_hash_map: Dict[str, str] = {}
 
 # --- Command Handlers ---
 @handle_errors(feedback_message="An error occurred in /start command.")
@@ -114,7 +115,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     general_logger.info(f"Handled /start command for user {update.effective_user.id}")
 
 @handle_errors(feedback_message="An error occurred while processing your message.")
-async def handle_message(update: Update, context: CallbackContext) -> None:
+async def handle_message(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle incoming non-command text messages."""
     if not update.message or not update.message.text:
         return
@@ -142,6 +143,9 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         return
     # --- END БЛЯ! TRANSLATION COMMAND ---
 
+    if update.effective_chat is None:
+        print("[DEBUG] No effective chat found in update")
+        return
     chat_id = update.effective_chat.id
     
     # Update chat history for context using the global manager
@@ -217,8 +221,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         await process_urls(update, context, modified_links, cleaned_text)
 
 @handle_errors(feedback_message="An error occurred while processing your links.")
-async def process_urls(update: Update, context: CallbackContext, urls: list[str], message_text: str) -> None:
+async def process_urls(update: Update, context: CallbackContext[Any, Any, Any, Any], urls: list[str], message_text: str) -> None:
     """Process URLs in the message."""
+    if update.effective_chat is None:
+        print("[DEBUG] No effective chat found in update")
+        return
     chat_id = update.effective_chat.id
     username = update.message.from_user.username or f"ID:{update.message.from_user.id}"
     
@@ -232,7 +239,7 @@ async def construct_and_send_message(
     cleaned_message_text: str,
     modified_links: list[str],
     update: Update,
-    context: CallbackContext
+    context: CallbackContext[Any, Any, Any, Any]
 ) -> None:
     """Construct and send a message with modified links."""
     try:
@@ -272,7 +279,7 @@ async def construct_and_send_message(
         raise
 
 @handle_errors(feedback_message="An error occurred while handling sticker.")
-async def handle_sticker(update: Update, context: CallbackContext) -> None:
+async def handle_sticker(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle sticker messages."""
     if not update.message or not update.message.sticker:
         return
@@ -290,7 +297,7 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         await handle_restriction_sticker(update, context)
 
 @handle_errors(feedback_message="An error occurred while handling location.")
-async def handle_location(update: Update, context: CallbackContext) -> None:
+async def handle_location(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle location messages by replying with a sticker."""
     if not update.message or not update.message.location:
         return
@@ -396,8 +403,11 @@ async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAU
 
 # --- Speech Recognition Callback Handler ---
 @handle_errors(feedback_message="An error occurred during manual speech recognition.")
-async def speechrec_callback(update: Update, context: CallbackContext):
+async def speechrec_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]):
     query = update.callback_query
+    if query is None:
+        print("[DEBUG] No callback query found in update")
+        return
     await query.answer()
     data = query.data
     # Debug log for callback data
@@ -416,11 +426,17 @@ async def speechrec_callback(update: Update, context: CallbackContext):
     await query.edit_message_text("🔄 Recognizing speech, please wait...")
     try:
         transcript = await transcribe_telegram_voice(context.bot, file_id, language="auto")
+        if update.effective_chat is None:
+            print("[DEBUG] No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"🗣️ Recognized speech:\n{transcript}"
         )
     except SpeechmaticsNoSpeechDetected:
+        if update.effective_chat is None:
+            print("[DEBUG] No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="❌ No speech was detected in the audio. Please try again with a clearer voice message."
@@ -429,12 +445,18 @@ async def speechrec_callback(update: Update, context: CallbackContext):
         file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
         file_id_hash_map[file_hash] = file_id
         keyboard = get_language_keyboard(file_hash)
+        if update.effective_chat is None:
+            print("[DEBUG] No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="❌ Couldn't recognize the language. Please choose the correct language:",
             reply_markup=keyboard
         )
     except Exception as e:
+        if update.effective_chat is None:
+            print("[DEBUG] No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"❌ Speech recognition failed: {e}"
@@ -442,10 +464,13 @@ async def speechrec_callback(update: Update, context: CallbackContext):
 
 # --- Restore language_selection_callback for language selection buttons ---
 @handle_errors(feedback_message="An error occurred during manual language selection.")
-async def language_selection_callback(update: Update, context: CallbackContext):
+async def language_selection_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]):
     print("[DEBUG] Callback handler entered (any callback)")
     print(f"[DEBUG] Full update: {update}")
     query = update.callback_query
+    if query is None:
+        print("[DEBUG] No callback query found in update")
+        return
     await query.answer()
     data = query.data
     print(f"[DEBUG] Language selection callback triggered. Data: {data}")
@@ -507,7 +532,7 @@ async def send_speech_recognition_button(update, context):
         reply_markup=keyboard
     )
 
-def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
+def register_handlers(application: Application[Any, Any, Any, Any, Any, Any], bot: Bot, config_manager: ConfigManager) -> None:
     """Register all command and message handlers in the correct order."""
     
     # Group 0: General logger for all messages (non-blocking).

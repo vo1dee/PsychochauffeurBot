@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler, MessageHandler, filters
+from typing import Any
 
 from modules.service_registry import ServiceInterface
 from modules.error_handler import handle_errors
@@ -116,7 +117,7 @@ class CallbackQueryHandler(BaseCommandHandler):
         self.pattern = pattern
     
     @handle_errors(feedback_message="An error occurred while processing the callback.")
-    async def handle(self, update: Update, context: CallbackContext) -> None:
+    async def handle(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle the callback query."""
         if not await self.can_execute(update, context):
             await update.callback_query.answer("❌ You don't have permission to use this feature.")

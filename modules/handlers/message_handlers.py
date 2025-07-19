@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
+from typing import Any
 
 from modules.service_registry import service_registry
 from modules.shared_constants import StickerIds, ConfigKeys
@@ -40,7 +41,7 @@ logger = logging.getLogger(__name__)
 file_id_hash_map: Dict[str, str] = {}
 
 
-async def handle_message(update: Update, context: CallbackContext) -> None:
+async def handle_message(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle incoming non-command text messages."""
     if not update.message or not update.message.text:
         return
@@ -189,7 +190,7 @@ async def handle_random_gpt_response(
 
 async def process_urls(
     update: Update, 
-    context: CallbackContext, 
+    context: CallbackContext[Any, Any, Any, Any], 
     urls: List[str], 
     message_text: str
 ) -> None:
@@ -207,7 +208,7 @@ async def construct_and_send_message(
     cleaned_message_text: str,
     modified_links: List[str],
     update: Update,
-    context: CallbackContext
+    context: CallbackContext[Any, Any, Any, Any]
 ) -> None:
     """Construct and send a message with modified links."""
     try:

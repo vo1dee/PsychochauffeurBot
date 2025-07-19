@@ -14,7 +14,8 @@ from PIL import Image
 import httpx
 import pytz
 from telegram import Update
-from telegram.ext import CallbackContext, ContextTypes
+from telegram.ext import CallbackContext
+from typing import Any, ContextTypes
 from openai import AsyncOpenAI
 
 # Local module imports
@@ -258,7 +259,7 @@ async def optimize_image(image_bytes: bytes) -> bytes:
 async def analyze_image(
     image_bytes: bytes, 
     update: Optional[Update] = None, 
-    context: Optional[CallbackContext] = None, 
+    context: Optional[CallbackContext[Any, Any, Any, Any]] = None, 
     return_text: bool = False
 ) -> str:
     """
@@ -342,7 +343,7 @@ async def analyze_image(
         return "Error analyzing image."
 
 
-async def get_context_messages(update: Update, context: CallbackContext, response_type: str = "command") -> List[Dict[str, str]]:
+async def get_context_messages(update: Update, context: CallbackContext[Any, Any, Any, Any], response_type: str = "command") -> List[Dict[str, str]]:
     """
     Get context messages for GPT response.
     
@@ -484,7 +485,7 @@ async def check_api_health() -> bool:
 
 async def gpt_response(
     update: Update, 
-    context: CallbackContext, 
+    context: CallbackContext[Any, Any, Any, Any], 
     response_type: str = "command",
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
@@ -626,7 +627,7 @@ async def ask_gpt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def answer_from_gpt(
     prompt: str, 
     update: Optional[Update] = None, 
-    context: Optional[CallbackContext] = None, 
+            context: Optional[CallbackContext[Any, Any, Any, Any]] = None,  
     return_text: bool = False
 ) -> Optional[str]:
     """

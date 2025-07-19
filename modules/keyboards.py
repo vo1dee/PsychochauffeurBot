@@ -3,6 +3,7 @@ import os
 import re
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext
+from typing import Any
 from modules.logger import general_logger,error_logger
 from urllib.parse import urlparse, urlunparse
 
@@ -146,7 +147,7 @@ LANGUAGE_OPTIONS_CONFIG = [
     }
 ]
 
-async def button_callback(update: Update, context: CallbackContext):
+async def button_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]):
     """Handle button callbacks for link modifications and video downloads."""
     query = update.callback_query
     await query.answer()
@@ -287,7 +288,7 @@ async def button_callback(update: Update, context: CallbackContext):
 
 
 
-def create_link_keyboard(link, context=None):
+def create_link_keyboard(link: str, context: Optional[CallbackContext[Any, Any, Any, Any]] = None) -> Optional[InlineKeyboardMarkup]:
     """
     Create an inline keyboard for link modifications.
     Handles both single links and lists of links.
@@ -336,7 +337,7 @@ def create_link_keyboard(link, context=None):
     return InlineKeyboardMarkup(buttons)
 
 
-def create_language_menu(link, link_hash):
+def create_language_menu(link: str, link_hash: str) -> Optional[InlineKeyboardMarkup]:
     """Create language selection menu"""
     buttons = []
     
@@ -358,7 +359,7 @@ def create_language_menu(link, link_hash):
 
 
 
-def modify_language(link, lang):
+def modify_language(link: str, lang: str) -> str:
     """Modify link language"""
     base_link = link
     
@@ -374,7 +375,7 @@ def modify_language(link, lang):
         return f"{base_link}/{lang}"
     return base_link
 
-def get_language_keyboard(file_hash):
+def get_language_keyboard(file_hash: str) -> InlineKeyboardMarkup:
     """
     Create a language selection keyboard for speech recognition.
     The callback_data uses a short file_hash, not the raw file_id, to comply with Telegram limits.
