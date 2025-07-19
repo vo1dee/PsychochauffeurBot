@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from modules.handlers import gpt_commands
 
 @pytest.mark.asyncio
-async def test_ask_gpt_command_calls_ask_gpt():
+async def test_ask_gpt_command_calls_ask_gpt() -> None:
     update = MagicMock()
     context = MagicMock()
     with patch("modules.handlers.gpt_commands._ask_gpt", new=AsyncMock()) as mock_ask_gpt:
@@ -11,7 +11,7 @@ async def test_ask_gpt_command_calls_ask_gpt():
         mock_ask_gpt.assert_awaited_once_with(update, context)
 
 @pytest.mark.asyncio
-async def test_analyze_command_calls_analyze():
+async def test_analyze_command_calls_analyze() -> None:
     update = MagicMock()
     context = MagicMock()
     with patch("modules.handlers.gpt_commands._analyze", new=AsyncMock()) as mock_analyze:
@@ -19,7 +19,7 @@ async def test_analyze_command_calls_analyze():
         mock_analyze.assert_awaited_once_with(update, context)
 
 @pytest.mark.asyncio
-async def test_mystats_command_calls_mystats():
+async def test_mystats_command_calls_mystats() -> None:
     update = MagicMock()
     context = MagicMock()
     with patch("modules.handlers.gpt_commands._mystats", new=AsyncMock()) as mock_mystats:

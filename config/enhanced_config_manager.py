@@ -22,7 +22,7 @@ try:
     WATCHDOG_AVAILABLE = True
 except ImportError:
     Observer = None
-    FileSystemEventHandler = None
+    FileSystemEventHandler = object
     WATCHDOG_AVAILABLE = False
 
 from modules.service_registry import ServiceInterface
@@ -61,7 +61,7 @@ class ConfigSchema:
     version: str
     fields: Dict[str, Any]
     required_fields: List[str] = field(default_factory=list)
-    validators: Dict[str, Callable] = field(default_factory=dict)
+    validators: Dict[str, Callable[..., Any]] = field(default_factory=dict)
     
     def validate(self, config: Dict[str, Any]) -> List[str]:
         """Validate configuration against schema."""
@@ -143,43 +143,47 @@ class ConfigChangeHandler(ABC):
         pass
 
 
+class ConfigWatcher:
+    """File system watcher for configuration changes."""
+    
+    def __init__(self, config_manager: 'EnhancedConfigManager') -> None:
+        self.config_manager = config_manager
+        self.debounce_delay = 1.0  # seconds
+        self.pending_changes: Dict[str, float] = {}
+        
+        if WATCHDOG_AVAILABLE:
+            # Initialize as FileSystemEventHandler
+            FileSystemEventHandler.__init__(self)
+    
+    def on_modified(self, event: Any) -> None:
+        """Handle file modification events."""
+        if not WATCHDOG_AVAILABLE:
+            return
+            
+        if event.is_directory:
+            return
+        
+        file_path = event.src_path
+        if file_path.endswith('.json'):
+            # Debounce rapid changes
+            current_time = asyncio.get_event_loop().time()
+            self.pending_changes[file_path] = current_time
+            
+            # Schedule reload after debounce delay
+            asyncio.create_task(self._debounced_reload(file_path, current_time))
+    
+    async def _debounced_reload(self, file_path: str, change_time: float) -> None:
+        """Reload configuration after debounce delay."""
+        await asyncio.sleep(self.debounce_delay)
+        
+        # Check if this is still the latest change
+        if self.pending_changes.get(file_path) == change_time:
+            await self.config_manager._reload_config_file(file_path)
+            del self.pending_changes[file_path]
+
+# Make ConfigWatcher inherit from FileSystemEventHandler if available
 if WATCHDOG_AVAILABLE:
-    class ConfigWatcher(FileSystemEventHandler):
-        """File system watcher for configuration changes."""
-        
-        def __init__(self, config_manager: 'EnhancedConfigManager'):
-            self.config_manager = config_manager
-            self.debounce_delay = 1.0  # seconds
-            self.pending_changes: Dict[str, float] = {}
-        
-        def on_modified(self, event):
-            """Handle file modification events."""
-            if event.is_directory:
-                return
-            
-            file_path = event.src_path
-            if file_path.endswith('.json'):
-                # Debounce rapid changes
-                current_time = asyncio.get_event_loop().time()
-                self.pending_changes[file_path] = current_time
-                
-                # Schedule reload after debounce delay
-                asyncio.create_task(self._debounced_reload(file_path, current_time))
-        
-        async def _debounced_reload(self, file_path: str, change_time: float):
-            """Reload configuration after debounce delay."""
-            await asyncio.sleep(self.debounce_delay)
-            
-            # Check if this is still the latest change
-            if self.pending_changes.get(file_path) == change_time:
-                await self.config_manager._reload_config_file(file_path)
-                del self.pending_changes[file_path]
-else:
-    class ConfigWatcher:
-        """Dummy watcher when watchdog is not available."""
-        
-        def __init__(self, config_manager: 'EnhancedConfigManager'):
-            self.config_manager = config_manager
+    ConfigWatcher.__bases__ = (FileSystemEventHandler,)
 
 
 class EnhancedConfigManager(ServiceInterface):
@@ -750,12 +754,12 @@ class EnhancedConfigManager(ServiceInterface):
         
         return errors
     
-    def subscribe_to_changes(self, handler):
+    def subscribe_to_changes(self, handler: ConfigChangeHandler) -> None:
         """Subscribe to configuration change events."""
         if handler not in self._change_handlers:
             self._change_handlers.append(handler)
     
-    def unsubscribe_from_changes(self, handler):
+    def unsubscribe_from_changes(self, handler: ConfigChangeHandler) -> None:
         """Unsubscribe from configuration change events."""
         if handler in self._change_handlers:
             self._change_handlers.remove(handler)
@@ -910,7 +914,7 @@ class EnhancedConfigManager(ServiceInterface):
         
         return result
     
-    async def create_backup(self, scope: ConfigScope, key: str) -> str:
+    async def create_backup(self, scope: ConfigScope, key: str) -> Optional[str]:
         """Create a backup of the specified configuration."""
         try:
             config_key = key if scope == ConfigScope.GLOBAL else f"{scope.value}_{key}"

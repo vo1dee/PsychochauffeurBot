@@ -125,14 +125,14 @@ class TestServiceRegistry:
         """Create a fresh service registry for each test."""
         return ServiceRegistry()
     
-    def test_register_singleton(self, registry):
+    def test_register_singleton(self, registry) -> None:
         """Test singleton service registration."""
         registry.register_singleton('test_service', MockService)
         
         assert registry.is_registered('test_service')
         assert 'test_service' in registry.get_registered_services()
     
-    def test_register_transient(self, registry):
+    def test_register_transient(self, registry) -> None:
         """Test transient service registration."""
         registry.register_transient('test_service', MockService)
         
@@ -140,7 +140,7 @@ class TestServiceRegistry:
         service_descriptor = registry._services['test_service']
         assert service_descriptor.scope == ServiceScope.TRANSIENT
     
-    def test_register_scoped(self, registry):
+    def test_register_scoped(self, registry) -> None:
         """Test scoped service registration."""
         registry.register_scoped('test_service', MockService)
         
@@ -148,7 +148,7 @@ class TestServiceRegistry:
         service_descriptor = registry._services['test_service']
         assert service_descriptor.scope == ServiceScope.SCOPED
     
-    def test_register_instance(self, registry):
+    def test_register_instance(self, registry) -> None:
         """Test instance registration."""
         instance = MockService("test_instance")
         registry.register_instance('test_service', instance)
@@ -157,7 +157,7 @@ class TestServiceRegistry:
         assert retrieved is instance
         assert retrieved.name == "test_instance"
     
-    def test_register_factory(self, registry):
+    def test_register_factory(self, registry) -> None:
         """Test factory registration."""
         registry.register_factory(
             'test_service',
@@ -169,7 +169,7 @@ class TestServiceRegistry:
         assert isinstance(service, MockService)
         assert service.name == "factory_created"
     
-    def test_singleton_scope_behavior(self, registry):
+    def test_singleton_scope_behavior(self, registry) -> None:
         """Test that singleton services return the same instance."""
         registry.register_singleton('test_service', MockService)
         
@@ -178,7 +178,7 @@ class TestServiceRegistry:
         
         assert service1 is service2
     
-    def test_transient_scope_behavior(self, registry):
+    def test_transient_scope_behavior(self, registry) -> None:
         """Test that transient services return new instances."""
         registry.register_transient('test_service', MockService)
         
@@ -189,7 +189,7 @@ class TestServiceRegistry:
         assert isinstance(service1, MockService)
         assert isinstance(service2, MockService)
     
-    def test_dependency_injection(self, registry):
+    def test_dependency_injection(self, registry) -> None:
         """Test dependency injection between services."""
         registry.register_singleton('dependency', MockService)
         registry.register_singleton(
@@ -204,7 +204,7 @@ class TestServiceRegistry:
         assert service.has_dependency('dependency')
         assert service.dependency_count == 1
     
-    def test_circular_dependency_detection(self, registry):
+    def test_circular_dependency_detection(self, registry) -> None:
         """Test that circular dependencies are detected."""
         # Create services with circular dependencies
         registry._services['service_a'] = ServiceDescriptor(
@@ -221,7 +221,7 @@ class TestServiceRegistry:
         with pytest.raises(ValueError, match="Circular dependency detected"):
             registry._calculate_initialization_order()
     
-    def test_get_services_by_type(self, registry):
+    def test_get_services_by_type(self, registry) -> None:
         """Test getting services by type."""
         registry.register_singleton('service1', MockService)
         registry.register_singleton('service2', MockService)
@@ -231,13 +231,13 @@ class TestServiceRegistry:
         assert len(mock_services) == 2
         assert all(isinstance(s, MockService) for s in mock_services)
     
-    def test_service_not_found(self, registry):
+    def test_service_not_found(self, registry) -> None:
         """Test error when requesting non-existent service."""
         with pytest.raises(ValueError, match="Service 'nonexistent' is not registered"):
             registry.get_service('nonexistent')
     
     @pytest.mark.asyncio
-    async def test_initialize_services(self, registry):
+    async def test_initialize_services(self, registry) -> None:
         """Test service initialization."""
         registry.register_singleton('test_service', MockService)
         
@@ -247,7 +247,7 @@ class TestServiceRegistry:
         assert service.initialized
     
     @pytest.mark.asyncio
-    async def test_initialize_services_with_dependencies(self, registry):
+    async def test_initialize_services_with_dependencies(self, registry) -> None:
         """Test service initialization with dependencies."""
         registry.register_singleton('dependency', MockService)
         registry.register_singleton(
@@ -265,7 +265,7 @@ class TestServiceRegistry:
         assert service.initialized
     
     @pytest.mark.asyncio
-    async def test_shutdown_services(self, registry):
+    async def test_shutdown_services(self, registry) -> None:
         """Test service shutdown."""
         registry.register_singleton('test_service', MockService)
         
@@ -276,7 +276,7 @@ class TestServiceRegistry:
         
         assert service.shutdown_called
     
-    def test_clear_registry(self, registry):
+    def test_clear_registry(self, registry) -> None:
         """Test clearing the registry."""
         registry.register_singleton('test_service', MockService)
         registry.register_instance('test_instance', MockService())
@@ -289,7 +289,7 @@ class TestServiceRegistry:
         assert not registry.is_registered('test_service')
         assert not registry.is_registered('test_instance')
     
-    def test_multiple_dependency_injection(self, registry):
+    def test_multiple_dependency_injection(self, registry) -> None:
         """Test service with multiple dependencies."""
         registry.register_singleton('service1', MockService)
         registry.register_singleton('service2', MockService)
@@ -307,7 +307,7 @@ class TestServiceRegistry:
         assert isinstance(service.get_dependency('service1'), MockService)
         assert isinstance(service.get_dependency('service2'), MockService)
     
-    def test_dependency_injection_with_custom_names(self, registry):
+    def test_dependency_injection_with_custom_names(self, registry) -> None:
         """Test dependency injection with various dependency names."""
         registry.register_singleton('base_service', MockService)
         registry.register_singleton(
@@ -322,7 +322,7 @@ class TestServiceRegistry:
         assert service.has_dependency('base_service')
         assert service.get_dependency('base_service') is service.dependency
     
-    def test_mock_service_with_dependency_error_handling(self):
+    def test_mock_service_with_dependency_error_handling(self) -> None:
         """Test MockServiceWithDependency error handling for missing dependencies."""
         # Test that creating MockServiceWithDependency without dependencies raises clear error
         with pytest.raises(ValueError) as exc_info:
@@ -333,7 +333,7 @@ class TestServiceRegistry:
         assert "Expected one of: 'dependency', 'base_service', 'service', 'dep'" in error_message
         assert "Received: []" in error_message
     
-    def test_mock_service_with_dependency_unknown_params(self):
+    def test_mock_service_with_dependency_unknown_params(self) -> None:
         """Test MockServiceWithDependency with unknown parameter names."""
         mock_service = MockService("test")
         service = MockServiceWithDependency(unknown_param=mock_service)
@@ -347,7 +347,7 @@ class TestServiceRegistry:
 class TestServiceDescriptor:
     """Test cases for ServiceDescriptor."""
     
-    def test_service_descriptor_creation(self):
+    def test_service_descriptor_creation(self) -> None:
         """Test ServiceDescriptor creation."""
         descriptor = ServiceDescriptor(
             service_type=MockService,
@@ -361,7 +361,7 @@ class TestServiceDescriptor:
         assert descriptor.scope == ServiceScope.SINGLETON
         assert descriptor.dependencies == ['dep1', 'dep2']
     
-    def test_service_descriptor_defaults(self):
+    def test_service_descriptor_defaults(self) -> None:
         """Test ServiceDescriptor default values."""
         descriptor = ServiceDescriptor(
             service_type=MockService,
@@ -384,26 +384,26 @@ class TestDependencyInjectionDecorator:
         registry.register_instance('service2', MockService("service2"))
         return registry
     
-    def test_inject_decorator(self, registry_with_services, monkeypatch):
+    def test_inject_decorator(self, registry_with_services, monkeypatch) -> None:
         """Test the @inject decorator."""
         # Mock the global service registry
         import modules.service_registry
         monkeypatch.setattr(modules.service_registry, 'service_registry', registry_with_services)
         
         @inject('service1', 'service2')
-        def test_function(arg1, service1=None, service2=None):
+        def test_function(arg1, service1=None, service2=None) -> None:
             return arg1, service1.name, service2.name
         
         result = test_function("test_arg")
         assert result == ("test_arg", "service1", "service2")
     
-    def test_inject_decorator_with_existing_kwargs(self, registry_with_services, monkeypatch):
+    def test_inject_decorator_with_existing_kwargs(self, registry_with_services, monkeypatch) -> None:
         """Test @inject decorator when kwargs are already provided."""
         import modules.service_registry
         monkeypatch.setattr(modules.service_registry, 'service_registry', registry_with_services)
         
         @inject('service1')
-        def test_function(service1=None):
+        def test_function(service1=None) -> None:
             return service1.name
         
         # Provide service1 explicitly
@@ -415,12 +415,12 @@ class TestDependencyInjectionDecorator:
 class TestServiceInterface:
     """Test cases for ServiceInterface."""
     
-    def test_service_interface_is_abstract(self):
+    def test_service_interface_is_abstract(self) -> None:
         """Test that ServiceInterface cannot be instantiated directly."""
         with pytest.raises(TypeError):
             ServiceInterface()
     
-    def test_mock_service_implements_interface(self):
+    def test_mock_service_implements_interface(self) -> None:
         """Test that MockService properly implements ServiceInterface."""
         service = MockService()
         assert isinstance(service, ServiceInterface)
@@ -432,7 +432,7 @@ class TestServiceRegistryIntegration:
     """Integration tests for ServiceRegistry."""
     
     @pytest.mark.asyncio
-    async def test_full_lifecycle(self):
+    async def test_full_lifecycle(self) -> None:
         """Test complete service lifecycle."""
         registry = ServiceRegistry()
         
@@ -462,13 +462,13 @@ class TestServiceRegistryIntegration:
         assert dependent_service.shutdown_called
     
     @pytest.mark.asyncio
-    async def test_error_handling_during_initialization(self):
+    async def test_error_handling_during_initialization(self) -> None:
         """Test error handling during service initialization."""
         class FailingService(ServiceInterface):
-            async def initialize(self):
+            async def initialize(self) -> None:
                 raise RuntimeError("Initialization failed")
             
-            async def shutdown(self):
+            async def shutdown(self) -> None:
                 pass
         
         registry = ServiceRegistry()
@@ -478,13 +478,13 @@ class TestServiceRegistryIntegration:
             await registry.initialize_services()
     
     @pytest.mark.asyncio
-    async def test_partial_initialization_cleanup(self):
+    async def test_partial_initialization_cleanup(self) -> None:
         """Test cleanup when initialization partially fails."""
         class FailingService(ServiceInterface):
-            async def initialize(self):
+            async def initialize(self) -> None:
                 raise RuntimeError("Initialization failed")
             
-            async def shutdown(self):
+            async def shutdown(self) -> None:
                 pass
         
         registry = ServiceRegistry()

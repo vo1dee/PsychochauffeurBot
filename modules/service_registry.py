@@ -27,13 +27,13 @@ class ServiceScope(Enum):
 @dataclass
 class ServiceDescriptor:
     """Describes how a service should be created and managed."""
-    service_type: Type
-    implementation: Union[Type, Callable]
+    service_type: Type[Any]
+    implementation: Union[Type[Any], Callable[..., Any]]
     scope: ServiceScope = ServiceScope.SINGLETON
-    dependencies: List[str] = None
-    factory: Optional[Callable] = None
+    dependencies: Optional[List[str]] = None
+    factory: Optional[Callable[..., Any]] = None
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.dependencies is None:
             self.dependencies = []
 
@@ -78,20 +78,20 @@ class ServiceRegistry:
         - Initialization: O(n) where n is number of services
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the service registry with empty containers."""
         self._services: Dict[str, ServiceDescriptor] = {}
         self._instances: Dict[str, Any] = {}
         self._scoped_instances: Dict[str, Dict[str, Any]] = {}
         self._initialization_order: List[str] = []
-        self._initialized_services: set = set()
+        self._initialized_services: set[str] = set()
         
     def register_singleton(
         self, 
         name: str, 
         service_type: Type[T], 
-        implementation: Union[Type[T], Callable[[], T]] = None,
-        dependencies: List[str] = None
+        implementation: Optional[Union[Type[T], Callable[[], T]]] = None,
+        dependencies: Optional[List[str]] = None
     ) -> 'ServiceRegistry':
         """Register a singleton service that will be created once and reused.
         
@@ -129,8 +129,8 @@ class ServiceRegistry:
         self, 
         name: str, 
         service_type: Type[T], 
-        implementation: Union[Type[T], Callable[[], T]] = None,
-        dependencies: List[str] = None
+        implementation: Optional[Union[Type[T], Callable[[], T]]] = None,
+        dependencies: Optional[List[str]] = None
     ) -> 'ServiceRegistry':
         """Register a transient service that creates a new instance for each request.
         
@@ -167,8 +167,8 @@ class ServiceRegistry:
         self, 
         name: str, 
         service_type: Type[T], 
-        implementation: Union[Type[T], Callable[[], T]] = None,
-        dependencies: List[str] = None
+        implementation: Optional[Union[Type[T], Callable[[], T]]] = None,
+        dependencies: Optional[List[str]] = None
     ) -> 'ServiceRegistry':
         """Register a scoped service (one instance per scope)."""
         return self._register_service(
@@ -191,7 +191,7 @@ class ServiceRegistry:
         service_type: Type[T], 
         factory: Callable[['ServiceRegistry'], T],
         scope: ServiceScope = ServiceScope.SINGLETON,
-        dependencies: List[str] = None
+        dependencies: Optional[List[str]] = None
     ) -> 'ServiceRegistry':
         """Register a service with a custom factory function."""
         descriptor = ServiceDescriptor(
@@ -208,9 +208,9 @@ class ServiceRegistry:
         self, 
         name: str, 
         service_type: Type[T], 
-        implementation: Union[Type[T], Callable[[], T]] = None,
+        implementation: Optional[Union[Type[T], Callable[[], T]]] = None,
         scope: ServiceScope = ServiceScope.SINGLETON,
-        dependencies: List[str] = None
+        dependencies: Optional[List[str]] = None
     ) -> 'ServiceRegistry':
         """Internal method to register a service."""
         if implementation is None:
@@ -268,8 +268,9 @@ class ServiceRegistry:
         try:
             # Resolve dependencies first
             dependencies = {}
-            for dep_name in descriptor.dependencies:
-                dependencies[dep_name] = self.get_service(dep_name)
+            if descriptor.dependencies:
+                for dep_name in descriptor.dependencies:
+                    dependencies[dep_name] = self.get_service(dep_name)
             
             # Use custom factory if provided
             if descriptor.factory:
@@ -279,17 +280,10 @@ class ServiceRegistry:
                     return descriptor.factory(self)
             
             # Create instance using implementation
-            if callable(descriptor.implementation):
-                if dependencies:
-                    return descriptor.implementation(**dependencies)
-                else:
-                    return descriptor.implementation()
+            if dependencies:
+                return descriptor.implementation(**dependencies)
             else:
-                # Assume it's a class
-                if dependencies:
-                    return descriptor.implementation(**dependencies)
-                else:
-                    return descriptor.implementation()
+                return descriptor.implementation()
                     
         except Exception as e:
             logger.error(f"Failed to create service '{name}': {e}")
@@ -310,7 +304,7 @@ class ServiceRegistry:
         temp_visited = set()
         order = []
         
-        def visit(service_name: str):
+        def visit(service_name: str) -> None:
             if service_name in temp_visited:
                 raise ValueError(f"Circular dependency detected involving service '{service_name}'")
             if service_name in visited:
@@ -320,8 +314,9 @@ class ServiceRegistry:
             
             if service_name in self._services:
                 descriptor = self._services[service_name]
-                for dep in descriptor.dependencies:
-                    visit(dep)
+                if descriptor.dependencies:
+                    for dep in descriptor.dependencies:
+                        visit(dep)
             
             temp_visited.remove(service_name)
             visited.add(service_name)
@@ -390,7 +385,7 @@ class ServiceRegistry:
 service_registry = ServiceRegistry()
 
 
-def inject(*dependencies: str):
+def inject(*dependencies: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Decorator for dependency injection.
     
@@ -399,8 +394,8 @@ def inject(*dependencies: str):
         def my_function(config_manager, database):
             pass
     """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Inject dependencies
             for dep_name in dependencies:
                 if dep_name not in kwargs:

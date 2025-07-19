@@ -14,7 +14,7 @@ class OpenAIMockFactory:
     """Factory for creating OpenAI API mocks."""
     
     @staticmethod
-    def create_client_mock(responses: Optional[List[str]] = None):
+    def create_client_mock(responses: Optional[List[str]] = None) -> Mock:
         """Create a mock OpenAI client with configurable responses."""
         if responses is None:
             responses = ["Test AI response"]
@@ -22,7 +22,7 @@ class OpenAIMockFactory:
         mock_client = Mock()
         
         # Mock the chat completions create method
-        async def mock_create(*args, **kwargs):
+        async def mock_create(*args: Any, **kwargs: Any) -> Mock:
             response_text = responses[0] if responses else "Default response"
             if len(responses) > 1:
                 responses.pop(0)  # Cycle through responses
@@ -42,7 +42,7 @@ class OpenAIMockFactory:
         return mock_client
     
     @staticmethod
-    def create_error_client_mock(error_type: Exception = Exception("API Error")):
+    def create_error_client_mock(error_type: Exception = Exception("API Error")) -> Mock:
         """Create a mock OpenAI client that raises errors."""
         mock_client = Mock()
         mock_client.chat.completions.create = AsyncMock(side_effect=error_type)
@@ -53,7 +53,7 @@ class WeatherAPIMockFactory:
     """Factory for creating weather API mocks."""
     
     @staticmethod
-    def create_success_mock(weather_data: Optional[Dict[str, Any]] = None):
+    def create_success_mock(weather_data: Optional[Dict[str, Any]] = None) -> Mock:
         """Create a mock weather API that returns successful responses."""
         if weather_data is None:
             weather_data = {
@@ -92,7 +92,7 @@ class WeatherAPIMockFactory:
         return mock_client
     
     @staticmethod
-    def create_error_mock(status_code: int = 404, error_message: str = "City not found"):
+    def create_error_mock(status_code: int = 404, error_message: str = "City not found") -> Mock:
         """Create a mock weather API that returns error responses."""
         mock_response = Mock()
         mock_response.status_code = status_code
@@ -111,7 +111,7 @@ class VideoDownloaderMockFactory:
     """Factory for creating video downloader mocks."""
     
     @staticmethod
-    def create_success_mock(download_result: Optional[Dict[str, Any]] = None):
+    def create_success_mock(download_result: Optional[Dict[str, Any]] = None) -> Mock:
         """Create a mock video downloader that returns successful downloads."""
         if download_result is None:
             download_result = {
@@ -134,7 +134,7 @@ class VideoDownloaderMockFactory:
         return mock_downloader
     
     @staticmethod
-    def create_error_mock(error_message: str = "Download failed"):
+    def create_error_mock(error_message: str = "Download failed") -> Mock:
         """Create a mock video downloader that fails."""
         mock_downloader = Mock()
         mock_downloader.download = AsyncMock(side_effect=Exception(error_message))
@@ -147,7 +147,7 @@ class DatabaseMockFactory:
     """Factory for creating database mocks."""
     
     @staticmethod
-    def create_connection_mock(query_results: Optional[Dict[str, Any]] = None):
+    def create_connection_mock(query_results: Optional[Dict[str, Any]] = None) -> Mock:
         """Create a mock database connection."""
         if query_results is None:
             query_results = {}
@@ -170,7 +170,7 @@ class DatabaseMockFactory:
         return mock_connection
     
     @staticmethod
-    def create_pool_mock(connections: Optional[List[Mock]] = None):
+    def create_pool_mock(connections: Optional[List[Mock]] = None) -> Mock:
         """Create a mock database connection pool."""
         if connections is None:
             connections = [DatabaseMockFactory.create_connection_mock()]
@@ -189,7 +189,7 @@ class TelegramAPIMockFactory:
     """Factory for creating Telegram API mocks."""
     
     @staticmethod
-    def create_bot_mock():
+    def create_bot_mock() -> Mock:
         """Create a comprehensive mock Telegram Bot."""
         mock_bot = Mock()
         
@@ -236,7 +236,7 @@ class TelegramAPIMockFactory:
         return mock_bot
     
     @staticmethod
-    def create_application_mock():
+    def create_application_mock() -> Mock:
         """Create a mock Telegram Application."""
         mock_app = Mock()
         mock_app.bot = TelegramAPIMockFactory.create_bot_mock()
@@ -252,7 +252,7 @@ class SpeechmaticsMockFactory:
     """Factory for creating Speechmatics API mocks."""
     
     @staticmethod
-    def create_success_mock(transcript: str = "Test transcript"):
+    def create_success_mock(transcript: str = "Test transcript") -> Mock:
         """Create a mock Speechmatics API that returns successful transcriptions."""
         mock_response = Mock()
         mock_response.status_code = 200
@@ -280,7 +280,7 @@ class SpeechmaticsMockFactory:
         return mock_client
     
     @staticmethod
-    def create_error_mock(error_type: str = "no_speech"):
+    def create_error_mock(error_type: str = "no_speech") -> Mock:
         """Create a mock Speechmatics API that returns errors."""
         error_responses = {
             "no_speech": {
@@ -313,51 +313,51 @@ class SpeechmaticsMockFactory:
 class ExternalServiceMockRegistry:
     """Registry for managing all external service mocks."""
     
-    def __init__(self):
-        self.mocks = {}
+    def __init__(self) -> None:
+        self.mocks: Dict[str, Mock] = {}
     
-    def register_openai_mock(self, responses: Optional[List[str]] = None):
+    def register_openai_mock(self, responses: Optional[List[str]] = None) -> Mock:
         """Register an OpenAI mock."""
         self.mocks['openai'] = OpenAIMockFactory.create_client_mock(responses)
         return self.mocks['openai']
     
-    def register_weather_mock(self, weather_data: Optional[Dict[str, Any]] = None):
+    def register_weather_mock(self, weather_data: Optional[Dict[str, Any]] = None) -> Mock:
         """Register a weather API mock."""
         self.mocks['weather'] = WeatherAPIMockFactory.create_success_mock(weather_data)
         return self.mocks['weather']
     
-    def register_video_downloader_mock(self, download_result: Optional[Dict[str, Any]] = None):
+    def register_video_downloader_mock(self, download_result: Optional[Dict[str, Any]] = None) -> Mock:
         """Register a video downloader mock."""
         self.mocks['video_downloader'] = VideoDownloaderMockFactory.create_success_mock(download_result)
         return self.mocks['video_downloader']
     
-    def register_database_mock(self, query_results: Optional[Dict[str, Any]] = None):
+    def register_database_mock(self, query_results: Optional[Dict[str, Any]] = None) -> Mock:
         """Register a database mock."""
         self.mocks['database'] = DatabaseMockFactory.create_connection_mock(query_results)
         return self.mocks['database']
     
-    def register_telegram_mock(self):
+    def register_telegram_mock(self) -> Mock:
         """Register a Telegram API mock."""
         self.mocks['telegram'] = TelegramAPIMockFactory.create_bot_mock()
         return self.mocks['telegram']
     
-    def register_speechmatics_mock(self, transcript: str = "Test transcript"):
+    def register_speechmatics_mock(self, transcript: str = "Test transcript") -> Mock:
         """Register a Speechmatics API mock."""
         self.mocks['speechmatics'] = SpeechmaticsMockFactory.create_success_mock(transcript)
         return self.mocks['speechmatics']
     
-    def get_mock(self, service_name: str):
+    def get_mock(self, service_name: str) -> Optional[Mock]:
         """Get a registered mock by name."""
         return self.mocks.get(service_name)
     
-    def clear_mocks(self):
+    def clear_mocks(self) -> None:
         """Clear all registered mocks."""
         self.mocks.clear()
 
 
 # Convenience functions for common mock scenarios
 
-def create_full_mock_environment():
+def create_full_mock_environment() -> ExternalServiceMockRegistry:
     """Create a complete mock environment with all external services."""
     registry = ExternalServiceMockRegistry()
     
@@ -371,7 +371,7 @@ def create_full_mock_environment():
     return registry
 
 
-def create_error_mock_environment():
+def create_error_mock_environment() -> ExternalServiceMockRegistry:
     """Create a mock environment where all services return errors."""
     registry = ExternalServiceMockRegistry()
     

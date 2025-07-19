@@ -12,7 +12,7 @@ from unittest.mock import Mock, AsyncMock, MagicMock
 from datetime import datetime, timezone
 import json
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Generator, AsyncGenerator, Callable
 
 # Telegram imports
 from telegram import Update, Message, User, Chat, CallbackQuery, Bot
@@ -37,7 +37,7 @@ from tests.base_test_classes import (
 # ============================================================================
 
 @pytest.fixture(scope="session")
-def event_loop():
+def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """Create an instance of the default event loop for the test session with performance optimizations."""
     try:
         # Try to get existing loop first
@@ -85,7 +85,7 @@ class AsyncTestManager:
     """Centralized async test configuration and event loop management with enhanced patterns."""
     
     @staticmethod
-    def setup_event_loop():
+    def setup_event_loop() -> None:
         """Set up event loop for async tests with proper isolation."""
         try:
             loop = asyncio.get_running_loop()
@@ -95,7 +95,7 @@ class AsyncTestManager:
         return loop
     
     @staticmethod
-    def cleanup_event_loop():
+    def cleanup_event_loop() -> None:
         """Clean up event loop after async tests with comprehensive task cancellation."""
         try:
             loop = asyncio.get_running_loop()
@@ -133,14 +133,14 @@ class AsyncTestManager:
             raise
     
     @staticmethod
-    def create_async_mock_with_return(return_value):
+    def create_async_mock_with_return(return_value) -> None:
         """Create an AsyncMock that returns a specific value."""
         async_mock = AsyncMock()
         async_mock.return_value = return_value
         return async_mock
     
     @staticmethod
-    def create_async_mock_with_side_effect(side_effect):
+    def create_async_mock_with_side_effect(side_effect) -> None:
         """Create an AsyncMock with a side effect."""
         async_mock = AsyncMock()
         async_mock.side_effect = side_effect
@@ -159,7 +159,7 @@ class AsyncTestManager:
             raise
     
     @staticmethod
-    def assert_async_mock_called_correctly(async_mock, expected_call_count=1, expected_args=None, expected_kwargs=None):
+    def assert_async_mock_called_correctly(async_mock, expected_call_count=1, expected_args=None, expected_kwargs=None) -> None:
         """Assert that an async mock was called correctly."""
         assert async_mock.call_count == expected_call_count, f"Expected {expected_call_count} calls, got {async_mock.call_count}"
         
@@ -179,7 +179,7 @@ def async_test_manager():
 
 
 @pytest.fixture
-async def async_test_environment():
+async def async_test_environment() -> AsyncGenerator[asyncio.AbstractEventLoop, None]:
     """Set up and tear down async test environment."""
     # Setup
     loop = AsyncTestManager.setup_event_loop()
@@ -207,7 +207,7 @@ def ensure_event_loop():
 
 
 @pytest.fixture
-def async_mock_factory():
+def async_mock_factory() -> Generator[Callable[..., AsyncMock], None, None]:
     """Factory for creating properly configured async mocks."""
     created_mocks = []
     
@@ -227,7 +227,7 @@ def async_mock_factory():
 
 
 @pytest.fixture
-async def async_database_mock():
+async def async_database_mock() -> AsyncGenerator[AsyncMock, None]:
     """Provide a mock database with async methods."""
     db_mock = AsyncMock()
     
@@ -472,13 +472,16 @@ def mock_bot(session_mock_bot):
     for method_name, mock_method in essential_methods.items():
         setattr(bot, method_name, mock_method)
     
-    # Use __getattr__ to lazily create other methods when accessed
-    def lazy_async_mock(name):
-        if not hasattr(bot, name):
-            setattr(bot, name, AsyncMock())
-        return getattr(bot, name)
-    
-    bot.__getattr__ = lazy_async_mock
+    # Pre-configure common bot methods that tests might access
+    bot.send_message = AsyncMock()
+    bot.send_photo = AsyncMock()
+    bot.send_document = AsyncMock()
+    bot.send_sticker = AsyncMock()
+    bot.get_file = AsyncMock()
+    bot.download_file = AsyncMock()
+    bot.get_chat_administrators = AsyncMock()
+    bot.get_chat_member = AsyncMock()
+    bot.answer_callback_query = AsyncMock()
     
     return bot
 

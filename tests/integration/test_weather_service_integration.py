@@ -8,6 +8,7 @@ import time
 from unittest.mock import Mock, AsyncMock, patch
 from telegram import Update, Message, Chat, User
 from telegram.ext import CallbackContext
+import typing
 
 from modules.weather import WeatherAPI, WeatherCommandHandler, WeatherData, WeatherCommand
 from modules.error_handler import ErrorHandler
@@ -17,17 +18,17 @@ class TestWeatherServiceIntegration:
     """Integration tests for weather service."""
     
     @pytest.fixture
-    def weather_api(self):
+    def weather_api(self) -> WeatherAPI:
         """Create a weather API instance."""
         return WeatherAPI()
     
     @pytest.fixture
-    def weather_handler(self):
+    def weather_handler(self) -> WeatherCommandHandler:
         """Create a weather command handler."""
         return WeatherCommandHandler()
     
     @pytest.fixture
-    def mock_update(self):
+    def mock_update(self) -> Update:
         """Create a mock Telegram update."""
         user = User(id=123, first_name="Test", is_bot=False)
         chat = Chat(id=-1001234567890, type="supergroup")
@@ -48,7 +49,7 @@ class TestWeatherServiceIntegration:
         return update
     
     @pytest.fixture
-    def mock_context(self):
+    def mock_context(self) -> CallbackContext:
         """Create a mock callback context."""
         context = Mock(spec=CallbackContext)
         context.args = ["London"]
@@ -56,18 +57,18 @@ class TestWeatherServiceIntegration:
         context.bot.send_message = AsyncMock()
         return context
     
-    def test_weather_api_initialization(self, weather_api):
+    def test_weather_api_initialization(self, weather_api: WeatherAPI) -> None:
         """Test weather API initialization."""
         assert weather_api is not None
         assert hasattr(weather_api, 'api_key')
         assert weather_api.api_key is not None
     
-    def test_weather_handler_initialization(self, weather_handler):
+    def test_weather_handler_initialization(self, weather_handler: WeatherCommandHandler) -> None:
         """Test weather command handler initialization."""
         assert weather_handler is not None
         assert hasattr(weather_handler, 'weather_api')
     
-    def test_weather_data_creation(self):
+    def test_weather_data_creation(self) -> None:
         """Test weather data structure creation."""
         weather_data = WeatherData(
             city_name="London",
@@ -89,7 +90,7 @@ class TestWeatherServiceIntegration:
         assert weather_data.humidity == 65
         assert weather_data.description == "Partly cloudy"
     
-    def test_weather_command_creation(self):
+    def test_weather_command_creation(self) -> None:
         """Test weather command structure creation."""
         weather_command = WeatherCommand(
             temperature=20.5,
@@ -104,7 +105,7 @@ class TestWeatherServiceIntegration:
         assert weather_command.clothing_advice == "Wear a light jacket and comfortable shoes."
     
     @pytest.mark.asyncio
-    async def test_weather_api_request_mock(self, weather_api):
+    async def test_weather_api_request_mock(self, weather_api: WeatherAPI) -> None:
         """Test weather API request with mocked response."""
         mock_response = {
             "name": "London",
@@ -138,7 +139,7 @@ class TestWeatherServiceIntegration:
             mock_request.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_weather_command_handler(self, weather_handler, mock_update, mock_context):
+    async def test_weather_command_handler(self, weather_handler: WeatherCommandHandler, mock_update: Update, mock_context: CallbackContext) -> None:
         """Test weather command handling."""
         mock_weather_data = WeatherData(
             city_name="London",
@@ -161,7 +162,7 @@ class TestWeatherServiceIntegration:
             mock_update.message.reply_text.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_weather_error_handling(self, weather_handler, mock_update, mock_context):
+    async def test_weather_error_handling(self, weather_handler: WeatherCommandHandler, mock_update: Update, mock_context: CallbackContext) -> None:
         """Test weather service error handling."""
         with patch.object(weather_handler.weather_api, 'fetch_weather') as mock_get_weather:
             mock_get_weather.side_effect = Exception("API Error")
@@ -178,12 +179,12 @@ class TestWeatherServiceErrorHandling:
     """Test error handling in weather service."""
     
     @pytest.fixture
-    def weather_api(self):
+    def weather_api(self) -> WeatherAPI:
         """Create a weather API instance."""
         return WeatherAPI()
     
     @pytest.mark.asyncio
-    async def test_invalid_city_handling(self, weather_api):
+    async def test_invalid_city_handling(self, weather_api: WeatherAPI) -> None:
         """Test handling of invalid city names."""
         with patch.object(weather_api.client, 'get') as mock_request:
             mock_response = Mock()
@@ -194,7 +195,7 @@ class TestWeatherServiceErrorHandling:
             assert result is None
     
     @pytest.mark.asyncio
-    async def test_api_key_error_handling(self, weather_api):
+    async def test_api_key_error_handling(self, weather_api: WeatherAPI) -> None:
         """Test handling of API key errors."""
         with patch.object(weather_api.client, 'get') as mock_request:
             mock_response = Mock()
@@ -205,7 +206,7 @@ class TestWeatherServiceErrorHandling:
             assert result is None
     
     @pytest.mark.asyncio
-    async def test_network_error_handling(self, weather_api):
+    async def test_network_error_handling(self, weather_api: WeatherAPI) -> None:
         """Test handling of network errors."""
         with patch.object(weather_api.client, 'get') as mock_request:
             mock_request.side_effect = ConnectionError("Network error")
@@ -218,12 +219,12 @@ class TestWeatherServicePerformance:
     """Performance tests for weather service."""
     
     @pytest.fixture
-    def weather_api(self):
+    def weather_api(self) -> WeatherAPI:
         """Create a weather API instance."""
         return WeatherAPI()
     
     @pytest.mark.asyncio
-    async def test_concurrent_weather_requests(self, weather_api):
+    async def test_concurrent_weather_requests(self, weather_api: WeatherAPI) -> None:
         """Test handling of concurrent weather requests."""
         cities = ["London", "Paris", "New York", "Tokyo"]
         
@@ -251,7 +252,7 @@ class TestWeatherServicePerformance:
             assert all(isinstance(result, WeatherData) for result in results)
     
     @pytest.mark.asyncio
-    async def test_weather_response_time(self, weather_api):
+    async def test_weather_response_time(self, weather_api: WeatherAPI) -> None:
         """Test weather API response time."""
         async def delayed_get_response(url, params=None, **kwargs):
             await asyncio.sleep(0.2)  # 200ms delay
@@ -279,7 +280,7 @@ class TestWeatherServicePerformance:
             assert response_time >= 0.2  # Should take at least 200ms
     
     @pytest.mark.asyncio
-    async def test_weather_caching_behavior(self, weather_api):
+    async def test_weather_caching_behavior(self, weather_api: WeatherAPI) -> None:
         """Test weather data caching behavior."""
         mock_response = {
             "name": "London",

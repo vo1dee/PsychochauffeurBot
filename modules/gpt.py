@@ -91,7 +91,7 @@ last_diagnostic_result = None
 last_diagnostic_time = datetime.min
 
 class OpenAIAsyncClient:
-    def __init__(self, api_key, base_url):
+    def __init__(self, api_key: str, base_url: str) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.headers = {
@@ -103,14 +103,14 @@ class OpenAIAsyncClient:
         self._client = httpx.AsyncClient(timeout=TIMEOUT_CONFIG)
 
     class Chat:
-        def __init__(self, outer):
+        def __init__(self, outer: 'OpenAIAsyncClient') -> None:
             self.outer = outer
 
         class Completions:
-            def __init__(self, outer):
+            def __init__(self, outer: 'OpenAIAsyncClient.Chat') -> None:
                 self.outer = outer
 
-            async def create(self, model, messages, max_tokens, temperature, **kwargs):
+            async def create(self, model: str, messages: List[Dict[str, Any]], max_tokens: int, temperature: float, **kwargs: Any) -> Dict[str, Any]:
                 payload = {
                     "model": model,
                     "messages": messages,
@@ -124,11 +124,11 @@ class OpenAIAsyncClient:
                 return response.json()  # Return dict for compatibility
 
         @property
-        def completions(self):
+        def completions(self) -> 'OpenAIAsyncClient.Chat.Completions':
             return OpenAIAsyncClient.Chat.Completions(self)
 
     @property
-    def chat(self):
+    def chat(self) -> 'OpenAIAsyncClient.Chat':
         return OpenAIAsyncClient.Chat(self)
 
 # Instantiate the client for use in this module and diagnostics
@@ -318,8 +318,8 @@ async def analyze_image(
         # Log the description if update is provided
         if update and update.effective_chat:
             chat_id = update.effective_chat.id
-            user_id = update.message.from_user.id if update.message.from_user else "unknown"
-            username = update.message.from_user.username or f"ID:{user_id}" 
+            user_id = update.message.from_user.id if update.message and update.message.from_user else "unknown"
+            username = update.message.from_user.username if update.message and update.message.from_user and update.message.from_user.username else f"ID:{user_id}" 
             
             # Add a prefix to make it clear this is an image description in the logs
             log_description = f"[IMAGE DESCRIPTION]: {description}"
@@ -329,7 +329,7 @@ async def analyze_image(
                 log_description,
                 extra={
                     'chat_id': chat_id, 
-                    'chattitle': update.effective_chat.title or f"Private_{chat_id}", 
+                    'chattitle': update.effective_chat.title if update.effective_chat and update.effective_chat.title else f"Private_{chat_id}", 
                     'chat_type': chat_type,
                     'username': username
                 }
@@ -356,15 +356,15 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
     Returns:
         List[Dict[str, str]]: List of message dictionaries for context
     """
-    messages = []
+    messages: List[Dict[str, str]] = []
     
     try:
         if not update.message or not update.message.text:
             return messages
             
         # Get chat configuration
-        chat_id = str(update.effective_chat.id)
-        chat_type = update.effective_chat.type
+        chat_id = str(update.effective_chat.id) if update.effective_chat else "unknown"
+        chat_type = update.effective_chat.type if update.effective_chat else "unknown"
         chat_config = await config_manager.get_config(chat_id, chat_type)
         
         # Get context messages count from config
@@ -387,7 +387,7 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
         
         # Get previous messages from the global chat history manager
         from modules.utils import chat_history_manager
-        chat_history = chat_history_manager.get_history(update.effective_chat.id)
+        chat_history = chat_history_manager.get_history(update.effective_chat.id) if update.effective_chat else []
         
         # Add up to context_messages_count previous messages (excluding current message)
         for msg in reversed(chat_history[-context_messages_count:]):
@@ -416,10 +416,10 @@ async def get_chat_context(update: Optional[Update]) -> str:
         str: Recent chat messages concatenated
     """
     chat_id = "unknown"
-    last_messages = []
+    last_messages: List[str] = []
     
     if update and hasattr(update, 'effective_chat') and update.effective_chat:
-        chat_id = update.effective_chat.id
+        chat_id = str(update.effective_chat.id)
         log_path = get_daily_log_path(chat_id)
         if os.path.exists(log_path):
             with open(log_path, 'r', encoding='utf-8') as f:
@@ -502,8 +502,8 @@ async def gpt_response(
             return None
 
         # Get chat configuration
-        chat_id = str(update.effective_chat.id)
-        chat_type = update.effective_chat.type
+        chat_id = str(update.effective_chat.id) if update.effective_chat else "unknown"
+        chat_type = update.effective_chat.type if update.effective_chat else "unknown"
         chat_config = await config_manager.get_config(chat_id, chat_type)
         
         # Patch: If response_type is 'analyze', use 'summary' system prompt instead
@@ -533,7 +533,7 @@ async def gpt_response(
         
         # If the response type is a mention, clean the text to remove the bot's username
         if response_type == 'mention' and message_text_override:
-            bot_username = f"@{context.bot.username}"
+            bot_username = f"@{context.bot.username}" if context.bot and context.bot.username else "PsychochauffeurBot"
             message_text_override = message_text_override.replace(bot_username, "").strip()
 
         # Get context messages (previous conversation history)
@@ -580,13 +580,13 @@ async def gpt_response(
             error_logger.warning(f"Response truncated from {len(response_text)} to {MAX_TELEGRAM_MESSAGE_LENGTH} characters")
         
         # Log the response
-        bot_username = context.bot.username or "PsychochauffeurBot"
+        bot_username = context.bot.username if context.bot and context.bot.username else "PsychochauffeurBot"
         chat_logger.info(
             response_text,
             extra={
-                'chat_id': update.effective_chat.id,
-                'chattitle': update.effective_chat.title or f"Private_{update.effective_chat.id}",
-                'chat_type': update.effective_chat.type,
+                'chat_id': update.effective_chat.id if update.effective_chat else "unknown",
+                'chattitle': update.effective_chat.title if update.effective_chat and update.effective_chat.title else f"Private_{chat_id}",
+                'chat_type': update.effective_chat.type if update.effective_chat else "unknown",
                 'username': bot_username
             }
         )
@@ -596,14 +596,16 @@ async def gpt_response(
         else:
             # Store bot response in chat history for context
             from modules.utils import chat_history_manager
-            chat_history_manager.add_message(update.effective_chat.id, {
-                'text': response_text,
-                'is_user': False,
-                'user_id': None,
-                'timestamp': update.message.date
-            })
+            if update.effective_chat:
+                chat_history_manager.add_message(update.effective_chat.id, {
+                    'text': response_text,
+                    'is_user': False,
+                    'user_id': None,
+                    'timestamp': update.message.date if update.message else None
+                })
             
-            await update.message.reply_text(response_text)
+            if update.message:
+                await update.message.reply_text(response_text)
             return None
         
     except Exception as e:
@@ -628,7 +630,7 @@ async def ask_gpt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def answer_from_gpt(
     prompt: str, 
     update: Optional[Update] = None, 
-            context: Optional[CallbackContext[Any, Any, Any, Any]] = None,  
+    context: Optional[CallbackContext[Any, Any, Any, Any]] = None,  
     return_text: bool = False
 ) -> Optional[str]:
     """
@@ -681,7 +683,7 @@ async def log_user_response(update: Update, response_text: str) -> None:
         update: Telegram update object
         response_text: Response text to send
     """
-    user_id = update.message.from_user.id if update.message.from_user else "unknown"
+    user_id = update.message.from_user.id if update.message and update.message.from_user else "unknown"
     chat_id = update.effective_chat.id if update.effective_chat else "unknown"
     general_logger.info(f"Sending GPT response to user {user_id} in chat {chat_id}")
     await update.message.reply_text(response_text)
@@ -717,8 +719,8 @@ async def handle_error(
     context = {
         "function": "gpt_response",
         "return_text": return_text,
-        "user_id": update.effective_user.id if update and hasattr(update, 'effective_user') else None,
-        "chat_id": update.effective_chat.id if update and hasattr(update, 'effective_chat') else None,
+        "user_id": update.effective_user.id if update and hasattr(update, 'effective_user') and update.effective_user else None,
+        "chat_id": update.effective_chat.id if update and hasattr(update, 'effective_chat') and update.effective_chat else None,
         "error_diagnostic": diagnosis,
     }
 
@@ -809,19 +811,21 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         update: Telegram update object
         context: Telegram callback context
     """
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-    username = update.effective_user.username or f"ID:{user_id}"
+    chat_id = update.effective_chat.id if update.effective_chat else "unknown"
+    user_id = update.effective_user.id if update.effective_user else "unknown"
+    username = update.effective_user.username if update.effective_user and update.effective_user.username else f"ID:{user_id}"
 
     # Admin-only cache flush
     if context.args and context.args[0].lower() == "flush-cache":
-        # Only allow admins to flush
-        member = await update.effective_chat.get_member(user_id)
-        if not (member.status in ("administrator", "creator")):
-            await update.message.reply_text("❌ Тільки адміністратор може очищати кеш аналізу.")
+        member = await update.effective_chat.get_member(user_id) if update.effective_chat else None
+        if not (member and member.status in ("administrator", "creator")):
+            if update.message:
+                await update.message.reply_text("❌ Тільки адміністратор може очищати кеш аналізу.")
             return
-        await Database.invalidate_analysis_cache(chat_id)
-        await update.message.reply_text("✅ Кеш аналізу очищено для цього чату.")
+        if update.effective_chat:
+            await Database.invalidate_analysis_cache(chat_id)
+        if update.message:
+            await update.message.reply_text("✅ Кеш аналізу очищено для цього чату.")
         return
 
     # Get config
@@ -947,7 +951,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Send initial message
         status_message = await update.message.reply_text(
             f"🔄 Аналізую {len(messages_text)} повідомлень за {date_str}..."
-        )
+        ) if update.message else None
 
         # Get GPT analysis
         gpt_result = await gpt_response(update, context, response_type="analyze", message_text_override=analysis_text, return_text=True)
@@ -961,9 +965,9 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Update status message
         await status_message.edit_text(
             f"📊 Аналіз повідомлень за {date_str} ({len(messages_text)} повідомлень) завершено."
-        )
+        ) if status_message else None
         # Send the summary to the chat
-        await update.message.reply_text(gpt_result)
+        await update.message.reply_text(gpt_result) if update.message else None
 
     except Exception as e:
         error_logger.error(f"Error in analyze command: {e}", exc_info=True)
@@ -983,9 +987,9 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         update: Telegram update object
         context: Telegram callback context
     """
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-    username = update.effective_user.username or f"ID:{user_id}"
+    chat_id = update.effective_chat.id if update.effective_chat else "unknown"
+    user_id = update.effective_user.id if update.effective_user else "unknown"
+    username = update.effective_user.username if update.effective_user and update.effective_user.username else f"ID:{user_id}"
     
     try:
         # Get user statistics
@@ -994,7 +998,7 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not stats['total_messages']:
             await update.message.reply_text(
                 "📊 У вас ще немає повідомлень в цьому чаті."
-            )
+            ) if update.message else None
             return
             
         # Escape special characters in username
@@ -1036,7 +1040,7 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(
             "\n".join(message_parts),
             parse_mode=None  # Disable Markdown parsing completely
-        )
+        ) if update.message else None
         
     except Exception as e:
         error_logger.error(f"Error in mystats command: {e}", exc_info=True)
@@ -1060,7 +1064,7 @@ async def handle_photo_analysis(update: Update, context: ContextTypes.DEFAULT_TY
         photo_file = await photo.get_file()
         image_bytes = await photo_file.download_as_bytearray()
 
-        general_logger.info(f"Automatically analyzing photo in chat {update.effective_chat.id}")
+        general_logger.info(f"Automatically analyzing photo in chat {update.effective_chat.id if update.effective_chat else 'unknown'}")
 
         # Analyze the image (this also logs to the .txt file)
         description = await analyze_image(bytes(image_bytes), update, context)
@@ -1068,7 +1072,7 @@ async def handle_photo_analysis(update: Update, context: ContextTypes.DEFAULT_TY
         # Save the description to the database, linked to the original message
         await Database.save_image_analysis_as_message(update.message, description)
         
-        general_logger.info(f"Successfully saved image analysis for chat {update.effective_chat.id}")
+        general_logger.info(f"Successfully saved image analysis for chat {update.effective_chat.id if update.effective_chat else 'unknown'}")
 
     except Exception as e:
         # Log the error, but do not notify the user to keep it silent

@@ -585,11 +585,11 @@ class TestGetLastMessageForUserInChat:
             
             result = await get_last_message_for_user_in_chat(chat_id, user_id=user_id)
             
-            assert result == (
-                datetime(2024, 1, 31, 15, 30, 0, tzinfo=KYIV_TZ),
-                'test_user',
-                'Last message from user'
-            )
+            assert result == {
+                'timestamp': datetime(2024, 1, 31, 15, 30, 0, tzinfo=KYIV_TZ),
+                'username': 'test_user',
+                'text': 'Last message from user'
+            }
     
     @pytest.mark.asyncio
     async def test_get_last_message_for_user_in_chat_by_username(self):
@@ -623,11 +623,11 @@ class TestGetLastMessageForUserInChat:
             
             result = await get_last_message_for_user_in_chat(chat_id, username=username)
             
-            assert result == (
-                datetime(2024, 1, 31, 15, 30, 0, tzinfo=KYIV_TZ),
-                'test_user',
-                'Last message from user'
-            )
+            assert result == {
+                'timestamp': datetime(2024, 1, 31, 15, 30, 0, tzinfo=KYIV_TZ),
+                'username': 'test_user',
+                'text': 'Last message from user'
+            }
     
     @pytest.mark.asyncio
     async def test_get_last_message_for_user_in_chat_by_both_user_id_and_username(self):
@@ -661,11 +661,11 @@ class TestGetLastMessageForUserInChat:
             
             result = await get_last_message_for_user_in_chat(chat_id, user_id=user_id, username=username)
             
-            assert result == (
-                datetime(2024, 1, 31, 15, 30, 0, tzinfo=KYIV_TZ),
-                'test_user',
-                'Last message from user'
-            )
+            assert result == {
+                'timestamp': datetime(2024, 1, 31, 15, 30, 0, tzinfo=KYIV_TZ),
+                'username': 'test_user',
+                'text': 'Last message from user'
+            }
     
     @pytest.mark.asyncio
     async def test_get_last_message_for_user_in_chat_no_user_ids(self):
@@ -758,11 +758,11 @@ class TestGetLastMessageForUserInChat:
             
             result = await get_last_message_for_user_in_chat(chat_id, user_id=user_id)
             
-            assert result == (
-                datetime(2024, 1, 31, 15, 30, 0, tzinfo=KYIV_TZ),
-                'Unknown',
-                'Last message from unknown user'
-            )
+            assert result == {
+                'timestamp': datetime(2024, 1, 31, 15, 30, 0, tzinfo=KYIV_TZ),
+                'username': 'Unknown',
+                'text': 'Last message from unknown user'
+            }
 
 
 class TestChatAnalysisIntegration:

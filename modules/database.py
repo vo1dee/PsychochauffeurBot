@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 import logging
-from typing import Optional, List, Dict, Any, Union, Tuple
+from typing import Optional, List, Dict, Any, Union, Tuple, Callable, Awaitable
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
@@ -120,10 +120,21 @@ CREATE INDEX IF NOT EXISTS idx_messages_text_search ON messages USING GIN(to_tsv
 CREATE INDEX IF NOT EXISTS idx_messages_chat_text ON messages(chat_id) WHERE text IS NOT NULL;
 """
 
+def database_operation(operation_name: str) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
+    def decorator(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"Database operation '{operation_name}' failed: {e}")
+                raise
+        return wrapper
+    return decorator
+
 class DatabaseConnectionManager:
     """Enhanced database connection manager with optimized pooling."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._pool: Optional[asyncpg.Pool] = None
         self._pool_lock: asyncio.Lock = asyncio.Lock()
         self._cache_manager: CacheManager[Any] = CacheManager(default_ttl=DEFAULT_CACHE_TTL)
@@ -178,7 +189,7 @@ class DatabaseConnectionManager:
         # await conn.execute("SET checkpoint_completion_target = 0.9")
     
     @asynccontextmanager
-    async def get_connection(self):
+    async def get_connection(self) -> Any:
         """Context manager for database connections with monitoring."""
         pool = await self.get_pool()
         start_time = asyncio.get_event_loop().time()
@@ -324,11 +335,11 @@ class Database:
 
         # Extract command information
         is_command: bool = bool(message.text and message.text.startswith('/'))
-        command_name: Optional[str] = message.text.split()[0][1:] if is_command else None
+        command_name: Optional[str] = message.text.split()[0][1:] if (message.text and message.text.startswith('/')) else None
 
         # Get reply information
         replied_to_message_id: Optional[MessageId] = (
-            message.reply_to_message.message_id if message.reply_to_message else None
+            message.reply_to_message.message_id if (message.reply_to_message is not None) else None
         )
 
         # Convert the entire message object to JSON
@@ -422,9 +433,9 @@ class Database:
         # Check in-memory cache first
         cache_key = f"analysis:{chat_id}:{time_period}:{message_content_hash}"
         cached_result = manager._cache_manager.get(cache_key)
-        if cached_result:
+        if cached_result is not None:
             manager._connection_stats['cache_hits'] += 1
-            return cached_result
+            return str(cached_result)
         
         manager._connection_stats['cache_misses'] += 1
         async with manager.get_connection() as conn:
@@ -438,11 +449,10 @@ class Database:
             if row:
                 now = datetime.now(pytz.utc)
                 if (now - row["created_at"]).total_seconds() < ttl_seconds:
-                    # Cache in memory for faster subsequent access
                     remaining_ttl = ttl_seconds - int((now - row["created_at"]).total_seconds())
                     manager._cache_manager.set(cache_key, row["result"], ttl=remaining_ttl)
                     manager._connection_stats['queries_executed'] += 1
-                    return row["result"]
+                    return str(row["result"])
         return None
 
     @classmethod
@@ -523,9 +533,9 @@ class Database:
         
         cache_key = f"recent_messages:{chat_id}:{limit}:{include_commands}"
         cached_messages = manager._cache_manager.get(cache_key)
-        if cached_messages:
+        if cached_messages is not None:
             manager._connection_stats['cache_hits'] += 1
-            return cached_messages
+            return list(cached_messages)
         
         manager._connection_stats['cache_misses'] += 1
         async with manager.get_connection() as conn:
@@ -567,7 +577,7 @@ class Database:
         cached_count = manager._cache_manager.get(cache_key)
         if cached_count is not None:
             manager._connection_stats['cache_hits'] += 1
-            return cached_count
+            return int(cached_count)
         
         manager._connection_stats['cache_misses'] += 1
         async with manager.get_connection() as conn:
@@ -597,7 +607,7 @@ class Database:
             manager._cache_manager.set(cache_key, count, ttl=120)
             manager._connection_stats['queries_executed'] += 1
             
-            return count
+            return int(count)
 
     @classmethod
     @database_operation("cleanup_old_cache")
@@ -619,7 +629,7 @@ class Database:
             manager._connection_stats['queries_executed'] += 1
             logger.info(f"Cleaned up {deleted_count} old cache entries")
             
-            return deleted_count
+            return int(deleted_count)
 
     @classmethod
     async def get_database_stats(cls) -> Dict[str, Any]:

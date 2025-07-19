@@ -1,16 +1,17 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from modules.handlers import message_handlers
+import typing
 
 @pytest.mark.asyncio
-async def test_handle_message_command_ignored():
+async def test_handle_message_command_ignored() -> None:
     update = MagicMock()
     update.message.text = "/start"
     context = MagicMock()
     await message_handlers.handle_message(update, context)  # Should return early, nothing called
 
 @pytest.mark.asyncio
-async def test_handle_message_translation_command():
+async def test_handle_message_translation_command(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     update.message.text = "бля!"
     update.message.from_user.id = 1
@@ -21,7 +22,7 @@ async def test_handle_message_translation_command():
         mock_trans.assert_awaited_once()
 
 @pytest.mark.asyncio
-async def test_handle_message_restriction():
+async def test_handle_message_restriction(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     update.message.text = "Ы forbidden"
     update.message.from_user.id = 1
@@ -32,7 +33,7 @@ async def test_handle_message_restriction():
         mock_restrict.assert_awaited_once()
 
 @pytest.mark.asyncio
-async def test_handle_message_gpt_response():
+async def test_handle_message_gpt_response(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     update.message.text = "hello bot"
     update.message.from_user.id = 1
@@ -44,7 +45,7 @@ async def test_handle_message_gpt_response():
         mock_gpt.assert_awaited_once()
 
 @pytest.mark.asyncio
-async def test_handle_message_random_gpt():
+async def test_handle_message_random_gpt(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     update.message.text = "random text"
     update.message.from_user.id = 1
@@ -57,7 +58,7 @@ async def test_handle_message_random_gpt():
         mock_rand.assert_awaited_once()
 
 @pytest.mark.asyncio
-async def test_handle_message_modified_links():
+async def test_handle_message_modified_links(mock_update: typing.Any, mock_context: typing.Any) -> None:
     update = MagicMock()
     update.message.text = "check this link"
     update.message.from_user.id = 1
@@ -71,7 +72,7 @@ async def test_handle_message_modified_links():
         mock_urls.assert_awaited_once()
 
 @pytest.mark.asyncio
-async def test__handle_translation_command_no_previous():
+async def test__handle_translation_command_no_previous() -> None:
     update = MagicMock()
     update.message.from_user.username = "user"
     update.message.reply_text = AsyncMock()
@@ -81,7 +82,7 @@ async def test__handle_translation_command_no_previous():
         update.message.reply_text.assert_awaited_with("Немає попереднього повідомлення для перекладу.")
 
 @pytest.mark.asyncio
-async def test__handle_translation_command_success():
+async def test__handle_translation_command_success() -> None:
     update = MagicMock()
     update.message.from_user.username = "user"
     update.message.reply_text = AsyncMock()
@@ -92,7 +93,7 @@ async def test__handle_translation_command_success():
         update.message.reply_text.assert_awaited()
 
 @pytest.mark.asyncio
-async def test_process_urls_calls_construct_and_send_message():
+async def test_process_urls_calls_construct_and_send_message() -> None:
     update = MagicMock()
     update.effective_chat.id = 1
     update.message.from_user.username = "user"

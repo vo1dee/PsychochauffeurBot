@@ -47,11 +47,11 @@ class TestMetricsCollector:
     """Test cases for MetricsCollector."""
     
     @pytest.fixture
-    def collector(self):
+    def collector(self) -> Any:
         """Create a MetricsCollector instance."""
         return MetricsCollector()
     
-    def test_counter_metrics(self, collector):
+    def test_counter_metrics(self, collector) -> None:
         """Test counter metric operations."""
         # Record counter metrics
         collector.record_metric("requests_total", 1)
@@ -63,7 +63,7 @@ class TestMetricsCollector:
         assert metrics[1].value == 5  # Most recent last in the deque
         assert metrics[0].value == 1
     
-    def test_gauge_metrics(self, collector):
+    def test_gauge_metrics(self, collector) -> None:
         """Test gauge metric operations."""
         # Record gauge metrics
         collector.record_metric("memory_usage", 1024)
@@ -76,7 +76,7 @@ class TestMetricsCollector:
         assert memory_metrics[0].value == 1024
         assert cpu_metrics[0].value == 75.5
     
-    def test_histogram_metrics(self, collector):
+    def test_histogram_metrics(self, collector) -> None:
         """Test histogram metric operations."""
         # Record histogram values
         collector.record_metric("response_time", 0.1)
@@ -91,7 +91,7 @@ class TestMetricsCollector:
         assert 0.2 in values
         assert 0.15 in values
     
-    def test_timer_context_manager(self, collector):
+    def test_timer_context_manager(self, collector) -> None:
         """Test timer context manager."""
         # Since the actual implementation doesn't have a timer context manager,
         # we'll use record_metric directly to simulate timing
@@ -105,7 +105,7 @@ class TestMetricsCollector:
         assert len(metrics) == 1
         assert metrics[0].value >= 0.1
     
-    def test_metric_labels(self, collector):
+    def test_metric_labels(self, collector) -> None:
         """Test metrics with labels."""
         # Since the actual implementation doesn't have increment_counter or get_counter methods,
         # we'll use record_metric with tags instead
@@ -122,7 +122,7 @@ class TestMetricsCollector:
         assert len(get_200_metrics) == 2
         assert len(post_201_metrics) == 1
     
-    def test_metric_aggregation(self, collector):
+    def test_metric_aggregation(self, collector) -> None:
         """Test metric aggregation functions."""
         # Record multiple values
         values = [0.1, 0.2, 0.3, 0.4, 0.5]
@@ -149,7 +149,7 @@ class TestMetricsCollector:
 class TestPerformanceAlert:
     """Test cases for PerformanceAlert."""
     
-    def test_alert_creation(self):
+    def test_alert_creation(self) -> None:
         """Test performance alert creation."""
         from datetime import datetime
         alert = PerformanceAlert(
@@ -167,7 +167,7 @@ class TestPerformanceAlert:
         assert alert.severity == "warning"
         assert alert.message == "High CPU usage detected"
     
-    def test_alert_evaluation(self):
+    def test_alert_evaluation(self) -> None:
         """Test alert condition evaluation."""
         alert = PerformanceAlert(
             alert_type="response_time",
@@ -185,7 +185,7 @@ class TestPerformanceAlert:
         assert alert.threshold == 1.0
         assert alert.metric_value == 1.5
     
-    def test_alert_different_comparisons(self):
+    def test_alert_different_comparisons(self) -> None:
         """Test different alert comparison operators."""
         from datetime import datetime
         
@@ -238,23 +238,23 @@ class TestPerformanceAlert:
 class MockResourceMonitor:
     """Resource monitoring implementation for tests."""
     
-    def __init__(self):
+    def __init__(self) -> Any:
         self.alert_handlers = []
         self.is_monitoring = False
     
-    async def start_monitoring(self):
+    async def start_monitoring(self) -> Any:
         """Start monitoring resources."""
         self.is_monitoring = True
     
-    async def stop_monitoring(self):
+    async def stop_monitoring(self) -> Any:
         """Stop monitoring resources."""
         self.is_monitoring = False
     
-    def get_cpu_usage(self):
+    def get_cpu_usage(self) -> Any:
         """Get current CPU usage."""
         return 5.0  # Mock value
     
-    def get_memory_usage(self):
+    def get_memory_usage(self) -> Any:
         """Get current memory usage."""
         return {
             "used": 500,
@@ -262,7 +262,7 @@ class MockResourceMonitor:
             "percent": 25.0
         }
     
-    def get_disk_usage(self):
+    def get_disk_usage(self) -> Any:
         """Get current disk usage."""
         return {
             "used": 50000,
@@ -270,7 +270,7 @@ class MockResourceMonitor:
             "percent": 25.0
         }
     
-    def get_network_io(self):
+    def get_network_io(self) -> Any:
         """Get current network I/O stats."""
         return {
             "bytes_sent": 1024,
@@ -291,12 +291,12 @@ class TestResourceMonitorClass:
     """Test cases for ResourceMonitor."""
     
     @pytest.fixture
-    def monitor(self):
+    def monitor(self) -> Any:
         """Create a ResourceMonitor instance."""
         return MockResourceMonitor()
     
     @pytest.mark.asyncio
-    async def test_cpu_monitoring(self, monitor):
+    async def test_cpu_monitoring(self, monitor) -> None:
         """Test CPU usage monitoring."""
         await monitor.start_monitoring()
         
@@ -310,7 +310,7 @@ class TestResourceMonitorClass:
         await monitor.stop_monitoring()
     
     @pytest.mark.asyncio
-    async def test_memory_monitoring(self, monitor):
+    async def test_memory_monitoring(self, monitor) -> None:
         """Test memory usage monitoring."""
         await monitor.start_monitoring()
         
@@ -326,7 +326,7 @@ class TestResourceMonitorClass:
         await monitor.stop_monitoring()
     
     @pytest.mark.asyncio
-    async def test_disk_monitoring(self, monitor):
+    async def test_disk_monitoring(self, monitor) -> None:
         """Test disk usage monitoring."""
         await monitor.start_monitoring()
         
@@ -338,7 +338,7 @@ class TestResourceMonitorClass:
         await monitor.stop_monitoring()
     
     @pytest.mark.asyncio
-    async def test_network_monitoring(self, monitor):
+    async def test_network_monitoring(self, monitor) -> None:
         """Test network I/O monitoring."""
         await monitor.start_monitoring()
         
@@ -352,7 +352,7 @@ class TestResourceMonitorClass:
         await monitor.stop_monitoring()
     
     @pytest.mark.asyncio
-    async def test_resource_alerts(self, monitor):
+    async def test_resource_alerts(self, monitor) -> None:
         """Test resource monitoring alerts."""
         alerts_triggered = []
         
@@ -385,12 +385,12 @@ class TestRequestTracker:
     """Test cases for RequestTracker."""
     
     @pytest.fixture
-    def tracker(self):
+    def tracker(self) -> Any:
         """Create a RequestTracker instance."""
         return RequestTracker()
     
     @pytest.mark.asyncio
-    async def test_request_tracking(self, tracker):
+    async def test_request_tracking(self, tracker) -> None:
         """Test basic request tracking."""
         # Start tracking a request
         request_id = tracker.start_request("test_endpoint", {"user_id": "123"})
@@ -408,7 +408,7 @@ class TestRequestTracker:
         assert "test_endpoint" in metrics["endpoints"]
     
     @pytest.mark.asyncio
-    async def test_concurrent_request_tracking(self, tracker):
+    async def test_concurrent_request_tracking(self, tracker) -> None:
         """Test tracking multiple concurrent requests."""
         async def simulate_request(endpoint: str, duration: float):
             request_id = tracker.start_request(endpoint)
@@ -430,7 +430,7 @@ class TestRequestTracker:
         assert metrics["endpoints"]["endpoint1"]["count"] == 2
         assert metrics["endpoints"]["endpoint2"]["count"] == 1
     
-    def test_request_status_tracking(self, tracker):
+    def test_request_status_tracking(self, tracker) -> None:
         """Test tracking of different request statuses."""
         # Track requests with different status codes
         for status in [200, 404, 500, 200, 200]:
@@ -442,7 +442,7 @@ class TestRequestTracker:
         assert metrics["status_codes"]["404"] == 1
         assert metrics["status_codes"]["500"] == 1
     
-    def test_error_rate_calculation(self, tracker):
+    def test_error_rate_calculation(self, tracker) -> None:
         """Test error rate calculation."""
         # Track mix of successful and error requests
         statuses = [200, 200, 200, 404, 500, 200, 500]
@@ -454,7 +454,7 @@ class TestRequestTracker:
         # 3 errors out of 7 requests = ~42.86%
         assert abs(error_rate - 42.86) < 0.1
     
-    def test_throughput_calculation(self, tracker):
+    def test_throughput_calculation(self, tracker) -> None:
         """Test throughput calculation."""
         # Simulate requests over time with a small delay to make timing more predictable
         start_time = time.time()
@@ -478,11 +478,11 @@ class TestMemoryProfiler:
     """Test cases for MemoryProfiler."""
     
     @pytest.fixture
-    def profiler(self):
+    def profiler(self) -> Any:
         """Create a MemoryProfiler instance."""
         return MemoryProfiler()
     
-    def test_memory_snapshot(self, profiler):
+    def test_memory_snapshot(self, profiler) -> None:
         """Test taking memory snapshots."""
         # Create some objects to profile
         test_data = [i for i in range(1000)]
@@ -492,7 +492,7 @@ class TestMemoryProfiler:
         assert "objects_by_type" in snapshot
         assert isinstance(snapshot["total_memory"], int)
     
-    def test_memory_leak_detection(self, profiler):
+    def test_memory_leak_detection(self, profiler) -> None:
         """Test memory leak detection."""
         # Take initial snapshot
         profiler.take_snapshot()
@@ -510,7 +510,7 @@ class TestMemoryProfiler:
         assert "memory_growth" in leak_analysis
         assert "potential_leaks" in leak_analysis
     
-    def test_memory_usage_tracking(self, profiler):
+    def test_memory_usage_tracking(self, profiler) -> None:
         """Test memory usage tracking over time."""
         profiler.start_tracking()
         
@@ -531,11 +531,11 @@ class TestCacheMonitor:
     """Test cases for CacheMonitor."""
     
     @pytest.fixture
-    def monitor(self):
+    def monitor(self) -> Any:
         """Create a CacheMonitor instance."""
         return CacheMonitor()
     
-    def test_cache_hit_tracking(self, monitor):
+    def test_cache_hit_tracking(self, monitor) -> None:
         """Test cache hit/miss tracking."""
         # Simulate cache operations
         monitor.record_hit("user_cache")
@@ -553,7 +553,7 @@ class TestCacheMonitor:
         assert config_stats["misses"] == 0
         assert config_stats["hit_rate"] == 1.0
     
-    def test_cache_size_monitoring(self, monitor):
+    def test_cache_size_monitoring(self, monitor) -> None:
         """Test cache size monitoring."""
         monitor.update_cache_size("user_cache", 1024)
         monitor.update_cache_size("config_cache", 512)
@@ -565,7 +565,7 @@ class TestCacheMonitor:
         assert size_by_cache["user_cache"] == 1024
         assert size_by_cache["config_cache"] == 512
     
-    def test_cache_eviction_tracking(self, monitor):
+    def test_cache_eviction_tracking(self, monitor) -> None:
         """Test cache eviction tracking."""
         monitor.record_eviction("user_cache", "lru")
         monitor.record_eviction("user_cache", "ttl")
@@ -581,12 +581,12 @@ class TestDatabasePerformanceMonitor:
     """Test cases for DatabasePerformanceMonitor."""
     
     @pytest.fixture
-    def monitor(self):
+    def monitor(self) -> Any:
         """Create a DatabasePerformanceMonitor instance."""
         return DatabasePerformanceMonitor()
     
     @pytest.mark.asyncio
-    async def test_query_performance_tracking(self, monitor):
+    async def test_query_performance_tracking(self, monitor) -> None:
         """Test database query performance tracking."""
         # Simulate database queries
         with monitor.track_query("SELECT * FROM users WHERE id = ?"):
@@ -602,7 +602,7 @@ class TestDatabasePerformanceMonitor:
         assert select_stats["count"] == 1
         assert select_stats["avg_duration"] >= 0.1
     
-    def test_connection_pool_monitoring(self, monitor):
+    def test_connection_pool_monitoring(self, monitor) -> None:
         """Test database connection pool monitoring."""
         monitor.update_pool_stats(
             active_connections=5,
@@ -616,7 +616,7 @@ class TestDatabasePerformanceMonitor:
         assert pool_stats["max"] == 10
         assert pool_stats["utilization"] == 0.5  # 5/10
     
-    def test_slow_query_detection(self, monitor):
+    def test_slow_query_detection(self, monitor) -> None:
         """Test slow query detection."""
         # Set slow query threshold
         monitor.set_slow_query_threshold(0.1)
@@ -638,12 +638,12 @@ class TestPerformanceMonitor:
     """Test cases for main PerformanceMonitor class."""
     
     @pytest.fixture
-    def monitor(self):
+    def monitor(self) -> Any:
         """Create a PerformanceMonitor instance."""
         return PerformanceMonitor()
     
     @pytest.mark.asyncio
-    async def test_monitor_initialization(self, monitor):
+    async def test_monitor_initialization(self, monitor) -> None:
         """Test performance monitor initialization."""
         await monitor.initialize()
         
@@ -654,7 +654,7 @@ class TestPerformanceMonitor:
         await monitor.shutdown()
     
     @pytest.mark.asyncio
-    async def test_comprehensive_monitoring(self, monitor):
+    async def test_comprehensive_monitoring(self, monitor) -> None:
         """Test comprehensive performance monitoring."""
         try:
             await asyncio.wait_for(monitor.initialize(), timeout=1.0)
@@ -698,7 +698,7 @@ class TestPerformanceMonitor:
                 pass
     
     @pytest.mark.asyncio
-    async def test_alert_system_integration(self, monitor):
+    async def test_alert_system_integration(self, monitor) -> None:
         """Test integration with alert system."""
         alerts_triggered = []
         
@@ -731,7 +731,7 @@ class TestPerformanceMonitor:
         await monitor.shutdown()
     
     @pytest.mark.asyncio
-    async def test_performance_optimization_suggestions(self, monitor):
+    async def test_performance_optimization_suggestions(self, monitor) -> None:
         """Test performance optimization suggestions."""
         await monitor.initialize()
         
@@ -753,7 +753,7 @@ class TestPerformanceIntegration:
     """Integration tests for performance monitoring."""
     
     @pytest.mark.asyncio
-    async def test_end_to_end_monitoring(self):
+    async def test_end_to_end_monitoring(self) -> None:
         """Test end-to-end performance monitoring scenario."""
         # Skip this test to prevent infinite loops - it's causing test suite to hang
         pytest.skip("Skipping end-to-end monitoring test to prevent infinite loops")
@@ -797,7 +797,7 @@ class TestPerformanceIntegration:
                 pass
     
     @pytest.mark.asyncio
-    async def test_performance_regression_detection(self):
+    async def test_performance_regression_detection(self) -> None:
         """Test performance regression detection."""
         # Skip this test to prevent hanging due to track_request context manager
         pytest.skip("Skipping performance regression test to prevent infinite loops")

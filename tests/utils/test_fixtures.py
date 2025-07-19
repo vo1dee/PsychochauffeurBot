@@ -305,7 +305,7 @@ class AsyncTestHelpers:
         await asyncio.sleep(delay)
     
     @staticmethod
-    def create_async_context_manager(return_value=None):
+    def create_async_context_manager(return_value=None) -> None:
         """Create a mock async context manager."""
         class AsyncContextManager:
             async def __aenter__(self):

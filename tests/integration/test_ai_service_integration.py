@@ -20,7 +20,7 @@ class TestGPTIntegration:
     """Integration tests for GPT functionality."""
     
     @pytest.fixture
-    def mock_update(self):
+    def mock_update(self) -> None:
         """Create a mock Telegram update."""
         user = User(id=123, first_name="Test", is_bot=False)
         chat = Chat(id=-1001234567890, type="supergroup")
@@ -38,7 +38,7 @@ class TestGPTIntegration:
         return update
     
     @pytest.fixture
-    def mock_context(self):
+    def mock_context(self) -> None:
         """Create a mock callback context."""
         context = Mock(spec=CallbackContext)
         context.args = []
@@ -47,7 +47,7 @@ class TestGPTIntegration:
         return context
     
     @pytest.mark.asyncio
-    async def test_answer_from_gpt_basic(self):
+    async def test_answer_from_gpt_basic(self) -> None:
         """Test basic GPT response generation."""
         # Create mock update and context
         mock_update = Mock()
@@ -78,7 +78,7 @@ class TestGPTIntegration:
             )
     
     @pytest.mark.asyncio
-    async def test_verify_api_key(self):
+    async def test_verify_api_key(self) -> None:
         """Test API key verification."""
         with patch('modules.gpt.Config') as mock_config:
             mock_config.OPENAI_API_KEY = "test_key_123"

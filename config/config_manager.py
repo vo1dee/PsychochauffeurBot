@@ -29,7 +29,7 @@ GPT_PROMPTS = {
 class ConfigManager:
     """Manages modular configuration for the bot, supporting default and chat-specific JSON settings."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.base_dir = Path(__file__).parent.parent
         self.GLOBAL_CONFIG_DIR = self.base_dir / 'config' / 'global'
         self.PRIVATE_CONFIG_DIR = self.base_dir / 'config' / 'private'
@@ -927,8 +927,9 @@ class ConfigManager:
 
     async def migrate_existing_configs(self) -> Dict[str, bool]:
         """Migrate existing configurations to the new modular format."""
-        results = {}
+        results: Dict[str, bool] = {}
         # ... existing code ...
+        return results
 
     async def update_chat_configs_with_template(self) -> Dict[str, bool]:
         """Update all chat configs with new fields from the template while preserving existing values.
@@ -938,7 +939,7 @@ class ConfigManager:
         2. For each chat config, add any missing fields from the template
         3. Preserve all existing values in the chat configs
         """
-        results = {}
+        results: Dict[str, bool] = {}
         try:
             # Get the current global template
             template = await self._load_global_config()

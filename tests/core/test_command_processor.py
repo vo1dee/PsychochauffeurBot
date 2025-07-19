@@ -233,7 +233,7 @@ class TestTextCommandHandler:
     """Test cases for TextCommandHandler."""
     
     @pytest.fixture
-    def mock_update(self):
+    def mock_update(self) -> None:
         """Create a mock update."""
         user = User(id=123, is_bot=False, first_name="Test")
         chat = Chat(id=123, type="private")
@@ -250,12 +250,12 @@ class TestTextCommandHandler:
         return Update(update_id=1, message=message)
     
     @pytest.fixture
-    def mock_context(self):
+    def mock_context(self) -> None:
         """Create a mock context."""
         return Mock(spec=CallbackContext)
     
     @pytest.mark.asyncio
-    async def test_text_command_handler_success(self, mock_update, mock_context):
+    async def test_text_command_handler_success(self, mock_update, mock_context) -> None:
         """Test successful text command handling."""
         async def test_handler(update, context):
             return "success"

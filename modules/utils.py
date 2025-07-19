@@ -6,7 +6,7 @@ import asyncio
 import aiohttp
 import csv
 from datetime import datetime, time as dt_time, timedelta
-from typing import Optional, List
+from typing import Optional, Any, List, Dict
 import logging
 
 from telegram import Update
@@ -41,7 +41,8 @@ config_manager = ConfigManager()
 
 class MessageCounter:
     """Manages message counts per chat for random GPT responses."""
-    def __init__(self):
+    counts: Dict[int, int]
+    def __init__(self) -> None:
         self.counts = {}
 
     def increment(self, chat_id: int) -> int:
@@ -56,10 +57,11 @@ class MessageCounter:
 
 class ChatHistoryManager:
     """Manages chat history for context in GPT responses."""
-    def __init__(self):
+    chat_histories: Dict[int, List[Dict[str, Any]]]
+    def __init__(self) -> None:
         self.chat_histories = {}  # chat_id -> list of messages
 
-    def add_message(self, chat_id: int, message: dict) -> None:
+    def add_message(self, chat_id: int, message: Dict[str, Any]) -> None:
         """Add a message to chat history."""
         if chat_id not in self.chat_histories:
             self.chat_histories[chat_id] = []
@@ -70,7 +72,7 @@ class ChatHistoryManager:
         if len(self.chat_histories[chat_id]) > 50:
             self.chat_histories[chat_id] = self.chat_histories[chat_id][-50:]
 
-    def get_history(self, chat_id: int) -> list:
+    def get_history(self, chat_id: int) -> List[Dict[str, Any]]:
         """Get chat history for a specific chat."""
         return self.chat_histories.get(chat_id, [])
 
@@ -152,7 +154,7 @@ def extract_urls(text: str) -> List[str]:
     Returns:
         List[str]: List of URLs found in the text
     """
-    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
     return re.findall(url_pattern, text)
 
 # Weather-related utilities
@@ -258,7 +260,7 @@ def get_last_used_city(user_id: int, chat_id: Optional[int] = None) -> Optional[
     return None
 
 # Cat API command
-async def cat_command(update: Update, context: CallbackContext) -> None:
+async def cat_command(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """
     Send random cat image.
     
@@ -272,24 +274,30 @@ async def cat_command(update: Update, context: CallbackContext) -> None:
                 if response.status == 200:
                     data = await response.json()
                     cat_image_url = data[0]['url']
-                    await update.message.reply_photo(cat_image_url)
+                    if update.message:
+                        await update.message.reply_photo(cat_image_url)
                 else:
-                    await update.message.reply_text('Sorry, I could not fetch a cat image at the moment.')
+                    if update.message:
+                        await update.message.reply_text('Sorry, I could not fetch a cat image at the moment.')
     except Exception as e:
         error_logger.error(f"Error fetching cat image: {e}")
-        await update.message.reply_text('An error occurred while fetching a cat image.')
+        if update.message:
+            await update.message.reply_text('An error occurred while fetching a cat image.')
 
 # Screenshot functionality
 class ScreenshotManager:
-    _instance = None  # Singleton instance
-
-    def __new__(cls):
+    _instance: Optional['ScreenshotManager'] = None
+    _initialized: bool
+    timezone: Any
+    schedule_time: dt_time
+    config: Any
+    def __new__(cls) -> 'ScreenshotManager':
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if not self._initialized:
             self.timezone = pytz.timezone('Europe/Kyiv')
             self.schedule_time = dt_time(2, 0)  # 2 AM Kyiv time
@@ -379,7 +387,7 @@ class ScreenshotManager:
                 await asyncio.sleep(300)  # Wait 5 minutes before retry on error
 
 # Command handlers
-async def screenshot_command(update: Update, context: CallbackContext) -> None:
+async def screenshot_command(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """
     Handle /screenshot command.
     
@@ -398,12 +406,13 @@ async def screenshot_command(update: Update, context: CallbackContext) -> None:
 
         # If no screenshot exists for today, take a new one
         if not screenshot_path:
-            status_msg = await update.message.reply_text("Роблю новий знімок, будь ласка зачекайте...")
+            status_msg = await update.message.reply_text("Роблю новий знімок, будь ласка зачекайте...") if update.message else None
             screenshot_path = await manager.take_screenshot(
             WEATHER_API_URL,
             manager.get_screenshot_path()
             )
-            await status_msg.delete()
+            if status_msg:
+                await status_msg.delete()
 
         if screenshot_path:
             # Get file modification time
@@ -417,20 +426,23 @@ async def screenshot_command(update: Update, context: CallbackContext) -> None:
             )
             
             with open(screenshot_path, 'rb') as photo:
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=photo,
-                    caption=caption
-                )
+                if update.effective_chat:
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=photo,
+                        caption=caption
+                    )
         else:
-            await update.message.reply_text("Не вдалося згенерувати знімок. Спробуйте пізніше.")
+            if update.message:
+                await update.message.reply_text("Не вдалося згенерувати знімок. Спробуйте пізніше.")
     except Exception as e:
         error_logger.error(f"Error in screenshot command: {e}")
-        await update.message.reply_text("Під час обробки вашого запиту сталася помилка.")
+        if update.message:
+            await update.message.reply_text("Під час обробки вашого запиту сталася помилка.")
 
 
 # Initialization and main functions
-def setup_bot():
+def setup_bot() -> None:
     """
     Set up the bot and initialize all necessary components.
     
@@ -443,7 +455,7 @@ def setup_bot():
     # Log startup
     general_logger.info("Bot initialized successfully")
 
-def ensure_city_data_file():
+def ensure_city_data_file() -> None:
     """Ensure the city data file exists in the root/data directory."""
     city_data_path = os.path.join(PROJECT_ROOT, 'data', 'user_locations.csv')
     
@@ -463,7 +475,7 @@ def ensure_city_data_file():
 # Call this function during initialization
 ensure_city_data_file()
 
-async def initialize_utils():
+async def initialize_utils() -> None:
     """Initialize utility modules."""
     await config_manager.initialize()
 

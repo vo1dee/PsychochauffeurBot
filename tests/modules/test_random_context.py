@@ -8,9 +8,10 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from modules.gpt import get_context_messages
 from config.config_manager import ConfigManager
+import typing
 
 @pytest.fixture
-def mock_config_manager():
+def mock_config_manager() -> typing.Generator[typing.Any, None, None]:
     """Mock config manager for testing."""
     with patch('modules.gpt.config_manager') as mock_cm:
         # Mock the async get_config method
@@ -33,7 +34,7 @@ def mock_config_manager():
         yield mock_cm
 
 @pytest.fixture
-def mock_update():
+def mock_update() -> typing.Generator[typing.Any, None, None]:
     """Mock Telegram update object."""
     update = MagicMock()
     update.effective_chat.id = -100123456789
@@ -42,13 +43,13 @@ def mock_update():
     return update
 
 @pytest.fixture
-def mock_context():
+def mock_context() -> typing.Generator[typing.Any, None, None]:
     """Mock Telegram context object."""
     context = MagicMock()
     return context
 
 @pytest.fixture
-def mock_chat_history_manager():
+def mock_chat_history_manager() -> typing.Generator[typing.Any, None, None]:
     """Mock chat history manager with test messages."""
     with patch('modules.utils.chat_history_manager') as mock_chm:
         # Create test message history
@@ -64,7 +65,12 @@ def mock_chat_history_manager():
         yield mock_chm
 
 @pytest.mark.asyncio
-async def test_random_response_context_count(mock_config_manager, mock_update, mock_context, mock_chat_history_manager):
+async def test_random_response_context_count(
+    mock_config_manager: typing.Any,
+    mock_update: typing.Any,
+    mock_context: typing.Any,
+    mock_chat_history_manager: typing.Any
+) -> None:
     """Test that random responses use the correct context messages count."""
     
     # Mock chat config with custom context_messages_count
@@ -94,7 +100,12 @@ async def test_random_response_context_count(mock_config_manager, mock_update, m
     assert messages[2]["content"] == "Message 6"  # Newest previous
 
 @pytest.mark.asyncio
-async def test_command_response_context_count(mock_config_manager, mock_update, mock_context, mock_chat_history_manager):
+async def test_command_response_context_count(
+    mock_config_manager: typing.Any,
+    mock_update: typing.Any,
+    mock_context: typing.Any,
+    mock_chat_history_manager: typing.Any
+) -> None:
     """Test that command responses use GPT module context count."""
     
     # Mock chat config with GPT module context count
@@ -126,7 +137,12 @@ async def test_command_response_context_count(mock_config_manager, mock_update, 
     assert messages[1]["content"] == "Message 6"  # Newest previous
 
 @pytest.mark.asyncio
-async def test_fallback_to_global_config(mock_config_manager, mock_update, mock_context, mock_chat_history_manager):
+async def test_fallback_to_global_config(
+    mock_config_manager: typing.Any,
+    mock_update: typing.Any,
+    mock_context: typing.Any,
+    mock_chat_history_manager: typing.Any
+) -> None:
     """Test fallback to global config when chat_behavior is disabled."""
     
     # Mock chat config with disabled chat_behavior

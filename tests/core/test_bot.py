@@ -28,18 +28,18 @@ from modules.const import Weather
 
 class TestBot(unittest.IsolatedAsyncioTestCase):
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up common resources for all tests."""
         self.maxDiff = None  # Allow full diff for complex objects
 
-    def test_extract_urls(self):
+    def test_extract_urls(self) -> None:
         """Test URL extraction from a message."""
         message_text = "Check this out: https://example.com and also http://test.com"
         expected_urls = ["https://example.com", "http://test.com"]
         extracted_urls = extract_urls(message_text)
         self.assertEqual(extracted_urls, expected_urls)
 
-    def test_ensure_csv_headers_new_file(self):
+    def test_ensure_csv_headers_new_file(self) -> None:
         """Test ensure_csv_headers creates a new file with headers."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = os.path.join(temp_dir, "test_headers.csv")
@@ -53,7 +53,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
                 file_headers = next(reader, None)
                 self.assertEqual(set(file_headers), set(headers))
     
-    def test_ensure_csv_headers_existing_file(self):
+    def test_ensure_csv_headers_existing_file(self) -> None:
         """Test ensure_csv_headers adds headers to existing file."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = os.path.join(temp_dir, "test_existing.csv")
@@ -77,7 +77,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(first_row[1], "Kyiv")
 
     @patch('os.makedirs')
-    def test_save_user_location(self, mock_makedirs):
+    def test_save_user_location(self, mock_makedirs) -> None:
         """Test saving user location."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = os.path.join(temp_dir, "test_save.csv")
@@ -94,7 +94,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(row[0], "123")
                     self.assertEqual(row[1], "Kyiv")
 
-    def test_save_user_location_with_kiev(self):
+    def test_save_user_location_with_kiev(self) -> None:
         """Test that 'kiev' is saved as 'Kyiv'."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = os.path.join(temp_dir, "test_kiev.csv")
@@ -110,7 +110,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
                     row = next(reader)
                     self.assertEqual(row[1], "Kyiv")
 
-    def test_save_user_location_with_chat_id(self):
+    def test_save_user_location_with_chat_id(self) -> None:
         """Test saving user location with chat_id."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = os.path.join(temp_dir, "test_chat.csv")
@@ -127,7 +127,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(row[1], "Lviv")
                     self.assertEqual(row[3], "456")
 
-    def test_get_last_used_city_kiev_conversion(self):
+    def test_get_last_used_city_kiev_conversion(self) -> None:
         """Test that 'Kiev' is converted to 'Kyiv' when retrieved."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = os.path.join(temp_dir, "test_city_file.csv")
@@ -144,7 +144,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
                 city = get_last_used_city(user_id)
                 self.assertEqual(city, "Kyiv")
 
-    def test_get_last_used_city_with_chat_id(self):
+    def test_get_last_used_city_with_chat_id(self) -> None:
         """Test retrieving city with chat_id preference."""
         # Test with chat_id parameter
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -181,7 +181,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
 
     @patch('modules.weather.save_user_location')
     @patch('modules.weather.get_last_used_city')
-    def test_weather_command_with_chat_id(self, mock_get_city, mock_save_location):
+    def test_weather_command_with_chat_id(self, mock_get_city, mock_save_location) -> None:
         """Test weather command uses chat-specific cities."""
         # Setup mocks
         mock_get_city.return_value = "Kyiv"
@@ -205,14 +205,14 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         # Run the coroutine
         asyncio.run(weather_cmd(update, context))
         
-        # Verify get_last_used_city was called with both user_id and chat_id (as string)
-        mock_get_city.assert_called_once_with(123, '456')
+        # Verify get_last_used_city was called with both user_id and chat_id (as integer)
+        mock_get_city.assert_called_once_with(123, 456)
         
         # Verify message was sent
         update.message.reply_text.assert_called_once_with("Weather info for Kyiv")
     
     @patch('modules.weather.save_user_location')
-    def test_weather_command_with_city_arg(self, mock_save_location):
+    def test_weather_command_with_city_arg(self, mock_save_location) -> None:
         """Test weather command saves city with chat ID."""
         # Create mock Update and Context
         update = MagicMock(spec=Update)
@@ -233,14 +233,14 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         # Run the coroutine
         asyncio.run(weather_cmd(update, context))
         
-        # Verify save_user_location was called with user_id, city, and chat_id (as string)
-        mock_save_location.assert_called_once_with(123, "Odesa", '456')
+        # Verify save_user_location was called with user_id, city, and chat_id (as integer)
+        mock_save_location.assert_called_once_with(123, "Odesa", 456)
         
         # Verify message was sent
         update.message.reply_text.assert_called_once_with("Weather info for Odesa")
 
 # Additional tests for core utilities
-    def test_remove_links(self):
+    def test_remove_links(self) -> None:
         """Test removing URLs from text."""
         # Test with multiple URLs
         text = "Check out https://example.com and http://test.com for more info."
@@ -266,7 +266,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         self.assertTrue("Visit our website at" in result)
         self.assertNotIn("https://example.com", result)
 
-    def test_country_code_to_emoji(self):
+    def test_country_code_to_emoji(self) -> None:
         """Test conversion of country codes to emoji flags."""
         # Test common country codes
         self.assertEqual(country_code_to_emoji("US"), "🇺🇸")
@@ -279,27 +279,27 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         # Test empty string (should return empty string)
         self.assertEqual(country_code_to_emoji(""), "")
 
-    async def test_get_weather_emoji(self):
+    async def test_get_weather_emoji(self) -> None:
         """Test getting weather emoji based on weather code."""
         weather_code = 800  # Clear sky
         emoji = await get_weather_emoji(weather_code)
         # The function returns emoji for ranges, so 800 is in range(800, 801) which maps to '☀️'
         self.assertEqual(emoji, '☀️')
 
-    async def test_get_feels_like_emoji(self):
+    async def test_get_feels_like_emoji(self) -> None:
         """Test getting feels like emoji based on temperature."""
         temp = 25  # Warm temperature
         emoji = await get_feels_like_emoji(temp)
         # Temperature 25 is in range(20, 30) which maps to '😎'
         self.assertEqual(emoji, '😎')
 
-    async def test_get_humidity_emoji(self):
+    async def test_get_humidity_emoji(self) -> None:
         """Test getting humidity emoji based on humidity."""
         humidity = 50  # Comfortable humidity
         emoji = await get_humidity_emoji(humidity)
         self.assertEqual(emoji, '😊')
 
-    async def test_get_city_translation(self):
+    async def test_get_city_translation(self) -> None:
         """Test city name translation."""
         # Test a city that has no translation - should return the same city
         city = "London"  
@@ -313,7 +313,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         translated = await get_city_translation(city)
         self.assertEqual(translated, "Kortgene")
 
-    def test_ensure_directory(self):
+    def test_ensure_directory(self) -> None:
         """Test directory creation."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Test creating a single directory
@@ -330,7 +330,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
             ensure_directory(test_dir)
             self.assertTrue(os.path.exists(test_dir))
 
-    def test_init_directories(self):
+    def test_init_directories(self) -> None:
         """Test initialization of required directories."""
         with patch('modules.utils.ensure_directory') as mock_ensure_directory, \
              patch('modules.utils.ensure_directory_permissions') as mock_ensure_permissions:
@@ -346,7 +346,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(mock_ensure_directory.call_args_list), 4)
             self.assertEqual(len(mock_ensure_permissions.call_args_list), 4)
 
-    def test_weather_data_formatting(self):
+    def test_weather_data_formatting(self) -> None:
         """Test weather data formatting and advice generation."""
         # Skip this async test for now
         self.assertTrue(True)
@@ -354,7 +354,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
 class TestEdgeCases(unittest.TestCase):
     """Tests focusing on edge cases and error handling."""
     
-    def test_extract_urls_edge_cases(self):
+    def test_extract_urls_edge_cases(self) -> None:
         """Test URL extraction with various edge cases."""
         # Test empty string
         self.assertEqual(extract_urls(""), [])
@@ -375,7 +375,7 @@ class TestEdgeCases(unittest.TestCase):
         text = "Not a valid URL: http:// missing domain"
         self.assertEqual(extract_urls(text), [])
 
-    def test_ensure_csv_headers_edge_cases(self):
+    def test_ensure_csv_headers_edge_cases(self) -> None:
         """Test CSV header handling with various edge cases."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Test with empty file
@@ -419,7 +419,7 @@ class TestEdgeCases(unittest.TestCase):
                 lines = f.readlines()
                 self.assertEqual(lines[0].strip(), "col3,col1,col2")
 
-    def test_get_last_used_city_error_handling(self):
+    def test_get_last_used_city_error_handling(self) -> None:
         """Test error handling in get_last_used_city function."""
         # Create a test file with valid data
         with tempfile.TemporaryDirectory() as temp_dir:
