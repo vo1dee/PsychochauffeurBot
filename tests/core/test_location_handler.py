@@ -18,7 +18,7 @@ from modules.const import Stickers
 class TestLocationHandler(unittest.IsolatedAsyncioTestCase):
     """Test cases for location message handling."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.update = MagicMock(spec=Update)
         self.context = MagicMock(spec=CallbackContext)
@@ -37,14 +37,14 @@ class TestLocationHandler(unittest.IsolatedAsyncioTestCase):
         self.message.reply_sticker = AsyncMock()
         self.message.reply_text = AsyncMock()
 
-    async def test_handle_location_sends_sticker(self):
+    async def test_handle_location_sends_sticker(self) -> None:
         """Test that handle_location sends the correct sticker."""
         await handle_location(self.update, self.context)
         
         # Verify that reply_sticker was called with the correct sticker
         self.message.reply_sticker.assert_called_once_with(sticker=Stickers.LOCATION)
 
-    async def test_handle_location_no_location(self):
+    async def test_handle_location_no_location(self) -> None:
         """Test that handle_location does nothing when no location is present."""
         self.message.location = None
         
@@ -54,7 +54,7 @@ class TestLocationHandler(unittest.IsolatedAsyncioTestCase):
         self.message.reply_sticker.assert_not_called()
         self.message.reply_text.assert_not_called()
 
-    async def test_handle_location_no_message(self):
+    async def test_handle_location_no_message(self) -> None:
         """Test that handle_location does nothing when no message is present."""
         self.update.message = None
         
@@ -65,7 +65,7 @@ class TestLocationHandler(unittest.IsolatedAsyncioTestCase):
         self.message.reply_text.assert_not_called()
 
     @patch('main.error_logger')
-    async def test_handle_location_sticker_failure_fallback(self, mock_error_logger):
+    async def test_handle_location_sticker_failure_fallback(self, mock_error_logger) -> None:
         """Test that handle_location falls back to text when sticker fails."""
         # Make reply_sticker raise an exception
         self.message.reply_sticker.side_effect = Exception("Sticker error")
@@ -81,7 +81,7 @@ class TestLocationHandler(unittest.IsolatedAsyncioTestCase):
         # Verify that fallback text was sent
         self.message.reply_text.assert_called_once_with("📍 Location received!")
 
-    async def test_handle_location_logs_coordinates(self):
+    async def test_handle_location_logs_coordinates(self) -> None:
         """Test that handle_location logs the location coordinates."""
         with patch('main.general_logger') as mock_logger:
             await handle_location(self.update, self.context)

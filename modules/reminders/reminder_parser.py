@@ -1,24 +1,25 @@
+from typing import Any, Dict, Optional, Tuple, ClassVar
 import re
 from modules.logger import general_logger
-import timefhuman
+import timefhuman  # type: ignore
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from modules.const import KYIV_TZ
 from dateutil.parser import parse as date_parse
 
 class ReminderParser:
-    FREQUENCY_PATTERN = r'(?:every\s+(day|week|month|year))|(?:(daily|weekly|monthly|yearly))'
-    DATE_MODIFIER_PATTERN = r'(?:on\s+the\s+(?:first|1st|last)\s+day\s+of\s+every\s+month)|(?:first\s+day\s+of\s+every\s+month)|(?:first\s+of\s+every\s+month)|(?:every\s+month\s+on\s+the\s+(?:1st|first))|(?:on\s+the\s+(?:1st|first))|(?:on\s+the\s+1st\s+at)|(?:on\s+the\s+first\s+at)|(?:on\s+the\s+1st)|(?:on\s+the\s+first)'
-    TIME_PATTERN = r'(?:at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?|in\s+(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|wks?|months?|years?))'
-    SPECIFIC_DATE_PATTERN = r'on\s+(\d{1,2})\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)'
+    FREQUENCY_PATTERN: ClassVar[str] = r'(?:every\s+(day|week|month|year))|(?:(daily|weekly|monthly|yearly))'
+    DATE_MODIFIER_PATTERN: ClassVar[str] = r'(?:on\s+the\s+(?:first|1st|last)\s+day\s+of\s+every\s+month)|(?:first\s+day\s+of\s+every\s+month)|(?:first\s+of\s+every\s+month)|(?:every\s+month\s+on\s+the\s+(?:1st|first))|(?:on\s+the\s+(?:1st|first))|(?:on\s+the\s+1st\s+at)|(?:on\s+the\s+first\s+at)|(?:on\s+the\s+1st)|(?:on\s+the\s+first)'
+    TIME_PATTERN: ClassVar[str] = r'(?:at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?|in\s+(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|wks?|months?|years?))'
+    SPECIFIC_DATE_PATTERN: ClassVar[str] = r'on\s+(\d{1,2})\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)'
 
     @classmethod
-    def parse_reminder(cls, text):
+    def parse_reminder(cls, text: str) -> Dict[str, Any]:
         """Parse a reminder text and extract components using timefhuman"""
         text = re.sub(r'^/remind\s+to\s+', '', text, flags=re.IGNORECASE).strip()
         general_logger.debug(f"Parsing reminder text: {text}")
         
-        result = {
+        result: Dict[str, Any] = {
             'task': text,
             'frequency': None,
             'delay': None,

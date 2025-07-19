@@ -20,7 +20,7 @@ KYIV_TZ = pytz.timezone('Europe/Kyiv')
 
 
 # Ensure directories exist
-def ensure_directories():
+def ensure_directories() -> bool:
     """Ensure all required directories exist with proper permissions."""
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
@@ -41,7 +41,7 @@ def ensure_directories():
 # Custom formatter for Kyiv timezone
 class KyivTimezoneFormatter(logging.Formatter):
     """Custom formatter that uses Kyiv timezone"""
-    def formatTime(self, record, datefmt=None):
+    def formatTime(self, record: logging.LogRecord, datefmt: Optional[str] = None) -> str:
         dt = datetime.fromtimestamp(record.created).astimezone(KYIV_TZ)
         return dt.strftime(datefmt) if datefmt else dt.strftime("%Y-%m-%d %H:%M:%S %z")
 
@@ -95,7 +95,7 @@ def ensure_csv_headers(file_path: str, headers: List[str]) -> None:
         logging.getLogger(__name__).error(f"Error checking CSV headers: {e}")
 
 # Data management functions
-def save_user_location(user_id, city, chat_id=None):
+def save_user_location(user_id: int, city: str, chat_id: Optional[int] = None) -> None:
     """Save user's location to a CSV file.
     
     Args:
@@ -115,13 +115,15 @@ def save_user_location(user_id, city, chat_id=None):
     
     # Read existing data first
     existing_data = []
+    headers = ["user_id", "city", "timestamp", "chat_id"]
     try:
         with open(file_path, mode='r', newline='', encoding='utf-8') as f:
             reader = csv.reader(f)
-            headers = next(reader, None)  # Skip header row
+            file_headers = next(reader, None)  # Skip header row
+            if file_headers:
+                headers = file_headers
             existing_data = list(reader)
     except FileNotFoundError:
-        headers = ["user_id", "city", "timestamp", "chat_id"]
         existing_data = []
     
     # Update or add new entry

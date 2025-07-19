@@ -1,15 +1,19 @@
+from typing import Any, Optional, List
 import sqlite3
 from modules.reminders.reminder_models import Reminder
 from modules.const import KYIV_TZ
 from modules.logger import error_logger, general_logger
 
 class ReminderDB:
-    def __init__(self, db_file='reminders.db'):
+    db_file: str
+    conn: sqlite3.Connection
+
+    def __init__(self, db_file: str = 'reminders.db') -> None:
         self.db_file = db_file
         self.conn = sqlite3.connect(self.db_file, check_same_thread=False)
         self._create_table()
 
-    def _create_table(self):
+    def _create_table(self) -> None:
         """Create reminders table if it doesn't exist"""
         cursor = self.conn.cursor()
         cursor.execute('''
@@ -27,7 +31,7 @@ class ReminderDB:
         ''')
         self.conn.commit()
 
-    def get_connection(self):
+    def get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_file, check_same_thread=False)
         # Create table if it doesn't exist (helpful for tests with in-memory databases)
         with conn:
@@ -46,7 +50,7 @@ class ReminderDB:
             ''')
         return conn
 
-    def load_reminders(self, chat_id=None):
+    def load_reminders(self, chat_id: Optional[int] = None) -> List[Reminder]:
         """Load all reminders from the database, optionally filtered by chat_id"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -57,7 +61,7 @@ class ReminderDB:
             data = cursor.fetchall()
             return [Reminder.from_tuple(r) for r in data]
 
-    def save_reminder(self, rem):
+    def save_reminder(self, rem: Reminder) -> Reminder:
         with self.get_connection() as conn:
             c = conn.cursor()
             # Ensure next_execution is timezone-aware before saving
@@ -82,7 +86,7 @@ class ReminderDB:
             conn.commit()
         return rem
 
-    def remove_reminder(self, reminder):
+    def remove_reminder(self, reminder: Reminder) -> None:
         """Remove a reminder from the database"""
         try:
             cursor = self.conn.cursor()

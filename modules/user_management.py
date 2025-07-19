@@ -5,6 +5,7 @@ from typing import Optional
 
 from telegram import Update, ChatPermissions
 from telegram.ext import CallbackContext
+from typing import Any
 from telegram.error import TelegramError
 
 from modules.logger import general_logger, error_logger
@@ -17,7 +18,7 @@ RESTRICT_DURATION_RANGE = (1, 15)  # min and max minutes
 
 config_manager = ConfigManager()
 
-async def restrict_user(update: Update, context: CallbackContext) -> None:
+async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """
     Restricts a user's ability to send messages for a random duration, using chat_behavior config if present.
     """
