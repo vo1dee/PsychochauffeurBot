@@ -8,6 +8,8 @@ from typing import Dict, List, Optional, Any
 import logging
 from datetime import datetime
 import pytz
+from telegram import Update
+from telegram.ext import CallbackContext
 
 from modules.logger import general_logger, error_logger
 from modules.const import KYIV_TZ
@@ -239,11 +241,11 @@ class GeomagneticAPI:
 class GeomagneticCommandHandler:
     """Handler for geomagnetic activity telegram commands."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.geomagnetic_api = GeomagneticAPI()
     
     @handle_errors(feedback_message="Помилка при обробці запиту геомагнітної активності.")
-    async def __call__(self, update, context):
+    async def __call__(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle /gm command."""
         general_logger.info("Received geomagnetic command")
         

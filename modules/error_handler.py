@@ -1,12 +1,11 @@
 import asyncio
 import traceback
 from enum import Enum
-from typing import Dict, Optional, Any, Type, Callable, Awaitable, Union, List
+from typing import Dict, Optional, Any, Type, Callable, Awaitable, Union, List, TypeVar
 from datetime import datetime
 import pytz
 from telegram import Update
 from telegram.ext import ContextTypes
-from typing import Any
 from modules.logger import error_logger
 import functools
 
@@ -316,16 +315,23 @@ class ErrorHandler:
 # Common error handling decorators
 
 
-def handle_errors(feedback_message: Optional[str] = None):
+from typing import Callable, TypeVar, Awaitable
+
+F = TypeVar('F', bound=Callable[..., Awaitable[Any]])
+
+def handle_errors(feedback_message: Optional[str] = None) -> Callable[[F], F]:
     """
     Decorator for handling errors in async functions.
     
     Args:
         feedback_message: Optional message to send to the user on error
+        
+    Returns:
+        Decorated function with error handling
     """
-    def decorator(func):
+    def decorator(func: F) -> F:
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
@@ -343,7 +349,7 @@ def handle_errors(feedback_message: Optional[str] = None):
                     feedback_message=feedback_message
                 )
                 return None
-        return wrapper
+        return wrapper  # type: ignore
     return decorator
 
 
