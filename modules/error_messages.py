@@ -95,7 +95,6 @@ class ErrorFeedbackManager:
     
     def __init__(self):
         self.error_stickers = [
-            Stickers.ERROR_GENERAL,
             "CAACAgQAAxkBAAExX39nn7xI2ENP9ev7Ib1-0GCV0TcFvwACNxUAAn_QmFB67ToFiTpdgTYE",
             "CAACAgQAAxkBAAExYABnn7xJmVXzAAGOAAH-UqFN8KWOvJsAAjgVAAJ_0JhQeu06BYk6XYE2BA",
             "CAACAgQAAxkBAAExYAFnn7xJwQABuQABjgAB_lKhTfCljryaAAI5FQACF9CYUHrtOgWJOl2BNgQ"

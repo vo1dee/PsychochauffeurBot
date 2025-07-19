@@ -27,7 +27,7 @@ class AsyncDatabaseConnectionManager(AsyncResourceManager):
     def __init__(self):
         self.pool: Optional[asyncpg.Pool] = None
         self._connection_pool: Optional[AsyncConnectionPool] = None
-        self._rate_limiter = AsyncRateLimiter(rate=100.0, burst=10)  # 100 queries/sec
+        self._rate_limiter = AsyncRateLimiter(max_calls=100, time_window=1.0)  # 100 queries/sec
     
     async def acquire(self) -> asyncpg.Connection:
         """Acquire a database connection."""

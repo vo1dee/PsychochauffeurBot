@@ -22,10 +22,10 @@ from modules.types import (
 )
 from modules.logger import general_logger, error_logger
 from modules.const import Stickers
-from modules.user_management import restrict_user, should_restrict_user
+from modules.user_management import restrict_user
 from modules.message_processor import (
     needs_gpt_response, update_message_history, get_previous_message,
-    process_message_content
+    process_message_content, should_restrict_user
 )
 from modules.gpt import gpt_response, handle_photo_analysis as _handle_photo
 from modules.keyboards import get_language_keyboard
