@@ -102,17 +102,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• Reminders -- /remind\n\n"
         "❓ Questions or issues?\n"
         "Contact @vo1dee"
-    )
-    await update.message.reply_text(welcome_text)
+        )
+    if update.message:
+        await update.message.reply_text(welcome_text)
     # Add a static test button for callback debugging
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    await update.message.reply_text(
-        "Test callback button:",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Test Callback", callback_data="test_callback")]
-        ])
-    )
-    general_logger.info(f"Handled /start command for user {update.effective_user.id}")
+    if update.message:
+        await update.message.reply_text(
+            "Test callback button:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Test Callback", callback_data="test_callback")]
+            ])
+        )
+    if update.effective_user:
+        general_logger.info(f"Handled /start command for user {update.effective_user.id}")
 
 @handle_errors(feedback_message="An error occurred while processing your message.")
 async def handle_message(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
@@ -180,11 +183,13 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
 
     # --- RANDOM GPT RESPONSE LOGIC ---
     # Only in group chats, not private
-    if update.effective_chat.type in {"group", "supergroup"}:
+    if update.effective_chat and update.effective_chat.type in {"group", "supergroup"}:
         # Block random GPT response if message contains any link
         if extract_urls(message_text):
             pass  # Do not trigger random GPT
         else:
+            if not update.effective_chat:
+                return
             chat_id = str(update.effective_chat.id)
             chat_type = update.effective_chat.type
             config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior")
@@ -227,16 +232,12 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
 @handle_errors(feedback_message="An error occurred while processing your links.")
 async def process_urls(update: Update, context: CallbackContext[Any, Any, Any, Any], urls: list[str], message_text: str) -> None:
     """Process URLs in the message."""
-    if update.effective_chat is None:
-        print("[DEBUG] No effective chat found in update")
-        return
-    chat_id = update.effective_chat.id
-    if not update.message.from_user:
+    if not update.message or not update.message.from_user:
         return
     username = update.message.from_user.username or f"ID:{update.message.from_user.id}"
     
     if urls:
-        await construct_and_send_message(chat_id, username, message_text, urls, update, context)
+        await construct_and_send_message(update.effective_chat.id, username, message_text, urls, update, context)
 
 @handle_errors(feedback_message="An error occurred while constructing the message.")
 async def construct_and_send_message(
@@ -275,11 +276,12 @@ async def construct_and_send_message(
             )
         else:
             # If it wasn't a reply, send the modified link message as a reply to the original message
-            await update.message.reply_text(
-                text=message,
-                reply_markup=keyboard,
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
+            if update.message:
+                await update.message.reply_text(
+                    text=message,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
     except Exception as e:
         error_logger.error(f"Failed to send message: {str(e)}", exc_info=True)
         raise
@@ -322,90 +324,110 @@ async def handle_location(update: Update, context: CallbackContext[Any, Any, Any
 @handle_errors(feedback_message="An error occurred in /ping command.")
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /ping command."""
-    await update.message.reply_text("Pong! 🏓")
-    general_logger.info(f"Handled /ping command for user {update.effective_user.id}")
+    if update.message:
+        await update.message.reply_text("Pong! 🏓")
+    if update.effective_user:
+        general_logger.info(f"Handled /ping command for user {update.effective_user.id}")
 
 # --- Speech Recognition State Management ---
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if the user is an admin in the chat."""
     chat = update.effective_chat
     user = update.effective_user
+    
+    if not chat or not user:
+        return False
+        
     if chat.type == 'private':
         return True
+    
     member = await context.bot.get_chat_member(chat.id, user.id)
-    return member.status in {"administrator", "creator"}
+    return member.status in ['creator', 'administrator']
 
 async def get_speech_config(chat_id: str, chat_type: str) -> Optional[Dict[str, Any]]:
-    config = await config_manager.get_config(chat_id, chat_type)
-    return config.get("config_modules", {}).get("speechmatics", {})
+    """Get speech configuration for a chat."""
+    config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="speechmatics")
+    if config:
+        return config.get("config_modules", {}).get("speechmatics", {})
+    return None
 
 @handle_errors(feedback_message="An error occurred in /speech command.")
 async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /speech command."""
+    if not update.effective_chat or not update.effective_user:
+        return
+        
     chat_id = str(update.effective_chat.id)
     chat_type = update.effective_chat.type
     user_id = update.effective_user.id
-    args = context.args if hasattr(context, 'args') else []
+    
     speech_config = await get_speech_config(chat_id, chat_type)
-    # Ensure 'overrides' exists in config before updating
+    
+    if not speech_config:
+        speech_config = {}
+    
     if 'overrides' not in speech_config:
         speech_config['overrides'] = {}
-        # Save the updated config immediately
-        config = await config_manager.get_config(chat_id, chat_type)
-        config['config_modules']['speechmatics'] = speech_config
-        await config_manager.save_config(config, chat_id, chat_type)
+    
+    if 'enabled' not in speech_config:
+        speech_config['enabled'] = False
+    
     overrides = speech_config.get("overrides", {})
-    allow_all = overrides.get("allow_all_users", False)
-    if not allow_all and not await is_admin(update, context):
-        await update.message.reply_text("❌ Only admins can use this command.")
+    
+    # Check if user is admin
+    if not await is_admin(update, context):
+        if update.message:
+            await update.message.reply_text("❌ Only admins can use this command.")
         return
-    if not args or args[0] not in ("on", "off"):
-        await update.message.reply_text("Usage: /speech on|off")
+    
+    if not context.args:
+        if update.message:
+            await update.message.reply_text("Usage: /speech on|off")
         return
-    enabled = args[0] == "on"
-    # Update config
-    await config_manager.update_module_setting(
-        module_name="speechmatics",
-        setting_path="overrides.enabled",
-        value=enabled,
-        chat_id=chat_id,
-        chat_type=chat_type
-    )
-    await update.message.reply_text(f"Speech recognition {'enabled' if enabled else 'disabled'}.")
+    
+    enabled = context.args[0].lower() == "on"
+    speech_config['enabled'] = enabled
+    
+    # Save the updated config
+    await config_manager.set_config(chat_id=chat_id, chat_type=chat_type, module_name="speechmatics", config=speech_config)
+    
+    if update.message:
+        await update.message.reply_text(f"Speech recognition {'enabled' if enabled else 'disabled'}.")
 
 # --- Voice/Video Note Handler ---
 @handle_errors(feedback_message="An error occurred during speech recognition.")
 async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle voice and video note messages."""
+    if not update.effective_chat:
+        return
+        
     chat_id = str(update.effective_chat.id)
     chat_type = update.effective_chat.type
+    
     speech_config = await get_speech_config(chat_id, chat_type)
-    if not speech_config.get("enabled", False):
+    
+    if not speech_config or not speech_config.get("enabled", False):
         return
+    
+    if not update.message:
+        return
+        
     message = update.message
+    if not message.from_user:
+        return
+        
     user = message.from_user
     file_id = None
+    
     if message.voice:
         file_id = message.voice.file_id
     elif message.video_note:
         file_id = message.video_note.file_id
     else:
         return
-    # Instead of auto recognition, send the button
+    
+    # Send the speech recognition button
     await send_speech_recognition_button(update, context)
-    # If you want to keep auto recognition as fallback, comment out the next lines
-    # progress_msg = await update.message.reply_text("📝 Transcribing voice message...")
-    # try:
-    #     transcript = await transcribe_telegram_voice(context.bot, file_id, language="auto")
-    #     username = user.username or user.first_name or f"ID:{user.id}"
-    #     text = f"🗣️ {username} (Speech):\n{transcript}"
-    #     chat_streamer._chat_logger.info(f"[{username}] (Speech): {transcript}", extra={
-    #         'chat_id': chat_id,
-    #         'chat_type': chat_type,
-    #         'chattitle': update.effective_chat.title or f"Private_{chat_id}",
-    #         'username': username
-    #     })
-    #     await context.bot.send_message(chat_id=chat_id, text=text)
-    # except ...
-    #     ...
-    # await progress_msg.delete()
 
 # --- Speech Recognition Callback Handler ---
 @handle_errors(feedback_message="An error occurred during manual speech recognition.")
