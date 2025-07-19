@@ -8,7 +8,8 @@ including commands, message handlers, and callback handlers.
 import logging
 from typing import List
 
-from telegram.ext import Application, filters
+from telegram.ext import Application
+from typing import Any, filters
 
 from modules.service_registry import ServiceInterface, service_registry
 from modules.command_processor import CommandProcessor
@@ -177,20 +178,20 @@ class HandlerRegistry(ServiceInterface):
             description="Handle language selection callbacks"
         )
     
-    async def _register_message_handlers(self, application: Application) -> None:
+    async def _register_message_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Register message handlers."""
         # Setup message logging handler first
         message_handler_service = service_registry.get_service('message_handler')
         await message_handler_service.setup_handlers(application)
     
-    async def _register_command_handlers(self, application: Application) -> None:
+    async def _register_command_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Register command handlers."""
         handlers = self.command_processor.get_telegram_handlers()
         for handler in handlers:
             application.add_handler(handler)
         logger.info(f"Registered {len(handlers)} command handlers")
     
-    async def _register_callback_handlers(self, application: Application) -> None:
+    async def _register_callback_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Register callback handlers."""
         # Callback handlers are already included in command processor handlers
         pass

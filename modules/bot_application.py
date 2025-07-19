@@ -13,6 +13,7 @@ from typing import Optional
 
 from telegram import Bot, Update
 from telegram.ext import Application, ApplicationBuilder
+from typing import Any
 
 from modules.service_registry import ServiceRegistry, ServiceInterface
 from modules.const import Config, KYIV_TZ
@@ -31,7 +32,7 @@ class BotApplication(ServiceInterface):
     
     def __init__(self, service_registry: ServiceRegistry):
         self.service_registry = service_registry
-        self.telegram_app: Optional[Application] = None
+        self.telegram_app: Optional[Application[Any, Any, Any, Any, Any, Any]] = None
         self.bot: Optional[Bot] = None
         self._shutdown_event = asyncio.Event()
         self._running = False

@@ -1,6 +1,7 @@
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import ContextTypes, MessageHandler, filters
+from telegram.ext import ContextTypes, MessageHandler, filters, Application
+from typing import Any
 from .database import Database
 from .message_processor import (
     needs_gpt_response, update_message_history,
@@ -94,7 +95,7 @@ async def handle_gpt_reply(
     except Exception as e:
         print(f"Error storing GPT reply: {e}")
 
-def setup_message_handlers(application):
+def setup_message_handlers(application: Application[Any, Any, Any, Any, Any, Any]):
     """
     Set up message handlers for the bot.
     This function should be called during bot initialization.

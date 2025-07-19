@@ -10,6 +10,7 @@ from typing import Dict, Optional
 
 from telegram import Update
 from telegram.ext import CallbackContext
+from typing import Any
 
 from modules.shared_utilities import HashGenerator, ValidationMixin
 from modules.types import CallbackHandler, UserId, ChatId
@@ -25,14 +26,17 @@ logger = logging.getLogger(__name__)
 from modules.handlers.message_handlers import file_id_hash_map
 
 
-async def button_callback(update: Update, context: CallbackContext) -> None:
+async def button_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle general button callbacks."""
     await _button_callback(update, context)
 
 
-async def speechrec_callback(update: Update, context: CallbackContext) -> None:
+async def speechrec_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle speech recognition callback."""
     query = update.callback_query
+    if query is None:
+        logger.error("No callback query found in update")
+        return
     await query.answer()
     data: str = query.data
     
@@ -64,11 +68,17 @@ async def speechrec_callback(update: Update, context: CallbackContext) -> None:
     
     try:
         transcript: str = await transcribe_telegram_voice(context.bot, file_id, language="auto")
+        if update.effective_chat is None:
+            logger.error("No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"🗣️ Recognized speech:\n{transcript}"
         )
     except SpeechmaticsNoSpeechDetected:
+        if update.effective_chat is None:
+            logger.error("No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="❌ No speech was detected in the audio. Please try again with a clearer voice message."
@@ -78,24 +88,33 @@ async def speechrec_callback(update: Update, context: CallbackContext) -> None:
         file_hash = HashGenerator.file_id_hash(file_id)
         file_id_hash_map[file_hash] = file_id
         keyboard = get_language_keyboard(file_hash)
+        if update.effective_chat is None:
+            logger.error("No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="❌ Couldn't recognize the language. Please choose the correct language:",
             reply_markup=keyboard
         )
     except Exception as e:
+        if update.effective_chat is None:
+            logger.error("No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"❌ Speech recognition failed: {e}"
         )
 
 
-async def language_selection_callback(update: Update, context: CallbackContext) -> None:
+async def language_selection_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle language selection callback."""
     logger.debug("Callback handler entered (any callback)")
     logger.debug(f"Full update: {update}")
     
     query = update.callback_query
+    if query is None:
+        logger.error("No callback query found in update")
+        return
     await query.answer()
     data: str = query.data
     

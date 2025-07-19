@@ -15,7 +15,8 @@ from enum import Enum
 from datetime import datetime
 
 from telegram import Update, Message, User, Chat, CallbackQuery
-from telegram.ext import CallbackContext
+from telegram.ext import CallbackContext, Application
+from typing import Any
 
 # Generic type variables
 T = TypeVar('T')
@@ -36,17 +37,18 @@ ConfigDict = Dict[str, Any]
 
 # Telegram-specific types
 TelegramUpdate = Update
-TelegramContext = CallbackContext
+TelegramContext = CallbackContext[Any, Any, Any, Any]
 TelegramMessage = Message
 TelegramUser = User
 TelegramChat = Chat
 TelegramCallback = CallbackQuery
+TelegramApplication = Application[Any, Any, Any, Any, Any, Any]
 
 # Handler function types
-MessageHandler = Callable[[Update, CallbackContext], Awaitable[None]]
-CommandHandler = Callable[[Update, CallbackContext], Awaitable[None]]
-CallbackHandler = Callable[[Update, CallbackContext], Awaitable[None]]
-ErrorHandler = Callable[[Exception, Update, CallbackContext], Awaitable[None]]
+MessageHandler = Callable[[Update, CallbackContext[Any, Any, Any, Any]], Awaitable[None]]
+CommandHandler = Callable[[Update, CallbackContext[Any, Any, Any, Any]], Awaitable[None]]
+CallbackHandler = Callable[[Update, CallbackContext[Any, Any, Any, Any]], Awaitable[None]]
+ErrorHandler = Callable[[Exception, Update, CallbackContext[Any, Any, Any, Any]], Awaitable[None]]
 
 # Service types
 AsyncService = Callable[..., Awaitable[Any]]
@@ -211,7 +213,7 @@ class AsyncRepository(Protocol, Generic[T]):
 class CommandContext(NamedTuple):
     """Command execution context."""
     update: Update
-    context: CallbackContext
+    context: CallbackContext[Any, Any, Any, Any]
     command: str
     args: List[str]
     user: UserInfo

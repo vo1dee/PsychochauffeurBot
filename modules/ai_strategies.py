@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from telegram import Update
 from telegram.ext import CallbackContext
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -327,7 +328,7 @@ class AIService:
     async def _build_context(
         self, 
         update: Update, 
-        context: CallbackContext, 
+        context: CallbackContext[Any, Any, Any, Any], 
         response_type: ResponseType,
         message_text_override: str = None
     ) -> AIContext:
