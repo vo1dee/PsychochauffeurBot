@@ -208,10 +208,12 @@ class WeatherAPI:
             return None
 
 
+from typing import Protocol, Any
+
 class WeatherCommandHandler:
     """Handler for weather-related telegram commands."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.weather_api = WeatherAPI()
         self.config_manager = ConfigManager()
     
@@ -222,7 +224,7 @@ class WeatherCommandHandler:
             return await weather_data.format_message(update, context)
         return "Не вдалося отримати дані про погоду. "
     
-    async def __call__(self, update: Update, context: CallbackContext) -> None:
+    async def __call__(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle /weather command."""
         user_id = update.effective_user.id
         chat_id = str(update.effective_chat.id) if update.effective_chat else None

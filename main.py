@@ -530,7 +530,14 @@ async def send_speech_recognition_button(update: Update, context: CallbackContex
     message = update.message
     if not message or (not message.voice and not message.video_note):
         return
-    file_id = message.voice.file_id if message.voice else message.video_note.file_id
+    
+    # Fix: Check for None before accessing attributes
+    if message.voice is not None:
+        file_id = message.voice.file_id
+    elif message.video_note is not None:
+        file_id = message.video_note.file_id
+    else:
+        return
     file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
     # Store file_id for callback lookup
     file_id_hash_map[file_hash] = file_id
@@ -596,7 +603,9 @@ async def initialize_all_components() -> None:
     try:
         init_directories()
         await Database.initialize()
-        await init_telegram_error_handler(Config.TELEGRAM_BOT_TOKEN, Config.ERROR_CHANNEL_ID)
+        # Create a bot instance for error handler initialization
+        bot = Bot(token=Config.TELEGRAM_BOT_TOKEN)
+        await init_telegram_error_handler(bot, Config.ERROR_CHANNEL_ID)
         await config_manager.initialize()
         
         # Update all chat configs with new template fields
@@ -697,7 +706,7 @@ async def main() -> None:
     
     # Run polling with proper error handling
     try:
-        # Fix: Remove unsupported 'close_loop' argument to avoid NoneType error
+        # Fix: run_polling is async and doesn't return a value
         await application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
