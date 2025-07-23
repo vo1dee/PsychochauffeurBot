@@ -660,20 +660,18 @@ async def initialize_all_components() -> None:
             # Parse channel ID and topic ID
             if ':' in Config.ERROR_CHANNEL_ID:
                 channel_id, topic_id = Config.ERROR_CHANNEL_ID.split(':')
-                message_params = {
-                    'chat_id': channel_id,
-                    'text': startup_message,
-                    'parse_mode': 'MarkdownV2',
-                    'message_thread_id': int(topic_id)
-                }
+                await bot.send_message(
+                    chat_id=channel_id,
+                    text=startup_message,
+                    parse_mode='MarkdownV2',
+                    message_thread_id=int(topic_id)
+                )
             else:
-                message_params = {
-                    'chat_id': Config.ERROR_CHANNEL_ID,
-                    'text': startup_message,
-                    'parse_mode': 'MarkdownV2'
-                }
-                
-            await bot.send_message(**message_params)
+                await bot.send_message(
+                    chat_id=Config.ERROR_CHANNEL_ID,
+                    text=startup_message,
+                    parse_mode='MarkdownV2'
+                )
         except Exception as e:
             error_logger.error(f"Failed to send startup message: {str(e)}", exc_info=True)
             

@@ -129,7 +129,11 @@ def save_chat_title(chat_id: str, chat_title: str) -> None:
 class KyivTimezoneFormatter(logging.Formatter):
     """Base formatter that uses Kyiv timezone for timestamps."""
     # The base expects converter: Callable[[Optional[float]], struct_time]
-    converter = staticmethod(lambda timestamp: datetime.fromtimestamp(timestamp, KYIV_TZ).timetuple())
+    @staticmethod
+    def converter(timestamp: Optional[float]) -> time.struct_time:
+        if timestamp is None:
+            timestamp = time.time()
+        return datetime.fromtimestamp(timestamp, KYIV_TZ).timetuple()
 
     def formatTime(self, record: logging.LogRecord, datefmt: Optional[str] = None) -> str:
         """Formats the timestamp to always include milliseconds."""
@@ -327,18 +331,20 @@ class TelegramErrorHandler(logging.Handler):
                 if len(text) > 4090:
                     text = text[:4087] + "..."
                 
-                # Prepare message parameters
-                message_params = {
-                    'chat_id': self.channel_id,
-                    'text': text,
-                    'parse_mode': 'MarkdownV2'
-                }
-                
-                # Add message_thread_id if it exists
+                # Send message with proper parameters
                 if self.message_thread_id is not None:
-                    message_params['message_thread_id'] = str(self.message_thread_id) # Ensure it's a string
-
-                await self._bot_instance.send_message(**message_params)
+                    await self._bot_instance.send_message(
+                        chat_id=self.channel_id,
+                        text=text,
+                        parse_mode='MarkdownV2',
+                        message_thread_id=self.message_thread_id
+                    )
+                else:
+                    await self._bot_instance.send_message(
+                        chat_id=self.channel_id,
+                        text=text,
+                        parse_mode='MarkdownV2'
+                    )
                 return # Success
             except Exception as e:
                 print(f"ERROR: Attempt {attempt + 1} failed to send error to Telegram: {e}", file=sys.stderr)
@@ -347,15 +353,19 @@ class TelegramErrorHandler(logging.Handler):
                     try:
                         # Strip Markdown formatting and escape special characters
                         plain_text = text.replace('*', '').replace('_', '').replace('`', '').replace('[', '').replace(']', '')
-                        message_params = {
-                            'chat_id': self.channel_id,
-                            'text': f"Fallback (Markdown failed):\n{plain_text[:3800]}", # Limit length
-                            'parse_mode': ''
-                        }
+                        fallback_text = f"Fallback (Markdown failed):\n{plain_text[:3800]}"
+                        
                         if self.message_thread_id is not None:
-                            message_params['message_thread_id'] = str(self.message_thread_id) # Ensure it's a string
-
-                        await self._bot_instance.send_message(**message_params)
+                            await self._bot_instance.send_message(
+                                chat_id=self.channel_id,
+                                text=fallback_text,
+                                message_thread_id=self.message_thread_id
+                            )
+                        else:
+                            await self._bot_instance.send_message(
+                                chat_id=self.channel_id,
+                                text=fallback_text
+                            )
                     except Exception as final_e:
                         print(f"ERROR: Final fallback attempt to send error to Telegram failed: {final_e}", file=sys.stderr)
                 else:

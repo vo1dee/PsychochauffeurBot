@@ -14,7 +14,8 @@ from dateutil.tz import tzlocal
 
 from telegram import Update, CallbackQuery
 from telegram.ext import CallbackContext
-from typing import Any, Optional, List
+from telegram.ext._jobqueue import JobQueue
+from typing import Any, Optional, List, cast
 from unittest.mock import MagicMock
 from modules.reminders.reminder_models import Reminder
 from modules.reminders.reminder_db import ReminderDB
@@ -341,9 +342,11 @@ class ReminderManager:
                 )
                 rem = self.save_reminder(rem)
 
-                delay_sec = seconds_until(rem.next_execution)
-                if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
-                    context.job_queue.run_once(self.send_reminder, delay_sec, data=rem, name=f"reminder_{rem.reminder_id}")
+                if rem.next_execution is not None:
+                    delay_sec = seconds_until(rem.next_execution)
+                    if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
+                        job_queue = cast('JobQueue[Any]', context.job_queue)
+                        job_queue.run_once(self.send_reminder, delay_sec, data=rem, name=f"reminder_{rem.reminder_id}")
                 else:
                     general_logger.error("JobQueue is not available. Cannot schedule reminder.")
                     if getattr(update, 'message', None) is not None and update.message is not None:
@@ -593,13 +596,16 @@ class ReminderManager:
             # reschedule
             jobs: list[Any] = []
             if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
-                jobs = list(context.job_queue.get_jobs_by_name(f"reminder_{rem_edit.reminder_id}"))
+                job_queue = cast('JobQueue[Any]', context.job_queue)
+                jobs = list(job_queue.get_jobs_by_name(f"reminder_{rem_edit.reminder_id}"))
             if jobs:
                 for j in jobs:
                     j.schedule_removal()
-            delay = seconds_until(rem_edit.next_execution)
-            if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
-                context.job_queue.run_once(self.send_reminder, delay, data=rem_edit, name=f"reminder_{rem_edit.reminder_id}")
+            if rem_edit.next_execution is not None:
+                delay = seconds_until(rem_edit.next_execution)
+                if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
+                    job_queue = cast('JobQueue[Any]', context.job_queue)
+                    job_queue.run_once(self.send_reminder, delay, data=rem_edit, name=f"reminder_{rem_edit.reminder_id}")
             else:
                 general_logger.error("JobQueue is not available. Cannot schedule reminder.")
                 if getattr(update, 'message', None) is not None and update.message is not None:
@@ -694,10 +700,12 @@ class ReminderManager:
         rem.calculate_next_execution()
         if getattr(rem, 'frequency', None) or getattr(rem, 'date_modifier', None):
             self.save_reminder(rem)
-            delay = seconds_until(rem.next_execution)
-            general_logger.info(f"[REMINDER_RECUR] Rescheduling recurring reminder (id={getattr(rem, 'reminder_id', '?')}, task='{getattr(rem, 'task', '?')}') for next execution at {getattr(rem, 'next_execution', '?')}")
-            if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
-                context.job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{getattr(rem, 'reminder_id', '?')}")
+            if rem.next_execution is not None:
+                delay = seconds_until(rem.next_execution)
+                general_logger.info(f"[REMINDER_RECUR] Rescheduling recurring reminder (id={getattr(rem, 'reminder_id', '?')}, task='{getattr(rem, 'task', '?')}') for next execution at {getattr(rem, 'next_execution', '?')}")
+                if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
+                    job_queue = cast('JobQueue[Any]', context.job_queue)
+                    job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{getattr(rem, 'reminder_id', '?')}")
             else:
                 general_logger.error("JobQueue is not available. Cannot schedule reminder.")
                 await context.bot.send_message(rem.chat_id, "❌ Reminder scheduling is not available. Please contact the administrator.")
@@ -712,7 +720,7 @@ class ReminderManager:
         
         now = datetime.now(KYIV_TZ)
         for rem in self.load_reminders():
-            if getattr(rem, 'next_execution', None) and rem.next_execution > now:
+            if getattr(rem, 'next_execution', None) and rem.next_execution is not None and rem.next_execution > now:
                 delay = seconds_until(rem.next_execution)
                 job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{getattr(rem, 'reminder_id', '?')}")
 
@@ -760,7 +768,8 @@ class ReminderManager:
                     self.delete_reminder(reminder)
                     # Remove any scheduled jobs for this reminder
                     if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
-                        jobs = context.job_queue.get_jobs_by_name(f"reminder_{getattr(reminder, 'reminder_id', '?')}")
+                        job_queue = cast('JobQueue[Any]', context.job_queue)
+                        jobs = job_queue.get_jobs_by_name(f"reminder_{getattr(reminder, 'reminder_id', '?')}")
                         for job in jobs:
                             job.schedule_removal()
                     else:

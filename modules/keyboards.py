@@ -171,11 +171,11 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
             return
         # Validate hash: 8 hex chars
         if not re.fullmatch(r"[0-9a-f]{8}", link_hash):
-            if query.message:
+            if query.message and hasattr(query.message, 'edit_text'):
                 await query.message.edit_text("Invalid callback identifier.")
             return
         general_logger.info(f"Received callback action: {action}, hash: {link_hash}")
-        if not query.message:
+        if not query.message or not hasattr(query.message, 'chat_id'):
             return
         chat_id = query.message.chat_id
         message_id = query.message.message_id
@@ -184,18 +184,21 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
         general_logger.info(f"Action: {action}, Hash: {link_hash}, Original link: {original_link}")
         
         if not original_link:
-            await query.message.edit_text("Sorry, this button has expired. Please generate a new link.")
+            if hasattr(query.message, 'edit_text'):
+                await query.message.edit_text("Sorry, this button has expired. Please generate a new link.")
             return
         
         # Handle video download action first
         if action == 'download_video':
             video_downloader = context.bot_data.get('video_downloader')
             if not video_downloader:
-                await query.message.edit_text("❌ Video downloader not initialized.")
+                if hasattr(query.message, 'edit_text'):
+                    await query.message.edit_text("❌ Video downloader not initialized.")
                 return
                 
             try:
-                await query.message.edit_text("🔄 Downloading video...")
+                if hasattr(query.message, 'edit_text'):
+                    await query.message.edit_text("🔄 Downloading video...")
                 filename, title = await video_downloader.download_video(original_link)
                 
                 if filename and os.path.exists(filename):
@@ -206,23 +209,28 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
                             caption=f"📹 {title or 'Downloaded Video'}"
                         )
                     os.remove(filename)
-                    await query.message.edit_text("✅ Download complete!")
+                    if hasattr(query.message, 'edit_text'):
+                        await query.message.edit_text("✅ Download complete!")
                 else:
-                    await query.message.edit_text("❌ Video download failed. Check the link and try again.")
+                    if hasattr(query.message, 'edit_text'):
+                        await query.message.edit_text("❌ Video download failed. Check the link and try again.")
                 return
             except Exception as e:
                 error_logger.error(f"Error in video download: {str(e)}")
-                await query.message.edit_text("❌ An error occurred while downloading the video.")
+                if hasattr(query.message, 'edit_text'):
+                    await query.message.edit_text("❌ An error occurred while downloading the video.")
                 return
         
         # Handle Instagram service download action
         if action == 'download_instagram_service':
             video_downloader = context.bot_data.get('video_downloader')
             if not video_downloader:
-                await query.message.edit_text("❌ Video downloader not initialized.")
+                if hasattr(query.message, 'edit_text'):
+                    await query.message.edit_text("❌ Video downloader not initialized.")
                 return
             try:
-                await query.message.edit_text("🔄 Downloading Instagram video via service...")
+                if hasattr(query.message, 'edit_text'):
+                    await query.message.edit_text("🔄 Downloading Instagram video via service...")
                 filename, title = await video_downloader.download_video(original_link)
                 if filename and os.path.exists(filename):
                     with open(filename, 'rb') as video_file:
@@ -232,19 +240,22 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
                             caption=f"📹 {title or 'Instagram Video'}"
                         )
                     os.remove(filename)
-                    await query.message.edit_text("✅ Download complete!")
+                    if hasattr(query.message, 'edit_text'):
+                        await query.message.edit_text("✅ Download complete!")
                 else:
-                    await query.message.edit_text("❌ Instagram video download failed. Check the link and try again.")
+                    if hasattr(query.message, 'edit_text'):
+                        await query.message.edit_text("❌ Instagram video download failed. Check the link and try again.")
                 return
             except Exception as e:
                 error_logger.error(f"Error in Instagram service download: {str(e)}")
-                await query.message.edit_text("❌ An error occurred while downloading the Instagram video.")
+                if hasattr(query.message, 'edit_text'):
+                    await query.message.edit_text("❌ An error occurred while downloading the Instagram video.")
                 return
         # Handle translate action (language menu)
         if action == 'translate':
             general_logger.info("Creating language menu")
             keyboard = create_language_menu(original_link, link_hash)  # Pass both arguments
-            if query.message.text:
+            if hasattr(query.message, 'text') and hasattr(query.message, 'edit_text') and query.message.text:
                 await query.message.edit_text(
                     text=query.message.text,
                     reply_markup=keyboard
@@ -273,7 +284,7 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
 
         if new_link:
             # Update message with new link
-            if query.message.text:
+            if hasattr(query.message, 'text') and hasattr(query.message, 'edit_text') and query.message.text:
                 new_message = query.message.text.replace(original_link, new_link)
                 
                 # Store new link hash
@@ -289,14 +300,16 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
                 )
             else:
                 error_logger.error("Message text is None, cannot replace link")
-                await query.message.edit_text("❌ Cannot process message")
+                if hasattr(query.message, 'edit_text'):
+                    await query.message.edit_text("❌ Cannot process message")
         else:
             error_logger.error(f"No modification performed for action: {action}")
-            await query.message.edit_text("❌ Invalid action")
+            if hasattr(query.message, 'edit_text'):
+                await query.message.edit_text("❌ Invalid action")
 
     except Exception as e:
         error_logger.error(f"Error in button callback: {str(e)}", exc_info=True)
-        if query and query.message:
+        if query and query.message and hasattr(query.message, 'edit_text'):
             await query.message.edit_text(f"❌ Error: {str(e)}")
 
 

@@ -65,7 +65,7 @@ class ReminderDB:
         with self.get_connection() as conn:
             c = conn.cursor()
             # Ensure next_execution is timezone-aware before saving
-            if rem.next_execution:
+            if rem.next_execution is not None:
                 if rem.next_execution.tzinfo is None:
                     rem.next_execution = KYIV_TZ.localize(rem.next_execution)
                 rem.next_execution = rem.next_execution.astimezone(KYIV_TZ)
