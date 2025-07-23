@@ -9,11 +9,10 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Callable
 
-from telegram import Update
+from telegram import Update, Chat, User, Message
 from telegram.ext import CallbackContext
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +39,11 @@ class AIContext:
     chat_history: List[Dict[str, Any]]
     user_preferences: Dict[str, Any]
     chat_settings: Dict[str, Any]
-    additional_context: Dict[str, Any] = None
+    additional_context: Optional[Dict[str, Any]] = None
     
-    def __post_init__(self):
-        if self.additional_context is None:
-            self.additional_context = {}
+    def __post_init__(self) -> None:
+        # Initialize empty dict if None
+        self.additional_context = self.additional_context or {}
 
 
 @dataclass
@@ -55,11 +54,11 @@ class AIResponse:
     confidence: float
     tokens_used: int
     processing_time: float
-    metadata: Dict[str, Any] = None
+    metadata: Optional[Dict[str, Any]] = None
     
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
+    def __post_init__(self) -> None:
+        # Initialize empty dict if None
+        self.metadata = self.metadata or {}
 
 
 class AIResponseStrategy(ABC):
@@ -84,7 +83,7 @@ class AIResponseStrategy(ABC):
 class DirectResponseStrategy(AIResponseStrategy):
     """Strategy for direct, straightforward responses."""
     
-    def __init__(self, gpt_service):
+    def __init__(self, gpt_service: Any) -> None:
         self.gpt_service = gpt_service
     
     async def generate_response(self, context: AIContext) -> AIResponse:
@@ -103,7 +102,7 @@ class DirectResponseStrategy(AIResponseStrategy):
             text=response_text,
             response_type=ResponseType.DIRECT,
             confidence=0.8,
-            tokens_used=len(response_text.split()) * 1.3,  # Rough estimate
+            tokens_used=int(len(response_text.split()) * 1.3),  # Rough estimate
             processing_time=processing_time,
             metadata={"prompt_type": "direct"}
         )
@@ -124,7 +123,7 @@ class DirectResponseStrategy(AIResponseStrategy):
 class RandomResponseStrategy(AIResponseStrategy):
     """Strategy for random, conversational responses."""
     
-    def __init__(self, gpt_service):
+    def __init__(self, gpt_service: Any) -> None:
         self.gpt_service = gpt_service
     
     async def generate_response(self, context: AIContext) -> AIResponse:
@@ -143,7 +142,7 @@ class RandomResponseStrategy(AIResponseStrategy):
             text=response_text,
             response_type=ResponseType.RANDOM,
             confidence=0.6,
-            tokens_used=len(response_text.split()) * 1.3,
+            tokens_used=int(len(response_text.split()) * 1.3),
             processing_time=processing_time,
             metadata={"prompt_type": "random"}
         )
@@ -164,7 +163,7 @@ class RandomResponseStrategy(AIResponseStrategy):
 class ContextualResponseStrategy(AIResponseStrategy):
     """Strategy for context-aware responses."""
     
-    def __init__(self, gpt_service):
+    def __init__(self, gpt_service: Any) -> None:
         self.gpt_service = gpt_service
     
     async def generate_response(self, context: AIContext) -> AIResponse:
@@ -183,7 +182,7 @@ class ContextualResponseStrategy(AIResponseStrategy):
             text=response_text,
             response_type=ResponseType.CONTEXTUAL,
             confidence=0.9,
-            tokens_used=len(response_text.split()) * 1.3,
+            tokens_used=int(len(response_text.split()) * 1.3),
             processing_time=processing_time,
             metadata={"prompt_type": "contextual", "context_length": len(context.chat_history)}
         )
@@ -213,7 +212,7 @@ Respond appropriately to: {context.message_text}"""
 class AnalyticalResponseStrategy(AIResponseStrategy):
     """Strategy for analytical, detailed responses."""
     
-    def __init__(self, gpt_service):
+    def __init__(self, gpt_service: Any) -> None:
         self.gpt_service = gpt_service
     
     async def generate_response(self, context: AIContext) -> AIResponse:
@@ -232,7 +231,7 @@ class AnalyticalResponseStrategy(AIResponseStrategy):
             text=response_text,
             response_type=ResponseType.ANALYTICAL,
             confidence=0.85,
-            tokens_used=len(response_text.split()) * 1.3,
+            tokens_used=int(len(response_text.split()) * 1.3),
             processing_time=processing_time,
             metadata={"prompt_type": "analytical"}
         )
@@ -253,7 +252,7 @@ class AnalyticalResponseStrategy(AIResponseStrategy):
 class AIResponseStrategyManager:
     """Manager for AI response strategies."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._strategies: Dict[str, AIResponseStrategy] = {}
         self._default_strategy: Optional[AIResponseStrategy] = None
     
@@ -302,16 +301,16 @@ class AIResponseStrategyManager:
 class AIService:
     """Service for AI interactions using strategy pattern."""
     
-    def __init__(self, strategy_manager: AIResponseStrategyManager, service_registry):
+    def __init__(self, strategy_manager: AIResponseStrategyManager, service_registry: Any) -> None:
         self.strategy_manager = strategy_manager
         self.service_registry = service_registry
     
     async def generate_response(
         self, 
         update: Update, 
-        context: CallbackContext, 
+        context: CallbackContext[Any, Any, Any, Any], 
         response_type: ResponseType = ResponseType.DIRECT,
-        message_text_override: str = None
+        message_text_override: Optional[str] = None
     ) -> AIResponse:
         """Generate AI response using appropriate strategy."""
         # Build AI context
@@ -330,12 +329,12 @@ class AIService:
         update: Update, 
         context: CallbackContext[Any, Any, Any, Any], 
         response_type: ResponseType,
-        message_text_override: str = None
+        message_text_override: Optional[str] = None
     ) -> AIContext:
         """Build AI context from Telegram update."""
-        user_id = update.effective_user.id
-        chat_id = update.effective_chat.id
-        message_text = message_text_override or update.message.text
+        user_id = update.effective_user.id if update.effective_user else 0
+        chat_id = update.effective_chat.id if update.effective_chat else 0
+        message_text = message_text_override or (update.message.text if update.message else "")
         
         # Get services
         config_manager = self.service_registry.get_service('config_manager')
@@ -345,13 +344,14 @@ class AIService:
         chat_history = chat_history_manager.get_recent_messages(chat_id, limit=10)
         
         # Get user preferences and chat settings
-        chat_config = await config_manager.get_config(str(chat_id), update.effective_chat.type)
-        user_preferences = {}  # TODO: Implement user preferences
+        chat_type = update.effective_chat.type if update.effective_chat else "private"
+        chat_config = await config_manager.get_config(str(chat_id), chat_type)
+        user_preferences: Dict[str, Any] = {}  # TODO: Implement user preferences
         
         return AIContext(
             user_id=user_id,
             chat_id=chat_id,
-            message_text=message_text,
+            message_text=message_text or "",
             response_type=response_type,
             chat_history=chat_history,
             user_preferences=user_preferences,

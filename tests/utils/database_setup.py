@@ -348,19 +348,19 @@ class TestDataSeeder:
 class DatabaseTestCase:
     """Base class for database test cases."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.db_manager = TestDatabaseManager()
         self.seeder = TestDataSeeder(self.db_manager)
     
-    async def setup(self):
+    async def setup(self) -> None:
         """Set up the test case."""
         await self.db_manager.setup()
     
-    async def teardown(self):
+    async def teardown(self) -> None:
         """Tear down the test case."""
         await self.db_manager.teardown()
     
-    async def clear_all_tables(self):
+    async def clear_all_tables(self) -> None:
         """Clear all test tables."""
         tables = ['test_messages', 'test_reminders', 'test_errors', 'test_chats', 'test_users']
         for table in tables:
@@ -372,7 +372,7 @@ class DatabaseTestCase:
 import pytest
 
 @pytest.fixture
-async def test_db():
+async def test_db() -> TestDatabaseManager:
     """Provide a test database instance."""
     db_manager = TestDatabaseManager()
     await db_manager.setup()
@@ -381,7 +381,7 @@ async def test_db():
 
 
 @pytest.fixture
-async def seeded_db():
+async def seeded_db() -> tuple[TestDatabaseManager, dict[str, list[dict[str, Any]]]]:
     """Provide a test database with seeded data."""
     db_manager = TestDatabaseManager()
     await db_manager.setup()
@@ -404,7 +404,7 @@ async def seeded_db():
 
 
 @pytest.fixture
-async def db_test_case():
+async def db_test_case() -> DatabaseTestCase:
     """Provide a database test case instance."""
     test_case = DatabaseTestCase()
     await test_case.setup()

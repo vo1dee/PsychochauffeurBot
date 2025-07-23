@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from modules.database import Database
 
-async def main():
+async def main() -> None:
     """Initialize the database tables."""
     try:
         print("Initializing database...")

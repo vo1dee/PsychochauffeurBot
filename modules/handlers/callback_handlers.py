@@ -38,7 +38,7 @@ async def speechrec_callback(update: Update, context: CallbackContext[Any, Any, 
         logger.error("No callback query found in update")
         return
     await query.answer()
-    data: str = query.data
+    data: str = query.data or ""
     
     # Debug log for callback data
     logger.debug(f"speechrec_callback received data: {data}")
@@ -116,7 +116,7 @@ async def language_selection_callback(update: Update, context: CallbackContext[A
         logger.error("No callback query found in update")
         return
     await query.answer()
-    data: str = query.data
+    data: str = query.data or ""
     
     logger.debug(f"Language selection callback triggered. Data: {data}")
     

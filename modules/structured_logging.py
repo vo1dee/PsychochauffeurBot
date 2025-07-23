@@ -4,7 +4,7 @@ Structured logging utilities for consistent logging across the application.
 
 import logging
 import json
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 from datetime import datetime
 from enum import Enum
 import traceback
@@ -30,21 +30,21 @@ class LogContext:
         self,
         logger: logging.Logger,
         operation: str,
-        **context_fields
-    ):
+        **context_fields: Any
+    ) -> None:
         self.logger = logger
         self.operation = operation
         self.context_fields = context_fields
-        self.start_time = None
+        self.start_time: Optional[datetime] = None
         self.success = True
-        self.error_info = None
+        self.error_info: Optional[Dict[str, Any]] = None
     
-    def __enter__(self):
+    def __enter__(self) -> 'LogContext':
         self.start_time = datetime.now(KYIV_TZ)
         self._log_operation_start()
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if exc_type is not None:
             self.success = False
             self.error_info = {
@@ -54,10 +54,11 @@ class LogContext:
             }
         
         self._log_operation_end()
-        return False  # Don't suppress exceptions
     
-    def _log_operation_start(self):
+    def _log_operation_start(self) -> None:
         """Log the start of an operation."""
+        if self.start_time is None:
+            return
         log_data = {
             "event": "operation_start",
             "operation": self.operation,
@@ -70,8 +71,10 @@ class LogContext:
             extra={"structured_data": log_data}
         )
     
-    def _log_operation_end(self):
+    def _log_operation_end(self) -> None:
         """Log the end of an operation."""
+        if self.start_time is None:
+            return
         end_time = datetime.now(KYIV_TZ)
         duration = (end_time - self.start_time).total_seconds()
         
@@ -99,11 +102,11 @@ class LogContext:
                 extra={"structured_data": log_data}
             )
     
-    def add_context(self, **fields):
+    def add_context(self, **fields: Any) -> None:
         """Add additional context fields."""
         self.context_fields.update(fields)
     
-    def log_milestone(self, milestone: str, **data):
+    def log_milestone(self, milestone: str, **data: Any) -> None:
         """Log a milestone within the operation."""
         log_data = {
             "event": "operation_milestone",
@@ -127,7 +130,7 @@ class StructuredLogger:
         self.logger = logger or logging.getLogger(name)
         self.name = name
     
-    def operation_context(self, operation: str, **context) -> LogContext:
+    def operation_context(self, operation: str, **context: Any) -> LogContext:
         """Create a context manager for logging operations."""
         return LogContext(self.logger, operation, **context)
     
@@ -136,8 +139,8 @@ class StructuredLogger:
         level: Union[LogLevel, str],
         event: str,
         message: str,
-        **data
-    ):
+        **data: Any
+    ) -> None:
         """Log a structured event."""
         log_data = {
             "event": event,
@@ -160,8 +163,8 @@ class StructuredLogger:
         action: str,
         chat_id: Optional[int] = None,
         chat_type: Optional[str] = None,
-        **additional_data
-    ):
+        **additional_data: Any
+    ) -> None:
         """Log user actions with consistent structure."""
         self.log_event(
             LogLevel.INFO,
@@ -182,8 +185,8 @@ class StructuredLogger:
         method: str = "GET",
         status_code: Optional[int] = None,
         duration: Optional[float] = None,
-        **additional_data
-    ):
+        **additional_data: Any
+    ) -> None:
         """Log API calls with consistent structure."""
         level = LogLevel.INFO if status_code and status_code < 400 else LogLevel.WARNING
         
@@ -205,8 +208,8 @@ class StructuredLogger:
         table: Optional[str] = None,
         duration: Optional[float] = None,
         rows_affected: Optional[int] = None,
-        **additional_data
-    ):
+        **additional_data: Any
+    ) -> None:
         """Log database operations with consistent structure."""
         self.log_event(
             LogLevel.INFO,
@@ -224,8 +227,8 @@ class StructuredLogger:
         metric_name: str,
         value: Union[int, float],
         unit: str = "count",
-        **additional_data
-    ):
+        **additional_data: Any
+    ) -> None:
         """Log performance metrics."""
         self.log_event(
             LogLevel.INFO,
@@ -243,8 +246,8 @@ class StructuredLogger:
         severity: str,
         user_id: Optional[int] = None,
         ip_address: Optional[str] = None,
-        **additional_data
-    ):
+        **additional_data: Any
+    ) -> None:
         """Log security events."""
         level = LogLevel.WARNING if severity in ["medium", "high"] else LogLevel.CRITICAL
         
@@ -318,8 +321,8 @@ class JSONFormatter(logging.Formatter):
         # Add exception info if present
         if record.exc_info:
             log_entry["exception"] = {
-                "type": record.exc_info[0].__name__,
-                "message": str(record.exc_info[1]),
+                "type": record.exc_info[0].__name__ if record.exc_info[0] else "Unknown",
+                "message": str(record.exc_info[1]) if record.exc_info[1] else "Unknown",
                 "traceback": self.formatException(record.exc_info)
             }
         
@@ -334,7 +337,7 @@ class JSONFormatter(logging.Formatter):
 class LoggingConfigManager:
     """Manager for logging configuration."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.config = {
             "version": 1,
             "disable_existing_loggers": False,
@@ -360,9 +363,9 @@ class LoggingConfigManager:
         name: str = "console",
         level: str = "INFO",
         formatter: str = "structured"
-    ):
+    ) -> None:
         """Add a console handler."""
-        self.config["handlers"][name] = {
+        self.config["handlers"][name] = {  # type: ignore[index]
             "class": "logging.StreamHandler",
             "level": level,
             "formatter": formatter,
@@ -377,9 +380,9 @@ class LoggingConfigManager:
         formatter: str = "structured",
         max_bytes: int = 10 * 1024 * 1024,
         backup_count: int = 5
-    ):
+    ) -> None:
         """Add a rotating file handler."""
-        self.config["handlers"][name] = {
+        self.config["handlers"][name] = {  # type: ignore[index]
             "class": "logging.handlers.RotatingFileHandler",
             "level": level,
             "formatter": formatter,
@@ -393,17 +396,17 @@ class LoggingConfigManager:
         self,
         name: str,
         level: str = "INFO",
-        handlers: Optional[list] = None,
+        handlers: Optional[List[str]] = None,
         propagate: bool = False
-    ):
+    ) -> None:
         """Add a logger configuration."""
-        self.config["loggers"][name] = {
+        self.config["loggers"][name] = {  # type: ignore[index]
             "level": level,
             "handlers": handlers or [],
             "propagate": propagate
         }
     
-    def apply_config(self):
+    def apply_config(self) -> None:
         """Apply the logging configuration."""
         import logging.config
         logging.config.dictConfig(self.config)
@@ -421,8 +424,8 @@ def log_user_action(
     user_id: int,
     username: Optional[str],
     action: str,
-    **kwargs
-):
+    **kwargs: Any
+) -> None:
     """Convenience function for logging user actions."""
     logger = get_structured_logger(logger_name)
     logger.log_user_action(user_id, username, action, **kwargs)
@@ -432,8 +435,8 @@ def log_api_call(
     logger_name: str,
     service: str,
     endpoint: str,
-    **kwargs
-):
+    **kwargs: Any
+) -> None:
     """Convenience function for logging API calls."""
     logger = get_structured_logger(logger_name)
     logger.log_api_call(service, endpoint, **kwargs)
@@ -443,8 +446,8 @@ def log_performance_metric(
     logger_name: str,
     metric_name: str,
     value: Union[int, float],
-    **kwargs
-):
+    **kwargs: Any
+) -> None:
     """Convenience function for logging performance metrics."""
     logger = get_structured_logger(logger_name)
     logger.log_performance_metric(metric_name, value, **kwargs)
@@ -458,15 +461,18 @@ class DatabaseOperationLogger:
         self.logger = get_structured_logger(logger_name)
         self.operation = operation
         self.table = table
-        self.start_time = None
-        self.rows_affected = None
+        self.start_time: Optional[datetime] = None
+        self.rows_affected: Optional[int] = None
     
-    def __enter__(self):
+    def __enter__(self) -> 'DatabaseOperationLogger':
         self.start_time = datetime.now(KYIV_TZ)
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        duration = (datetime.now(KYIV_TZ) - self.start_time).total_seconds()
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self.start_time is not None:
+            duration = (datetime.now(KYIV_TZ) - self.start_time).total_seconds()
+        else:
+            duration = 0.0
         
         if exc_type is None:
             self.logger.log_database_operation(
@@ -487,9 +493,9 @@ class DatabaseOperationLogger:
                 error_message=str(exc_val)
             )
         
-        return False
+        return
     
-    def set_rows_affected(self, count: int):
+    def set_rows_affected(self, count: int) -> None:
         """Set the number of rows affected by the operation."""
         self.rows_affected = count
 
@@ -502,15 +508,18 @@ class APICallLogger:
         self.service = service
         self.endpoint = endpoint
         self.method = method
-        self.start_time = None
-        self.status_code = None
+        self.start_time: Optional[datetime] = None
+        self.status_code: Optional[int] = None
     
-    def __enter__(self):
+    def __enter__(self) -> 'APICallLogger':
         self.start_time = datetime.now(KYIV_TZ)
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        duration = (datetime.now(KYIV_TZ) - self.start_time).total_seconds()
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self.start_time is not None:
+            duration = (datetime.now(KYIV_TZ) - self.start_time).total_seconds()
+        else:
+            duration = 0.0
         
         self.logger.log_api_call(
             self.service,
@@ -521,8 +530,8 @@ class APICallLogger:
             success=exc_type is None
         )
         
-        return False
+        return
     
-    def set_status_code(self, code: int):
+    def set_status_code(self, code: int) -> None:
         """Set the HTTP status code."""
         self.status_code = code

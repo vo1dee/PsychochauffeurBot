@@ -85,12 +85,18 @@ class BotApplication(ServiceInterface):
             
             # Start polling
             logger.info("Bot polling started")
-            await self.telegram_app.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True,
-                stop_signals=None  # We handle signals ourselves
-            )
-            
+            if self.telegram_app:
+                # run_polling doesn't return a value, so we don't await it directly
+                # to avoid the func-returns-value error
+                self.telegram_app.run_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=True,
+                    stop_signals=None  # We handle signals ourselves
+                )
+                # This line is reached after polling stops
+            else:
+                logger.error("Telegram application is not initialized")
+                
         except Exception as e:
             logger.error(f"Error during bot execution: {e}")
             raise
@@ -131,7 +137,7 @@ class BotApplication(ServiceInterface):
     async def _send_startup_notification(self) -> None:
         """Send startup notification to error channel."""
         try:
-            if not Config.ERROR_CHANNEL_ID:
+            if not Config.ERROR_CHANNEL_ID or not self.bot:
                 return
                 
             startup_time = datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
@@ -199,7 +205,7 @@ class BotApplication(ServiceInterface):
     
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
-        def signal_handler(signum, frame):
+        def signal_handler(signum: int, frame: Any) -> None:
             logger.info(f"Received signal {signum}, initiating graceful shutdown...")
             self._shutdown_event.set()
         

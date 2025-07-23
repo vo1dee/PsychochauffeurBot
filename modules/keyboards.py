@@ -3,7 +3,7 @@ import os
 import re
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext
-from typing import Any, Optional
+from typing import Any, Optional, List, Union, Dict
 from modules.logger import general_logger,error_logger
 from urllib.parse import urlparse, urlunparse
 
@@ -29,7 +29,7 @@ Example of link modifications:
     + /ua:     https://fixupx.com/user/status/123/ua
     + /sk:     https://fixupx.com/user/status/123/sk
     + /en:     https://fixupx.com/user/status/123/en
-    + d.:      https://d.fixupx.com/user/status/123
+    + d.:      https://d.fixupx.com/user/status/123 
 
 Button Configuration:
     Each button in BUTTONS_CONFIG/LANGUAGE_OPTIONS_CONFIG defines:
@@ -70,7 +70,7 @@ Note:
     Telegram's size limits.
 """
 
-def is_twitter_video(link):
+def is_twitter_video(link: str) -> bool:
     """Check if a Twitter/X link contains a video"""
     # Twitter video URLs typically contain '/video/' in the path or have certain indicators
     parsed = urlparse(link)
@@ -86,7 +86,7 @@ def is_twitter_video(link):
     return False
 
 # Then update your BUTTONS_CONFIG:
-BUTTONS_CONFIG = [
+BUTTONS_CONFIG: List[Dict[str, Any]] = [
     {
         'action': 'translate',
         'text': '🌍 Translate',
@@ -126,7 +126,7 @@ BUTTONS_CONFIG = [
 ] 
 
 
-LANGUAGE_OPTIONS_CONFIG = [
+LANGUAGE_OPTIONS_CONFIG: List[Dict[str, Any]] = [
     {
         'action': 'ua',
         'text': '🇺🇦 Перекласти українською',
@@ -147,29 +147,36 @@ LANGUAGE_OPTIONS_CONFIG = [
     }
 ]
 
-async def button_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]):
+async def button_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle button callbacks for link modifications and video downloads."""
     query = update.callback_query
+    if query is None:
+        return
     await query.answer()
     
     try:
         data = query.data or ''
         # Validate format: action:hash
         if ':' not in data:
-            await query.message.edit_text("Invalid callback data.")
+            if query.message:
+                await query.message.edit_text("Invalid callback data.")
             return
         action, link_hash = data.split(':', 1)
         # Validate action
         valid_actions = {btn['action'] for btn in BUTTONS_CONFIG + LANGUAGE_OPTIONS_CONFIG}
         valid_actions.update({'download_video'})
         if action not in valid_actions:
-            await query.message.edit_text("Unknown action.")
+            if query.message:
+                await query.message.edit_text("Unknown action.")
             return
         # Validate hash: 8 hex chars
         if not re.fullmatch(r"[0-9a-f]{8}", link_hash):
-            await query.message.edit_text("Invalid callback identifier.")
+            if query.message:
+                await query.message.edit_text("Invalid callback identifier.")
             return
         general_logger.info(f"Received callback action: {action}, hash: {link_hash}")
+        if not query.message:
+            return
         chat_id = query.message.chat_id
         message_id = query.message.message_id
         original_link = context.bot_data.get(link_hash)
@@ -237,10 +244,11 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
         if action == 'translate':
             general_logger.info("Creating language menu")
             keyboard = create_language_menu(original_link, link_hash)  # Pass both arguments
-            await query.message.edit_text(
-                text=query.message.text,
-                reply_markup=keyboard
-            )
+            if query.message.text:
+                await query.message.edit_text(
+                    text=query.message.text,
+                    reply_markup=keyboard
+                )
             return
 
         # Handle all other link modifications
@@ -254,7 +262,7 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
         # Handle description toggle
         elif action in ['desc_remove', 'desc_add']:
             config = next((c for c in BUTTONS_CONFIG if c['action'] == action), None)
-            if config:
+            if config and callable(config.get('modify')):
                 new_link = config['modify'](original_link)
                 general_logger.info(f"Modified link with {action}: {new_link}")
         
@@ -265,30 +273,35 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
 
         if new_link:
             # Update message with new link
-            new_message = query.message.text.replace(original_link, new_link)
-            
-            # Store new link hash
-            new_hash = hashlib.md5(new_link.encode()).hexdigest()[:8]
-            context.bot_data[new_hash] = new_link
-            
-            # Create updated keyboard
-            keyboard = create_link_keyboard(new_link, context)
-            
-            await query.message.edit_text(
-                text=new_message,
-                reply_markup=keyboard
-            )
+            if query.message.text:
+                new_message = query.message.text.replace(original_link, new_link)
+                
+                # Store new link hash
+                new_hash = hashlib.md5(new_link.encode()).hexdigest()[:8]
+                context.bot_data[new_hash] = new_link
+                
+                # Create updated keyboard
+                keyboard = create_link_keyboard(new_link, context)
+                
+                await query.message.edit_text(
+                    text=new_message,
+                    reply_markup=keyboard
+                )
+            else:
+                error_logger.error("Message text is None, cannot replace link")
+                await query.message.edit_text("❌ Cannot process message")
         else:
             error_logger.error(f"No modification performed for action: {action}")
             await query.message.edit_text("❌ Invalid action")
 
     except Exception as e:
         error_logger.error(f"Error in button callback: {str(e)}", exc_info=True)
-        await query.message.edit_text(f"❌ Error: {str(e)}")
+        if query and query.message:
+            await query.message.edit_text(f"❌ Error: {str(e)}")
 
 
 
-def create_link_keyboard(link: str, context: Optional[CallbackContext[Any, Any, Any, Any]] = None) -> Optional[InlineKeyboardMarkup]:
+def create_link_keyboard(link: Union[str, List[str]], context: Optional[CallbackContext[Any, Any, Any, Any]] = None) -> Optional[InlineKeyboardMarkup]:
     """
     Create an inline keyboard for link modifications.
     Handles both single links and lists of links.
@@ -297,14 +310,17 @@ def create_link_keyboard(link: str, context: Optional[CallbackContext[Any, Any, 
         link: A single link string or list of links
         context: The CallbackContext object containing bot_data
     """
+    link_str: str
     if isinstance(link, list):
         # If we have multiple links, create a keyboard for the first one
         if not link:
             return None
-        link = link[0]
+        link_str = link[0]
+    else:
+        link_str = link
     
     # Unescape the link for processing
-    unescaped_link = link.replace('\\', '')
+    unescaped_link = link_str.replace('\\', '')
     
     # Ensure link is using fixupx.com domain
     # Only replace if the domain is exactly x.com (not as a substring of another domain)
@@ -324,9 +340,10 @@ def create_link_keyboard(link: str, context: Optional[CallbackContext[Any, Any, 
     # Create buttons based on the link type
     buttons = []
     for button in BUTTONS_CONFIG:
-        if button['check'](unescaped_link):
+        if callable(button.get('check')) and button['check'](unescaped_link):
+            button_text = str(button.get('text', 'Button'))
             buttons.append([InlineKeyboardButton(
-                button['text'],
+                button_text,
                 callback_data=f"{button['action']}:{link_hash}"
             )])
     
@@ -344,12 +361,13 @@ def create_language_menu(link: str, link_hash: str) -> Optional[InlineKeyboardMa
     general_logger.info(f"Creating language menu for link: {link}")
     
     for config in LANGUAGE_OPTIONS_CONFIG:
-        if config['check'](link):
+        if callable(config.get('check')) and config['check'](link):
             callback_data = f"{config['action']}:{link_hash}"
-            general_logger.info(f"Adding language button: {config['text']} with callback_data: {callback_data}")
+            button_text = str(config.get('text', 'Language'))
+            general_logger.info(f"Adding language button: {button_text} with callback_data: {callback_data}")
             buttons.append(
                 InlineKeyboardButton(
-                    config['text'],
+                    button_text,
                     callback_data=callback_data
                 )
             )

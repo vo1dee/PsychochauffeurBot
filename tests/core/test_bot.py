@@ -8,6 +8,7 @@ import re
 import asyncio
 from datetime import datetime, timedelta
 import pytz
+from typing import Any
 from unittest.mock import mock_open, patch, MagicMock, AsyncMock, call
 from telegram import Update
 from telegram.ext import CallbackContext
@@ -77,7 +78,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(first_row[1], "Kyiv")
 
     @patch('os.makedirs')
-    def test_save_user_location(self, mock_makedirs) -> None:
+    def test_save_user_location(self, mock_makedirs: Any) -> None:
         """Test saving user location."""
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = os.path.join(temp_dir, "test_save.csv")
@@ -181,7 +182,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
 
     @patch('modules.weather.save_user_location')
     @patch('modules.weather.get_last_used_city')
-    def test_weather_command_with_chat_id(self, mock_get_city, mock_save_location) -> None:
+    def test_weather_command_with_chat_id(self, mock_get_city: Any, mock_save_location: Any) -> None:
         """Test weather command uses chat-specific cities."""
         # Setup mocks
         mock_get_city.return_value = "Kyiv"
@@ -200,7 +201,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         
         # Create WeatherCommandHandler instance with mocked handle_weather_request
         weather_cmd = WeatherCommandHandler()
-        weather_cmd.handle_weather_request = AsyncMock(return_value="Weather info for Kyiv")
+        weather_cmd.handle_weather_request = AsyncMock(return_value="Weather info for Kyiv")  # type: ignore
         
         # Run the coroutine
         asyncio.run(weather_cmd(update, context))
@@ -212,7 +213,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         update.message.reply_text.assert_called_once_with("Weather info for Kyiv")
     
     @patch('modules.weather.save_user_location')
-    def test_weather_command_with_city_arg(self, mock_save_location) -> None:
+    def test_weather_command_with_city_arg(self, mock_save_location: Any) -> None:
         """Test weather command saves city with chat ID."""
         # Create mock Update and Context
         update = MagicMock(spec=Update)
@@ -228,7 +229,7 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         
         # Create WeatherCommandHandler instance with mocked handle_weather_request
         weather_cmd = WeatherCommandHandler()
-        weather_cmd.handle_weather_request = AsyncMock(return_value="Weather info for Odesa")
+        weather_cmd.handle_weather_request = AsyncMock(return_value="Weather info for Odesa")  # type: ignore
         
         # Run the coroutine
         asyncio.run(weather_cmd(update, context))

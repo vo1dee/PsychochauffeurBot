@@ -46,7 +46,7 @@ def handle_command_errors(
     category: ErrorCategory = ErrorCategory.GENERAL,
     retry_count: int = 0,
     fallback_response: Optional[str] = None
-):
+) -> Any:
     """
     Decorator for handling errors in command handlers.
     
@@ -57,9 +57,9 @@ def handle_command_errors(
         retry_count: Number of retry attempts
         fallback_response: Fallback response if all retries fail
     """
-    def decorator(func):
+    def decorator(func: Any) -> Any:
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Extract update and context from arguments
             update = next((arg for arg in args if isinstance(arg, Update)), None)
             context = next((arg for arg in args if isinstance(arg, CallbackContext)), None)
@@ -106,7 +106,7 @@ def handle_service_errors(
     fallback_value: Any = None,
     log_errors: bool = True,
     raise_on_critical: bool = True
-):
+) -> Any:
     """
     Decorator for handling errors in service methods.
     
@@ -116,9 +116,9 @@ def handle_service_errors(
         log_errors: Whether to log errors
         raise_on_critical: Whether to re-raise critical errors
     """
-    def decorator(func):
+    def decorator(func: Any) -> Any:
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
@@ -159,8 +159,9 @@ def handle_service_errors(
 def handle_database_errors(
     operation: str,
     fallback_value: Any = None,
-    retry_count: int = 2
-):
+    retry_count: int = 2,
+    raise_exception: bool = False
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Decorator for handling database operation errors.
     
@@ -168,10 +169,11 @@ def handle_database_errors(
         operation: Description of the database operation
         fallback_value: Value to return on error
         retry_count: Number of retry attempts for transient errors
+        raise_exception: Whether to re-raise the exception after logging
     """
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             last_exception = None
             
             for attempt in range(retry_count + 1):
@@ -217,6 +219,10 @@ def handle_database_errors(
                     except Exception:
                         pass  # Don't let error tracking break the flow
                     
+                    # Re-raise the exception if configured to do so
+                    if raise_exception:
+                        raise
+                    
                     return fallback_value
             
         return wrapper
@@ -228,7 +234,7 @@ def handle_network_errors(
     timeout: float = 30.0,
     retry_count: int = 3,
     fallback_value: Any = None
-):
+) -> Any:
     """
     Decorator for handling network/API errors.
     
@@ -238,9 +244,9 @@ def handle_network_errors(
         retry_count: Number of retry attempts
         fallback_value: Value to return on error
     """
-    def decorator(func):
+    def decorator(func: Any) -> Any:
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             last_exception = None
             
             for attempt in range(retry_count + 1):
@@ -304,7 +310,7 @@ def handle_validation_errors(
     input_name: str,
     default_value: Any = None,
     log_invalid_input: bool = True
-):
+) -> Any:
     """
     Decorator for handling input validation errors.
     
@@ -313,9 +319,9 @@ def handle_validation_errors(
         default_value: Default value to return on validation error
         log_invalid_input: Whether to log invalid input attempts
     """
-    def decorator(func):
+    def decorator(func: Any) -> Any:
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return await func(*args, **kwargs)
             except (ValueError, TypeError, KeyError) as e:
@@ -345,7 +351,7 @@ def circuit_breaker(
     failure_threshold: int = 5,
     recovery_timeout: float = 60.0,
     expected_exception: Type[Exception] = Exception
-):
+) -> Any:
     """
     Circuit breaker decorator to prevent cascade failures.
     
@@ -354,14 +360,14 @@ def circuit_breaker(
         recovery_timeout: Time to wait before attempting recovery
         expected_exception: Exception type that triggers the circuit breaker
     """
-    def decorator(func):
+    def decorator(func: Any) -> Any:
         # Circuit breaker state
         func._failure_count = 0
         func._last_failure_time = None
         func._circuit_open = False
         
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             now = datetime.now()
             
             # Check if circuit is open and recovery timeout has passed
@@ -414,7 +420,7 @@ def circuit_breaker(
 def telegram_command(
     feedback_message: str = "An error occurred while processing your command.",
     fallback_response: Optional[str] = None
-):
+) -> Any:
     """Convenience decorator for Telegram command handlers."""
     return handle_command_errors(
         feedback_message=feedback_message,
@@ -424,7 +430,7 @@ def telegram_command(
     )
 
 
-def external_api(service_name: str, timeout: float = 30.0):
+def external_api(service_name: str, timeout: float = 30.0) -> Any:
     """Convenience decorator for external API calls."""
     return handle_network_errors(
         service=service_name,
@@ -434,16 +440,23 @@ def external_api(service_name: str, timeout: float = 30.0):
     )
 
 
-def database_operation(operation_name: str):
-    """Convenience decorator for database operations."""
+def database_operation(operation_name: str, raise_exception: bool = False) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """
+    Convenience decorator for database operations.
+    
+    Args:
+        operation_name: Name of the database operation
+        raise_exception: Whether to re-raise the exception after logging
+    """
     return handle_database_errors(
         operation=operation_name,
         fallback_value=None,
-        retry_count=2
+        retry_count=2,
+        raise_exception=raise_exception
     )
 
 
-def user_input_validation(input_type: str):
+def user_input_validation(input_type: str) -> Any:
     """Convenience decorator for user input validation."""
     return handle_validation_errors(
         input_name=input_type,

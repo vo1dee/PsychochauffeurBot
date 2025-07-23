@@ -2,13 +2,14 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from modules.count_command import count_command, missing_command
 import typing
+from typing import Any, Dict, List, Optional, Generator, Tuple
 
 class AsyncContextManagerMock:
-    def __init__(self, value) -> None:
+    def __init__(self, value: Any) -> None:
         self.value = value
     async def __aenter__(self) -> None:
         return self.value
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         return None
 
 @pytest.mark.asyncio

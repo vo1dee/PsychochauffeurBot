@@ -5,7 +5,8 @@ Contains handlers for speech-related functionality.
 """
 
 import logging
-from telegram import Update
+from typing import Any, Dict, Optional
+from telegram import Update, Chat, User
 from telegram.ext import ContextTypes
 
 from modules.service_registry import service_registry
@@ -15,8 +16,12 @@ logger = logging.getLogger(__name__)
 
 async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /speech command for speech recognition toggle."""
+    if not update.effective_chat:
+        return
     chat_id = str(update.effective_chat.id)
     chat_type = update.effective_chat.type
+    if not update.effective_user:
+        return
     user_id = update.effective_user.id
     args = context.args if hasattr(context, 'args') else []
     
@@ -36,6 +41,9 @@ async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     overrides = speech_config.get("overrides", {})
     allow_all = overrides.get("allow_all_users", False)
     
+    if not update.message:
+        return
+        
     if not allow_all and not await is_admin(update, context):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
@@ -55,13 +63,16 @@ async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         chat_type=chat_type
     )
     
-    await update.message.reply_text(f"Speech recognition {'enabled' if enabled else 'disabled'}.")
+    if update.message:
+        await update.message.reply_text(f"Speech recognition {'enabled' if enabled else 'disabled'}.")
 
 
-async def get_speech_config(chat_id: str, chat_type: str, config_manager):
+async def get_speech_config(chat_id: str, chat_type: str, config_manager: Any) -> Dict[str, Any]:
     """Get speech configuration for a chat."""
     config = await config_manager.get_config(chat_id, chat_type)
-    return config.get("config_modules", {}).get("speechmatics", {})
+    # Explicitly type the return value to avoid Any return
+    result: Dict[str, Any] = config.get("config_modules", {}).get("speechmatics", {})
+    return result
 
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -69,6 +80,9 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     chat = update.effective_chat
     user = update.effective_user
     
+    if not chat or not user:
+        return False
+        
     if chat.type == 'private':
         return True
         

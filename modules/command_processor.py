@@ -13,6 +13,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from telegram import Update
+from telegram.ext import CallbackContext
 from telegram.ext import CallbackContext, CommandHandler, MessageHandler, filters
 from typing import Any
 
@@ -39,13 +40,13 @@ class CommandMetadata:
     name: str
     description: str
     command_type: CommandType
-    permissions: List[str] = None
+    permissions: Optional[List[str]] = None
     rate_limit: Optional[int] = None
     admin_only: bool = False
     group_only: bool = False
     private_only: bool = False
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.permissions is None:
             self.permissions = []
 
@@ -57,17 +58,17 @@ class BaseCommandHandler(ABC):
         self.metadata = metadata
     
     @abstractmethod
-    async def handle(self, update: Update, context: CallbackContext) -> None:
+    async def handle(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle the command."""
         pass
     
-    async def can_execute(self, update: Update, context: CallbackContext) -> bool:
+    async def can_execute(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> bool:
         """Check if the command can be executed in the current context."""
         # Check chat type restrictions
-        if self.metadata.private_only and update.effective_chat.type != 'private':
+        if self.metadata.private_only and update.effective_chat and update.effective_chat.type != 'private':
             return False
         
-        if self.metadata.group_only and update.effective_chat.type == 'private':
+        if self.metadata.group_only and update.effective_chat and update.effective_chat.type == 'private':
             return False
         
         # Check admin permissions
@@ -76,33 +77,36 @@ class BaseCommandHandler(ABC):
         
         return True
     
-    async def _is_admin(self, update: Update, context: CallbackContext) -> bool:
+    async def _is_admin(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> bool:
         """Check if user is admin."""
         chat = update.effective_chat
         user = update.effective_user
         
-        if chat.type == 'private':
+        if chat and chat.type == 'private':
             return True
             
         try:
-            member = await context.bot.get_chat_member(chat.id, user.id)
-            return member.status in {"administrator", "creator"}
+            if chat and user:
+                member = await context.bot.get_chat_member(chat.id, user.id)
+                return member.status in {"administrator", "creator"}
         except Exception:
-            return False
+            pass
+        return False
 
 
 class TextCommandHandler(BaseCommandHandler):
     """Handler for text-based commands."""
     
-    def __init__(self, metadata: CommandMetadata, handler_func: Callable):
+    def __init__(self, metadata: CommandMetadata, handler_func: Callable[..., Any]):
         super().__init__(metadata)
         self.handler_func = handler_func
     
     @handle_errors(feedback_message="An error occurred while processing the command.")
-    async def handle(self, update: Update, context: CallbackContext) -> None:
+    async def handle(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle the text command."""
         if not await self.can_execute(update, context):
-            await update.message.reply_text("❌ You don't have permission to use this command.")
+            if update.message:
+                await update.message.reply_text("❌ You don't have permission to use this command.")
             return
         
         await self.handler_func(update, context)
@@ -111,7 +115,7 @@ class TextCommandHandler(BaseCommandHandler):
 class CallbackQueryHandler(BaseCommandHandler):
     """Handler for callback queries."""
     
-    def __init__(self, metadata: CommandMetadata, handler_func: Callable, pattern: str = None):
+    def __init__(self, metadata: CommandMetadata, handler_func: Callable[..., Any], pattern: Optional[str] = None):
         super().__init__(metadata)
         self.handler_func = handler_func
         self.pattern = pattern
@@ -120,7 +124,8 @@ class CallbackQueryHandler(BaseCommandHandler):
     async def handle(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle the callback query."""
         if not await self.can_execute(update, context):
-            await update.callback_query.answer("❌ You don't have permission to use this feature.")
+            if update.callback_query:
+                await update.callback_query.answer("❌ You don't have permission to use this feature.")
             return
         
         await self.handler_func(update, context)
@@ -129,13 +134,13 @@ class CallbackQueryHandler(BaseCommandHandler):
 class MessageFilterHandler(BaseCommandHandler):
     """Handler for filtered messages."""
     
-    def __init__(self, metadata: CommandMetadata, handler_func: Callable, message_filter):
+    def __init__(self, metadata: CommandMetadata, handler_func: Callable[..., Any], message_filter: Any):
         super().__init__(metadata)
         self.handler_func = handler_func
         self.message_filter = message_filter
     
     @handle_errors(feedback_message="An error occurred while processing the message.")
-    async def handle(self, update: Update, context: CallbackContext) -> None:
+    async def handle(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle the filtered message."""
         if not await self.can_execute(update, context):
             return  # Silently ignore for message handlers
@@ -151,7 +156,7 @@ class CommandProcessor(ServiceInterface):
     consistent error handling and permission checking.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._handlers: Dict[str, BaseCommandHandler] = {}
         self._telegram_handlers: List[Any] = []
         self._rate_limiter: Dict[str, Dict[int, float]] = {}
@@ -170,7 +175,7 @@ class CommandProcessor(ServiceInterface):
     def register_text_command(
         self,
         command: str,
-        handler_func: Callable,
+        handler_func: Callable[..., Any],
         description: str = "",
         admin_only: bool = False,
         group_only: bool = False,
@@ -201,8 +206,8 @@ class CommandProcessor(ServiceInterface):
     def register_callback_handler(
         self,
         name: str,
-        handler_func: Callable,
-        pattern: str = None,
+        handler_func: Callable[..., Any],
+        pattern: Optional[str] = None,
         description: str = "",
         admin_only: bool = False
     ) -> 'CommandProcessor':
@@ -231,8 +236,8 @@ class CommandProcessor(ServiceInterface):
     def register_message_handler(
         self,
         name: str,
-        handler_func: Callable,
-        message_filter,
+        handler_func: Callable[..., Any],
+        message_filter: Any,
         description: str = "",
         admin_only: bool = False,
         group_only: bool = False,

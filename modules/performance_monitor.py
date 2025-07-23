@@ -284,10 +284,10 @@ class MetricsCollector:
 class PerformanceMonitor(metaclass=SingletonMeta):
     """Main performance monitoring system."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.collector = MetricsCollector()
         self.cache_manager = CacheManager[Any](default_ttl=DEFAULT_CACHE_TTL)
-        self._monitoring_task: Optional[asyncio.Task] = None
+        self._monitoring_task: Optional[asyncio.Task[None]] = None
         self._is_monitoring = False
         self._thresholds = {
             'cpu_percent': 80.0,
@@ -296,11 +296,11 @@ class PerformanceMonitor(metaclass=SingletonMeta):
             'request_duration': 5.0,
             'error_rate': 0.1
         }
-        self.metric_collector = None
-        self.resource_monitor = None
-        self.request_tracker = None
-        self._alert_handlers = []
-        self._baseline_metrics = {}
+        self.metric_collector: Optional[MetricsCollector] = None
+        self.resource_monitor: Optional[ResourceMonitor] = None
+        self.request_tracker: Optional[RequestTracker] = None
+        self._alert_handlers: list[Callable[[PerformanceAlert], None]] = []
+        self._baseline_metrics: dict[str, Any] = {}
         
     async def initialize(self) -> None:
         """Initialize the performance monitor components."""
@@ -400,7 +400,7 @@ class PerformanceMonitor(metaclass=SingletonMeta):
                 "error_rate": 0.0,
                 "timestamp": datetime.now()
             }
-        return self._baseline_metrics[endpoint]
+        return dict(self._baseline_metrics[endpoint])
         
     def detect_performance_regression(self, endpoint: str, baseline: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Detect performance regression compared to baseline."""
@@ -667,11 +667,11 @@ class PerformanceMonitor(metaclass=SingletonMeta):
 
 
 # Decorators for performance monitoring
-def monitor_performance(endpoint: str):
+def monitor_performance(endpoint: str) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
     """Decorator to monitor function performance."""
     def decorator(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs) -> Any:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             monitor = PerformanceMonitor()
             
             # Try to extract user_id and chat_id from args
@@ -696,7 +696,7 @@ def monitor_performance(endpoint: str):
 def track_memory_usage(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     """Decorator to track memory usage of a function."""
     @wraps(func)
-    async def wrapper(*args, **kwargs) -> Any:
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
         monitor = PerformanceMonitor()
         
         start_memory = psutil.Process().memory_info().rss / 1024 / 1024
@@ -723,25 +723,25 @@ performance_monitor = PerformanceMonitor()
 class ResourceMonitor:
     """Resource monitoring implementation for performance tracking."""
     
-    def __init__(self):
-        self.alert_handlers = []
+    def __init__(self) -> None:
+        self.alert_handlers: List[Callable[[Dict[str, Any]], None]] = []
         self.is_monitoring = False
     
-    async def start_monitoring(self):
+    async def start_monitoring(self) -> None:
         """Start monitoring resources."""
         self.is_monitoring = True
     
-    async def stop_monitoring(self):
+    async def stop_monitoring(self) -> None:
         """Stop monitoring resources."""
         self.is_monitoring = False
     
-    def get_cpu_usage(self):
+    def get_cpu_usage(self) -> float:
         """Get current CPU usage."""
         # Use interval=None for non-blocking call (returns immediately)
         # This gives the CPU usage since the last call or system boot
-        return psutil.cpu_percent(interval=None)
+        return float(psutil.cpu_percent(interval=None))
     
-    def get_memory_usage(self):
+    def get_memory_usage(self) -> Dict[str, Any]:
         """Get current memory usage."""
         memory = psutil.virtual_memory()
         return {
@@ -750,7 +750,7 @@ class ResourceMonitor:
             "percent": memory.percent
         }
     
-    def get_disk_usage(self):
+    def get_disk_usage(self) -> Dict[str, Any]:
         """Get current disk usage."""
         disk = psutil.disk_usage('/')
         return {
@@ -759,7 +759,7 @@ class ResourceMonitor:
             "percent": (disk.used / disk.total) * 100
         }
     
-    def get_network_io(self):
+    def get_network_io(self) -> Dict[str, Any]:
         """Get current network I/O stats."""
         net_io = psutil.net_io_counters()
         return {
@@ -767,11 +767,11 @@ class ResourceMonitor:
             "bytes_recv": net_io.bytes_recv
         }
     
-    def add_alert_handler(self, handler):
+    def add_alert_handler(self, handler: Callable[[Any], None]) -> None:
         """Add an alert handler."""
         self.alert_handlers.append(handler)
     
-    def add_alert(self, alert):
+    def add_alert(self, alert: Any) -> None:
         """Add an alert."""
         for handler in self.alert_handlers:
             handler(alert)
@@ -780,13 +780,13 @@ class ResourceMonitor:
 class RequestTracker:
     """Request tracking implementation for performance monitoring."""
     
-    def __init__(self):
-        self.requests = {}
-        self.start_times = {}
-        self.status_codes = {}
-        self.response_sizes = {}
-        self.endpoints = {}
-        self.start_timestamp = time.time()
+    def __init__(self) -> None:
+        self.requests: Dict[str, Dict[str, Any]] = {}
+        self.start_times: Dict[str, float] = {}
+        self.status_codes: Dict[str, int] = {}
+        self.response_sizes: Dict[str, List[int]] = {}
+        self.endpoints: Dict[str, Dict[str, Any]] = {}
+        self.start_timestamp: float = time.time()
     
     def start_request(self, endpoint: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         """Start tracking a request."""
@@ -864,11 +864,11 @@ class RequestTracker:
 class MemoryProfiler:
     """Memory profiling implementation for performance analysis."""
     
-    def __init__(self):
-        self.snapshots = []
+    def __init__(self) -> None:
+        self.snapshots: list[Dict[str, Any]] = []
         self.tracking = False
-        self.usage_history = []
-        self.start_time = None
+        self.usage_history: list[Dict[str, Any]] = []
+        self.start_time: Optional[float] = None
     
     def take_snapshot(self) -> Dict[str, Any]:
         """Take a memory snapshot."""
@@ -904,7 +904,7 @@ class MemoryProfiler:
     def start_tracking(self) -> None:
         """Start tracking memory usage over time."""
         self.tracking = True
-        self.start_time = time.time()
+        self.start_time = float(time.time())
         self.usage_history = []
         
         # Take initial snapshot

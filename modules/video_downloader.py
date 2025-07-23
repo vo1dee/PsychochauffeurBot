@@ -6,7 +6,7 @@ import aiohttp
 import re
 import json
 import uuid
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Any, Callable
 from asyncio import Lock
 from dataclasses import dataclass
 from enum import Enum
@@ -46,7 +46,7 @@ class VideoDownloader:
         "CAACAgQAAxkBAAExX31nn7xByvIhPZHPreVkPONIn82IKgACgxcAAuYrIFHS_QFCSfHYGTYE"
     ]
 
-    def __init__(self, download_path: str = 'downloads', extract_urls_func=None):
+    def __init__(self, download_path: str = 'downloads', extract_urls_func: Optional[Callable[..., Any]] = None) -> None:
         self.supported_platforms = VideoPlatforms.SUPPORTED_PLATFORMS
         self.download_path = os.path.abspath(download_path)
         self.extract_urls = extract_urls_func
@@ -71,7 +71,7 @@ class VideoDownloader:
         self._init_download_path()
         self._verify_yt_dlp()
         self.lock = Lock()
-        self.last_download = {}
+        self.last_download: Dict[str, Any] = {}
         
         # Platform-specific download configurations
         self.platform_configs = {
@@ -462,15 +462,19 @@ class VideoDownloader:
         """Send error sticker with enhanced error logging."""
         try:
             chosen_sticker = random.choice(self.ERROR_STICKERS)
-            await update.message.reply_sticker(sticker=chosen_sticker)
+            if update.message:
+                await update.message.reply_sticker(sticker=chosen_sticker)
         except Exception as e:
+            user_id = update.effective_user.id if update.effective_user else "Unknown"
+            username = update.effective_user.username if update.effective_user else "Unknown"
             error_logger.error(
                 f"🚨 Sticker Error\n"
                 f"Error: {str(e)}\n"
-                f"User ID: {update.effective_user.id}\n"
-                f"Username: @{update.effective_user.username}"
+                f"User ID: {user_id}\n"
+                f"Username: @{username}"
             )
-            await update.message.reply_text("❌ An error occurred.")
+            if update.message:
+                await update.message.reply_text("❌ An error occurred.")
 
     async def handle_video_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle video link with improved error handling and resource cleanup."""
@@ -478,7 +482,12 @@ class VideoDownloader:
         filename = None
 
         try:
+            if not update.message or not update.message.text:
+                return
+                
             message_text = update.message.text.strip()
+            if not self.extract_urls:
+                return
             urls = self.extract_urls(message_text)
             
             if not urls:
@@ -488,10 +497,12 @@ class VideoDownloader:
             # Filter out story URLs
             urls = [url for url in urls if not self._is_story_url(url)]
             if not urls:
-                await update.message.reply_text("❌ Stories are not supported for download.")
+                if update.message:
+                    await update.message.reply_text("❌ Stories are not supported for download.")
                 return
 
-            processing_msg = await update.message.reply_text("⏳ Processing your request...")
+            if update.message:
+                processing_msg = await update.message.reply_text("⏳ Processing your request...")
             
             for url in urls:
                 filename, title = await self.download_video(url)
@@ -505,24 +516,27 @@ class VideoDownloader:
         finally:
             await self._cleanup(processing_msg, filename, update)
 
-    async def _send_video(self, update: Update, context: ContextTypes.DEFAULT_TYPE, filename: str, title: str, source_url: str = None) -> None:
+    async def _send_video(self, update: Update, context: ContextTypes.DEFAULT_TYPE, filename: str, title: Optional[str], source_url: Optional[str] = None) -> None:
         try:
             file_size = os.path.getsize(filename)
             max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
             
             if file_size > max_size:
                 error_logger.warning(f"File too large: {file_size} bytes")
-                await update.message.reply_text("❌ Video file too large to send.")
+                if update.message:
+                    await update.message.reply_text("❌ Video file too large to send.")
                 return
 
             # Escape all special characters for Markdown V2
             special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-            escaped_title = title
+            escaped_title = title or "Video"
             for char in special_chars:
                 escaped_title = escaped_title.replace(char, f'\\{char}')
 
             # Get username and escape it
-            username = update.effective_user.username or update.effective_user.first_name
+            username = "Unknown"
+            if update.effective_user:
+                username = update.effective_user.username or update.effective_user.first_name or "Unknown"
             escaped_username = username
             for char in special_chars:
                 escaped_username = escaped_username.replace(char, f'\\{char}')
@@ -538,7 +552,7 @@ class VideoDownloader:
 
             with open(filename, 'rb') as video_file:
                 # Check if the original message was a reply to another message
-                if update.message.reply_to_message:
+                if update.message and update.message.reply_to_message:
                     # If it was a reply, send the video as a reply to the parent message
                     await update.message.reply_to_message.reply_video(
                         video=video_file,
@@ -547,16 +561,18 @@ class VideoDownloader:
                     )
                 else:
                     # If it wasn't a reply, send the video as a new message (not as a reply)
-                    await context.bot.send_video(
-                        chat_id=update.effective_chat.id,
-                        video=video_file,
-                        caption=caption,
-                        parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
-                    )
+                    if update.effective_chat:
+                        await context.bot.send_video(
+                            chat_id=update.effective_chat.id,
+                            video=video_file,
+                            caption=caption,
+                            parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
+                        )
                 
             # Delete the original message after successful video send
             try:
-                await update.message.delete()
+                if update.message:
+                    await update.message.delete()
             except Exception as e:
                 error_logger.error(f"Failed to delete original message: {str(e)}")
                 
@@ -618,29 +634,33 @@ class VideoDownloader:
             user_feedback_fn=lambda u, _: send_error_feedback(u, stickers=self.ERROR_STICKERS)
         )
 
-    async def _cleanup(self, processing_msg, filename: Optional[str], update: Update) -> None:
+    async def _cleanup(self, processing_msg: Any, filename: Optional[str], update: Update) -> None:
         """Clean up resources after processing."""
         if processing_msg:
             try:
                 await processing_msg.delete()
             except Exception as e:
+                user_id = update.effective_user.id if update.effective_user else "Unknown"
+                username = update.effective_user.username if update.effective_user else "Unknown"
                 error_logger.error(
                     f"🗑️ Cleanup Error\n"
                     f"Error: {str(e)}\n"
-                    f"User ID: {update.effective_user.id}\n"
-                    f"Username: @{update.effective_user.username}"
+                    f"User ID: {user_id}\n"
+                    f"Username: @{username}"
                 )
 
         if filename and os.path.exists(filename):
             try:
                 os.remove(filename)
             except Exception as e:
+                user_id = update.effective_user.id if update.effective_user else "Unknown"
+                username = update.effective_user.username if update.effective_user else "Unknown"
                 error_logger.error(
                     f"🗑️ File Removal Error\n"
                     f"Error: {str(e)}\n"
                     f"File: {filename}\n"
-                    f"User ID: {update.effective_user.id}\n"
-                    f"Username: @{update.effective_user.username}"
+                    f"User ID: {user_id}\n"
+                    f"Username: @{username}"
                 )
 
     def _get_yt_dlp_path(self) -> str:
@@ -790,8 +810,8 @@ class VideoDownloader:
                         file_info = {"path": filepath, "size": os.path.getsize(filepath)}
                         found_files.append(file_info)
                 if found_files:
-                    found_files.sort(key=lambda x: x["size"], reverse=True)
-                    largest_file = found_files[0]["path"]
+                    found_files.sort(key=lambda x: x["size"], reverse=True)  # type: ignore
+                    largest_file = str(found_files[0]["path"])
                     error_logger.info(f"Found {len(found_files)} files, using largest: {largest_file} ({found_files[0]['size']} bytes)")
                     return largest_file, await self._get_video_title(url)
                 else:
@@ -818,7 +838,7 @@ class VideoDownloader:
                 return True
         return False
 
-def setup_video_handlers(application, extract_urls_func=None):
+def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[..., Any]] = None) -> None:
     """Set up video handlers with improved configuration."""
     general_logger.info("Initializing video downloader...")
     video_downloader = VideoDownloader(
@@ -843,4 +863,3 @@ def setup_video_handlers(application, extract_urls_func=None):
     )
     
     general_logger.info("Video handler setup complete")
-    return video_downloader

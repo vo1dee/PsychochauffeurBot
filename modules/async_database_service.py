@@ -8,7 +8,7 @@ and resource management.
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple, Union
 import asyncpg
 
 from modules.async_utils import (
@@ -37,6 +37,8 @@ class AsyncDatabaseConnectionManager(AsyncResourceManager):
         # Rate limit database connections
         await self._rate_limiter.acquire()
         
+        if self.pool is None:
+            raise RuntimeError("Database pool is not initialized")
         return await self.pool.acquire()
     
     async def release(self, connection: asyncpg.Connection) -> None:
@@ -125,7 +127,7 @@ class AsyncDatabaseService(ServiceInterface):
     async def execute_query(
         self, 
         query: str, 
-        *args, 
+        *args: Any, 
         timeout: float = 30.0,
         fetch_mode: str = "none"
     ) -> Any:
@@ -152,7 +154,7 @@ class AsyncDatabaseService(ServiceInterface):
     async def execute_batch(
         self, 
         query: str, 
-        args_list: List[tuple],
+        args_list: List[Tuple[Any, ...]],
         timeout: float = 60.0
     ) -> None:
         """Execute a batch of queries efficiently."""
@@ -162,7 +164,7 @@ class AsyncDatabaseService(ServiceInterface):
     
     async def execute_transaction(
         self, 
-        queries: List[tuple],
+        queries: List[Tuple[Any, ...]],
         timeout: float = 60.0
     ) -> List[Any]:
         """
@@ -180,8 +182,10 @@ class AsyncDatabaseService(ServiceInterface):
                     if len(query_info) == 2:
                         query, args = query_info
                         fetch_mode = "none"
-                    else:
+                    elif len(query_info) == 3:
                         query, args, fetch_mode = query_info
+                    else:
+                        raise ValueError(f"Invalid query_info format: {query_info}")
                     
                     if fetch_mode == "one":
                         result = await connection.fetchrow(query, *args)
@@ -200,7 +204,7 @@ class AsyncDatabaseService(ServiceInterface):
         self, 
         cache_key: str, 
         query: str, 
-        *args,
+        *args: Any,
         ttl: Optional[int] = None
     ) -> Any:
         """Execute query with caching."""
@@ -351,7 +355,7 @@ class AsyncDatabaseService(ServiceInterface):
         cache_key = f"chat_messages_{chat_id}_{limit}_{offset}"
         
         if use_cache:
-            return await self.get_cached_query(
+            result = await self.get_cached_query(
                 cache_key,
                 """
                 SELECT * FROM messages 
@@ -361,8 +365,9 @@ class AsyncDatabaseService(ServiceInterface):
                 """,
                 chat_id, limit, offset
             )
+            return list(result) if result else []
         else:
-            return await self.execute_query(
+            result = await self.execute_query(
                 """
                 SELECT * FROM messages 
                 WHERE chat_id = $1 
@@ -372,6 +377,7 @@ class AsyncDatabaseService(ServiceInterface):
                 chat_id, limit, offset,
                 fetch_mode="all"
             )
+            return list(result) if result else []
     
     async def search_messages_async(
         self, 
@@ -380,7 +386,7 @@ class AsyncDatabaseService(ServiceInterface):
         limit: int = 50
     ) -> List[Dict[str, Any]]:
         """Search messages with full-text search."""
-        return await self.execute_query(
+        result = await self.execute_query(
             """
             SELECT * FROM messages 
             WHERE chat_id = $1 AND text ILIKE $2
@@ -390,6 +396,7 @@ class AsyncDatabaseService(ServiceInterface):
             chat_id, f"%{search_text}%", limit,
             fetch_mode="all"
         )
+        return list(result) if result else []
     
     async def get_user_stats_async(self, user_id: int) -> Dict[str, Any]:
         """Get user statistics with caching."""

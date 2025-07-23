@@ -19,7 +19,7 @@ from modules.database import Database
 # Load environment variables
 load_dotenv()
 
-async def get_duplicate_usernames():
+async def get_duplicate_usernames() -> list[str]:
     """Get all usernames with duplicates."""
     
     await Database.initialize()
@@ -37,7 +37,7 @@ async def get_duplicate_usernames():
         
         return [row['username'] for row in duplicate_usernames]
 
-async def fix_duplicate_for_username(username):
+async def fix_duplicate_for_username(username: str) -> str:
     """Fix duplicate users for a specific username."""
     
     pool = await Database.get_pool()
@@ -112,7 +112,7 @@ async def fix_duplicate_for_username(username):
         
         return f"Fixed {username}: moved {total_messages_moved} messages, deleted {len(delete_users)} users"
 
-async def fix_all_duplicates():
+async def fix_all_duplicates() -> None:
     """Fix all duplicate usernames in the database."""
     
     print("🚀 Starting comprehensive duplicate user fix...")
@@ -157,7 +157,7 @@ async def fix_all_duplicates():
     
     print(f"\n✅ Processed {len(duplicate_usernames)} duplicate usernames")
 
-async def add_unique_constraint():
+async def add_unique_constraint() -> None:
     """Add unique constraint to prevent future duplicates."""
     
     await Database.initialize()
@@ -191,7 +191,7 @@ async def add_unique_constraint():
             print(f"❌ Error adding constraint: {e}")
             print("This might be because there are still duplicate usernames in the database")
 
-async def verify_fixes():
+async def verify_fixes() -> None:
     """Verify that all fixes worked."""
     
     await Database.initialize()
@@ -234,7 +234,7 @@ async def verify_fixes():
                 """, user['user_id'])
                 print(f"   - User {user['user_id']}: {message_count} messages")
 
-async def main():
+async def main() -> None:
     """Main function to run the comprehensive fix."""
     print("🚀 Starting comprehensive duplicate user fix...")
     

@@ -8,7 +8,7 @@ from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
 from modules.const import KYIV_TZ
 from modules.logger import error_logger, general_logger
-from timefhuman import timefhuman  # type: ignore
+from timefhuman import timefhuman
 import logging
 from dateutil.tz import tzlocal
 

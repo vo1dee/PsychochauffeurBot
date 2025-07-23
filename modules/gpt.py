@@ -87,7 +87,7 @@ TIMEOUT_CONFIG = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=5.0)
 USE_OPENROUTER = bool(Config.OPENROUTER_BASE_URL)  # Only use if defined
 
 # Cache for network diagnostic results
-last_diagnostic_result = None
+last_diagnostic_result: Optional[Any] = None
 last_diagnostic_time = datetime.min
 
 class OpenAIAsyncClient:
@@ -121,7 +121,8 @@ class OpenAIAsyncClient:
                 url = f"{self.outer.outer.base_url}/chat/completions"
                 response = await self.outer.outer._client.post(url, headers=self.outer.outer.headers, json=payload)
                 response.raise_for_status()
-                return response.json()  # Return dict for compatibility
+                result = response.json()
+                return dict(result) if isinstance(result, dict) else {}
 
         @property
         def completions(self) -> 'OpenAIAsyncClient.Chat.Completions':
@@ -215,11 +216,11 @@ async def ensure_api_connectivity() -> str:
     needs_check = (
         last_diagnostic_result is None or
         (now - last_diagnostic_time).total_seconds() > 300 or
-        last_diagnostic_result in [
+        (isinstance(last_diagnostic_result, dict) and last_diagnostic_result.get("status") in [
             "No internet connectivity", 
             "DNS resolution issues", 
             "API endpoint unreachable"
-        ]
+        ])
     )
     
     if needs_check:
@@ -227,7 +228,9 @@ async def ensure_api_connectivity() -> str:
         last_diagnostic_result = await run_api_diagnostics(api_endpoint)
         last_diagnostic_time = now
     
-    return last_diagnostic_result
+    if isinstance(last_diagnostic_result, dict):
+        return str(last_diagnostic_result.get("status", "Unknown status"))
+    return str(last_diagnostic_result) if last_diagnostic_result else "No diagnostic result"
 
 
 async def optimize_image(image_bytes: bytes) -> bytes:
@@ -241,13 +244,13 @@ async def optimize_image(image_bytes: bytes) -> bytes:
         bytes: Optimized image bytes
     """
     # Open the image
-    img = Image.open(BytesIO(image_bytes))
+    img: Image.Image = Image.open(BytesIO(image_bytes))
     
     # Resize if needed
     if max(img.size) > MAX_IMAGE_SIZE[0] or max(img.size) > MAX_IMAGE_SIZE[1]:
         ratio = max(MAX_IMAGE_SIZE[0] / max(img.size), MAX_IMAGE_SIZE[1] / max(img.size))
         new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
-        img = img.resize(new_size, Image.LANCZOS)
+        img = img.resize(new_size, Image.Resampling.LANCZOS)
     
     # Save with compression
     buffer = BytesIO()
@@ -317,7 +320,7 @@ async def analyze_image(
         
         # Log the description if update is provided
         if update and update.effective_chat:
-            chat_id = update.effective_chat.id
+            chat_id = str(update.effective_chat.id)
             user_id = update.message.from_user.id if update.message and update.message.from_user else "unknown"
             username = update.message.from_user.username if update.message and update.message.from_user and update.message.from_user.username else f"ID:{user_id}" 
             
@@ -337,7 +340,7 @@ async def analyze_image(
             
             general_logger.info(f"Logged image description for user {username} in chat {chat_id}")
         
-        return description
+        return str(description) if description else "No description available"
         
     except Exception as e:
         await handle_error(e, update, return_text=False)
@@ -540,8 +543,8 @@ async def gpt_response(
         context_messages = await get_context_messages(update, context, response_type)
         
         # Add the current message
-        current_message = message_text_override or update.message.text
-        current_user_message = {"role": "user", "content": current_message}
+        current_message = message_text_override or (update.message.text if update.message else "")
+        current_user_message = {"role": "user", "content": current_message or ""}
         
         # If message_text_override is provided, replace the last user message in context
         if message_text_override and context_messages:
@@ -592,7 +595,7 @@ async def gpt_response(
         )
         
         if return_text:
-            return response_text
+            return str(response_text) if response_text else None
         else:
             # Store bot response in chat history for context
             from modules.utils import chat_history_manager
@@ -649,7 +652,8 @@ async def answer_from_gpt(
         if return_text:
             # For testing purposes, create a minimal mock response
             try:
-                from modules.config.enhanced_config_manager import config_manager
+                from config.config_manager import ConfigManager
+                config_manager = ConfigManager()
                 
                 # Get API key from config
                 global_config = await config_manager.get_config("global", "global")
@@ -686,7 +690,8 @@ async def log_user_response(update: Update, response_text: str) -> None:
     user_id = update.message.from_user.id if update.message and update.message.from_user else "unknown"
     chat_id = update.effective_chat.id if update.effective_chat else "unknown"
     general_logger.info(f"Sending GPT response to user {user_id} in chat {chat_id}")
-    await update.message.reply_text(response_text)
+    if update.message:
+        await update.message.reply_text(response_text)
 
 
 async def handle_error(
@@ -728,7 +733,7 @@ async def handle_error(
     await ErrorHandler.handle_error(
         error=e,
         update=update,
-        context=context,  # Pass the context dictionary instead of None
+        context=None,  # ErrorHandler expects CallbackContext, not dict
         feedback_message=feedback_message,
         propagate=True
     )
@@ -772,7 +777,7 @@ async def gpt_summary_function(messages: List[str]) -> str:
 
         # Extract the summary from the response
         summary = response["choices"][0]["message"]["content"].strip()
-        return summary
+        return str(summary) if summary else "No summary available"
     except Exception as e:
         error_logger.error(f"Error in GPT summarization: {e}")
         return "Не вдалось згенерувати підсумок."
@@ -840,18 +845,19 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     try:
         if not context.args:
-            messages = await get_messages_for_chat_today(chat_id)
+            messages = await get_messages_for_chat_today(int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0)
             time_period_key = "today"
         else:
             args = context.args
             if args[0].lower() == "last":
                 if len(args) < 3:
-                    await update.message.reply_text(
-                        "❌ Неправильний формат команди. Використовуйте:\n"
-                        "/analyze last <number> messages\n"
-                        "або\n"
-                        "/analyze last <number> days"
-                    )
+                    if update.message:
+                        await update.message.reply_text(
+                            "❌ Неправильний формат команди. Використовуйте:\n"
+                            "/analyze last <number> messages\n"
+                            "або\n"
+                            "/analyze last <number> days"
+                        )
                     return
                     
                 try:
@@ -859,32 +865,35 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     if number <= 0:
                         raise ValueError("Number must be positive")
                 except ValueError:
-                    await update.message.reply_text("❌ Будь ласка, вкажіть коректне число.")
+                    if update.message:
+                        await update.message.reply_text("❌ Будь ласка, вкажіть коректне число.")
                     return
                     
                 if args[2].lower() == "messages":
-                    messages = await get_last_n_messages_in_chat(chat_id, number)
+                    messages = await get_last_n_messages_in_chat(int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, number)
                     date_str = f"останні {number} повідомлень"
                     time_period_key = f"last_{number}_messages"
                 elif args[2].lower() == "days":
-                    messages = await get_messages_for_chat_last_n_days(chat_id, number)
+                    messages = await get_messages_for_chat_last_n_days(int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, number)
                     date_str = f"останні {number} днів"
                     time_period_key = f"last_{number}_days"
                 else:
-                    await update.message.reply_text(
-                        "❌ Неправильний формат команди. Використовуйте:\n"
-                        "/analyze last <number> messages\n"
-                        "або\n"
-                        "/analyze last <number> days"
-                    )
+                    if update.message:
+                        await update.message.reply_text(
+                            "❌ Неправильний формат команди. Використовуйте:\n"
+                            "/analyze last <number> messages\n"
+                            "або\n"
+                            "/analyze last <number> days"
+                        )
                     return
                     
             elif args[0].lower() == "period":
                 if len(args) != 3:
-                    await update.message.reply_text(
-                        "❌ Неправильний формат команди. Використовуйте:\n"
-                        "/analyze period <YYYY-MM-DD> <YYYY-MM-DD>"
-                    )
+                    if update.message:
+                        await update.message.reply_text(
+                            "❌ Неправильний формат команди. Використовуйте:\n"
+                            "/analyze period <YYYY-MM-DD> <YYYY-MM-DD>"
+                        )
                     return
                     
                 try:
@@ -893,42 +902,47 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     if end_date < start_date:
                         raise ValueError("End date must be after start date")
                 except ValueError as e:
-                    await update.message.reply_text(f"❌ Помилка в датах: {str(e)}")
+                    if update.message:
+                        await update.message.reply_text(f"❌ Помилка в датах: {str(e)}")
                     return
                     
-                messages = await get_messages_for_chat_date_period(chat_id, start_date, end_date)
+                messages = await get_messages_for_chat_date_period(int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, start_date, end_date)
                 date_str = f"період {args[1]} - {args[2]}"
                 time_period_key = f"period_{args[1]}_{args[2]}"
             elif args[0].lower() == "date":
                 if len(args) != 2:
-                    await update.message.reply_text(
-                        "❌ Неправильний формат команди. Використовуйте:\n"
-                        "/analyze date <YYYY-MM-DD>"
-                    )
+                    if update.message:
+                        await update.message.reply_text(
+                            "❌ Неправильний формат команди. Використовуйте:\n"
+                            "/analyze date <YYYY-MM-DD>"
+                        )
                     return
                     
                 try:
                     target_date = datetime.strptime(args[1], '%Y-%m-%d').date()
                 except ValueError:
-                    await update.message.reply_text("❌ Неправильний формат дати. Використовуйте YYYY-MM-DD")
+                    if update.message:
+                        await update.message.reply_text("❌ Неправильний формат дати. Використовуйте YYYY-MM-DD")
                     return
                     
-                messages = await get_messages_for_chat_single_date(chat_id, target_date)
+                messages = await get_messages_for_chat_single_date(int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, target_date)
                 date_str = args[1]
                 time_period_key = f"date_{args[1]}"
             else:
-                await update.message.reply_text(
-                    "❌ Невідома команда. Доступні варіанти:\n"
-                    "/analyze - аналіз сьогоднішніх повідомлень\n"
-                    "/analyze last <number> messages - аналіз останніх N повідомлень\n"
-                    "/analyze last <number> days - аналіз повідомлень за останні N днів\n"
-                    "/analyze period <YYYY-MM-DD> <YYYY-MM-DD> - аналіз повідомлень за період\n"
-                    "/analyze date <YYYY-MM-DD> - аналіз повідомлень за конкретну дату"
-                )
+                if update.message:
+                    await update.message.reply_text(
+                        "❌ Невідома команда. Доступні варіанти:\n"
+                        "/analyze - аналіз сьогоднішніх повідомлень\n"
+                        "/analyze last <number> messages - аналіз останніх N повідомлень\n"
+                        "/analyze last <number> days - аналіз повідомлень за останні N днів\n"
+                        "/analyze period <YYYY-MM-DD> <YYYY-MM-DD> - аналіз повідомлень за період\n"
+                        "/analyze date <YYYY-MM-DD> - аналіз повідомлень за конкретну дату"
+                    )
                 return
                 
         if not messages:
-            await update.message.reply_text(f"📊 Немає повідомлень для аналізу за {date_str}.")
+            if update.message:
+                await update.message.reply_text(f"📊 Немає повідомлень для аналізу за {date_str}.")
             return
 
         # Format messages for GPT analysis
@@ -945,7 +959,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if cache_enabled and time_period_key:
             cached = await Database.get_analysis_cache(chat_id, time_period_key, message_content_hash, cache_ttl)
             if cached:
-                await update.message.reply_text(f"⚡️ (З кешу)\n{cached}")
+                if update.message:
+                    await update.message.reply_text(f"⚡️ (З кешу)\n{cached}")
                 return
 
         # Send initial message
@@ -971,11 +986,12 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     except Exception as e:
         error_logger.error(f"Error in analyze command: {e}", exc_info=True)
-        await update.message.reply_text(
-            "❌ Виникла помилка при аналізі повідомлень. Спробуйте пізніше."
-        )
+        if update.message:
+            await update.message.reply_text(
+                "❌ Виникла помилка при аналізі повідомлень. Спробуйте пізніше."
+            )
 
-async def initialize_gpt():
+async def initialize_gpt() -> None:
     """Initialize GPT module."""
     await config_manager.initialize()
 
@@ -993,7 +1009,11 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     try:
         # Get user statistics
-        stats = await get_user_chat_stats_with_fallback(chat_id, user_id, username)
+        stats = await get_user_chat_stats_with_fallback(
+            int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, 
+            int(user_id) if isinstance(user_id, (int, str)) and str(user_id).isdigit() else 0, 
+            username
+        )
         
         if not stats['total_messages']:
             await update.message.reply_text(
@@ -1044,9 +1064,10 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
     except Exception as e:
         error_logger.error(f"Error in mystats command: {e}", exc_info=True)
-        await update.message.reply_text(
-            "❌ Виникла помилка при отриманні статистики. Спробуйте пізніше."
-        )
+        if update.message:
+            await update.message.reply_text(
+                "❌ Виникла помилка при отриманні статистики. Спробуйте пізніше."
+            )
 
 async def handle_photo_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """

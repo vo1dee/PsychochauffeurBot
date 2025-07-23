@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /start command."""
+    if not update.message:
+        return
+        
     welcome_text = (
         "🤖 PsychoChauffeur Bot\n\n"
         "🎥 Video Downloads from:\n"
@@ -43,7 +46,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         ])
     )
     
-    general_logger.info(f"Handled /start command for user {update.effective_user.id}")
+    if update.effective_user:
+        general_logger.info(f"Handled /start command for user {update.effective_user.id}")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -54,5 +58,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /ping command."""
+    if not update.message:
+        return
+        
     await update.message.reply_text("Pong! 🏓")
-    general_logger.info(f"Handled /ping command for user {update.effective_user.id}")
+    
+    if update.effective_user:
+        general_logger.info(f"Handled /ping command for user {update.effective_user.id}")

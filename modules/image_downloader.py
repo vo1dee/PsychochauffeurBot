@@ -2,6 +2,8 @@ import aiohttp
 import asyncio
 import re
 import json
+import os
+from typing import List, Optional, Dict, Any
 from bs4 import BeautifulSoup
 from modules.logger import error_logger
 
@@ -9,10 +11,10 @@ class ImageDownloader:
     INSTAGRAM_REGEX = re.compile(r"(https?://(?:www\.)?instagram\.com/p/[^/?#&]+)")
     TIKTOK_REGEX = re.compile(r"(https?://(?:www\.)?tiktok\.com/@[^/?#]+/video/\d+)")
 
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
-    async def fetch_instagram_images(self, url):
+    async def fetch_instagram_images(self, url: str) -> List[str]:
         try:
             headers = {
                 "User-Agent": "Mozilla/5.0",
@@ -64,9 +66,9 @@ class ImageDownloader:
             return []
 
 
-    def _parse_instagram_json(self, data):
+    def _parse_instagram_json(self, data: Dict[str, Any]) -> List[str]:
         try:
-            results = []
+            results: List[str] = []
             media = data.get("items") or data.get("graphql", {}).get("shortcode_media")
             
             error_logger.error(f"[ImageDL] Parsed JSON media: {json.dumps(media, indent=2)}")  # Log media data
@@ -76,18 +78,19 @@ class ImageDownloader:
             if not media:
                 return results
 
-            def is_uncropped(url):
+            def is_uncropped(url: str) -> bool:
                 return "s640x640" not in url and "stp=" not in url
 
-            def get_best_resource(resources):
+            def get_best_resource(resources: Any) -> Optional[str]:
                 if not isinstance(resources, list):
                     return None
                 sorted_res = sorted(resources, key=lambda r: r.get("config_width", 0), reverse=True)
                 for res in sorted_res:
                     url = res.get("src")
-                    if url and is_uncropped(url):
-                        return url
-                return sorted_res[0].get("src") if sorted_res else None  # fallback to first one even if cropped
+                    if url and is_uncropped(url) and isinstance(url, str):
+                        return str(url)
+                first_url = sorted_res[0].get("src") if sorted_res else None
+                return first_url if isinstance(first_url, str) else None
 
             # Carousel post
             edges = media.get("edge_sidecar_to_children", {}).get("edges")
@@ -123,7 +126,7 @@ class ImageDownloader:
 
 
     
-    def _parse_instagram_html(self, html):
+    def _parse_instagram_html(self, html: str) -> List[str]:
         try:
             soup = BeautifulSoup(html, 'html.parser')
             imgs = []
@@ -190,7 +193,7 @@ class ImageDownloader:
             return []
 
 
-    async def fetch_tiktok_image(self, url):
+    async def fetch_tiktok_image(self, url: str) -> List[str]:
         """
         Extracts cover image of TikTok video page.
         """
@@ -201,8 +204,12 @@ class ImageDownloader:
                     text = await r.text()
                     soup = BeautifulSoup(text, 'html.parser')
                     og = soup.find("meta", property="og:image")
-                    if og and og.has_attr('content'):
-                        return [og['content']]
+                    if og and hasattr(og, 'has_attr') and og.has_attr('content') and hasattr(og, 'get'):
+                        content = og.get('content')
+                        if content and hasattr(content, 'string'):
+                            return [str(content)]
+                        elif isinstance(content, str):
+                            return [content]
                     
                     m = re.search(r'"cover":"([^"]+)"', text)
                     if m: 
@@ -214,7 +221,7 @@ class ImageDownloader:
             
         return []
 
-    async def download_images_from_urls(self, image_urls: list, path: str = "downloads"):
+    async def download_images_from_urls(self, image_urls: List[str], path: str = "downloads") -> List[str]:
         # Allow only valid images (i.e., without the cropped pattern)
         image_urls = [url for url in image_urls if not ("s640x640" in url or "stp=" in url or "e35" in url)]
 
@@ -222,26 +229,7 @@ class ImageDownloader:
             error_logger.error("[ImageDL] No image URLs provided for download")
             return []
         
-        import os
-        
-        saved_files = []
-        
-        os.makedirs(path, exist_ok=True)
-
-        async with aiohttp.ClientSession() as s:
-            tasks = []
-            
-            for idx, imgurl in enumerate(image_urls):
-                task_name = getattr(asyncio.current_task(), 'get_name', lambda: 'task')()
-                filename = os.path.join(path, f"image_{task_name}_{idx}.jpg")
-                
-                tasks.append(asyncio.create_task(
-                    self._download_one_image(s, imgurl, filename, saved_files)))
-            
-            await asyncio.gather(*tasks)
-        
-        return saved_files
-
+        saved_files: List[str] = []
         
         os.makedirs(path, exist_ok=True)
 
@@ -259,7 +247,7 @@ class ImageDownloader:
         
         return saved_files
     
-    async def _download_one_image(self, sess, imgurl, outfile, saved_list):
+    async def _download_one_image(self, sess: aiohttp.ClientSession, imgurl: str, outfile: str, saved_list: List[str]) -> None:
         try:
             error_logger.error(f"[ImageDL] Downloading: {imgurl}")  # DEBUG
             

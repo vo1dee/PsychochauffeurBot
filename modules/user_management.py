@@ -22,6 +22,10 @@ async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, 
     """
     Restricts a user's ability to send messages for a random duration, using chat_behavior config if present.
     """
+    if not update.message:
+        error_logger.error("No message found in update")
+        return
+        
     chat = update.effective_chat
     general_logger.info(f"[restrict_user] Called for chat_id={chat.id if chat else None}, chat_type={getattr(chat, 'type', None)}")
     if not chat or chat.type != "supergroup":
@@ -111,7 +115,7 @@ async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, 
         error_logger.error(f"Unexpected error while restricting user {user.id}: {e}")
         await update.message.reply_text("An unexpected error occurred.")
 
-async def handle_restriction_sticker(update: Update, context: CallbackContext) -> None:
+async def handle_restriction_sticker(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """
     Restricts a user if they send a sticker matching the restriction_sticker_unique_id from config.
     """

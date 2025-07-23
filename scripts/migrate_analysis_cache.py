@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS analysis_cache (
 );
 """
 
-async def main():
+async def main() -> None:
     pool = await Database.get_pool()
     async with pool.acquire() as conn:
         await conn.execute(SQL)

@@ -33,7 +33,7 @@ class TestAsyncDatabaseConnectionManager:
         """Create a connection manager instance."""
         with patch('modules.async_database_service.AsyncRateLimiter') as mock_rate_limiter:
             mock_rate_limiter.return_value = AsyncMock()
-            return AsyncDatabaseConnectionManager()
+            yield AsyncDatabaseConnectionManager()
     
     @pytest.fixture
     def mock_pool(self) -> AsyncMock:
@@ -134,7 +134,7 @@ class TestAsyncDatabaseService:
         """Create a database service instance."""
         with patch('modules.async_database_service.AsyncRateLimiter') as mock_rate_limiter:
             mock_rate_limiter.return_value = AsyncMock()
-            return AsyncDatabaseService()
+            yield AsyncDatabaseService()
     
     @pytest.fixture
     def mock_connection_manager(self) -> AsyncMock:
@@ -190,7 +190,7 @@ class TestAsyncDatabaseService:
         
         # Set the transaction method to return the transaction mock directly (not as a coroutine)
         mock_connection.transaction = Mock(return_value=transaction)
-        return mock_connection
+        yield mock_connection
     
     @pytest.mark.asyncio
     async def test_initialization(self, db_service: AsyncDatabaseService) -> None:

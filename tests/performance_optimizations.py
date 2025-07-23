@@ -14,12 +14,12 @@ import time
 class FastAsyncMock(AsyncMock):
     """Optimized AsyncMock that doesn't introduce unnecessary delays."""
     
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # Pre-configure common return values to avoid computation overhead
-        self._fast_returns = {}
+        self._fast_returns: Dict[str, Any] = {}
     
-    async def __call__(self, *args, **kwargs) -> None:
+    async def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """Fast async call that returns immediately."""
         # Skip actual async behavior for performance
         return self.return_value
