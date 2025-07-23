@@ -822,7 +822,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Admin-only cache flush
     if context.args and context.args[0].lower() == "flush-cache":
-        member = await update.effective_chat.get_member(user_id) if update.effective_chat else None
+        member = await update.effective_chat.get_member(int(user_id)) if update.effective_chat and isinstance(user_id, (int, str)) else None
         if not (member and member.status in ("administrator", "creator")):
             if update.message:
                 await update.message.reply_text("❌ Тільки адміністратор може очищати кеш аналізу.")

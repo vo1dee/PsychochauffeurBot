@@ -473,7 +473,7 @@ class TelegramHelpers:
             'type': chat.type,
             'title': chat.title,
             'username': chat.username,
-            'description': chat.description
+            'description': getattr(chat, 'description', None)
         }
     
     @staticmethod

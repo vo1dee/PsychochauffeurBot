@@ -181,7 +181,7 @@ async def get_weather_emoji(weather_id: int) -> str:
     general_logger.info(f"CONDITION_EMOJIS used: {emojis}")
     for rng, emoji in emojis.items():
         if weather_id in rng:
-            return emoji
+            return str(emoji)
     return '🌈'
 
 async def get_feels_like_emoji(feels_like: float) -> str:
@@ -195,7 +195,7 @@ async def get_feels_like_emoji(feels_like: float) -> str:
     feels_like_int = int(round(feels_like))
     for rng, emoji in emojis.items():
         if feels_like_int in rng:
-            return emoji
+            return str(emoji)
     return '🌈'
 
 async def get_humidity_emoji(humidity: int) -> str:
@@ -208,7 +208,7 @@ async def get_humidity_emoji(humidity: int) -> str:
     general_logger.info(f"HUMIDITY_EMOJIS used: {emojis}")
     for rng, emoji in emojis.items():
         if humidity in rng:
-            return emoji
+            return str(emoji)
     return '💧'
 
 async def get_city_translation(city: str) -> str:
@@ -219,7 +219,8 @@ async def get_city_translation(city: str) -> str:
     config_translations = weather_config.get("CITY_TRANSLATIONS", {})
     city_translations = config_translations if config_translations else Weather.CITY_TRANSLATIONS
     normalized = city.lower().replace(" ", "")
-    return city_translations.get(normalized, city)
+    result = city_translations.get(normalized, city)
+    return str(result)
 
 # get_last_used_city wrapper to use local CITY_DATA_FILE
 # Now robust to empty/invalid fields

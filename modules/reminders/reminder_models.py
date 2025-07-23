@@ -52,7 +52,7 @@ class Reminder:
     def _advance_daily(self, now: dt.datetime) -> None:
         if now.tzinfo is None:
             now = KYIV_TZ.localize(now)
-        if self.next_execution:
+        if self.next_execution is not None:
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
             if self.next_execution <= now:
@@ -94,7 +94,7 @@ class Reminder:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
-        if self.next_execution:
+        if self.next_execution is not None:
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
             if now.tzinfo is None:
@@ -110,7 +110,7 @@ class Reminder:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
-        if self.next_execution:
+        if self.next_execution is not None:
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
             if now.tzinfo is None:
@@ -130,7 +130,7 @@ class Reminder:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
-        if self.next_execution:
+        if self.next_execution is not None:
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
             if now.tzinfo is None:
@@ -194,7 +194,7 @@ class Reminder:
 
     def to_tuple(self) -> Tuple[Optional[int], str, Optional[str], Optional[str], Optional[str], Optional[str], int, int, Optional[str]]:
         next_execution_str: Optional[str] = None
-        if self.next_execution:
+        if self.next_execution is not None:
             if self.next_execution.tzinfo is None:
                 self.next_execution = KYIV_TZ.localize(self.next_execution)
             next_execution_str = self.next_execution.isoformat()
@@ -216,7 +216,7 @@ class Reminder:
         next_execution: Optional[dt.datetime] = None
         if next_execution_str:
             next_execution = isoparse(next_execution_str)
-            if next_execution.tzinfo is None:
+            if next_execution is not None and next_execution.tzinfo is None:
                 next_execution = KYIV_TZ.localize(next_execution)
         return cls(
             task=task,
