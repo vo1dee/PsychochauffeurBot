@@ -164,7 +164,8 @@ class ConfigManager:
                         
                         return converted_config
                     
-                    return global_config
+                    result: Dict[str, Any] = global_config
+                    return result
                     
             except FileNotFoundError:
                 logger.info("Global config not found")
@@ -415,7 +416,8 @@ class ConfigManager:
                 }
             
             # No chat override, return global module config
-            return global_module
+            module_result: Dict[str, Any] = global_module
+            return module_result
 
         # Return full merged config (global base + chat overrides)
         merged_config = self._deep_merge(global_config, chat_config)
@@ -429,7 +431,8 @@ class ConfigManager:
         global_config = await self._load_global_config()
         module_config = global_config.get("config_modules", {}).get(module_name, {})
         self._module_cache[module_name] = module_config
-        return module_config
+        result: Dict[str, Any] = module_config
+        return result
 
     async def _load_main_config(self) -> Dict[str, Any]:
         """Load the main configuration file."""
@@ -437,7 +440,9 @@ class ConfigManager:
         async with self._get_lock(str(config_path)):
             try:
                 async with aiofiles.open(config_path, 'r', encoding='utf-8') as f:
-                    return json.loads(await f.read())
+                    content = await f.read()
+                    result: Dict[str, Any] = json.loads(content)
+                    return result
             except FileNotFoundError:
                 logger.error("Main config not found")
                 return {}
@@ -451,7 +456,9 @@ class ConfigManager:
         async with self._get_lock(str(config_path)):
             try:
                 async with aiofiles.open(config_path, 'r', encoding='utf-8') as f:
-                    return json.loads(await f.read())
+                    content = await f.read()
+                    result: Dict[str, Any] = json.loads(content)
+                    return result
             except FileNotFoundError:
                 logger.error(f"Chat config not found: {chat_id}")
                 return {}
@@ -490,7 +497,7 @@ class ConfigManager:
     async def create_new_chat_config(
         self,
         chat_id: str,
-        chat_type: Literal['private', 'group'],
+        chat_type: str,
         chat_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create a new configuration file for a chat."""
@@ -677,10 +684,6 @@ class ConfigManager:
             # Ensure the chat directory exists before saving
             await self.ensure_chat_dir(chat_id, chat_type)
             config_path = self._get_chat_config_path(chat_id, chat_type)
-            
-            # For chat configs, ensure proper structure
-            if not isinstance(config_data, dict):
-                config_data = {}
             
             # If this is a new config or missing required structure, create it
             if "chat_metadata" not in config_data:

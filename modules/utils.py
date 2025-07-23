@@ -248,10 +248,11 @@ def get_last_used_city(user_id: int, chat_id: Optional[int] = None) -> Optional[
             for row in reader:
                 try:
                     uid = int(row.get('user_id', -1))
-                    cid = row.get('chat_id')
+                    cid_raw = row.get('chat_id')
+                    cid = int(cid_raw) if cid_raw and str(cid_raw).isdigit() else 0
                 except (ValueError, TypeError):
                     continue
-                if uid == user_id and (cid is None or cid == '' or cid == 'None'):
+                if uid == user_id and (cid is None or (cid_raw is not None and (str(cid_raw) == '' or str(cid_raw) == 'None'))):
                     city = row.get('city')
                     return "Kyiv" if city and city.lower() == "kiev" else city
     except Exception as e:

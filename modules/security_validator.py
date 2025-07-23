@@ -112,7 +112,7 @@ class InputSanitizer:
     }
     
     @classmethod
-    def sanitize_text(cls, text: str, strict: bool = False) -> str:
+    def sanitize_text(cls, text: Any, strict: bool = False) -> str:
         """Sanitize text input to prevent injection attacks."""
         if not isinstance(text, str):
             return str(text)
@@ -131,10 +131,10 @@ class InputSanitizer:
             # Remove potentially dangerous characters
             text = re.sub(r'[<>"\'\x00-\x1f\x7f-\x9f]', '', text)
         
-        return text
+        return str(text)
     
     @classmethod
-    def sanitize_filename(cls, filename: str) -> str:
+    def sanitize_filename(cls, filename: Any) -> str:
         """Sanitize filename for safe file system usage."""
         if not isinstance(filename, str):
             filename = str(filename)
@@ -154,7 +154,7 @@ class InputSanitizer:
         return filename or 'unnamed_file'
     
     @classmethod
-    def sanitize_url(cls, url: str) -> Optional[str]:
+    def sanitize_url(cls, url: Any) -> Optional[str]:
         """Sanitize and validate URL."""
         if not isinstance(url, str):
             return None
@@ -183,7 +183,7 @@ class InputSanitizer:
                     if parsed.hostname.lower() in ('localhost', '127.0.0.1', '::1'):
                         return None
             
-            return url
+            return str(url)
             
         except Exception:
             return None
@@ -278,7 +278,7 @@ class FileValidator:
 class SecurityValidator(metaclass=SingletonMeta):
     """Main security validation system."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.rate_limiters: Dict[str, RateLimiter] = {}
         self.threat_log: List[SecurityThreat] = []
         self.blocked_users: Set[UserId] = set()
@@ -303,11 +303,13 @@ class SecurityValidator(metaclass=SingletonMeta):
             'username': ValidationRule(
                 name='username',
                 pattern=re.compile(RegexPatterns.USERNAME),
+                validator=None,
                 max_length=SecurityConstants.MAX_USERNAME_LENGTH,
                 min_length=3
             ),
             'message_text': ValidationRule(
                 name='message_text',
+                pattern=None,
                 validator=self._validate_message_text,
                 max_length=MAX_MESSAGE_LENGTH,
                 sanitize=True
@@ -368,7 +370,7 @@ class SecurityValidator(metaclass=SingletonMeta):
         
         return True, None
     
-    def _validate_message_text(self, text: str) -> ValidationResult:
+    def _validate_message_text(self, text: Any) -> ValidationResult:
         """Validate message text for security threats."""
         if not isinstance(text, str):
             return False, "Message text must be string"
@@ -384,7 +386,7 @@ class SecurityValidator(metaclass=SingletonMeta):
         
         return True, None
     
-    def _validate_filename(self, filename: str) -> ValidationResult:
+    def _validate_filename(self, filename: Any) -> ValidationResult:
         """Validate filename for security."""
         if not isinstance(filename, str):
             return False, "Filename must be string"
@@ -392,7 +394,7 @@ class SecurityValidator(metaclass=SingletonMeta):
         # Check file type
         return FileValidator.validate_file_type(filename)
     
-    def _validate_url(self, url: str) -> ValidationResult:
+    def _validate_url(self, url: Any) -> ValidationResult:
         """Validate URL for security."""
         if not isinstance(url, str):
             return False, "URL must be string"
@@ -580,7 +582,7 @@ class SecurityValidator(metaclass=SingletonMeta):
             if (datetime.now() - t.timestamp).total_seconds() < 3600  # Last hour
         ]
         
-        threat_counts = {}
+        threat_counts: Dict[str, int] = {}
         for threat in recent_threats:
             threat_counts[threat.threat_type.value] = threat_counts.get(threat.threat_type.value, 0) + 1
         
@@ -603,10 +605,10 @@ class SecurityValidator(metaclass=SingletonMeta):
 
 
 # Decorators for security validation
-def validate_input_security(input_type: str):
+def validate_input_security(input_type: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to validate input security."""
-    def decorator(func: Callable) -> Callable:
-        def wrapper(*args, **kwargs):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             validator = SecurityValidator()
             
             # Try to find the input value in args/kwargs
@@ -623,10 +625,10 @@ def validate_input_security(input_type: str):
     return decorator
 
 
-def require_rate_limit(operation: str):
+def require_rate_limit(operation: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to enforce rate limiting."""
-    def decorator(func: Callable) -> Callable:
-        async def async_wrapper(*args, **kwargs):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             validator = SecurityValidator()
             
             # Try to extract user_id from Update object
@@ -641,7 +643,7 @@ def require_rate_limit(operation: str):
             
             return await func(*args, **kwargs)
         
-        def sync_wrapper(*args, **kwargs):
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             validator = SecurityValidator()
             
             # Try to extract user_id from Update object

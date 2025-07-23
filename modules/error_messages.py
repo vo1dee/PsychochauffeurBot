@@ -93,7 +93,7 @@ class StandardErrorMessages:
 class ErrorFeedbackManager:
     """Manages error feedback to users with appropriate messaging."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.error_stickers = [
             "CAACAgQAAxkBAAExX39nn7xI2ENP9ev7Ib1-0GCV0TcFvwACNxUAAn_QmFB67ToFiTpdgTYE",
             "CAACAgQAAxkBAAExYABnn7xJmVXzAAGOAAH-UqFN8KWOvJsAAjgVAAJ_0JhQeu06BYk6XYE2BA",
@@ -239,7 +239,7 @@ class ErrorFeedbackManager:
 class ErrorResponseBuilder:
     """Builder for creating standardized error responses."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.feedback_manager = ErrorFeedbackManager()
         self.response_templates = {
             "command_error": "❌ Command failed: {message}",

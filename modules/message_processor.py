@@ -2,7 +2,7 @@
 Message processing module for handling message-related operations.
 """
 
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from telegram import Update
 from telegram.ext import CallbackContext
 
@@ -14,7 +14,7 @@ from modules.url_processor import extract_urls, modify_url, is_modified_domain
 # Global message history
 last_user_messages: Dict[int, Dict[str, str]] = {}
 
-def needs_gpt_response(update: Update, context: CallbackContext, message_text: str) -> Tuple[bool, str]:
+def needs_gpt_response(update: Update, context: CallbackContext[Any, Any, Any, Any], message_text: str) -> Tuple[bool, str]:
     """
     Determine if a message needs a GPT response and what type of response it needs.
     
@@ -34,7 +34,7 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
         return False, ''
 
     bot_username = context.bot.username
-    is_private_chat = update.effective_chat.type == 'private'
+    is_private_chat = update.effective_chat and update.effective_chat.type == 'private'
     mentioned = f"@{bot_username}" in message_text
     contains_video_platform = any(platform in message_text.lower() for platform in VideoPlatforms.SUPPORTED_PLATFORMS)
     contains_modified_domain = any(domain in message_text for domain in LinkModification.DOMAINS)
@@ -43,9 +43,9 @@ def needs_gpt_response(update: Update, context: CallbackContext, message_text: s
     general_logger.info(
         f"GPT response check: bot_username={bot_username}, mentioned={mentioned}, is_private={is_private_chat}",
         extra={
-            'chat_id': update.effective_chat.id,
-            'chattitle': update.effective_chat.title or f"Private_{update.effective_chat.id}",
-            'username': update.effective_user.username or f"ID:{update.effective_user.id}"
+            'chat_id': update.effective_chat.id if update.effective_chat else 0,
+            'chattitle': update.effective_chat.title or f"Private_{update.effective_chat.id}" if update.effective_chat else "Unknown",
+            'username': update.effective_user.username or f"ID:{update.effective_user.id}" if update.effective_user else "Unknown"
         }
     )
     

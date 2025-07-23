@@ -39,7 +39,7 @@ class SingletonMeta(type):
     """Metaclass for implementing singleton pattern."""
     _instances: Dict[type, Any] = {}
     
-    def __call__(cls, *args, **kwargs):
+    def __call__(cls, *args: Any, **kwargs: Any) -> Any:
         if cls not in cls._instances:
             cls._instances[cls] = super().__call__(*args, **kwargs)
         return cls._instances[cls]
@@ -92,11 +92,11 @@ class BaseService(ABC):
 class AsyncContextManager(Generic[T]):
     """Base class for async context managers."""
     
-    async def __aenter__(self) -> T:
+    async def __aenter__(self) -> 'AsyncContextManager[T]':
         await self.setup()
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Optional[type], exc_val: Optional[Exception], exc_tb: Any) -> None:
         await self.cleanup()
     
     @abstractmethod
@@ -154,7 +154,7 @@ class CircuitBreaker:
         self,
         failure_threshold: int = 5,
         recovery_timeout: int = 60,
-        expected_exception: type = Exception
+        expected_exception: type[Exception] = Exception
     ):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
@@ -165,7 +165,7 @@ class CircuitBreaker:
     
     def __call__(self, func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs) -> T:
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
             if self.state == "open":
                 if self._should_attempt_reset():
                     self.state = "half-open"
@@ -220,8 +220,8 @@ class RetryManager:
     async def execute(
         self,
         func: Callable[..., Awaitable[T]],
-        *args,
-        **kwargs
+        *args: Any,
+        **kwargs: Any
     ) -> T:
         """Execute function with retry logic."""
         last_exception = None
@@ -244,6 +244,8 @@ class RetryManager:
                 else:
                     logger.error(f"All {self.max_retries + 1} attempts failed")
         
+        if last_exception is None:
+            raise RuntimeError("Retry failed but no exception was captured")
         raise last_exception
 
 
@@ -270,7 +272,9 @@ class CacheManager(Generic[T]):
         entry.access_count += 1
         entry.last_accessed = datetime.now()
         
-        return entry.value
+        # Type annotation to ensure proper return type
+        value: T = entry.value
+        return value
     
     def set(self, key: str, value: T, ttl: Optional[int] = None) -> None:
         """Set value in cache."""
@@ -327,13 +331,15 @@ class ValidationMixin:
         return True, None
     
     @staticmethod
-    def validate_text_length(text: str, max_length: int = 4096) -> ValidationResult:
+    def validate_text_length(text: Any, max_length: int = 4096) -> ValidationResult:
         """Validate text length."""
+        # Change parameter type to Any to avoid mypy confusion
         if not isinstance(text, str):
-            return False, "Text must be a string"
+            return (False, "Text must be a string")
+        
         if len(text) > max_length:
-            return False, f"Text too long (max {max_length} characters)"
-        return True, None
+            return (False, f"Text too long (max {max_length} characters)")
+        return (True, None)
     
     @staticmethod
     def validate_url(url: str) -> ValidationResult:
@@ -473,19 +479,19 @@ class TelegramHelpers:
     @staticmethod
     def is_private_chat(update: Update) -> bool:
         """Check if update is from private chat."""
-        return update.effective_chat and update.effective_chat.type == "private"
+        return bool(update.effective_chat and update.effective_chat.type == "private")
     
     @staticmethod
     def is_group_chat(update: Update) -> bool:
         """Check if update is from group chat."""
-        return (update.effective_chat and 
+        return bool(update.effective_chat and 
                 update.effective_chat.type in ["group", "supergroup"])
 
 
 class PerformanceMonitor:
     """Monitor and track performance metrics."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.metrics: List[PerformanceMetric] = []
     
     @asynccontextmanager
@@ -541,22 +547,22 @@ class PerformanceMonitor:
 
 
 # Decorator utilities
-def async_retry(max_retries: int = 3, delay: float = 1.0):
+def async_retry(max_retries: int = 3, delay: float = 1.0) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """Decorator for async functions with retry logic."""
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs) -> T:
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
             retry_manager = RetryManager(max_retries=max_retries, base_delay=delay)
             return await retry_manager.execute(func, *args, **kwargs)
         return wrapper
     return decorator
 
 
-def measure_performance(operation_name: str):
+def measure_performance(operation_name: str) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """Decorator to measure function performance."""
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs) -> T:
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
             start_time = time.time()
             try:
                 result = await func(*args, **kwargs)
@@ -568,13 +574,13 @@ def measure_performance(operation_name: str):
     return decorator
 
 
-def rate_limit(max_requests: int, time_window: int):
+def rate_limit(max_requests: int, time_window: int) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """Decorator for rate limiting function calls."""
     limiter = RateLimiter(max_requests, time_window)
     
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs) -> T:
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
             # Use function name as key, could be enhanced to use user ID
             key = func.__name__
             
@@ -588,7 +594,8 @@ def rate_limit(max_requests: int, time_window: int):
 
 
 # Global instances for common use
-performance_monitor = PerformanceMonitor()
+# Type-annotated to avoid untyped call warning
+performance_monitor: PerformanceMonitor = PerformanceMonitor()
 text_processor = TextProcessor()
 hash_generator = HashGenerator()
 telegram_helpers = TelegramHelpers()

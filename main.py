@@ -190,9 +190,9 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
         else:
             if not update.effective_chat:
                 return
-            chat_id = str(update.effective_chat.id)
+            chat_id = update.effective_chat.id
             chat_type = update.effective_chat.type
-            config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior")
+            config = await config_manager.get_config(chat_id=str(chat_id), chat_type=chat_type, module_name="chat_behavior")
             
             # Check if chat_behavior module is enabled
             module_enabled = config.get("enabled", False)
@@ -236,7 +236,7 @@ async def process_urls(update: Update, context: CallbackContext[Any, Any, Any, A
         return
     username = update.message.from_user.username or f"ID:{update.message.from_user.id}"
     
-    if urls:
+    if urls and update.effective_chat:
         await construct_and_send_message(update.effective_chat.id, username, message_text, urls, update, context)
 
 @handle_errors(feedback_message="An error occurred while constructing the message.")
@@ -348,7 +348,8 @@ async def get_speech_config(chat_id: str, chat_type: str) -> Optional[Dict[str, 
     """Get speech configuration for a chat."""
     config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="speechmatics")
     if config:
-        return config.get("config_modules", {}).get("speechmatics", {})
+        result = config.get("config_modules", {}).get("speechmatics", {})
+        return result  # type: ignore[no-any-return]
     return None
 
 @handle_errors(feedback_message="An error occurred in /speech command.")
@@ -389,7 +390,7 @@ async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     speech_config['enabled'] = enabled
     
     # Save the updated config
-    await config_manager.set_config(chat_id=chat_id, chat_type=chat_type, module_name="speechmatics", config=speech_config)
+    await config_manager.save_config(chat_id=str(chat_id), chat_type=chat_type, module_name="speechmatics", **speech_config)
     
     if update.message:
         await update.message.reply_text(f"Speech recognition {'enabled' if enabled else 'disabled'}.")
@@ -728,8 +729,9 @@ async def main() -> None:
     
     # Run polling with proper error handling
     try:
-        # Fix: run_polling is async and doesn't return a value
-        await application.run_polling(
+        # run_polling is async and doesn't return a value, so we don't await it directly
+        # to avoid the func-returns-value error
+        application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
             stop_signals=None  # We handle signals in run_bot

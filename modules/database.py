@@ -32,22 +32,23 @@ logger = logging.getLogger(__name__)
 # Support both DATABASE_URL and individual environment variables
 DATABASE_URL = os.getenv('DATABASE_URL')
 
+# Database connection parameters
 if DATABASE_URL and DATABASE_URL.startswith('postgresql://'):
     # Parse DATABASE_URL for PostgreSQL
     from urllib.parse import urlparse
     parsed = urlparse(DATABASE_URL)
-    DB_HOST: str = parsed.hostname or 'localhost'
-    DB_PORT: str = str(parsed.port or 5432)
-    DB_NAME: str = parsed.path.lstrip('/') or 'telegram_bot'
-    DB_USER: str = parsed.username or 'postgres'
-    DB_PASSWORD: str = parsed.password or ''
+    DB_HOST = parsed.hostname or 'localhost'
+    DB_PORT = str(parsed.port or 5432)
+    DB_NAME = parsed.path.lstrip('/') or 'telegram_bot'
+    DB_USER = parsed.username or 'postgres'
+    DB_PASSWORD = parsed.password or ''
 else:
     # Use individual environment variables
-    DB_HOST: str = os.getenv('DB_HOST', 'localhost')
-    DB_PORT: str = os.getenv('DB_PORT', '5432')
-    DB_NAME: str = os.getenv('DB_NAME', 'telegram_bot')
-    DB_USER: str = os.getenv('DB_USER', 'postgres')
-    DB_PASSWORD: str = os.getenv('DB_PASSWORD', '')
+    DB_HOST = os.getenv('DB_HOST', 'localhost')
+    DB_PORT = os.getenv('DB_PORT', '5432')
+    DB_NAME = os.getenv('DB_NAME', 'telegram_bot')
+    DB_USER = os.getenv('DB_USER', 'postgres')
+    DB_PASSWORD = os.getenv('DB_PASSWORD', '')
 
 # Connection pool configuration
 POOL_MIN_SIZE: int = int(os.getenv('DB_POOL_MIN_SIZE', '5'))
@@ -120,16 +121,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_text_search ON messages USING GIN(to_tsv
 CREATE INDEX IF NOT EXISTS idx_messages_chat_text ON messages(chat_id) WHERE text IS NOT NULL;
 """
 
-def database_operation(operation_name: str) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
-    def decorator(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return await func(*args, **kwargs)
-            except Exception as e:
-                logger.error(f"Database operation '{operation_name}' failed: {e}")
-                raise
-        return wrapper
-    return decorator
+# Note: Using the imported database_operation decorator from modules.error_decorators
+# The duplicate definition has been removed
 
 class DatabaseConnectionManager:
     """Enhanced database connection manager with optimized pooling."""
@@ -138,6 +131,8 @@ class DatabaseConnectionManager:
         self._pool: Optional[asyncpg.Pool] = None
         self._pool_lock: asyncio.Lock = asyncio.Lock()
         self._cache_manager: CacheManager[Any] = CacheManager(default_ttl=DEFAULT_CACHE_TTL)
+        # Import PerformanceMonitor from shared_utilities to avoid untyped call
+        from modules.shared_utilities import PerformanceMonitor
         self._performance_monitor: PerformanceMonitor = PerformanceMonitor()
         self._retry_manager: RetryManager = RetryManager(max_retries=DATABASE_RETRY_ATTEMPTS)
         self._connection_stats: Dict[str, int] = {
@@ -252,7 +247,7 @@ class Database:
             logger.info("Database tables initialized successfully")
 
     @classmethod
-    @database_operation("save_chat_info")
+    @database_operation("save_chat_info", raise_exception=True)
     async def save_chat_info(cls, chat: Chat) -> None:
         """Save or update chat information with caching."""
         manager = cls.get_connection_manager()
@@ -582,7 +577,7 @@ class Database:
         manager._connection_stats['cache_misses'] += 1
         async with manager.get_connection() as conn:
             query = "SELECT COUNT(*) FROM messages WHERE chat_id = $1"
-            params = [chat_id]
+            params: List[Any] = [chat_id]
             param_count = 1
             
             if user_id:
@@ -593,13 +588,13 @@ class Database:
             if since:
                 param_count += 1
                 query += f" AND timestamp >= ${param_count}"
-                params.append(since)
+                params.append(since)  # datetime is acceptable for asyncpg
             
             if text_filter:
                 param_count += 1
                 # Use GIN index for text search
                 query += f" AND text ILIKE ${param_count}"
-                params.append(f"%{text_filter}%")
+                params.append(f"%{text_filter}%")  # string is acceptable for asyncpg
             
             count = await conn.fetchval(query, *params)
             

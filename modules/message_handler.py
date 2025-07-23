@@ -1,7 +1,7 @@
-from telegram import Update
+from telegram import Update, Message
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, MessageHandler, filters, Application
-from typing import Any
+from typing import Any, List
 from .database import Database
 from .message_processor import (
     needs_gpt_response, update_message_history,
@@ -21,7 +21,10 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
     """
     try:
         # Log that we received a message
-        general_logger.info(f"Received message in chat {update.effective_chat.id}")
+        if update.effective_chat:
+            general_logger.info(f"Received message in chat {update.effective_chat.id}")
+        else:
+            general_logger.info("Received message in unknown chat")
         
         # Stream message to log file first - this handles ALL message types
         await chat_streamer.stream_message(update, context)
@@ -77,8 +80,8 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
         error_logger.error(f"Error processing message: {str(e)}", exc_info=True)
 
 async def handle_gpt_reply(
-    message: Update.message,
-    context_message_ids: list[int],
+    message: Message,
+    context_message_ids: List[int],
     context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """
@@ -95,7 +98,7 @@ async def handle_gpt_reply(
     except Exception as e:
         print(f"Error storing GPT reply: {e}")
 
-def setup_message_handlers(application: Application[Any, Any, Any, Any, Any, Any]):
+def setup_message_handlers(application: Application[Any, Any, Any, Any, Any, Any]) -> None:
     """
     Set up message handlers for the bot.
     This function should be called during bot initialization.
@@ -109,21 +112,4 @@ def setup_message_handlers(application: Application[Any, Any, Any, Any, Any, Any
         block=False
     ), group=-1)
 
-async def handle_gpt_reply(
-    message: Update.message,
-    context_message_ids: list[int],
-    context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """
-    Handle and store a GPT-generated reply message.
-    This should be called after generating a GPT response.
-    """
-    try:
-        # Store the GPT reply with its context
-        await Database.save_message(
-            message=message,
-            is_gpt_reply=True,
-            gpt_context_message_ids=context_message_ids
-        )
-    except Exception as e:
-        print(f"Error storing GPT reply: {e}") 
+# Duplicate function removed - see above for the actual implementation

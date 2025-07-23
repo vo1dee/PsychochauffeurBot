@@ -19,7 +19,7 @@ class TestBotApplication:
     """Complete test suite for bot_application.py module."""
     
     @pytest.fixture
-    async def mock_telegram_bot(self):
+    async def mock_telegram_bot(self) -> Any:
         """Mock Telegram bot instance."""
         bot = AsyncMock()
         bot.get_me.return_value = MagicMock(username="test_bot", id=12345)
@@ -27,7 +27,7 @@ class TestBotApplication:
         return bot
     
     @pytest.fixture
-    async def mock_database(self):
+    async def mock_database(self) -> Any:
         """Mock database manager."""
         db = AsyncMock()
         db.initialize.return_value = None
@@ -36,7 +36,7 @@ class TestBotApplication:
         return db
     
     @pytest.fixture
-    async def mock_service_registry(self):
+    async def mock_service_registry(self) -> Any:
         """Mock service registry."""
         registry = AsyncMock()
         registry.initialize_services.return_value = None
@@ -45,7 +45,7 @@ class TestBotApplication:
         return registry
     
     @pytest.fixture
-    async def bot_application(self, mock_telegram_bot, mock_database, mock_service_registry):
+    async def bot_application(self, mock_telegram_bot: Any, mock_database: Any, mock_service_registry: Any) -> Any:
         """Bot application instance with mocked dependencies."""
         with patch('modules.bot_application.Bot', return_value=mock_telegram_bot), \
              patch('modules.bot_application.DatabaseManager', return_value=mock_database), \
@@ -563,7 +563,7 @@ class TestAsyncErrorHandlingPatterns:
         assert exception_handled is True
 
 
-def create_test_files():
+def create_test_files() -> None:
     """Create actual test files that can be run with pytest."""
     
     # Create test file for bot application
@@ -671,7 +671,7 @@ class TestAsyncErrorPatternsReal:
     print("  - test_async_error_patterns_example.py")
 
 
-def main():
+def main() -> None:
     """Generate test implementation examples and create actual test files."""
     print("🧪 Generating Test Implementation Examples")
     print("=" * 50)

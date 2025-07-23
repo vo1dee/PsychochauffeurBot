@@ -330,10 +330,11 @@ async def handle_voice_or_video_note(update: Update, context: CallbackContext[An
     await send_speech_recognition_button(update, context)
 
 
-async def get_speech_config(chat_id: str, chat_type: str, config_manager) -> Dict[str, Any]:
+async def get_speech_config(chat_id: str, chat_type: str, config_manager: Any) -> Dict[str, Any]:
     """Get speech configuration for a chat."""
     config = await config_manager.get_config(chat_id, chat_type)
-    return config.get("config_modules", {}).get("speechmatics", {})
+    result = config.get("config_modules", {}).get("speechmatics", {})
+    return result  # type: ignore[no-any-return]
 
 
 async def send_speech_recognition_button(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:

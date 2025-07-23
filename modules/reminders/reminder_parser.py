@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional, Tuple, ClassVar
 import re
 from modules.logger import general_logger
-import timefhuman  # type: ignore
+import timefhuman
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from modules.const import KYIV_TZ

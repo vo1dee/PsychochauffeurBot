@@ -40,7 +40,7 @@ async def test_save_chat_info_caching(monkeypatch: Any, mock_chat: Chat) -> None
         mock_conn.assert_not_called()  # Should hit cache
 
 @pytest.mark.asyncio
-async def test_save_user_info_caching(monkeypatch, mock_user) -> None:
+async def test_save_user_info_caching(monkeypatch: Any, mock_user: User) -> None:
     manager = Database.get_connection_manager()
     manager._cache_manager.set(f"user:{mock_user.id}", {"username": mock_user.username, "first_name": mock_user.first_name}, ttl=3600)
     with patch.object(manager, 'get_connection') as mock_conn:
@@ -48,7 +48,7 @@ async def test_save_user_info_caching(monkeypatch, mock_user) -> None:
         mock_conn.assert_not_called()  # Should hit cache
 
 @pytest.mark.asyncio
-async def test_save_message_calls_save_chat_and_user(monkeypatch, mock_message) -> None:
+async def test_save_message_calls_save_chat_and_user(monkeypatch: Any, mock_message: MagicMock) -> None:
     with patch.object(Database, 'save_chat_info', new=AsyncMock()) as mock_save_chat, \
          patch.object(Database, 'save_user_info', new=AsyncMock()) as mock_save_user, \
          patch.object(Database.get_connection_manager(), 'get_connection') as mock_conn:
@@ -58,7 +58,7 @@ async def test_save_message_calls_save_chat_and_user(monkeypatch, mock_message) 
         mock_save_user.assert_awaited_once()
 
 @pytest.mark.asyncio
-async def test_get_analysis_cache_cache_hit(monkeypatch) -> None:
+async def test_get_analysis_cache_cache_hit(monkeypatch: Any) -> None:
     manager = Database.get_connection_manager()
     key = "analysis:1:today:hash"
     manager._cache_manager.set(key, "cached_result", ttl=100)
@@ -66,7 +66,7 @@ async def test_get_analysis_cache_cache_hit(monkeypatch) -> None:
     assert result == "cached_result"
 
 @pytest.mark.asyncio
-async def test_set_analysis_cache_sets_cache(monkeypatch) -> None:
+async def test_set_analysis_cache_sets_cache(monkeypatch: Any) -> None:
     manager = Database.get_connection_manager()
     with patch.object(manager, 'get_connection') as mock_conn:
         mock_conn.return_value.__aenter__.return_value = AsyncMock()
@@ -74,7 +74,7 @@ async def test_set_analysis_cache_sets_cache(monkeypatch) -> None:
         assert manager._cache_manager.get("analysis:1:today:hash") == "result"
 
 @pytest.mark.asyncio
-async def test_get_recent_messages_cache(monkeypatch) -> None:
+async def test_get_recent_messages_cache(monkeypatch: Any) -> None:
     manager = Database.get_connection_manager()
     key = "recent_messages:1:10:True"
     manager._cache_manager.set(key, [{"message_id": 1}], ttl=100)
@@ -82,7 +82,7 @@ async def test_get_recent_messages_cache(monkeypatch) -> None:
     assert result == [{"message_id": 1}]
 
 @pytest.mark.asyncio
-async def test_get_message_count_cache(monkeypatch) -> None:
+async def test_get_message_count_cache(monkeypatch: Any) -> None:
     manager = Database.get_connection_manager()
     key = "msg_count:1:None:None:None"
     manager._cache_manager.set(key, 5, ttl=100)
@@ -90,7 +90,7 @@ async def test_get_message_count_cache(monkeypatch) -> None:
     assert result == 5
 
 @pytest.mark.asyncio
-async def test_error_handling_on_db_failure(monkeypatch, mock_chat) -> None:
+async def test_error_handling_on_db_failure(monkeypatch: Any, mock_chat: Chat) -> None:
     manager = Database.get_connection_manager()
     manager._cache_manager.delete(f"chat:{mock_chat.id}")
     with patch.object(manager, 'get_connection', side_effect=Exception("DB fail")):

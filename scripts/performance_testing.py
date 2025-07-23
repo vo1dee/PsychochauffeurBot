@@ -72,13 +72,13 @@ class PerformanceTestResult:
 class PerformanceTester:
     """Comprehensive performance testing suite."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.results: List[PerformanceTestResult] = []
         self.performance_monitor = PerformanceMonitor()
         self.config_manager = ConfigManager()
         self.error_handler = ErrorHandler()
         
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize testing environment."""
         logger.info("Initializing performance testing environment...")
         
@@ -93,7 +93,7 @@ class PerformanceTester:
         
         logger.info("Performance testing environment initialized")
     
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Cleanup testing environment."""
         logger.info("Cleaning up performance testing environment...")
         
@@ -625,7 +625,7 @@ class PerformanceTester:
             await self.cleanup()
 
 
-async def main():
+async def main() -> None:
     """Main function to run performance tests."""
     tester = PerformanceTester()
     

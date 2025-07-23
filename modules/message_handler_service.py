@@ -5,6 +5,7 @@ Provides message handling and logging functionality as a service.
 """
 
 import logging
+from typing import Any
 from telegram.ext import Application
 
 from modules.service_registry import ServiceInterface
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 class MessageHandlerService(ServiceInterface):
     """Service for managing message handlers and logging."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._initialized = False
     
     async def initialize(self) -> None:
@@ -29,7 +30,7 @@ class MessageHandlerService(ServiceInterface):
         self._initialized = False
         logger.info("Message Handler Service shutdown")
     
-    async def setup_handlers(self, application: Application) -> None:
+    async def setup_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Setup message handlers with the Telegram application."""
         if not self._initialized:
             await self.initialize()

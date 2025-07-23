@@ -46,7 +46,7 @@ class ObjectTracker:
     destroyed_count: int = 0
     current_count: int = 0
     peak_count: int = 0
-    last_updated: Timestamp = None
+    last_updated: Optional[Timestamp] = None
 
 
 class WeakObjectRegistry(Generic[T]):
@@ -54,12 +54,12 @@ class WeakObjectRegistry(Generic[T]):
     
     def __init__(self, name: str):
         self.name = name
-        self._objects: Set[weakref.ref] = set()
-        self._cleanup_callbacks: List[Callable] = []
+        self._objects: Set[weakref.ref[T]] = set()
+        self._cleanup_callbacks: List[Callable[[], None]] = []
     
-    def register(self, obj: T, cleanup_callback: Optional[Callable] = None) -> None:
+    def register(self, obj: T, cleanup_callback: Optional[Callable[[], None]] = None) -> None:
         """Register an object for tracking."""
-        def remove_ref(ref):
+        def remove_ref(ref: weakref.ref[T]) -> None:
             self._objects.discard(ref)
             if cleanup_callback:
                 try:
@@ -97,12 +97,12 @@ class WeakObjectRegistry(Generic[T]):
 class MemoryOptimizer(metaclass=SingletonMeta):
     """Memory optimization and monitoring system."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._snapshots: List[MemorySnapshot] = []
-        self._object_trackers: Dict[str, ObjectTracker] = defaultdict(ObjectTracker)
-        self._weak_registries: Dict[str, WeakObjectRegistry] = {}
-        self._gc_task: Optional[asyncio.Task] = None
-        self._monitoring_task: Optional[asyncio.Task] = None
+        self._object_trackers: Dict[str, ObjectTracker] = defaultdict(lambda: ObjectTracker(""))
+        self._weak_registries: Dict[str, WeakObjectRegistry[Any]] = {}
+        self._gc_task: Optional[asyncio.Task[None]] = None
+        self._monitoring_task: Optional[asyncio.Task[None]] = None
         self._is_monitoring = False
         
         # Memory thresholds
@@ -273,10 +273,10 @@ class MemoryOptimizer(metaclass=SingletonMeta):
                 tracker.peak_count = max(tracker.peak_count, current_count)
                 tracker.last_updated = datetime.now()
     
-    def register_object_type(self, name: str) -> WeakObjectRegistry:
+    def register_object_type(self, name: str) -> WeakObjectRegistry[Any]:
         """Register a new object type for tracking."""
         if name not in self._weak_registries:
-            self._weak_registries[name] = WeakObjectRegistry(name)
+            self._weak_registries[name] = WeakObjectRegistry[Any](name)
             self._object_trackers[name] = ObjectTracker(
                 object_type=name,
                 last_updated=datetime.now()
@@ -371,21 +371,21 @@ class MemoryOptimizer(metaclass=SingletonMeta):
 
 
 # Decorators for memory optimization
-def track_memory(object_type: str):
+def track_memory(object_type: str) -> Any:
     """Decorator to track memory usage of objects."""
-    def decorator(cls):
+    def decorator(cls: Any) -> Any:
         original_init = cls.__init__
         original_del = getattr(cls, '__del__', None)
         
         optimizer = MemoryOptimizer()
         registry = optimizer.register_object_type(object_type)
         
-        def new_init(self, *args, **kwargs):
+        def new_init(self: Any, *args: Any, **kwargs: Any) -> None:
             original_init(self, *args, **kwargs)
             optimizer.track_object_creation(object_type)
             registry.register(self)
         
-        def new_del(self):
+        def new_del(self: Any) -> None:
             optimizer.track_object_destruction(object_type)
             if original_del:
                 original_del(self)
@@ -400,7 +400,7 @@ def track_memory(object_type: str):
 def memory_efficient(func: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator to make functions more memory efficient."""
     @wraps(func)
-    async def async_wrapper(*args, **kwargs):
+    async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
         # Take snapshot before
         optimizer = MemoryOptimizer()
         before_snapshot = optimizer._take_snapshot()
@@ -424,7 +424,7 @@ def memory_efficient(func: Callable[..., Any]) -> Callable[..., Any]:
                 await optimizer._force_gc()
     
     @wraps(func)
-    def sync_wrapper(*args, **kwargs):
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
         # For synchronous functions, just run GC after if needed
         result = func(*args, **kwargs)
         

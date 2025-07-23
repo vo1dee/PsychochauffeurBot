@@ -60,7 +60,8 @@ class WeatherData:
         advice: str = ""
         if update is not None and context is not None:
             try:
-                advice = await gpt_response(update, context, response_type="weather", message_text_override=prompt, return_text=True)
+                advice_result = await gpt_response(update, context, response_type="weather", message_text_override=prompt, return_text=True)
+                advice = advice_result if isinstance(advice_result, str) else ""
                 general_logger.info(f"Clothing advice: {advice}")
             except httpx.HTTPStatusError as e:
                 error_logger.error(f"HTTP status error getting clothing advice: {e}")

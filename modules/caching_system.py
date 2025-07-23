@@ -25,7 +25,7 @@ try:
     import redis.asyncio as redis
     REDIS_AVAILABLE = True
 except ImportError:
-    redis = None
+    redis = None  # type: ignore
     REDIS_AVAILABLE = False
 
 from modules.types import Timestamp, JSONDict, CacheEntry, CacheStrategy
@@ -257,7 +257,7 @@ class MemoryCache(CacheInterface[str, Any]):
             key_to_remove = self._access_order[0]
         elif self.config.policy == CachePolicy.LFU:
             # Remove least frequently used
-            key_to_remove = min(self._access_count.keys(), key=self._access_count.get)
+            key_to_remove = min(self._access_count.keys(), key=self._access_count.get)  # type: ignore
         elif self.config.policy == CachePolicy.FIFO:
             # Remove oldest entry
             key_to_remove = min(self._cache.keys(), key=lambda k: self._cache[k].created_at)
@@ -299,7 +299,7 @@ class RedisCache(CacheInterface[str, Any]):
     
     def __init__(self, config: CacheConfig):
         self.config = config
-        self._redis: Optional[redis.Redis] = None
+        self._redis: Optional[redis.Redis[Any]] = None
         self._stats = CacheStats()
         self._connected = False
     
@@ -346,6 +346,8 @@ class RedisCache(CacheInterface[str, Any]):
         
         try:
             redis_key = self._make_key(key)
+            if self._redis is None:
+                return None
             data = await self._redis.get(redis_key)
             
             if data is None:
@@ -370,9 +372,9 @@ class RedisCache(CacheInterface[str, Any]):
             data = self._serialize(value)
             ttl = ttl or self.config.default_ttl
             
-            if ttl > 0:
+            if ttl > 0 and self._redis is not None:
                 await self._redis.setex(redis_key, ttl, data)
-            else:
+            elif self._redis is not None:
                 await self._redis.set(redis_key, data)
             
             self._stats.sets += 1
@@ -387,11 +389,12 @@ class RedisCache(CacheInterface[str, Any]):
         
         try:
             redis_key = self._make_key(key)
-            result = await self._redis.delete(redis_key)
-            
-            if result > 0:
-                self._stats.deletes += 1
-                return True
+            if self._redis is not None:
+                result = await self._redis.delete(redis_key)
+                
+                if result > 0:
+                    self._stats.deletes += 1
+                    return True
             return False
             
         except Exception as e:
@@ -404,7 +407,9 @@ class RedisCache(CacheInterface[str, Any]):
         
         try:
             redis_key = self._make_key(key)
-            return bool(await self._redis.exists(redis_key))
+            if self._redis is not None:
+                return bool(await self._redis.exists(redis_key))
+            return False
         except Exception as e:
             logger.error(f"Redis exists error: {e}")
             return False
@@ -414,10 +419,11 @@ class RedisCache(CacheInterface[str, Any]):
         await self._ensure_connection()
         
         try:
-            pattern = f"{self.config.key_prefix}:*"
-            keys = await self._redis.keys(pattern)
-            if keys:
-                await self._redis.delete(*keys)
+            if self._redis is not None:
+                pattern = f"{self.config.key_prefix}:*"
+                keys = await self._redis.keys(pattern)
+                if keys:
+                    await self._redis.delete(*keys)
         except Exception as e:
             logger.error(f"Redis clear error: {e}")
             raise
@@ -427,12 +433,15 @@ class RedisCache(CacheInterface[str, Any]):
         await self._ensure_connection()
         
         try:
-            redis_pattern = f"{self.config.key_prefix}:{pattern or '*'}"
-            redis_keys = await self._redis.keys(redis_pattern)
+            if self._redis is not None:
+                redis_pattern = f"{self.config.key_prefix}:{pattern or '*'}"
+                redis_keys = await self._redis.keys(redis_pattern)
+                
+                # Remove prefix from keys
+                prefix_len = len(self.config.key_prefix) + 1
+                return [key.decode('utf-8')[prefix_len:] for key in redis_keys]
             
-            # Remove prefix from keys
-            prefix_len = len(self.config.key_prefix) + 1
-            return [key.decode('utf-8')[prefix_len:] for key in redis_keys]
+            return []
             
         except Exception as e:
             logger.error(f"Redis keys error: {e}")
@@ -536,18 +545,18 @@ class HybridCache(CacheInterface[str, Any]):
 class CacheManager(metaclass=SingletonMeta):
     """Main cache manager with multiple cache instances."""
     
-    def __init__(self):
-        self._caches: Dict[str, CacheInterface] = {}
+    def __init__(self) -> None:
+        self._caches: Dict[str, CacheInterface[Any, Any]] = {}
         self._default_config = CacheConfig()
-        self._monitoring_task: Optional[asyncio.Task] = None
+        self._monitoring_task: Optional[asyncio.Task[None]] = None
         self._is_monitoring = False
     
-    def create_cache(self, name: str, config: Optional[CacheConfig] = None) -> CacheInterface:
+    def create_cache(self, name: str, config: Optional[CacheConfig] = None) -> CacheInterface[Any, Any]:
         """Create a new cache instance."""
         config = config or self._default_config
         
         if config.backend == CacheBackend.MEMORY:
-            cache = MemoryCache(config)
+            cache: CacheInterface[Any, Any] = MemoryCache(config)
         elif config.backend == CacheBackend.REDIS:
             cache = RedisCache(config)
         elif config.backend == CacheBackend.HYBRID:
@@ -560,11 +569,11 @@ class CacheManager(metaclass=SingletonMeta):
         
         return cache
     
-    def get_cache(self, name: str) -> Optional[CacheInterface]:
+    def get_cache(self, name: str) -> Optional[CacheInterface[Any, Any]]:
         """Get cache instance by name."""
         return self._caches.get(name)
     
-    def get_or_create_cache(self, name: str, config: Optional[CacheConfig] = None) -> CacheInterface:
+    def get_or_create_cache(self, name: str, config: Optional[CacheConfig] = None) -> CacheInterface[Any, Any]:
         """Get existing cache or create new one."""
         cache = self.get_cache(name)
         if cache is None:
@@ -648,14 +657,16 @@ class CacheManager(metaclass=SingletonMeta):
 
 
 # Decorators for caching
+F = TypeVar('F', bound=Callable[..., Any])
+
 def cached(
     cache_name: str = "default",
     ttl: Optional[int] = None,
     key_func: Optional[Callable[..., str]] = None
-):
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to cache function results."""
-    def decorator(func: Callable) -> Callable:
-        async def async_wrapper(*args, **kwargs):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             cache_manager = CacheManager()
             cache = cache_manager.get_or_create_cache(cache_name)
             
@@ -680,7 +691,7 @@ def cached(
             
             return result
         
-        def sync_wrapper(*args, **kwargs):
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             # For sync functions, we can't use async cache operations
             # This is a simplified version
             return func(*args, **kwargs)
@@ -695,10 +706,10 @@ def cached(
     return decorator
 
 
-def cache_invalidate(cache_name: str = "default", pattern: Optional[str] = None):
+def cache_invalidate(cache_name: str = "default", pattern: Optional[str] = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to invalidate cache after function execution."""
-    def decorator(func: Callable) -> Callable:
-        async def async_wrapper(*args, **kwargs):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             result = await func(*args, **kwargs)
             
             # Invalidate cache
@@ -714,7 +725,7 @@ def cache_invalidate(cache_name: str = "default", pattern: Optional[str] = None)
             
             return result
         
-        def sync_wrapper(*args, **kwargs):
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             return func(*args, **kwargs)
         
         # Return appropriate wrapper
@@ -731,11 +742,11 @@ def cache_invalidate(cache_name: str = "default", pattern: Optional[str] = None)
 cache_manager = CacheManager()
 
 # Pre-configured cache instances
-def get_default_cache() -> CacheInterface:
+def get_default_cache() -> CacheInterface[Any, Any]:
     """Get default cache instance."""
     return cache_manager.get_or_create_cache("default")
 
-def get_api_cache() -> CacheInterface:
+def get_api_cache() -> CacheInterface[Any, Any]:
     """Get API response cache instance."""
     config = CacheConfig(
         backend=CacheBackend.REDIS if REDIS_AVAILABLE else CacheBackend.MEMORY,
@@ -744,7 +755,7 @@ def get_api_cache() -> CacheInterface:
     )
     return cache_manager.get_or_create_cache("api_responses", config)
 
-def get_session_cache() -> CacheInterface:
+def get_session_cache() -> CacheInterface[Any, Any]:
     """Get session cache instance."""
     config = CacheConfig(
         backend=CacheBackend.MEMORY,

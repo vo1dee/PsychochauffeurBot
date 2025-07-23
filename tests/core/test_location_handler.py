@@ -3,6 +3,7 @@ Test cases for location message handling functionality.
 """
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
 from telegram import Update, Location
 from telegram.ext import CallbackContext
 
@@ -65,7 +66,7 @@ class TestLocationHandler(unittest.IsolatedAsyncioTestCase):
         self.message.reply_text.assert_not_called()
 
     @patch('main.error_logger')
-    async def test_handle_location_sticker_failure_fallback(self, mock_error_logger) -> None:
+    async def test_handle_location_sticker_failure_fallback(self, mock_error_logger: Any) -> None:
         """Test that handle_location falls back to text when sticker fails."""
         # Make reply_sticker raise an exception
         self.message.reply_sticker.side_effect = Exception("Sticker error")

@@ -20,7 +20,7 @@ from modules.chat_analysis import (
 from modules.const import KYIV_TZ
 
 
-def create_async_context_manager_mock(conn_mock):
+def create_async_context_manager_mock(conn_mock: Any) -> Any:
     """Helper function to create a proper async context manager mock."""
     async_context_mock = AsyncMock()
     async_context_mock.__aenter__.return_value = conn_mock
@@ -32,7 +32,7 @@ class TestGetMessagesForChatToday:
     """Test get_messages_for_chat_today function."""
     
     @pytest.mark.asyncio
-    async def test_get_messages_for_chat_today_success(self):
+    async def test_get_messages_for_chat_today_success(self) -> None:
         """Test successful retrieval of today's messages."""
         chat_id = 12345
         

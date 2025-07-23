@@ -39,7 +39,7 @@ class HandlerRegistry(ServiceInterface):
         """Shutdown the handler registry."""
         logger.info("Handler Registry shutdown")
     
-    async def register_all_handlers(self, application: Application) -> None:
+    async def register_all_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Register all handlers with the Telegram application."""
         if self._registered:
             logger.warning("Handlers already registered")
@@ -197,7 +197,7 @@ class HandlerRegistry(ServiceInterface):
         # Callback handlers are already included in command processor handlers
         pass
     
-    async def _register_video_handlers(self, application: Application) -> None:
+    async def _register_video_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Register video download handlers."""
         video_handler_service = service_registry.get_service('video_handler')
         await video_handler_service.setup_handlers(application)

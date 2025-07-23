@@ -368,47 +368,51 @@ class HealthStatus:
     metrics: List[PerformanceMetric]
 
 # Factory types
-class Factory(Protocol, Generic[T]):
+T_co = TypeVar('T_co', covariant=True)
+
+class Factory(Protocol, Generic[T_co]):
     """Generic factory interface."""
     
-    def create(self, *args, **kwargs) -> T:
+    def create(self, *args: Any, **kwargs: Any) -> T_co:
         """Create instance."""
         ...
 
-class AsyncFactory(Protocol, Generic[T]):
+class AsyncFactory(Protocol, Generic[T_co]):
     """Generic async factory interface."""
     
-    async def create(self, *args, **kwargs) -> T:
+    async def create(self, *args: Any, **kwargs: Any) -> T_co:
         """Create instance asynchronously."""
         ...
 
 # Strategy pattern types
-class Strategy(Protocol, Generic[T]):
+T_contra = TypeVar('T_contra', contravariant=True)
+
+class Strategy(Protocol, Generic[T_contra]):
     """Generic strategy interface."""
     
-    def execute(self, context: T) -> Any:
+    def execute(self, context: T_contra) -> Any:
         """Execute strategy."""
         ...
 
-class AsyncStrategy(Protocol, Generic[T]):
+class AsyncStrategy(Protocol, Generic[T_contra]):
     """Generic async strategy interface."""
     
-    async def execute(self, context: T) -> Any:
+    async def execute(self, context: T_contra) -> Any:
         """Execute strategy asynchronously."""
         ...
 
 # Observer pattern types
-class Observer(Protocol, Generic[T]):
+class Observer(Protocol, Generic[T_contra]):
     """Generic observer interface."""
     
-    def update(self, subject: T, event: Event) -> None:
+    def update(self, subject: T_contra, event: Event) -> None:
         """Handle update notification."""
         ...
 
-class AsyncObserver(Protocol, Generic[T]):
+class AsyncObserver(Protocol, Generic[T_contra]):
     """Generic async observer interface."""
     
-    async def update(self, subject: T, event: Event) -> None:
+    async def update(self, subject: T_contra, event: Event) -> None:
         """Handle update notification asynchronously."""
         ...
 

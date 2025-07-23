@@ -9,7 +9,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypeVar, Generic, Union
+from typing import Any, Dict, List, Optional, TypeVar, Generic, Union, Tuple
 import json
 
 from telegram import Chat, User, Message
@@ -138,7 +138,7 @@ class ChatRepository(Repository[ChatEntity]):
                 "DELETE FROM chats WHERE chat_id = $1",
                 chat_id
             )
-            return result != "DELETE 0"
+            return result != "DELETE 0"  # type: ignore
     
     async def find_all(self, limit: int = 100, offset: int = 0) -> List[ChatEntity]:
         """Find all chats with pagination."""
@@ -252,7 +252,7 @@ class UserRepository(Repository[UserEntity]):
                 "DELETE FROM users WHERE user_id = $1",
                 user_id
             )
-            return result != "DELETE 0"
+            return result != "DELETE 0"  # type: ignore
     
     async def find_all(self, limit: int = 100, offset: int = 0) -> List[UserEntity]:
         """Find all users with pagination."""
@@ -331,7 +331,7 @@ class UserRepository(Repository[UserEntity]):
 class MessageRepository(Repository[MessageEntity]):
     """Repository for message entities."""
     
-    async def get_by_id(self, message_id: Union[int, tuple]) -> Optional[MessageEntity]:
+    async def get_by_id(self, message_id: Union[int, Tuple[int, int]]) -> Optional[MessageEntity]:
         """Get message by ID (can be internal_id or (chat_id, message_id) tuple)."""
         pool = await Database.get_pool()
         async with pool.acquire() as conn:
@@ -389,7 +389,7 @@ class MessageRepository(Repository[MessageEntity]):
         
         return await self.get_by_id((entity.chat_id, entity.message_id)) or entity
     
-    async def delete(self, message_id: Union[int, tuple]) -> bool:
+    async def delete(self, message_id: Union[int, Tuple[int, int]]) -> bool:
         """Delete message by ID."""
         pool = await Database.get_pool()
         async with pool.acquire() as conn:
@@ -404,7 +404,7 @@ class MessageRepository(Repository[MessageEntity]):
                     "DELETE FROM messages WHERE internal_message_id = $1",
                     message_id
                 )
-            return result != "DELETE 0"
+            return result != "DELETE 0"  # type: ignore
     
     async def find_all(self, limit: int = 100, offset: int = 0) -> List[MessageEntity]:
         """Find all messages with pagination."""
@@ -472,7 +472,7 @@ class MessageRepository(Repository[MessageEntity]):
             'text_contains': search_text
         })
     
-    def _row_to_entity(self, row) -> MessageEntity:
+    def _row_to_entity(self, row: Any) -> MessageEntity:
         """Convert database row to MessageEntity."""
         gpt_context_ids = None
         if row['gpt_context_message_ids']:
@@ -507,7 +507,7 @@ class MessageRepository(Repository[MessageEntity]):
 class AnalysisCacheRepository(Repository[AnalysisCacheEntity]):
     """Repository for analysis cache entities."""
     
-    async def get_by_id(self, cache_key: tuple) -> Optional[AnalysisCacheEntity]:
+    async def get_by_id(self, cache_key: Tuple[int, str, str]) -> Optional[AnalysisCacheEntity]:
         """Get cache entry by composite key (chat_id, time_period, hash)."""
         chat_id, time_period, message_hash = cache_key
         pool = await Database.get_pool()
@@ -539,7 +539,7 @@ class AnalysisCacheRepository(Repository[AnalysisCacheEntity]):
         
         return await self.get_by_id((entity.chat_id, entity.time_period, entity.message_content_hash)) or entity
     
-    async def delete(self, cache_key: tuple) -> bool:
+    async def delete(self, cache_key: Tuple[int, str, str]) -> bool:
         """Delete cache entry by key."""
         chat_id, time_period, message_hash = cache_key
         pool = await Database.get_pool()
@@ -548,7 +548,7 @@ class AnalysisCacheRepository(Repository[AnalysisCacheEntity]):
                 "DELETE FROM analysis_cache WHERE chat_id = $1 AND time_period = $2 AND message_content_hash = $3",
                 chat_id, time_period, message_hash
             )
-            return result != "DELETE 0"
+            return result != "DELETE 0"  # type: ignore
     
     async def find_all(self, limit: int = 100, offset: int = 0) -> List[AnalysisCacheEntity]:
         """Find all cache entries with pagination."""
@@ -623,32 +623,32 @@ class AnalysisCacheRepository(Repository[AnalysisCacheEntity]):
 class RepositoryFactory:
     """Factory for creating repository instances."""
     
-    _instances = {}
+    _instances: Dict[str, Any] = {}
     
     @classmethod
     def get_chat_repository(cls) -> ChatRepository:
         """Get chat repository instance."""
         if 'chat' not in cls._instances:
             cls._instances['chat'] = ChatRepository()
-        return cls._instances['chat']
+        return cls._instances['chat']  # type: ignore
     
     @classmethod
     def get_user_repository(cls) -> UserRepository:
         """Get user repository instance."""
         if 'user' not in cls._instances:
             cls._instances['user'] = UserRepository()
-        return cls._instances['user']
+        return cls._instances['user']  # type: ignore
     
     @classmethod
     def get_message_repository(cls) -> MessageRepository:
         """Get message repository instance."""
         if 'message' not in cls._instances:
             cls._instances['message'] = MessageRepository()
-        return cls._instances['message']
+        return cls._instances['message']  # type: ignore
     
     @classmethod
     def get_analysis_cache_repository(cls) -> AnalysisCacheRepository:
         """Get analysis cache repository instance."""
         if 'analysis_cache' not in cls._instances:
             cls._instances['analysis_cache'] = AnalysisCacheRepository()
-        return cls._instances['analysis_cache']
+        return cls._instances['analysis_cache']  # type: ignore

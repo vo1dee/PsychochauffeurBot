@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from modules.gpt import get_context_messages
 from config.config_manager import ConfigManager
 import typing
+from typing import Any, Dict, List, Optional, Generator
 
 @pytest.fixture
 def mock_config_manager() -> typing.Generator[typing.Any, None, None]:
@@ -173,7 +174,7 @@ async def test_fallback_to_global_config(
         }
     }
     
-    def get_config_side_effect(*args, **kwargs):
+    def get_config_side_effect(*args: Any, **kwargs: Any) -> Dict[str, Any]:
         if not args and not kwargs:
             return global_config
         return chat_config

@@ -6,22 +6,22 @@ from modules.logger import general_logger, error_logger
 from config.config_manager import ConfigManager
 
 class SafetyManager:
-    def __init__(self):
+    def __init__(self) -> None:
         self.config_manager = ConfigManager()
 
-    async def initialize(self):
+    async def initialize(self) -> bool:
         """Initialize the safety manager."""
         # Initialize config manager if needed
         await self.config_manager.initialize()
         general_logger.info("Safety manager initialized successfully")
         return True
 
-    async def stop(self):
+    async def stop(self) -> bool:
         """Clean up resources when stopping the safety manager."""
         general_logger.info("Safety manager stopped successfully")
         return True
 
-    async def check_message_safety(self, update: Update, context: CallbackContext, message_text: str) -> bool:
+    async def check_message_safety(self, update: Update, context: CallbackContext[Any, Any, Any, Any], message_text: str) -> bool:
         """
         Check if a message passes all safety checks.
         
@@ -47,25 +47,29 @@ class SafetyManager:
             # Check content filter level
             content_filter_level = overrides.get("content_filter_level", "medium")
             if not self._check_content_filter(message_text, content_filter_level):
-                await update.message.reply_text("⚠️ This message contains content that violates our content policy.")
+                if update.message:
+                    await update.message.reply_text("⚠️ This message contains content that violates our content policy.")
                 return False
                 
             # Check profanity filter
             if overrides.get("profanity_filter_enabled", False):
                 if self._check_profanity(message_text):
-                    await update.message.reply_text("⚠️ This message contains inappropriate language.")
+                    if update.message:
+                        await update.message.reply_text("⚠️ This message contains inappropriate language.")
                     return False
                     
             # Check sensitive content warning
             if overrides.get("sensitive_content_warning_enabled", False):
                 if self._check_sensitive_content(message_text):
-                    await update.message.reply_text("⚠️ This message may contain sensitive content.")
+                    if update.message:
+                        await update.message.reply_text("⚠️ This message may contain sensitive content.")
                     return False
                     
             # Check restricted domains
             restricted_domains = overrides.get("restricted_domains", [])
             if restricted_domains and self._check_restricted_domains(message_text, restricted_domains):
-                await update.message.reply_text("⚠️ This message contains links to restricted domains.")
+                if update.message:
+                    await update.message.reply_text("⚠️ This message contains links to restricted domains.")
                 return False
                 
             return True
@@ -108,7 +112,7 @@ class SafetyManager:
     def _check_profanity(self, text: str) -> bool:
         """Check for profanity in text."""
         # Add your profanity word list here
-        profanity_words = [
+        profanity_words: List[str] = [
             # Add your list of profanity words
         ]
         return any(word.lower() in text.lower() for word in profanity_words)
@@ -134,7 +138,7 @@ class SafetyManager:
                     return True
         return False
         
-    async def check_file_safety(self, update: Update, context: CallbackContext, file_type: str) -> bool:
+    async def check_file_safety(self, update: Update, context: CallbackContext[Any, Any, Any, Any], file_type: str) -> bool:
         """
         Check if a file type is allowed.
         

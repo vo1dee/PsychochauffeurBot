@@ -5,6 +5,7 @@ Provides video download handling functionality as a service.
 """
 
 import logging
+from typing import Any
 from telegram.ext import Application
 
 from modules.service_registry import ServiceInterface
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class VideoHandlerService(ServiceInterface):
     """Service for managing video download handlers."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._initialized = False
     
     async def initialize(self) -> None:
@@ -30,7 +31,7 @@ class VideoHandlerService(ServiceInterface):
         self._initialized = False
         logger.info("Video Handler Service shutdown")
     
-    async def setup_handlers(self, application: Application) -> None:
+    async def setup_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Setup video handlers with the Telegram application."""
         if not self._initialized:
             await self.initialize()
