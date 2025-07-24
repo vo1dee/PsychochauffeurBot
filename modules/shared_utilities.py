@@ -363,7 +363,7 @@ class TextProcessor:
     @staticmethod
     def extract_urls(text: str) -> List[str]:
         """Extract URLs from text."""
-        url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+        url_pattern = r'http[s]?://(?:[a-zA-Z0-9]|[\$\-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
         return re.findall(url_pattern, text)
     
     @staticmethod

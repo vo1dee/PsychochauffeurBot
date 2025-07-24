@@ -89,7 +89,7 @@ class InputSanitizer:
             re.IGNORECASE
         ),
         'script_injection': re.compile(
-            r'<script[^>]*>.*?</script>|javascript:|vbscript:|onload=|onerror=',
+            r'<script(?:\s[^>]*)?>.*?</script>|javascript:|vbscript:|onload\s*=|onerror\s*=',
             re.IGNORECASE | re.DOTALL
         ),
         'command_injection': re.compile(
