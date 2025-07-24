@@ -328,7 +328,10 @@ class TestAsyncDatabaseService:
         mock_connection_manager.acquire.return_value = mock_connection
         
         # Setup connection with proper transaction mocking
-        self.setup_connection_with_transaction(mock_connection)
+        transaction = AsyncMock()
+        transaction.__aenter__ = AsyncMock(return_value=mock_connection)
+        transaction.__aexit__ = AsyncMock(return_value=None)
+        mock_connection.transaction = Mock(return_value=transaction)
         
         mock_connection.fetchrow.return_value = {"id": 1}
         mock_connection.fetch.return_value = [{"id": 1}, {"id": 2}]
@@ -358,7 +361,10 @@ class TestAsyncDatabaseService:
         mock_connection_manager.acquire.return_value = mock_connection
         
         # Setup connection with proper transaction mocking
-        self.setup_connection_with_transaction(mock_connection)
+        transaction = AsyncMock()
+        transaction.__aenter__ = AsyncMock(return_value=mock_connection)
+        transaction.__aexit__ = AsyncMock(return_value=None)
+        mock_connection.transaction = Mock(return_value=transaction)
         
         mock_connection.execute.return_value = "executed"
         
@@ -534,7 +540,10 @@ class TestAsyncDatabaseService:
         mock_connection_manager.acquire.return_value = mock_connection
         
         # Setup connection with proper transaction mocking
-        self.setup_connection_with_transaction(mock_connection)
+        transaction = AsyncMock()
+        transaction.__aenter__ = AsyncMock(return_value=mock_connection)
+        transaction.__aexit__ = AsyncMock(return_value=None)
+        mock_connection.transaction = Mock(return_value=transaction)
         
         mock_connection.execute.return_value = "executed"
         

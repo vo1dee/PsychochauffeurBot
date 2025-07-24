@@ -1,5 +1,4 @@
 """Configuration API server using FastAPI."""
-import os
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -53,7 +52,7 @@ async def get_config_endpoint(
             },
             "test_key": "test_value"
         }
-    
+
     return {
         "config_name": config_name,
         "chat_id": chat_id,

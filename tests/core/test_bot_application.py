@@ -120,7 +120,7 @@ class TestBotApplication:
     async def test_start_polling_failure(self, bot_app):
         """Test start failure during polling."""
         mock_app = Mock(spec=Application)
-        mock_app.run_polling = AsyncMock(side_effect=RuntimeError("Polling failed"))
+        mock_app.run_polling = Mock(side_effect=RuntimeError("Polling failed"))
         bot_app.telegram_app = mock_app
         bot_app.bot = Mock()
         

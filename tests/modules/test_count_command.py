@@ -168,7 +168,11 @@ async def test_missing_command_valid_last_message() -> None:
     from datetime import datetime, timedelta
     import pytz
     now = datetime.now(pytz.UTC)
-    last_message = (now - timedelta(hours=1), "user", "hello")
+    last_message = {
+        'timestamp': now - timedelta(hours=1),
+        'username': "user", 
+        'text': "hello"
+    }
     with patch("modules.database.Database.get_pool", new=AsyncMock(return_value=pool)):
         with patch("modules.chat_analysis.get_last_message_for_user_in_chat", new=AsyncMock(return_value=last_message)):
             await missing_command(update, context)
