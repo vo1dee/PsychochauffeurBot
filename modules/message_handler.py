@@ -41,7 +41,7 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
             # --- AliExpress sticker logic ---
             if update.message.text:
                 urls = extract_urls(update.message.text)
-                if any("aliexpress.com" in url for url in urls):
+                if any(url.lower().startswith(('https://aliexpress.com/', 'https://www.aliexpress.com/', 'https://m.aliexpress.com/')) for url in urls):
                     try:
                         await update.message.reply_sticker(sticker=Stickers.ALIEXPRESS)
                     except Exception as e:

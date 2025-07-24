@@ -90,19 +90,19 @@ BUTTONS_CONFIG: List[Dict[str, Any]] = [
     {
         'action': 'translate',
         'text': '🌍 Translate',
-        'check': lambda link: 'fixupx.com' in link and not any(link.endswith(f"/{lang['action']}") for lang in LANGUAGE_OPTIONS_CONFIG),
+        'check': lambda link: link.lower().startswith(('https://fixupx.com/', 'https://www.fixupx.com/')) and not any(link.endswith(f"/{lang['action']}") for lang in LANGUAGE_OPTIONS_CONFIG),
         'modify': lambda link: link
     },
     {
         'action': 'translate_remove',
         'text': '❌ Remove Translation',
-        'check': lambda link: 'fixupx.com' in link and any(link.endswith(f"/{lang['action']}") for lang in LANGUAGE_OPTIONS_CONFIG),
+        'check': lambda link: link.lower().startswith(('https://fixupx.com/', 'https://www.fixupx.com/')) and any(link.endswith(f"/{lang['action']}") for lang in LANGUAGE_OPTIONS_CONFIG),
         'modify': lambda link: modify_language(link, 'none')
     },
     {
         'action': 'desc_remove',
         'text': '❌ Hide Description',
-        'check': lambda link: 'fixupx.com' in link and not link.startswith('https://d.'),
+        'check': lambda link: link.lower().startswith(('https://fixupx.com/', 'https://www.fixupx.com/')) and not link.startswith('https://d.'),
         'modify': lambda link: link.replace('https://', 'https://d.')
     },
     {
@@ -114,13 +114,13 @@ BUTTONS_CONFIG: List[Dict[str, Any]] = [
     {
         'action': 'download_video',
         'text': '⬇️ Download Video',
-        'check': lambda link: ('x.com' in link or 'fixupx.com' in link) and '/status/' in link,
+        'check': lambda link: (link.lower().startswith(('https://x.com/', 'https://www.x.com/', 'https://fixupx.com/', 'https://www.fixupx.com/')) and '/status/' in link),
         'modify': lambda link: link
     },
     {
         'action': 'download_instagram_service',
         'text': '⬇️ Download',
-        'check': lambda link: 'instagram.com' in link or 'ddinstagram.com' in link,
+        'check': lambda link: link.lower().startswith(('https://instagram.com/', 'https://www.instagram.com/', 'https://m.instagram.com/', 'https://ddinstagram.com/', 'https://www.ddinstagram.com/')),
         'modify': lambda link: link
     },
 ] 

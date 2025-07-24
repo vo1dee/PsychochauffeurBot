@@ -129,7 +129,7 @@ class SafetyManager:
         
     def _check_restricted_domains(self, text: str, restricted_domains: List[str]) -> bool:
         """Check if text contains links to restricted domains."""
-        url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+        url_pattern = r'http[s]?://(?:[a-zA-Z0-9]|[\$\-_@.&+]|[!*\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
         urls = re.findall(url_pattern, text)
         
         for url in urls:

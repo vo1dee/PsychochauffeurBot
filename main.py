@@ -172,7 +172,7 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
     cleaned_text, modified_links = process_message_content(message_text)
     
     # If all modified links are AliExpress, skip sending the "modified link" message
-    if modified_links and all("aliexpress.com" in link for link in modified_links):
+    if modified_links and all(link.lower().startswith(('https://aliexpress.com/', 'https://www.aliexpress.com/', 'https://m.aliexpress.com/')) for link in modified_links):
         return
     
     # Check for GPT response

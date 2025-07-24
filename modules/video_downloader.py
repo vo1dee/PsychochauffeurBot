@@ -327,9 +327,9 @@ class VideoDownloader:
             platform = self._get_platform(url)
             error_logger.info(f"Starting video download for URL: {url}")
             error_logger.info(f"Detected platform: {platform}")
-            is_youtube_shorts = "youtube.com/shorts" in url.lower()
-            is_youtube_clips = "youtube.com/clip" in url.lower()
-            is_instagram = "instagram.com" in url.lower()
+            is_youtube_shorts = url.lower().find("youtube.com/shorts") != -1 and url.lower().startswith(('https://youtube.com/', 'https://www.youtube.com/', 'https://m.youtube.com/'))
+            is_youtube_clips = url.lower().find("youtube.com/clip") != -1 and url.lower().startswith(('https://youtube.com/', 'https://www.youtube.com/', 'https://m.youtube.com/'))
+            is_instagram = url.lower().startswith(('https://instagram.com/', 'https://www.instagram.com/', 'https://m.instagram.com/'))
             if is_instagram:
                 error_logger.info(f"Instagram URL detected, rerouting to external service: {url}")
                 service_healthy = await self._check_service_health()
@@ -712,7 +712,8 @@ class VideoDownloader:
 
     def _get_platform(self, url: str) -> Platform:
         url = url.lower()
-        if "tiktok.com" in url or "vm.tiktok.com" in url:
+        # Use more precise URL matching to avoid substring attacks
+        if url.startswith(('https://tiktok.com/', 'https://www.tiktok.com/', 'https://vm.tiktok.com/', 'https://m.tiktok.com/')):
             return Platform.TIKTOK
         else:
             return Platform.OTHER
