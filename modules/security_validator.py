@@ -130,9 +130,6 @@ class InputSanitizer:
         This is much safer than regex-based HTML filtering as it properly
         handles malformed HTML and edge cases that browsers accept.
         """
-        if not isinstance(text, str):
-            return str(text)
-
         if not HAS_BEAUTIFULSOUP:
             # Fallback to basic HTML entity encoding if BeautifulSoup is not available
             logger.warning("BeautifulSoup not available, using basic HTML sanitization")

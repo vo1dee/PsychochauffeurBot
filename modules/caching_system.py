@@ -25,7 +25,7 @@ try:
     import redis.asyncio as redis
     REDIS_AVAILABLE = True
 except ImportError:
-    redis = None
+    redis = None  # type: ignore
     REDIS_AVAILABLE = False
 
 from modules.types import Timestamp, JSONDict, CacheEntry, CacheStrategy
