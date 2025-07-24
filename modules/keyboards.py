@@ -158,7 +158,7 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
         data = query.data or ''
         # Validate format: action:hash
         if ':' not in data:
-            if query.message:
+            if query.message and hasattr(query.message, 'edit_text'):
                 await query.message.edit_text("Invalid callback data.")
             return
         action, link_hash = data.split(':', 1)
@@ -166,7 +166,7 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
         valid_actions = {btn['action'] for btn in BUTTONS_CONFIG + LANGUAGE_OPTIONS_CONFIG}
         valid_actions.update({'download_video'})
         if action not in valid_actions:
-            if query.message:
+            if query.message and hasattr(query.message, 'edit_text'):
                 await query.message.edit_text("Unknown action.")
             return
         # Validate hash: 8 hex chars
