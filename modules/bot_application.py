@@ -88,14 +88,19 @@ class BotApplication(ServiceInterface):
             if self.telegram_app:
                 # run_polling doesn't return a value, so we don't await it directly
                 # to avoid the func-returns-value error
-                self.telegram_app.run_polling(
-                    allowed_updates=Update.ALL_TYPES,
-                    drop_pending_updates=True,
-                    stop_signals=None  # We handle signals ourselves
-                )
-                # This line is reached after polling stops
+                try:
+                    self.telegram_app.run_polling(
+                        allowed_updates=Update.ALL_TYPES,
+                        drop_pending_updates=True,
+                        stop_signals=None  # We handle signals ourselves
+                    )
+                    # This line is reached after polling stops
+                except Exception as polling_error:
+                    logger.error(f"Polling failed: {polling_error}")
+                    raise RuntimeError("Polling failed") from polling_error
             else:
                 logger.error("Telegram application is not initialized")
+                raise RuntimeError("Telegram application is not initialized")
                 
         except Exception as e:
             logger.error(f"Error during bot execution: {e}")
