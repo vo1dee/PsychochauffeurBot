@@ -6,6 +6,7 @@ Includes bot_application.py tests, message handling integration tests, and async
 
 import asyncio
 import pytest
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch, call
 from datetime import datetime
 import json
