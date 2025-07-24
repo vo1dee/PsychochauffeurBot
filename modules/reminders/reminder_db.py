@@ -66,9 +66,10 @@ class ReminderDB:
             c = conn.cursor()
             # Ensure next_execution is timezone-aware before saving
             if rem.next_execution is not None:
-                if rem.next_execution.tzinfo is None:
-                    rem.next_execution = KYIV_TZ.localize(rem.next_execution)
-                rem.next_execution = rem.next_execution.astimezone(KYIV_TZ)
+                next_exec = rem.next_execution  # Type narrowing for mypy
+                if next_exec.tzinfo is None:
+                    next_exec = KYIV_TZ.localize(next_exec)
+                rem.next_execution = next_exec.astimezone(KYIV_TZ)
                 general_logger.debug(f"Saving reminder with next_execution: {rem.next_execution}")
             if rem.reminder_id:
                 c.execute('''UPDATE reminders SET task=?, frequency=?, delay=?, date_modifier=?, next_execution=?, \

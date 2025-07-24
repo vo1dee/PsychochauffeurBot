@@ -192,13 +192,11 @@ class BotApplication(ServiceInterface):
                     'message_thread_id': int(topic_id)
                 }
             else:
-                message_params = {
-                    'chat_id': Config.ERROR_CHANNEL_ID,
-                    'text': shutdown_message,
-                    'parse_mode': 'MarkdownV2'
-                }
-                
-            await self.bot.send_message(**message_params)
+                await self.bot.send_message(
+                    chat_id=Config.ERROR_CHANNEL_ID,
+                    text=shutdown_message,
+                    parse_mode='MarkdownV2'
+                )
             
         except Exception as e:
             logger.error(f"Failed to send shutdown notification: {e}")

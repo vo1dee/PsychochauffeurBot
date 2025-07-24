@@ -53,17 +53,19 @@ class Reminder:
         if now.tzinfo is None:
             now = KYIV_TZ.localize(now)
         if self.next_execution is not None:
-            if self.next_execution.tzinfo is None:
-                self.next_execution = KYIV_TZ.localize(self.next_execution)
-            if self.next_execution <= now:
+            next_exec = self.next_execution  # Type narrowing for mypy
+            if next_exec.tzinfo is None:
+                next_exec = KYIV_TZ.localize(next_exec)
+                self.next_execution = next_exec
+            if next_exec <= now:
                 today_at_time = dt.datetime(
                     now.year,
                     now.month,
                     now.day,
-                    self.next_execution.hour,
-                    self.next_execution.minute,
-                    self.next_execution.second,
-                    tzinfo=self.next_execution.tzinfo
+                    next_exec.hour,
+                    next_exec.minute,
+                    next_exec.second,
+                    tzinfo=next_exec.tzinfo
                 )
                 if today_at_time <= now:
                     self.next_execution = today_at_time + timedelta(days=1)
@@ -95,12 +97,14 @@ class Reminder:
             if hasattr(now, 'return_value'):
                 now = now.return_value
         if self.next_execution is not None:
-            if self.next_execution.tzinfo is None:
-                self.next_execution = KYIV_TZ.localize(self.next_execution)
+            next_exec = self.next_execution  # Type narrowing for mypy
+            if next_exec.tzinfo is None:
+                next_exec = KYIV_TZ.localize(next_exec)
+                self.next_execution = next_exec
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
-            if self.next_execution <= now:
-                self.next_execution = self.next_execution + timedelta(weeks=1)
+            if next_exec <= now:
+                self.next_execution = next_exec + timedelta(weeks=1)
         elif not self.next_execution:
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
@@ -111,32 +115,36 @@ class Reminder:
             if hasattr(now, 'return_value'):
                 now = now.return_value
         if self.next_execution is not None:
-            if self.next_execution.tzinfo is None:
-                self.next_execution = KYIV_TZ.localize(self.next_execution)
+            next_exec = self.next_execution  # Type narrowing for mypy
+            if next_exec.tzinfo is None:
+                next_exec = KYIV_TZ.localize(next_exec)
+                self.next_execution = next_exec
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
-            if self.next_execution <= now:
-                next_exec = self.next_execution + relativedelta(months=1)
+            if next_exec <= now:
+                next_exec = next_exec + relativedelta(months=1)
                 if isinstance(next_exec, datetime):
                     self.next_execution = next_exec
         elif not self.next_execution:
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
-            next_exec = now + relativedelta(months=1)
-            if isinstance(next_exec, datetime):
-                self.next_execution = next_exec
+            next_exec_result = now + relativedelta(months=1)
+            if isinstance(next_exec_result, datetime):
+                self.next_execution = next_exec_result
 
     def _advance_yearly(self, now: dt.datetime) -> None:
         if isinstance(now, MagicMock):
             if hasattr(now, 'return_value'):
                 now = now.return_value
         if self.next_execution is not None:
-            if self.next_execution.tzinfo is None:
-                self.next_execution = KYIV_TZ.localize(self.next_execution)
+            next_exec = self.next_execution  # Type narrowing for mypy
+            if next_exec.tzinfo is None:
+                next_exec = KYIV_TZ.localize(next_exec)
+                self.next_execution = next_exec
             if now.tzinfo is None:
                 now = KYIV_TZ.localize(now)
-            if self.next_execution <= now:
-                self.next_execution = self.next_execution.replace(year=self.next_execution.year + 1)
+            if next_exec <= now:
+                self.next_execution = next_exec.replace(year=next_exec.year + 1)
                 general_logger.debug(f"Yearly reminder advanced to next year: {self.next_execution}")
         elif not self.next_execution:
             if now.tzinfo is None:
@@ -195,9 +203,11 @@ class Reminder:
     def to_tuple(self) -> Tuple[Optional[int], str, Optional[str], Optional[str], Optional[str], Optional[str], int, int, Optional[str]]:
         next_execution_str: Optional[str] = None
         if self.next_execution is not None:
-            if self.next_execution.tzinfo is None:
-                self.next_execution = KYIV_TZ.localize(self.next_execution)
-            next_execution_str = self.next_execution.isoformat()
+            next_exec = self.next_execution  # Type narrowing for mypy
+            if next_exec.tzinfo is None:
+                next_exec = KYIV_TZ.localize(next_exec)
+                self.next_execution = next_exec
+            next_execution_str = next_exec.isoformat()
         return (
             self.reminder_id,
             self.task,
