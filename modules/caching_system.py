@@ -14,19 +14,23 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import (
     Dict, List, Optional, Any, Union, Callable, TypeVar, Generic,
-    Set, Tuple, AsyncGenerator
+    Set, Tuple, AsyncGenerator, TYPE_CHECKING
 )
 from dataclasses import dataclass, field
 from enum import Enum
 from contextlib import asynccontextmanager
 import hashlib
 
-try:
+if TYPE_CHECKING:
     import redis.asyncio as redis
     REDIS_AVAILABLE = True
-except ImportError:
-    redis = None  # type: ignore
-    REDIS_AVAILABLE = False
+else:
+    try:
+        import redis.asyncio as redis
+        REDIS_AVAILABLE = True
+    except ImportError:
+        redis = None  # type: ignore
+        REDIS_AVAILABLE = False
 
 from modules.types import Timestamp, JSONDict, CacheEntry, CacheStrategy
 from modules.shared_constants import (
