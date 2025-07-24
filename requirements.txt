@@ -33,6 +33,11 @@ pytest>=8.2
 pytest-asyncio==0.26.0
 pytest-cov
 
+# Type stubs for mypy
+types-python-dateutil
+types-aiofiles
+types-requests
+
 # Configuration API
 fastapi>=0.95.0
 uvicorn[standard]>=0.20.0
