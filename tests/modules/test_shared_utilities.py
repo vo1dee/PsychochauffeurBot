@@ -552,9 +552,7 @@ class TestTextProcessor:
         text = "Check out https://example.com and http://test.org for more info"
         urls = TextProcessor.extract_urls(text)
         
-        assert len(urls) == 2
-        assert "https://example.com" in urls
-        assert "http://test.org" in urls
+        assert set(urls) == {"https://example.com", "http://test.org"}
     
     def test_extract_urls_no_urls(self):
         """Test URL extraction from text with no URLs."""
