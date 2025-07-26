@@ -6,6 +6,9 @@ import aiohttp
 import re
 import json
 import uuid
+import shutil
+import subprocess
+from urllib.parse import urljoin
 from typing import Optional, Tuple, List, Dict, Any, Callable
 from asyncio import Lock
 from dataclasses import dataclass
@@ -142,228 +145,127 @@ class VideoDownloader:
 
     async def _check_service_health(self) -> bool:
         """Check if the download service is available."""
-        # Make sure we have a URL and API key first
-        if not self.service_url:
-            error_logger.error("Service health check failed: YTDL_SERVICE_URL not configured")
+        if not self.service_url or not self.api_key:
+            error_logger.error("Service health check failed: URL or API key not configured.")
             return False
-            
-        if not self.api_key:
-            error_logger.error("Service health check failed: YTDL_SERVICE_API_KEY not configured")
-            return False
-            
+        
+        health_url = urljoin(self.service_url, "health")
+        headers = {"X-API-Key": self.api_key}
+        
         try:
-            error_logger.info(f"Checking service health at: {self.service_url}/health")
             async with aiohttp.ClientSession() as session:
-                headers = {"X-API-Key": self.api_key}
-                error_logger.info(f"Request headers: {headers}")
-                
-                # Use a shorter timeout for the health check - 2 seconds
-                async with session.get(
-                    f"{self.service_url}/health",
-                    headers=headers,
-                    timeout=2,
-                    ssl=False
-                ) as response:
-                    response_text = await response.text()
-                    error_logger.info(f"Service health check response: {response.status} - {response_text}")
-                    
+                async with session.get(health_url, headers=headers, timeout=2, ssl=False) as response:
                     if response.status == 200:
-                        error_logger.info("Service health check successful")
+                        error_logger.info("Service health check successful.")
                         return True
-                    error_logger.warning(f"Service health check failed with status {response.status}")
+                    error_logger.warning(f"Service health check failed with status {response.status}.")
                     return False
-        except asyncio.TimeoutError:
-            error_logger.error(f"Service health check timed out - connection to {self.service_url} timed out")
-            error_logger.error("This could be due to firewall issues or the service being down")
-            return False
-        except aiohttp.ClientError as e:
-            error_logger.error(f"Service health check failed - connection error: {str(e)}")
-            error_logger.error(f"Make sure the service is running at {self.service_url} and is accessible from this machine")
-            return False
-        except Exception as e:
-            import traceback
-            error_logger.error(f"Service health check failed with exception: {str(e)}")
-            error_logger.error(f"Exception type: {type(e)}")
-            error_logger.error(f"Traceback: {traceback.format_exc()}")
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            error_logger.error(f"Service health check failed: {e}")
             return False
 
     async def _download_from_service(self, url: str, format: str = "bestvideo[height<=1080][ext=mp4]+bestaudio/best[height<=1080][ext=mp4]/best[ext=mp4]") -> Tuple[Optional[str], Optional[str]]:
         """Download video using the local service."""
-        if not self.service_url:
-            error_logger.warning("Skipping service download - no service URL configured")
-            return None, None
-            
-        if not self.api_key:
-            error_logger.warning("Skipping service download - no API key available")
-            return None, None
-        
-        try:
-            headers = {"X-API-Key": self.api_key}
-            payload = {"url": url, "format": format}
-            error_logger.info(f"Sending download request to service for URL: {url}")
-            
-            # Check if it's a YouTube clip/short
-            is_youtube_clip = any(x in url for x in ['youtube.com/clip', 'youtu.be/clip', 'youtube.com/shorts', 'youtu.be/shorts'])
-            
-            async with aiohttp.ClientSession() as session:
-                for attempt in range(self.max_retries):
-                    try:
-                        async with session.post(
-                            f"{self.service_url}/download",
-                            json=payload,
-                            headers=headers,
-                            timeout=120,  # Increased from 30 to 120 seconds for YouTube clips
-                            ssl=False  # Disable SSL verification for local development
-                        ) as response:
-                            if response.status == 200:
-                                data = await response.json()
-                                if data["success"]:
-                                    # Handle immediate response for YouTube clips
-                                    if is_youtube_clip and data.get("status") == "processing":
-                                        download_id = data["download_id"]
-                                        error_logger.info(f"YouTube clip download started in background, ID: {download_id}")
-                                        
-                                        # Poll for completion
-                                        for poll_attempt in range(60):  # Poll for up to 5 minutes (60 * 5 seconds)
-                                            await asyncio.sleep(5)  # Wait 5 seconds between polls
-                                            
-                                            async with session.get(
-                                                f"{self.service_url}/status/{download_id}",
-                                                headers=headers
-                                            ) as status_response:
-                                                if status_response.status == 200:
-                                                    status_data = await status_response.json()
-                                                    error_logger.info(f"Download status: {status_data.get('status')} - Progress: {status_data.get('progress', 0)}%")
-                                                    
-                                                    if status_data["status"] == "completed":
-                                                        # Download completed, get the file
-                                                        service_file = status_data["file_path"]
-                                                        local_file = os.path.join(
-                                                            self.download_path,
-                                                            os.path.basename(service_file)
-                                                        )
-                                                        
-                                                        video_title = status_data.get("title", "Video")
-                                                        
-                                                        # Transfer file
-                                                        async with session.get(
-                                                            f"{self.service_url}/files/{os.path.basename(service_file)}",
-                                                            headers=headers
-                                                        ) as file_response:
-                                                            if file_response.status == 200:
-                                                                with open(local_file, 'wb') as f:
-                                                                    async for chunk in file_response.content.iter_chunked(8192):
-                                                                        f.write(chunk)
-                                                                error_logger.info(f"YouTube clip download completed: {video_title}")
-                                                                return local_file, video_title
-                                                    elif status_data["status"] == "failed":
-                                                        error_logger.error(f"Background download failed: {status_data.get('error')}")
-                                                        return None, None
-                                        
-                                        error_logger.error("Background download timed out after 5 minutes")
-                                        return None, None
-                                    else:
-                                        # Handle synchronous response for non-clips
-                                        service_file = data["file_path"]
-                                        local_file = os.path.join(
-                                            self.download_path,
-                                            os.path.basename(service_file)
-                                        )
-                                        
-                                        # Get title from response or use fallback
-                                        video_title = data.get("title") 
-                                        if not video_title or video_title == "Video":
-                                            # Try description first line as fallback
-                                            description = data.get("description", "")
-                                            if description:
-                                                first_line = description.strip().split('\n')[0]
-                                                if first_line and not first_line.startswith('#'):
-                                                    video_title = first_line.strip()
-                                            
-                                            # If still no good title, try using hashtags
-                                            if not video_title or video_title == "Video":
-                                                hashtags = data.get("hashtags", [])
-                                                if hashtags:
-                                                    video_title = " ".join(hashtags[:3])  # Use first 3 hashtags
-                                        
-                                        # Still no title? Use generic with ID
-                                        if not video_title or video_title == "Video":
-                                            video_title = f"Video from {url.split('/')[-1]}"
-                                        
-                                        error_logger.info(f"Using video title: {video_title}")
-                                        
-                                        # Transfer file
-                                        async with session.get(
-                                            f"{self.service_url}/files/{os.path.basename(service_file)}",
-                                            headers=headers
-                                        ) as file_response:
-                                            if file_response.status == 200:
-                                                with open(local_file, 'wb') as f:
-                                                    async for chunk in file_response.content.iter_chunked(8192):
-                                                        f.write(chunk)
-                                                return local_file, video_title
-                            elif response.status == 403:
-                                error_logger.error("API key authentication failed")
-                                return None, None
-                            elif response.status != 503:  # Don't retry on non-service errors
-                                break
-                    except aiohttp.ClientError as e:
-                        error_logger.error(f"Service download attempt {attempt + 1} failed: {str(e)}")
-                        if attempt < self.max_retries - 1:
-                            await asyncio.sleep(self.retry_delay)
-                            continue
-                        break
-            return None, None
-        except Exception as e:
-            error_logger.error(f"Service download error: {str(e)}")
+        if not self.service_url or not self.api_key:
+            error_logger.warning("Skipping service download: no service URL or API key configured.")
             return None, None
 
-    async def download_video(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-        try:
-            url = url.strip().strip('\\')
-            if self._is_story_url(url):
-                error_logger.info(f"Story URL detected and skipped: {url}")
+        headers = {"X-API-Key": self.api_key}
+        payload = {"url": url, "format": format}
+        download_url = urljoin(self.service_url, "download")
+
+        async with aiohttp.ClientSession() as session:
+            for attempt in range(self.max_retries):
+                try:
+                    async with session.post(download_url, json=payload, headers=headers, timeout=120, ssl=False) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            if data.get("success"):
+                                if data.get("status") == "processing":
+                                    return await self._poll_service_for_completion(session, data["download_id"], headers)
+                                else:
+                                    return await self._fetch_service_file(session, data, headers)
+                        elif response.status in [502, 503, 504]:
+                            error_logger.warning(f"Service unavailable (HTTP {response.status}). Retrying...")
+                            await asyncio.sleep(self.retry_delay * (attempt + 1))
+                        else:
+                            error_logger.error(f"Service download failed with status {response.status}.")
+                            return None, None
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    error_logger.error(f"Service download attempt {attempt + 1} failed: {e}")
+                    if attempt < self.max_retries - 1:
+                        await asyncio.sleep(self.retry_delay * (attempt + 1))
+        return None, None
+
+    async def _poll_service_for_completion(self, session, download_id, headers):
+        """Poll the service for download completion."""
+        status_url = urljoin(self.service_url, f"status/{download_id}")
+        for _ in range(60):  # Poll for up to 5 minutes
+            await asyncio.sleep(5)
+            try:
+                async with session.get(status_url, headers=headers) as status_response:
+                    if status_response.status == 200:
+                        status_data = await status_response.json()
+                        if status_data.get("status") == "completed":
+                            return await self._fetch_service_file(session, status_data, headers)
+                        elif status_data.get("status") == "failed":
+                            error_logger.error(f"Background download failed: {status_data.get('error')}")
+                            return None, None
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                error_logger.error(f"Polling failed: {e}")
                 return None, None
-            platform = self._get_platform(url)
-            error_logger.info(f"Starting video download for URL: {url}")
-            error_logger.info(f"Detected platform: {platform}")
-            is_youtube_shorts = url.lower().find("youtube.com/shorts") != -1 and url.lower().startswith(('https://youtube.com/', 'https://www.youtube.com/', 'https://m.youtube.com/'))
-            is_youtube_clips = url.lower().find("youtube.com/clip") != -1 and url.lower().startswith(('https://youtube.com/', 'https://www.youtube.com/', 'https://m.youtube.com/'))
-            is_instagram = url.lower().startswith(('https://instagram.com/', 'https://www.instagram.com/', 'https://m.instagram.com/'))
-            if is_instagram:
-                error_logger.info(f"Instagram URL detected, rerouting to external service: {url}")
-                service_healthy = await self._check_service_health()
-                if service_healthy:
-                    result = await self._download_from_service(url)
-                    if result[0]:
-                        error_logger.info("Service download successful for Instagram")
-                        return result
-                    error_logger.warning("Service download failed for Instagram")
-                else:
-                    error_logger.warning("Service health check failed for Instagram")
-                return None, None
-            if is_youtube_shorts or is_youtube_clips:
-                error_logger.info(f"YouTube {'Shorts' if is_youtube_shorts else 'Clips'} URL detected: {url}")
-                service_healthy = await self._check_service_health()
-                error_logger.info(f"Service health check result: {service_healthy}")
-                if service_healthy:
-                    error_logger.info("Attempting service download")
-                    result = await self._download_from_service(url)
-                    if result[0]:
-                        error_logger.info("Service download successful")
-                        return result
-                    error_logger.warning("Service download failed")
-                else:
-                    error_logger.warning("Service health check failed")
-                config = self.youtube_clips_config if is_youtube_clips else self.youtube_shorts_config
-                return await self._download_generic(url, platform, config)
-            if platform == Platform.TIKTOK:
-                error_logger.info(f"TikTok URL detected: {url}")
-                return await self._download_tiktok_ytdlp(url)
-            return await self._download_generic(url, platform)
-        except Exception as e:
-            error_logger.error(f"Download error: {str(e)}")
+        error_logger.error("Background download timed out.")
+        return None, None
+
+    async def _fetch_service_file(self, session, data, headers):
+        """Fetch the downloaded file from the service."""
+        service_file_path = data.get("file_path")
+        if not service_file_path:
             return None, None
+        
+        file_url = urljoin(self.service_url, f"files/{os.path.basename(service_file_path)}")
+        local_file = os.path.join(self.download_path, os.path.basename(service_file_path))
+        
+        try:
+            async with session.get(file_url, headers=headers) as file_response:
+                if file_response.status == 200:
+                    with open(local_file, 'wb') as f:
+                        async for chunk in file_response.content.iter_chunked(8192):
+                            f.write(chunk)
+                    video_title = data.get("title", "Video")
+                    return local_file, video_title
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            error_logger.error(f"File fetch failed: {e}")
+        return None, None
+
+    async def download_video(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        async with self.lock:
+            try:
+                url = url.strip().strip('\\')
+                if self._is_story_url(url):
+                    error_logger.info(f"Story URL detected and skipped: {url}")
+                    return None, None
+
+                platform = self._get_platform(url)
+                is_youtube_shorts = "youtube.com/shorts" in url.lower()
+                is_youtube_clips = "youtube.com/clip" in url.lower()
+                is_instagram = "instagram.com/" in url.lower()
+
+                if is_instagram or is_youtube_shorts or is_youtube_clips:
+                    if await self._check_service_health():
+                        result = await self._download_from_service(url)
+                        if result and result[0]:
+                            return result
+                
+                if platform == Platform.TIKTOK:
+                    return await self._download_tiktok_ytdlp(url)
+                
+                config = self.youtube_clips_config if is_youtube_clips else self.youtube_shorts_config if is_youtube_shorts else self.platform_configs.get(platform)
+                return await self._download_generic(url, platform, config)
+
+            except Exception as e:
+                error_logger.error(f"Download error for {url}: {e}")
+                return None, None
 
     async def _get_video_title(self, url: str) -> str:
         try:
@@ -665,41 +567,23 @@ class VideoDownloader:
 
     def _get_yt_dlp_path(self) -> str:
         """Get the path to yt-dlp executable."""
-        try:
-            # Try to find yt-dlp in PATH
-            import shutil
-            yt_dlp_path = shutil.which('yt-dlp')
-            if yt_dlp_path:
-                return yt_dlp_path
-                
-            # Check common installation locations
-            common_paths = [
-                '/usr/local/bin/yt-dlp',
-                '/usr/bin/yt-dlp',
-                'yt-dlp'  # fallback to expecting it in PATH
-            ]
-            
-            for path in common_paths:
-                if os.path.exists(path):
-                    return path
-                    
-            error_logger.warning("yt-dlp not found in common locations, using default 'yt-dlp'")
-            return 'yt-dlp'
-            
-        except Exception as e:
-            error_logger.error(f"Error finding yt-dlp path: {str(e)}")
-            return 'yt-dlp'
+        path = shutil.which('yt-dlp')
+        if path:
+            return path
+        
+        common_paths = ['/usr/local/bin/yt-dlp', '/usr/bin/yt-dlp', os.path.expanduser('~/.local/bin/yt-dlp')]
+        for p in common_paths:
+            if os.path.exists(p):
+                return p
+        
+        return 'yt-dlp'
 
     def _verify_yt_dlp(self) -> None:
         """Verify yt-dlp is installed and accessible."""
         try:
-            import subprocess
-            subprocess.run([self.yt_dlp_path, '--version'], 
-                         check=True, 
-                         capture_output=True)
-        except Exception as e:
-            error_logger.error(f"yt-dlp verification failed: {str(e)}")
-            raise RuntimeError("yt-dlp is not properly installed or accessible")
+            subprocess.run([self.yt_dlp_path, '--version'], check=True, capture_output=True, text=True)
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            error_logger.warning(f"yt-dlp verification failed: {e}. The application will rely on the service.")
 
     def _init_download_path(self) -> None:
         """Initialize the download directory."""
@@ -720,108 +604,42 @@ class VideoDownloader:
 
     async def _download_tiktok_ytdlp(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         """Download TikTok video using yt-dlp."""
-        try:
-            config = self.platform_configs[Platform.TIKTOK]
-            # Force mp4 extension
-            unique_filename = f"video_{uuid.uuid4()}.mp4"
-            output_template = os.path.join(self.download_path, unique_filename) 
-
-            # Clean up any old files first
-            for old_file in os.listdir(self.download_path):
-                if old_file.endswith(('.mp4', '.webm')):
-                    try:
-                        os.remove(os.path.join(self.download_path, old_file))
-                    except Exception as e:
-                        error_logger.error(f"Failed to remove old file {old_file}: {e}")
-            
-            process = await asyncio.create_subprocess_exec(
-                self.yt_dlp_path,
-                url,
-                '-f', config.format,
-                '-o', output_template,
-                '--merge-output-format', 'mp4',
-                '--no-warnings',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)  # 60 second timeout
-            except asyncio.TimeoutError:
-                error_logger.error(f"TikTok download timeout after 60 seconds for URL: {url}")
-                process.kill()  # Kill the process if it's still running
-                return None, None
-            
-            if process.returncode == 0 and os.path.exists(output_template):
-                return output_template, await self._get_video_title(url)
-                        
-            error_logger.error(f"TikTok download failed: {stderr.decode()}")
-            return None, None
-            
-        except Exception as e:
-            error_logger.error(f"TikTok download error: {str(e)}")
-            return None, None
+        config = self.platform_configs[Platform.TIKTOK]
+        return await self._download_generic(url, Platform.TIKTOK, config)
 
     async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None) -> Tuple[Optional[str], Optional[str]]:
         """Generic video download using yt-dlp."""
+        config = special_config or self.platform_configs.get(platform)
+        if not config:
+            return None, None
+
+        unique_filename = f"video_{uuid.uuid4()}.mp4"
+        output_template = os.path.join(self.download_path, unique_filename)
+        
+        yt_dlp_args = [self.yt_dlp_path, url, '-o', output_template, '--merge-output-format', 'mp4']
+        if config.format:
+            yt_dlp_args.extend(['-f', config.format])
+        if config.extra_args:
+            yt_dlp_args.extend(config.extra_args)
+        if config.headers:
+            for key, value in config.headers.items():
+                yt_dlp_args.extend(['--add-header', f'{key}: {value}'])
+
         try:
-            # Use special_config if provided, otherwise use platform-specific config
-            if special_config is not None:
-                config = special_config
-            else:
-                # Use minimal parameters for max quality
-                config = DownloadConfig(format="bestvideo+bestaudio/best", extra_args=["--merge-output-format", "mp4"])
-            error_logger.info(f"Using download config: {config}")
-            # Force mp4 extension
-            unique_filename = f"video_{uuid.uuid4()}.mp4"
-            output_template = os.path.join(self.download_path, unique_filename)
-            yt_dlp_args = [
-                self.yt_dlp_path,
-                url,
-                '-f', config.format,
-                '-o', output_template,
-                '--merge-output-format', 'mp4',
-            ]
-            if config.headers:
-                for key, value in config.headers.items():
-                    yt_dlp_args.extend(['--add-header', f'{key}:{value}'])
-            if config.extra_args:
-                yt_dlp_args.extend(config.extra_args)
-            error_logger.info(f"Executing yt-dlp command: {' '.join(yt_dlp_args)}")
-            process = await asyncio.create_subprocess_exec(
-                *yt_dlp_args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
-            except asyncio.TimeoutError:
-                error_logger.error(f"Download timeout after 60 seconds for URL: {url}")
-                process.kill()
-                return None, None
-            if stdout:
-                error_logger.info(f"Download stdout: {stdout.decode()}")
-            if stderr:
-                error_logger.info(f"Download stderr: {stderr.decode()}")
+            process = await asyncio.create_subprocess_exec(*yt_dlp_args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
+
             if process.returncode == 0:
-                found_files = []
-                for file in os.listdir(self.download_path):
-                    if file.endswith(('.mp4', '.webm')):
-                        filepath = os.path.join(self.download_path, file)
-                        file_info = {"path": filepath, "size": os.path.getsize(filepath)}
-                        found_files.append(file_info)
-                if found_files:
-                    found_files.sort(key=lambda x: x["size"], reverse=True)  # type: ignore
-                    largest_file = str(found_files[0]["path"])
-                    error_logger.info(f"Found {len(found_files)} files, using largest: {largest_file} ({found_files[0]['size']} bytes)")
-                    return largest_file, await self._get_video_title(url)
-                else:
-                    error_logger.error(f"No video files found in {self.download_path} after successful download")
-            error_logger.error(f"Generic download failed: {stderr.decode()}")
-            return None, None
-        except Exception as e:
-            error_logger.error(f"Generic download error: {str(e)}")
-            return None, None
+                if os.path.exists(output_template):
+                    return output_template, await self._get_video_title(url)
+            else:
+                error_logger.error(f"Download failed for {url}: {stderr.decode()}")
+        except (asyncio.TimeoutError, Exception) as e:
+            error_logger.error(f"Generic download error for {url}: {e}")
+            if 'process' in locals() and process.returncode is None:
+                process.kill()
+
+        return None, None
 
     def _is_story_url(self, url: str) -> bool:
         """Detect if the URL is a story (Instagram, Facebook, etc)."""

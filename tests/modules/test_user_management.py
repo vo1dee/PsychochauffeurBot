@@ -74,10 +74,12 @@ class TestUserManagement:
         
         with patch('modules.user_management.general_logger') as mock_logger:
             await restrict_user(update, mock_context)
-            assert mock_logger.info.call_count >= 1
-            call_args = mock_logger.info.call_args[0][0]
-            assert "chat_id=None" in call_args
-            assert "chat_type=None" in call_args
+            assert mock_logger.info.call_count >= 2
+            # Check that the function was called and logged appropriately
+            call_args_list = [call[0][0] for call in mock_logger.info.call_args_list]
+            log_messages = ' '.join(call_args_list)
+            assert "chat_id=None" in log_messages
+            assert "chat_type=None" in log_messages
 
 
 class TestUserManagementIntegration:

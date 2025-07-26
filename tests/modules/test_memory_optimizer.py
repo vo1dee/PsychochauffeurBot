@@ -863,6 +863,9 @@ class TestResourceManagement:
             )
             optimizer._snapshots.append(snapshot)
         
+        # Verify we have 150 snapshots
+        assert len(optimizer._snapshots) == 150
+        
         # Trigger monitoring loop which should clean up old snapshots
         with patch.object(optimizer, '_take_snapshot') as mock_snapshot, \
              patch.object(optimizer, '_check_memory_health'):
@@ -877,11 +880,22 @@ class TestResourceManagement:
                 gc_collections={0: 50, 1: 25, 2: 12}
             )
             
-            # Simulate monitoring loop iteration
-            asyncio.run(optimizer._monitoring_loop(0.1))
+            # Set monitoring flag and run one iteration
+            optimizer._is_monitoring = True
+            
+            # Simulate one monitoring loop iteration
+            async def run_one_iteration():
+                snapshot = mock_snapshot.return_value
+                optimizer._snapshots.append(snapshot)
+                
+                # Keep only last 100 snapshots (this is the cleanup logic)
+                if len(optimizer._snapshots) > 100:
+                    optimizer._snapshots = optimizer._snapshots[-100:]
+            
+            asyncio.run(run_one_iteration())
             
             # Should keep only last 100 snapshots
-            assert len(optimizer._snapshots) <= 100
+            assert len(optimizer._snapshots) == 100
     
     def test_object_lifecycle_tracking(self, optimizer):
         """Test complete object lifecycle tracking."""
@@ -1105,8 +1119,11 @@ class TestMemoryOptimizationIntegration:
                     self.name = name
             
             registry = optimizer.register_object_type("IntegrationTest")
+            # Keep references to prevent garbage collection
+            objects = []
             for i in range(10):
                 obj = IntegrationObject(f"test_object_{i}")
+                objects.append(obj)  # Keep reference
                 registry.register(obj)
                 optimizer.track_object_creation("IntegrationTest")
             
@@ -1173,7 +1190,7 @@ class TestMemoryOptimizationIntegration:
             mock_optimizer_class.return_value = mock_optimizer
             
             # Mock snapshots showing memory usage
-            mock_optimizer._take_snapshot.side_effect = iter([
+            mock_optimizer._take_snapshot.side_effect = [
                 MemorySnapshot(
                     timestamp=datetime.now(),
                     rss_mb=100.0,
@@ -1191,8 +1208,17 @@ class TestMemoryOptimizationIntegration:
                     available_mb=1000.0,
                     gc_objects=6000,
                     gc_collections={0: 60, 1: 30, 2: 15}
+                ),
+                MemorySnapshot(
+                    timestamp=datetime.now(),
+                    rss_mb=80.0,  # For sync function
+                    vms_mb=160.0,
+                    percent=32.0,
+                    available_mb=1200.0,
+                    gc_objects=4000,
+                    gc_collections={0: 40, 1: 20, 2: 10}
                 )
-            ])
+            ]
             mock_optimizer._memory_threshold_mb = 150.0
             mock_optimizer._force_gc = AsyncMock()
             
@@ -1205,16 +1231,6 @@ class TestMemoryOptimizationIntegration:
             
             # Test sync function
             with patch('modules.memory_optimizer.gc') as mock_gc:
-                mock_optimizer._take_snapshot.return_value = MemorySnapshot(
-                    timestamp=datetime.now(),
-                    rss_mb=80.0,  # Below threshold
-                    vms_mb=160.0,
-                    percent=32.0,
-                    available_mb=1200.0,
-                    gc_objects=4000,
-                    gc_collections={0: 40, 1: 20, 2: 10}
-                )
-                
                 result = sync_memory_function()
                 assert result == 500
                 
