@@ -1925,9 +1925,18 @@ class TestConnectivityAndHealthChecks:
             # Verify the correct endpoint was called
             mock_client.get.assert_called_once()
             call_args = mock_client.get.call_args
-            # The URL should contain either openai.com or be the health endpoint
+            # Parse the URL and validate the host properly
+            from urllib.parse import urlparse
             url = call_args[0][0]
-            assert "openai.com" in url or "/health" in url
+            parsed_url = urlparse(url)
+            
+            # Check if it's an OpenAI endpoint or health endpoint
+            is_openai = (parsed_url.hostname and 
+                        (parsed_url.hostname == "api.openai.com" or 
+                         parsed_url.hostname.endswith(".openai.com")))
+            is_health = parsed_url.path == "/health"
+            
+            assert is_openai or is_health, f"Invalid endpoint: {url}"
 
 
 class TestImageAnalysisErrorHandling:
