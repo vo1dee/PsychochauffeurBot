@@ -836,10 +836,14 @@ class TestVideoDownloaderYtDlpIntegration:
         """Set up test environment."""
         self.mock_extract_urls = Mock(return_value=["https://www.tiktok.com/@user/video/123456789"])
         self.temp_dir = tempfile.mkdtemp()
-        self.downloader = VideoDownloader(
-            download_path=self.temp_dir,
-            extract_urls_func=self.mock_extract_urls
-        )
+        
+        # Mock subprocess.run for yt-dlp verification
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = Mock(returncode=0)
+            self.downloader = VideoDownloader(
+                download_path=self.temp_dir,
+                extract_urls_func=self.mock_extract_urls
+            )
         
     def teardown_method(self):
         """Clean up test environment."""

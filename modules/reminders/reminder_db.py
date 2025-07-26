@@ -32,6 +32,10 @@ class ReminderDB:
         self.conn.commit()
 
     def get_connection(self) -> sqlite3.Connection:
+        # For in-memory databases, reuse the same connection to maintain data
+        if self.db_file == ':memory:':
+            return self.conn
+        
         conn = sqlite3.connect(self.db_file, check_same_thread=False)
         # Create table if it doesn't exist (helpful for tests with in-memory databases)
         with conn:

@@ -320,15 +320,17 @@ class TestReminderScheduling:
                 chat_id=-100123456
             )
             saved = self.manager.save_reminder(reminder)
+            assert saved is not None, f"Failed to save reminder {i}"
+            assert saved.reminder_id is not None, f"Saved reminder {i} should have an ID"
             reminders.append(saved)
 
         # Load all reminders
         loaded = self.manager.load_reminders()
-        assert len(loaded) >= 5, "Should load all saved reminders"
+        assert len(loaded) >= 5, f"Should load at least 5 saved reminders, got {len(loaded)}"
 
         # Test filtering by chat_id
         chat_reminders = self.manager.load_reminders(chat_id=-100123456)
-        assert len(chat_reminders) >= 5, "Should filter by chat_id"
+        assert len(chat_reminders) >= 5, f"Should filter by chat_id and return at least 5 reminders, got {len(chat_reminders)}"
 
         # Clean up
         for reminder in reminders:

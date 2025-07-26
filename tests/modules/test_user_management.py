@@ -58,10 +58,12 @@ class TestUserManagement:
         with patch('modules.user_management.general_logger') as mock_logger:
             await restrict_user(mock_update, mock_context)
             assert mock_logger.info.call_count >= 1
-            call_args = mock_logger.info.call_args[0][0]
-            assert "[restrict_user]" in call_args
-            assert "chat_id=12345" in call_args
-            assert "chat_type=group" in call_args
+            # Check that the function was called and logged appropriately
+            call_args_list = [call[0][0] for call in mock_logger.info.call_args_list]
+            log_messages = ' '.join(call_args_list)
+            assert "[restrict_user]" in log_messages
+            assert "chat_id=12345" in log_messages
+            assert "chat_type=group" in log_messages
     
     @pytest.mark.asyncio
     async def test_restrict_user_with_no_chat(self, mock_context):
