@@ -70,12 +70,17 @@ class TestMainUtilities:
     @patch('main.main')
     @patch('main.signal.signal')
     @patch('main.nest_asyncio.apply')
-    @patch('main.asyncio.run')
-    def test_run_bot_signal_registration(self, mock_asyncio_run, mock_nest_asyncio, mock_signal, mock_main_func):
+    @patch('main.asyncio.get_event_loop')
+    def test_run_bot_signal_registration(self, mock_get_event_loop, mock_nest_asyncio, mock_signal, mock_main_func):
         """Test that run_bot registers signal handlers."""
         # Mock the main function to return a simple coroutine
         mock_main_func.return_value = AsyncMock()
-        mock_asyncio_run.return_value = None
+        
+        # Mock the event loop
+        mock_loop = Mock()
+        mock_loop.is_running.return_value = False
+        mock_loop.run_until_complete.return_value = None
+        mock_get_event_loop.return_value = mock_loop
         
         main.run_bot()
         
@@ -86,8 +91,9 @@ class TestMainUtilities:
         # nest_asyncio is not called in run_bot function
         mock_nest_asyncio.assert_not_called()
         
-        # Verify asyncio.run is called
-        mock_asyncio_run.assert_called_once()
+        # Verify event loop methods are called
+        mock_get_event_loop.assert_called_once()
+        mock_loop.run_until_complete.assert_called_once()
 
 
 class TestMainIntegration:
