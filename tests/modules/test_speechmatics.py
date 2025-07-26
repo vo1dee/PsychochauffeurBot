@@ -48,7 +48,6 @@ class TestSpeechmaticsConstants:
         assert SPEECHMATICS_API_URL == "https://asr.api.speechmatics.com/v2/jobs/"
         assert isinstance(SPEECHMATICS_API_URL, str)
         assert SPEECHMATICS_API_URL.startswith("https://")
-        assert "speechmatics.com" in SPEECHMATICS_API_URL
 
 
 class TestTranscribeTelegramVoice:
