@@ -394,22 +394,23 @@ class TestReminderScheduling:
     @pytest.mark.asyncio
     async def test_error_handling_in_scheduling(self):
         """Test error handling during scheduling operations."""
-        # Mock update and context with missing attributes
+        # Mock update and context with missing job queue
         update = MagicMock(spec=Update)
-        update.effective_user = None  # Missing user
+        update.effective_user = MagicMock()
+        update.effective_user.id = 123456
         update.effective_chat = MagicMock(spec=Chat)
         update.effective_chat.id = -100123456
         update.message = MagicMock(spec=Message)
         update.message.reply_text = AsyncMock()
 
         context = MagicMock(spec=CallbackContext)
-        context.args = ["to", "test", "task"]
+        context.args = []  # Empty args should trigger usage message
         context.job_queue = None  # Missing job queue
 
-        # Should handle missing user gracefully
+        # Should handle missing args gracefully and show usage
         await self.manager.remind(update, context)
         
-        # Should have sent an error message
+        # Should have sent a usage message
         update.message.reply_text.assert_called()
 
     def test_reminder_database_operations(self):
