@@ -3,8 +3,8 @@ import logging
 import asyncio
 from datetime import datetime
 import pytz
-from typing import Optional, Dict, Any, Tuple
-from telegram import Update
+from typing import Optional, Dict, Any, Tuple, cast, List
+from telegram import Update, Chat, User
 from telegram.ext import ContextTypes
 
 from modules.const import KYIV_TZ
@@ -17,7 +17,7 @@ class ChatStreamer:
     timestamp +0300 - chat - INFO - Ctx:[chat_id][chat_type][chat_name][username] - text
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._lock = asyncio.Lock()
         # Get the main chat logger which handles both summary and daily logs
         self._chat_logger = logging.getLogger('chat')
@@ -33,10 +33,16 @@ class ChatStreamer:
             context: Telegram callback context
         """
         try:
+            if update.effective_chat is None:
+                return
             chat_id = str(update.effective_chat.id)
             chat_type = update.effective_chat.type
             chat_name = update.effective_chat.title or f"Private_{chat_id}"
-            username = update.effective_user.username or f"ID:{update.effective_user.id}"
+            
+            if update.effective_user is None:
+                username = "Unknown"
+            else:
+                username = update.effective_user.username or f"ID:{update.effective_user.id}"
             
             # Create log context first
             log_context = {
@@ -104,4 +110,4 @@ class ChatStreamer:
             self._chat_logger.addHandler(handler)
 
 # Create global instance
-chat_streamer = ChatStreamer() 
+chat_streamer: ChatStreamer = ChatStreamer()

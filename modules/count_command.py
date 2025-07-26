@@ -7,18 +7,24 @@ async def count_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     Count the number of encounters of a word in the entire chat history.
     Usage: /count <word>
     """
+    if not update.effective_chat:
+        if update.message:
+            await update.message.reply_text("❌ Помилка: не вдалося визначити чат.")
+        return
     chat_id = update.effective_chat.id
     args = context.args if hasattr(context, 'args') else []
     
     if not args or len(args) != 1:
-        await update.message.reply_text(
+        if update.message:
+            await update.message.reply_text(
             "❌ Будь ласка, вкажіть одне слово для підрахунку.\nПриклад: /count сонце"
         )
         return
     
     word = args[0].strip().lower()
     if not word.isalpha():
-        await update.message.reply_text(
+        if update.message:
+            await update.message.reply_text(
             "❌ Слово повинно містити лише літери."
         )
         return
@@ -56,14 +62,16 @@ async def count_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         else:
             msg = f"📊 Слово '{word}' зустрілося {count} разів в історії цього чату."
             
-        await update.message.reply_text(msg)
+        if update.message:
+            await update.message.reply_text(msg)
         
     except Exception as e:
         from modules.logger import error_logger
         error_logger.error(f"Error in /count command: {e}", exc_info=True)
-        await update.message.reply_text(
-            "❌ Виникла помилка при підрахунку. Спробуйте пізніше."
-        )
+        if update.message:
+            await update.message.reply_text(
+                "❌ Виникла помилка при підрахунку. Спробуйте пізніше."
+            )
 
 async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -75,10 +83,15 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     from datetime import datetime
     import pytz
 
+    if not update.effective_chat:
+        if update.message:
+            await update.message.reply_text("❌ Помилка: не вдалося визначити чат.")
+        return
     chat_id = update.effective_chat.id
     args = context.args if hasattr(context, 'args') else []
     if not args or not args[0]:
-        await update.message.reply_text(
+        if update.message:
+            await update.message.reply_text(
             "❌ Будь ласка, вкажіть username для перевірки.\nПриклад: /missing @username або /missing username"
         )
         return
@@ -106,15 +119,17 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             
             if similar_users:
                 similar_list = ", ".join([f"@{u['username']}" for u in similar_users])
-                await update.message.reply_text(
-                    f"❌ Користувача @{username} не знайдено.\n\n"
-                    f"Можливо, ви мали на увазі одного з цих користувачів:\n{similar_list}"
-                )
+                if update.message:
+                    await update.message.reply_text(
+                        f"❌ Користувача @{username} не знайдено.\n\n"
+                        f"Можливо, ви мали на увазі одного з цих користувачів:\n{similar_list}"
+                    )
             else:
-                await update.message.reply_text(
-                    f"❌ Користувача @{username} не знайдено в базі даних.\n"
-                    f"Можливо, цей користувач ще не писав повідомлення в чатах з ботом."
-                )
+                if update.message:
+                    await update.message.reply_text(
+                        f"❌ Користувача @{username} не знайдено в базі даних.\n"
+                        f"Можливо, цей користувач ще не писав повідомлення в чатах з ботом."
+                    )
             return
     
     # Try to get last message for this username
@@ -129,17 +144,21 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         """, user_ids)
         
         if total_messages > 0:
-            await update.message.reply_text(
-                f"❌ Не знайдено повідомлень від @{username} у цьому чаті.\n"
-                f"Але користувач має {total_messages} повідомлень в інших чатах."
-            )
+            if update.message:
+                await update.message.reply_text(
+                    f"❌ Не знайдено повідомлень від @{username} у цьому чаті.\n"
+                    f"Але користувач має {total_messages} повідомлень в інших чатах."
+                )
         else:
-            await update.message.reply_text(
-                f"❌ Не знайдено повідомлень від @{username} у цьому чаті.\n"
-                f"Користувач ще не писав повідомлень в жодному чаті."
-            )
+            if update.message:
+                await update.message.reply_text(
+                    f"❌ Не знайдено повідомлень від @{username} у цьому чаті.\n"
+                    f"Користувач ще не писав повідомлень в жодному чаті."
+                )
         return
-    last_time, last_username, last_text = last_message
+    last_time = last_message['timestamp']
+    last_username = last_message['username']
+    last_text = last_message['text']
     # Fetch chat title
     chat_title = update.effective_chat.title or str(update.effective_chat.id)
     # Check if last message was a command
@@ -147,9 +166,17 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if last_text and last_text.startswith('/'):
         command_used = last_text.split()[0]
     now = datetime.now(pytz.timezone('Europe/Kyiv'))
-    if last_time.tzinfo is None:
-        last_time = last_time.replace(tzinfo=pytz.UTC).astimezone(pytz.timezone('Europe/Kyiv'))
-    delta = now - last_time
+    
+    # Ensure last_time is a datetime object
+    if isinstance(last_time, str):
+        from dateutil import parser
+        last_time_dt = parser.parse(last_time)
+    else:
+        last_time_dt = last_time
+    
+    if last_time_dt.tzinfo is None:
+        last_time_dt = last_time_dt.replace(tzinfo=pytz.UTC).astimezone(pytz.timezone('Europe/Kyiv'))
+    delta = now - last_time_dt
     days = delta.days
     hours, remainder = divmod(delta.seconds, 3600)
     minutes, _ = divmod(remainder, 60)
@@ -159,7 +186,7 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         ago_str = f"{hours} год. {minutes} хв."
     else:
         ago_str = f"{minutes} хв."
-    time_str = last_time.strftime('%H:%M %d.%m.%Y')
+    time_str = last_time_dt.strftime('%H:%M %d.%m.%Y')
     msg = (
         f"@{last_username} востаннє писав(ла) {ago_str} тому\n"
         f"Час: {time_str}\n"
@@ -167,4 +194,5 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
     if command_used:
         msg += f"\nОстання команда: {command_used}"
-    await update.message.reply_text(msg)
+    if update.message:
+        await update.message.reply_text(msg)

@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: test_suite_optimizer_project
+Version: 1.0.0
+Summary: A comprehensive tool for analyzing and improving Python test suites.
+Author: Your Name
+Requires-Python: >=3.8
+Dynamic: author
+Dynamic: requires-python
+Dynamic: summary

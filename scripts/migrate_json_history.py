@@ -1,19 +1,20 @@
 import asyncio
 import json
 from datetime import datetime
+from typing import Any, Optional
 import pytz
 import re
 from modules.database import Database
 from modules.const import KYIV_TZ
 
-def extract_numeric_user_id(user_id_field):
+def extract_numeric_user_id(user_id_field: Any) -> Optional[int]:
     # Handles 'user15671125' -> 15671125, or returns int if already numeric
     if isinstance(user_id_field, int):
         return user_id_field
     match = re.search(r'(\d+)$', str(user_id_field))
     return int(match.group(1)) if match else None
 
-async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_id: int):
+async def migrate_json_history(json_file_path: str, json_chat_id: int, db_chat_id: int) -> None:
     """
     Migrate chat history from JSON file to PostgreSQL database.
     Only migrates text messages for the specific target chat.

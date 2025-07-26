@@ -10,9 +10,10 @@ import sys
 import httpx
 import json
 from datetime import datetime
+from typing import Dict, Optional, Tuple
 
 # Get API key and base URL from environment or .env file
-def get_config():
+def get_config() -> Tuple[str, str, str]:
     # Try to import from dotenv if available
     try:
         from dotenv import load_dotenv
@@ -36,7 +37,7 @@ def get_config():
     return api_key, base_url, domain
 
 # Basic network connectivity check - try multiple reliable domains
-async def check_internet():
+async def check_internet() -> bool:
     domains_to_try = [
         "https://1.1.1.1",
         "https://www.google.com",
@@ -58,7 +59,7 @@ async def check_internet():
     return False
 
 # Check DNS resolution
-async def check_dns(domain):
+async def check_dns(domain: str) -> bool:
     try:
         import socket
         print(f"Resolving DNS for {domain}...")
@@ -70,7 +71,7 @@ async def check_dns(domain):
         return False
 
 # Test API endpoint directly
-async def test_api_endpoint(base_url, api_key):
+async def test_api_endpoint(base_url: str, api_key: str) -> bool:
     print(f"\nTesting API endpoint: {base_url}")
     try:
         # First try a basic HEAD request to see if the domain is reachable at all
@@ -135,7 +136,7 @@ async def test_api_endpoint(base_url, api_key):
         return False
 
 # Test a simple completion request
-async def test_completion(base_url, api_key):
+async def test_completion(base_url: str, api_key: str) -> bool:
     print("\nTesting a simple completion request...")
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -197,7 +198,7 @@ async def test_completion(base_url, api_key):
         return False
 
 # Function to check proxy settings
-def check_proxy_settings():
+def check_proxy_settings() -> Dict[str, Optional[str]]:
     print("\nChecking proxy settings...")
     proxies = {
         'http': os.environ.get('HTTP_PROXY', None),
@@ -215,7 +216,7 @@ def check_proxy_settings():
     
     return proxies
 
-async def main():
+async def main() -> None:
     print(f"=== OpenRouter API Diagnostics ===")
     print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("Running network diagnostics...\n")
