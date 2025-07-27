@@ -817,8 +817,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context: Telegram callback context
     """
     # Get chat and user info
-    chat_id = update.effective_chat.id if update.effective_chat else "unknown"
-    user_id = update.effective_user.id if update.effective_user else "unknown"
+    chat_id = int(update.effective_chat.id) if update.effective_chat else 0
+    user_id = int(update.effective_user.id) if update.effective_user else 0
     username = update.effective_user.username if update.effective_user and update.effective_user.username else f"ID:{user_id}"
 
     # Admin-only cache flush
