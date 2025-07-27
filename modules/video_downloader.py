@@ -197,8 +197,10 @@ class VideoDownloader:
                         await asyncio.sleep(self.retry_delay * (attempt + 1))
         return None, None
 
-    async def _poll_service_for_completion(self, session, download_id, headers):
+    async def _poll_service_for_completion(self, session: aiohttp.ClientSession, download_id: str, headers: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
         """Poll the service for download completion."""
+        if not self.service_url:
+            return None, None
         status_url = urljoin(self.service_url, f"status/{download_id}")
         for _ in range(60):  # Poll for up to 5 minutes
             await asyncio.sleep(5)
@@ -217,10 +219,10 @@ class VideoDownloader:
         error_logger.error("Background download timed out.")
         return None, None
 
-    async def _fetch_service_file(self, session, data, headers):
+    async def _fetch_service_file(self, session: aiohttp.ClientSession, data: Dict[str, Any], headers: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
         """Fetch the downloaded file from the service."""
         service_file_path = data.get("file_path")
-        if not service_file_path:
+        if not service_file_path or not self.service_url:
             return None, None
         
         file_url = urljoin(self.service_url, f"files/{os.path.basename(service_file_path)}")
