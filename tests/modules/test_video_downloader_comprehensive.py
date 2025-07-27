@@ -9,6 +9,7 @@ import asyncio
 import os
 import tempfile
 import uuid
+import aiohttp
 from unittest.mock import Mock, AsyncMock, patch, MagicMock, call
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -688,11 +689,11 @@ class TestVideoDownloaderErrorRecovery:
         
         with patch('aiohttp.ClientSession') as mock_session_class:
             # Simulate session creation failure
-            mock_session_class.side_effect = Exception("Session creation failed")
+            mock_session_class.side_effect = aiohttp.ClientError("Session creation failed")
             
-            # The exception should be raised since it's not caught in the implementation
-            with pytest.raises(Exception, match="Session creation failed"):
-                await self.downloader._download_from_service(test_url)
+            # The method should handle the exception and return None, None
+            result = await self.downloader._download_from_service(test_url)
+            assert result == (None, None)
 
 
 class TestVideoDownloaderURLValidation:
