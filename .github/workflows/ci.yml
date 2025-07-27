@@ -87,11 +87,11 @@ jobs:
     
     - name: Run unit tests
       run: |
-        pytest tests/unit/ -v --cov=modules --cov=config --cov-report=xml --cov-report=html
+        pytest tests/unit/ -v --cov=modules --cov=config --cov-report=xml --cov-report=html --cov-fail-under=5
     
     - name: Run integration tests
       run: |
-        pytest tests/integration/ -v --cov-append --cov=modules --cov=config --cov-report=xml
+        pytest tests/integration/ -v --cov-append --cov=modules --cov=config --cov-report=xml --cov-fail-under=5
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
