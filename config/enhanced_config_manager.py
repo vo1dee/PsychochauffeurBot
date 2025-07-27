@@ -876,6 +876,32 @@ class EnhancedConfigManager(ServiceInterface):
         import copy
         result = self._deep_merge(base, override)
 
+        # Special handling for config_modules: merge settings with overrides
+        # Handle both config_modules and default_modules
+        modules_key = "config_modules" if "config_modules" in result else None
+        base_modules_key = "config_modules" if "config_modules" in base else "default_modules" if "default_modules" in base else None
+        
+        if modules_key and modules_key in result:
+            for module_name, module_config in result[modules_key].items():
+                if isinstance(module_config, dict):
+                    # Get base module config (could be from default_modules or config_modules)
+                    base_module = {}
+                    if base_modules_key and base_modules_key in base:
+                        base_module = base[base_modules_key].get(module_name, {})
+                    
+                    # If we have both settings and overrides, merge them
+                    if "settings" in module_config and "overrides" in module_config:
+                        merged_settings = copy.deepcopy(module_config["settings"])
+                        merged_settings.update(module_config["overrides"])
+                        module_config["settings"] = merged_settings
+                        del module_config["overrides"]
+                    # If we only have overrides but base had settings, merge them
+                    elif "overrides" in module_config and "settings" in base_module:
+                        merged_settings = copy.deepcopy(base_module["settings"])
+                        merged_settings.update(module_config["overrides"])
+                        module_config["settings"] = merged_settings
+                        del module_config["overrides"]
+
         if "_metadata" in base and "_metadata" in result:
             if "created_at" in base["_metadata"]:
                 result["_metadata"]["created_at"] = base["_metadata"]["created_at"]

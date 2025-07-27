@@ -38,7 +38,7 @@ async def get_config_endpoint(
     # If config is missing or empty, or is an auto-generated empty config, return fallback
     if not data or (
         isinstance(data, dict)
-        and set(data.keys()) == {"chat_metadata", "config_modules"}
+        and ("modules" in data or "config_modules" in data)
         and not data.get("chat_metadata", {}).get("custom_config_enabled", True)
     ):
         data = {
