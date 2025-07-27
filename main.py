@@ -732,6 +732,7 @@ async def main() -> None:
 
 async def ensure_db_initialized() -> None:
     try:
+        # First check if database exists
         conn = await asyncpg.connect(
             host=os.getenv('DB_HOST', 'localhost'),
             port=int(os.getenv('DB_PORT', '5432')),
@@ -741,13 +742,26 @@ async def ensure_db_initialized() -> None:
         )
         result = await conn.fetchval("SELECT to_regclass('public.chats')")
         await conn.close()
+        
         if result is None:
             print("[INFO] Database not initialized, running scripts/init_database.py ...")
             subprocess.run([sys.executable, 'scripts/init_database.py'], check=True)
         else:
             print("[INFO] Database already initialized.")
+            
+        # Now initialize the database connection pool
+        await Database.initialize()
+        print("[INFO] Database connection pool initialized successfully")
+        
+        # Test the connection
+        pool = await Database.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("SELECT 1")  # Simple test query
+            print("[INFO] Database connection pool test successful")
+            
     except Exception as e:
-        print(f"[ERROR] Could not check or initialize database: {e}")
+        error_logger.error(f"Could not initialize database: {e}", exc_info=True)
+        raise
         subprocess.run([sys.executable, 'scripts/init_database.py'], check=True)
 
 def run_bot() -> None:
