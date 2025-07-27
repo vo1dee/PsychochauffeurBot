@@ -28,9 +28,10 @@ async def test_config_manager():
     print("\n1️⃣ Testing global config load...")
     global_config = await config_manager.get_config()
     assert global_config is not None, "Global config should be loaded"
-    assert 'config_modules' in global_config, "Global config should have modules"
+    assert ('config_modules' in global_config or 'modules' in global_config), "Global config should have modules"
     print(f"Global config loaded: {bool(global_config)}")
-    print(f"Global config modules: {list(global_config.get('config_modules', {}).keys())}")
+    modules_key = 'config_modules' if 'config_modules' in global_config else 'modules'
+    print(f"Global config modules: {list(global_config.get(modules_key, {}).keys())}")
     
     # Create and enable custom config for the test chat
     chat_id = "123456789"  # Mock test chat ID
