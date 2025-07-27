@@ -174,27 +174,31 @@ class VideoDownloader:
         payload = {"url": url, "format": format}
         download_url = urljoin(self.service_url, "download")
 
-        async with aiohttp.ClientSession() as session:
-            for attempt in range(self.max_retries):
-                try:
-                    async with session.post(download_url, json=payload, headers=headers, timeout=120, ssl=False) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            if data.get("success"):
-                                if data.get("status") == "processing":
-                                    return await self._poll_service_for_completion(session, data["download_id"], headers)
-                                else:
-                                    return await self._fetch_service_file(session, data, headers)
-                        elif response.status in [502, 503, 504]:
-                            error_logger.warning(f"Service unavailable (HTTP {response.status}). Retrying...")
+        try:
+            async with aiohttp.ClientSession() as session:
+                for attempt in range(self.max_retries):
+                    try:
+                        async with session.post(download_url, json=payload, headers=headers, timeout=120, ssl=False) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                if data.get("success"):
+                                    if data.get("status") == "processing":
+                                        return await self._poll_service_for_completion(session, data["download_id"], headers)
+                                    else:
+                                        return await self._fetch_service_file(session, data, headers)
+                            elif response.status in [502, 503, 504]:
+                                error_logger.warning(f"Service unavailable (HTTP {response.status}). Retrying...")
+                                await asyncio.sleep(self.retry_delay * (attempt + 1))
+                            else:
+                                error_logger.error(f"Service download failed with status {response.status}.")
+                                return None, None
+                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                        error_logger.error(f"Service download attempt {attempt + 1} failed: {e}")
+                        if attempt < self.max_retries - 1:
                             await asyncio.sleep(self.retry_delay * (attempt + 1))
-                        else:
-                            error_logger.error(f"Service download failed with status {response.status}.")
-                            return None, None
-                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                    error_logger.error(f"Service download attempt {attempt + 1} failed: {e}")
-                    if attempt < self.max_retries - 1:
-                        await asyncio.sleep(self.retry_delay * (attempt + 1))
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            error_logger.error(f"Service session creation failed: {e}")
+            return None, None
         return None, None
 
     async def _poll_service_for_completion(self, session: aiohttp.ClientSession, download_id: str, headers: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:

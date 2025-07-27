@@ -306,7 +306,8 @@ class EnhancedConfigManager(ServiceInterface):
         """Load global configuration."""
         global_config_file = self.global_config_path / "global_config.json"
         if global_config_file.exists():
-            await self._load_config_file(str(global_config_file))
+            if not await self._load_config_file(str(global_config_file)):
+                await self._create_default_global_config()
         else:
             # Create default global config
             await self._create_default_global_config()
@@ -347,15 +348,18 @@ class EnhancedConfigManager(ServiceInterface):
             }
         }
         
-        await self.set_config("global", default_config, ConfigScope.GLOBAL)
+        await self.set_config("global", default_config, ConfigScope.GLOBAL, validate=False, source="system_default")
     
-    async def _load_config_file(self, file_path: str) -> None:
+    async def _load_config_file(self, file_path: str) -> bool:
         """Load a specific configuration file."""
         try:
             async with aiofiles.open(file_path, 'r') as f:
-                config_data = json.loads(await f.read())
-            
-            # Extract key from file path
+                content = await f.read()
+                if not content.strip():
+                    logger.warning(f"Config file is empty: {file_path}")
+                    return False
+                config_data = json.loads(content)
+
             path_obj = Path(file_path)
             if "global" in str(path_obj):
                 key = "global"
@@ -363,19 +367,22 @@ class EnhancedConfigManager(ServiceInterface):
                 key = f"module_{path_obj.stem}"
             else:
                 key = path_obj.stem
-            
+
             self._configs[key] = config_data
-            
-            # Validate if schema exists
+
             if self.enable_validation and key in self._schemas:
                 errors = self._schemas[key].validate(config_data)
                 if errors:
                     logger.warning(f"Configuration validation errors for {key}: {errors}")
-            
+
             logger.debug(f"Loaded configuration: {key}")
-            
-        except Exception as e:
+            return True
+        except (json.JSONDecodeError, FileNotFoundError) as e:
             logger.error(f"Failed to load config file {file_path}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while loading config file {file_path}: {e}")
+            return False
     
     async def _setup_file_watcher(self) -> None:
         """Setup file system watcher for hot-reload."""
@@ -530,7 +537,8 @@ class EnhancedConfigManager(ServiceInterface):
         key: str, 
         value: Any, 
         scope: ConfigScope = ConfigScope.GLOBAL,
-        validate: bool = True
+        validate: bool = True,
+        source: str = "api_update"
     ) -> bool:
         """Set configuration value."""
         try:
@@ -538,7 +546,8 @@ class EnhancedConfigManager(ServiceInterface):
             if validate and self.enable_validation:
                 schema_key = key if scope == ConfigScope.GLOBAL else f"{scope.value}_{key}"
                 if schema_key in self._schemas:
-                    errors = self._schemas[schema_key].validate({"value": value})
+                    # Validate the actual value, not wrapped in {"value": value}
+                    errors = self._schemas[schema_key].validate(value if isinstance(value, dict) else {"value": value})
                     if errors:
                         raise ConfigValidationError(f"Validation errors: {errors}")
                 else:
@@ -567,7 +576,7 @@ class EnhancedConfigManager(ServiceInterface):
                 "version": "1.0.0",
                 "updated_at": now.isoformat(),
                 "checksum": self._calculate_checksum(self._configs[config_key]),
-                "source": "api_update"
+                "source": source
             }
             
             if scope == ConfigScope.GLOBAL:
@@ -615,6 +624,9 @@ class EnhancedConfigManager(ServiceInterface):
             logger.info(f"Configuration updated: {config_key}.{key}")
             return True
             
+        except ConfigValidationError:
+            # Re-raise validation errors so they can be caught by tests
+            raise
         except Exception as e:
             logger.error(f"Failed to set configuration {key}: {e}")
             return False
@@ -792,9 +804,11 @@ class EnhancedConfigManager(ServiceInterface):
         result = copy.deepcopy(base)
         
         for key, value in updates.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            if key in result and isinstance(result.get(key), dict) and isinstance(value, dict) and value:
+                # Only deep merge if the update value is a non-empty dict
                 result[key] = self._deep_merge(result[key], value)
             else:
+                # Replace with the new value (including empty dicts, None, etc.)
                 result[key] = copy.deepcopy(value)
         
         return result
@@ -860,57 +874,11 @@ class EnhancedConfigManager(ServiceInterface):
     def _deep_merge_configs(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
         """Deep merge configuration with special handling for config_modules."""
         import copy
-        result = copy.deepcopy(base)
-        
-        # Handle the case where base has default_modules and override has config_modules
-        if "default_modules" in result and "config_modules" in override:
-            # Convert default_modules to config_modules for merging
-            if "config_modules" not in result:
-                result["config_modules"] = copy.deepcopy(result["default_modules"])
-            
-            # Merge config_modules
-            base_modules = result["config_modules"]
-            override_modules = override["config_modules"]
-            
-            if isinstance(base_modules, dict) and isinstance(override_modules, dict):
-                for module_name, module_config in override_modules.items():
-                    if module_name in base_modules:
-                        # Merge module config, handling overrides specially
-                        base_module = base_modules[module_name]
-                        override_module = module_config
-                        
-                        # Start with base module config
-                        merged_module = copy.deepcopy(base_module)
-                        
-                        # Apply overrides
-                        if "overrides" in override_module:
-                            if "settings" not in merged_module:
-                                merged_module["settings"] = {}
-                            # Merge overrides into settings
-                            merged_module["settings"].update(override_module["overrides"])
-                        
-                        # Apply other fields from override
-                        for field, field_value in override_module.items():
-                            if field != "overrides":
-                                merged_module[field] = copy.deepcopy(field_value)
-                        
-                        result["config_modules"][module_name] = merged_module
-                    else:
-                        result["config_modules"][module_name] = copy.deepcopy(module_config)
-            
-            # Remove default_modules from result since we've converted it to config_modules
-            if "default_modules" in result:
-                del result["default_modules"]
-        
-        # Handle other keys normally
-        for key, value in override.items():
-            if key == "config_modules":
-                # Already handled above
-                continue
-            elif key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                result[key] = self._deep_merge_configs(result[key], value)
-            else:
-                result[key] = copy.deepcopy(value)
+        result = self._deep_merge(base, override)
+
+        if "_metadata" in base and "_metadata" in result:
+            if "created_at" in base["_metadata"]:
+                result["_metadata"]["created_at"] = base["_metadata"]["created_at"]
         
         return result
     

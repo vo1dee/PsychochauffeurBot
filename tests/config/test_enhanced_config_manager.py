@@ -672,16 +672,14 @@ class TestConfigLoadingFromDifferentSources:
         """Test loading configuration from remote source (mocked)."""
         # Mock remote config loading
         remote_config = {
-            "_metadata": {"version": "1.0.0", "source": "remote"},
             "remote_setting": "remote_value"
         }
-        
-        # For now, just test that we can set a config that appears to be from remote
+
         await config_manager.initialize()
-        
-        result = await config_manager.set_config("remote_test", remote_config, ConfigScope.GLOBAL)
+
+        result = await config_manager.set_config("remote_test", remote_config, ConfigScope.GLOBAL, source="remote")
         assert result is True
-        
+
         loaded_config = await config_manager.get_config("remote_test", ConfigScope.GLOBAL)
         assert loaded_config["_metadata"]["source"] == "remote"
 
@@ -1235,21 +1233,21 @@ class TestConfigurationMergingAndInheritance:
     async def test_merge_with_null_and_empty_values(self, config_manager):
         """Test merging configurations with null and empty values."""
         await config_manager.initialize()
-        
+
         base_config = {
             "setting1": "value1",
             "setting2": {"nested": "value"},
             "setting3": ["item1", "item2"]
         }
-        
+
         override_config = {
-            "setting1": None,  # Should override with null
-            "setting2": {},    # Should override with empty object
-            "setting3": []     # Should override with empty array
+            "setting1": None,
+            "setting2": {},
+            "setting3": []
         }
-        
-        merged = config_manager._deep_merge_configs(base_config, override_config)
-        
+
+        merged = config_manager._deep_merge(base_config, override_config)
+
         assert merged["setting1"] is None
         assert merged["setting2"] == {}
         assert merged["setting3"] == []
@@ -1599,10 +1597,10 @@ class TestConfigConflictResolution:
     async def test_resolve_timestamp_conflicts(self, config_manager):
         """Test resolution of timestamp conflicts in metadata."""
         await config_manager.initialize()
-        
+
         older_time = "2024-01-01T00:00:00"
         newer_time = "2024-01-02T00:00:00"
-        
+
         base_config = {
             "_metadata": {
                 "created_at": older_time,
@@ -1610,20 +1608,18 @@ class TestConfigConflictResolution:
             },
             "setting": "base"
         }
-        
+
         override_config = {
             "_metadata": {
-                "created_at": newer_time,  # Should not override created_at
-                "updated_at": newer_time   # Should override updated_at
+                "created_at": newer_time,
+                "updated_at": newer_time
             },
             "setting": "override"
         }
-        
+
         merged = config_manager._deep_merge_configs(base_config, override_config)
-        
-        # created_at should keep original (older) value
+
         assert merged["_metadata"]["created_at"] == older_time
-        # updated_at should use newer value
         assert merged["_metadata"]["updated_at"] == newer_time
     
     @pytest.mark.asyncio
