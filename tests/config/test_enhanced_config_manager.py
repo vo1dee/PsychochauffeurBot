@@ -105,6 +105,7 @@ class TestEnhancedConfigManagerLoading:
             }
         )
 
+    @pytest.mark.asyncio
     async def test_initialize_creates_directory_structure(self, config_manager, temp_config_dir):
         """Test that initialization creates required directory structure."""
         await config_manager.initialize()
@@ -117,6 +118,7 @@ class TestEnhancedConfigManagerLoading:
         assert (temp_config_dir / "schemas").exists()
         assert (temp_config_dir / "backups").exists()
     
+    @pytest.mark.asyncio
     async def test_load_global_config_from_file(self, config_manager, temp_config_dir, sample_global_config):
         """Test loading global configuration from file."""
         # Create global config file
@@ -132,6 +134,7 @@ class TestEnhancedConfigManagerLoading:
         loaded_config = await config_manager.get_config("global", ConfigScope.GLOBAL)
         assert loaded_config == sample_global_config
     
+    @pytest.mark.asyncio
     async def test_load_module_config_from_file(self, config_manager, temp_config_dir, sample_module_config):
         """Test loading module configuration from file."""
         # Create module config file
@@ -147,6 +150,7 @@ class TestEnhancedConfigManagerLoading:
         loaded_config = await config_manager.get_config("test_module", ConfigScope.MODULE)
         assert loaded_config == sample_module_config
     
+    @pytest.mark.asyncio
     async def test_create_default_global_config(self, config_manager, temp_config_dir):
         """Test creation of default global configuration when none exists."""
         await config_manager.initialize()
@@ -161,6 +165,7 @@ class TestEnhancedConfigManagerLoading:
         global_config_path = temp_config_dir / "global" / "global_config.json"
         assert global_config_path.exists()
     
+    @pytest.mark.asyncio
     async def test_load_config_with_environment_variables(self, config_manager):
         """Test loading configuration with environment variable overrides."""
         with patch.dict('os.environ', {'CONFIG_GPT_ENABLED': 'false', 'CONFIG_GPT_TEMPERATURE': '0.5'}):
@@ -172,6 +177,7 @@ class TestEnhancedConfigManagerLoading:
             global_config = await config_manager.get_config("global", ConfigScope.GLOBAL)
             assert global_config is not None
     
+    @pytest.mark.asyncio
     async def test_load_malformed_config_file(self, config_manager, temp_config_dir):
         """Test handling of malformed configuration files."""
         # Create malformed config file
@@ -191,6 +197,7 @@ class TestEnhancedConfigManagerLoading:
         # The important thing is that it doesn't crash
         assert global_config is None or isinstance(global_config, dict)
     
+    @pytest.mark.asyncio
     async def test_load_missing_config_file(self, config_manager, temp_config_dir):
         """Test handling of missing configuration files."""
         # Don't create any config files
@@ -201,6 +208,7 @@ class TestEnhancedConfigManagerLoading:
         assert global_config is not None
         assert "_metadata" in global_config
     
+    @pytest.mark.asyncio
     async def test_load_config_with_schema_validation(self, config_manager, temp_config_dir, sample_schema):
         """Test loading configuration with schema validation."""
         # Register schema
@@ -224,6 +232,7 @@ class TestEnhancedConfigManagerLoading:
         loaded_config = await config_manager.get_config("test_module", ConfigScope.MODULE)
         assert loaded_config["enabled"] is True
     
+    @pytest.mark.asyncio
     async def test_load_config_with_validation_errors(self, config_manager, temp_config_dir, sample_schema):
         """Test loading configuration with validation errors."""
         # Register schema
@@ -247,6 +256,7 @@ class TestEnhancedConfigManagerLoading:
         loaded_config = await config_manager.get_config("test_module", ConfigScope.MODULE)
         assert loaded_config is not None
     
+    @pytest.mark.asyncio
     async def test_load_schema_files(self, config_manager, temp_config_dir):
         """Test loading schema files from schema directory."""
         # Create schema file
@@ -272,6 +282,7 @@ class TestEnhancedConfigManagerLoading:
         assert "test_schema" in config_manager._schemas
         assert config_manager._schemas["test_schema"].name == "test_schema"
     
+    @pytest.mark.asyncio
     async def test_load_invalid_schema_file(self, config_manager, temp_config_dir):
         """Test handling of invalid schema files."""
         # Create invalid schema file
@@ -369,6 +380,7 @@ class TestConfigValidation:
         assert len(errors) >= 1
         assert any("Validator error" in error for error in errors)
     
+    @pytest.mark.asyncio
     async def test_config_validation_on_set(self, config_manager):
         """Test that validation occurs when setting configuration."""
         # Create schema with validation
@@ -395,6 +407,7 @@ class TestConfigValidation:
         with pytest.raises(ConfigValidationError):
             await config_manager.set_config("global", invalid_config, ConfigScope.GLOBAL, validate=True)
     
+    @pytest.mark.asyncio
     async def test_basic_validation_for_known_structures(self, config_manager):
         """Test basic validation for known configuration structures."""
         await config_manager.initialize()
@@ -412,6 +425,7 @@ class TestConfigValidation:
         result = await config_manager.set_config("test", config_with_modules, ConfigScope.GLOBAL, validate=True)
         assert result is False  # Should fail basic validation
     
+    @pytest.mark.asyncio
     async def test_validation_can_be_disabled(self, config_manager):
         """Test that validation can be disabled."""
         config_manager.enable_validation = False
@@ -431,6 +445,7 @@ class TestConfigErrorHandling:
         """Create config manager for error handling tests."""
         return EnhancedConfigManager()
     
+    @pytest.mark.asyncio
     async def test_handle_file_permission_errors(self, config_manager, temp_config_dir):
         """Test handling of file permission errors."""
         config_manager.base_path = temp_config_dir
@@ -443,6 +458,7 @@ class TestConfigErrorHandling:
             result = await config_manager.set_config("test", {"key": "value"}, ConfigScope.GLOBAL)
             assert result is False  # Should handle error gracefully
     
+    @pytest.mark.asyncio
     async def test_handle_disk_full_errors(self, config_manager):
         """Test handling of disk full errors."""
         await config_manager.initialize()
@@ -452,6 +468,7 @@ class TestConfigErrorHandling:
             result = await config_manager.set_config("test", {"key": "value"}, ConfigScope.GLOBAL)
             assert result is False  # Should handle error gracefully
     
+    @pytest.mark.asyncio
     async def test_handle_json_serialization_errors(self, config_manager):
         """Test handling of JSON serialization errors."""
         await config_manager.initialize()
@@ -466,6 +483,7 @@ class TestConfigErrorHandling:
         result = await config_manager.set_config("test", invalid_config, ConfigScope.GLOBAL)
         assert result is False
     
+    @pytest.mark.asyncio
     async def test_handle_corrupted_config_files(self, config_manager, temp_config_dir):
         """Test handling of corrupted configuration files."""
         config_manager.base_path = temp_config_dir
@@ -485,6 +503,7 @@ class TestConfigErrorHandling:
         config = await config_manager.get_config("global", ConfigScope.GLOBAL)
         assert config is not None
     
+    @pytest.mark.asyncio
     async def test_handle_network_timeout_errors(self, config_manager):
         """Test handling of network timeout errors during remote config loading."""
         await config_manager.initialize()
@@ -495,6 +514,7 @@ class TestConfigErrorHandling:
             result = await config_manager.set_config("test", {"key": "value"}, ConfigScope.GLOBAL)
             assert result is False
     
+    @pytest.mark.asyncio
     async def test_handle_concurrent_access_errors(self, config_manager):
         """Test handling of concurrent access to configuration files."""
         await config_manager.initialize()
@@ -527,6 +547,7 @@ class TestConfigLoadingFromDifferentSources:
         with tempfile.TemporaryDirectory() as temp_dir:
             yield Path(temp_dir)
     
+    @pytest.mark.asyncio
     async def test_load_from_default_sources(self, config_manager):
         """Test loading configuration from default sources."""
         await config_manager.initialize()
@@ -537,6 +558,7 @@ class TestConfigLoadingFromDifferentSources:
         assert "_metadata" in global_config
         assert global_config["_metadata"]["source"] == "system_default"
     
+    @pytest.mark.asyncio
     async def test_load_from_file_source(self, config_manager, temp_config_dir):
         """Test loading configuration from file source."""
         # Create config file
@@ -562,6 +584,7 @@ class TestConfigLoadingFromDifferentSources:
         assert loaded_config["_metadata"]["source"] == "file"
         assert loaded_config["test_setting"] == "file_value"
     
+    @pytest.mark.asyncio
     async def test_load_with_environment_override(self, config_manager):
         """Test loading configuration with environment variable overrides."""
         # Set environment variables
@@ -576,6 +599,7 @@ class TestConfigLoadingFromDifferentSources:
             global_config = await config_manager.get_config("global", ConfigScope.GLOBAL)
             assert global_config is not None
     
+    @pytest.mark.asyncio
     async def test_load_multiple_config_files(self, config_manager, temp_config_dir):
         """Test loading multiple configuration files."""
         # Create global config
@@ -611,6 +635,7 @@ class TestConfigLoadingFromDifferentSources:
         assert global_loaded["global_setting"] == "global_value"
         assert module_loaded["module_setting"] == "module_value"
     
+    @pytest.mark.asyncio
     async def test_load_config_with_includes(self, config_manager, temp_config_dir):
         """Test loading configuration with file includes/references."""
         # Create base config
@@ -642,6 +667,7 @@ class TestConfigLoadingFromDifferentSources:
         loaded_config = await config_manager.get_config("global", ConfigScope.GLOBAL)
         assert loaded_config["base_setting"] == "base_value"
     
+    @pytest.mark.asyncio
     async def test_load_config_with_remote_source(self, config_manager):
         """Test loading configuration from remote source (mocked)."""
         # Mock remote config loading
@@ -751,6 +777,7 @@ class TestConfigValidationLogicAndSchemaEnforcement:
         errors = complex_schema.validate(invalid_config)
         assert len(errors) >= 2  # database and features should fail
     
+    @pytest.mark.asyncio
     async def test_schema_enforcement_on_config_operations(self, config_manager, complex_schema):
         """Test that schema is enforced during configuration operations."""
         config_manager.register_schema(complex_schema)
@@ -797,6 +824,7 @@ class TestConfigValidationLogicAndSchemaEnforcement:
         assert schema_v1.version != schema_v2.version
         assert len(schema_v1.required_fields) != len(schema_v2.required_fields)
     
+    @pytest.mark.asyncio
     async def test_validation_with_nested_objects(self, config_manager):
         """Test validation of nested object structures."""
         nested_schema = ConfigSchema(
@@ -836,6 +864,7 @@ class TestConfigValidationLogicAndSchemaEnforcement:
         result = await config_manager.set_config("nested_config", valid_config, ConfigScope.GLOBAL)
         assert result is True
     
+    @pytest.mark.asyncio
     async def test_validation_with_array_types(self, config_manager):
         """Test validation of array type configurations."""
         array_schema = ConfigSchema(
@@ -879,6 +908,7 @@ class TestConfigErrorHandlingForMalformedFiles:
         with tempfile.TemporaryDirectory() as temp_dir:
             yield Path(temp_dir)
     
+    @pytest.mark.asyncio
     async def test_handle_missing_config_directory(self, temp_config_dir):
         """Test handling when config directory doesn't exist."""
         # Use non-existent directory
@@ -891,6 +921,7 @@ class TestConfigErrorHandlingForMalformedFiles:
         assert non_existent_path.exists()
         assert (non_existent_path / "global").exists()
     
+    @pytest.mark.asyncio
     async def test_handle_empty_config_file(self, config_manager, temp_config_dir):
         """Test handling of empty configuration files."""
         # Create empty config file
@@ -904,6 +935,7 @@ class TestConfigErrorHandlingForMalformedFiles:
         config = await config_manager.get_config("global", ConfigScope.GLOBAL)
         assert config is not None
     
+    @pytest.mark.asyncio
     async def test_handle_invalid_json_syntax(self, config_manager, temp_config_dir):
         """Test handling of files with invalid JSON syntax."""
         # Create file with invalid JSON
@@ -920,6 +952,7 @@ class TestConfigErrorHandlingForMalformedFiles:
         assert config is not None
         assert "_metadata" in config
     
+    @pytest.mark.asyncio
     async def test_handle_incomplete_json_structure(self, config_manager, temp_config_dir):
         """Test handling of incomplete JSON structures."""
         # Create file with incomplete JSON
@@ -935,6 +968,7 @@ class TestConfigErrorHandlingForMalformedFiles:
         config = await config_manager.get_config("global", ConfigScope.GLOBAL)
         assert config is not None
     
+    @pytest.mark.asyncio
     async def test_handle_wrong_data_types_in_config(self, config_manager, temp_config_dir):
         """Test handling of wrong data types in configuration."""
         # Create config with wrong data types
@@ -955,6 +989,7 @@ class TestConfigErrorHandlingForMalformedFiles:
         config = await config_manager.get_config("global", ConfigScope.GLOBAL)
         assert config is not None
     
+    @pytest.mark.asyncio
     async def test_handle_circular_references_in_config(self, config_manager, temp_config_dir):
         """Test handling of circular references in configuration."""
         # Create config that would cause circular reference issues
@@ -981,6 +1016,7 @@ class TestConfigErrorHandlingForMalformedFiles:
         config = await config_manager.get_config("global", ConfigScope.GLOBAL)
         assert config is not None
     
+    @pytest.mark.asyncio
     async def test_handle_very_large_config_files(self, config_manager, temp_config_dir):
         """Test handling of very large configuration files."""
         # Create large config (simulate with nested structure)
@@ -1011,6 +1047,7 @@ class TestConfigErrorHandlingForMalformedFiles:
         assert config is not None
         assert len(config["large_section"]) == 1000
     
+    @pytest.mark.asyncio
     async def test_handle_unicode_and_special_characters(self, config_manager, temp_config_dir):
         """Test handling of Unicode and special characters in config."""
         # Create config with Unicode and special characters
@@ -1118,6 +1155,7 @@ class TestConfigurationMergingAndInheritance:
             "user_setting": "user_value"
         }
 
+    @pytest.mark.asyncio
     async def test_configuration_hierarchy_precedence(self, config_manager):
         """Test that configuration hierarchy follows correct precedence rules."""
         await config_manager.initialize()
@@ -1140,6 +1178,7 @@ class TestConfigurationMergingAndInheritance:
         assert chat_result["setting"] == "chat"
         assert user_result["setting"] == "user"
     
+    @pytest.mark.asyncio
     async def test_deep_merge_nested_configurations(self, config_manager, base_global_config, chat_specific_config):
         """Test deep merging of nested configuration structures."""
         await config_manager.initialize()
@@ -1164,6 +1203,7 @@ class TestConfigurationMergingAndInheritance:
         assert merged_config["global_setting"] == "global_value"
         assert merged_config["chat_setting"] == "chat_value"
     
+    @pytest.mark.asyncio
     async def test_merge_with_array_handling(self, config_manager):
         """Test merging configurations with array values."""
         await config_manager.initialize()
@@ -1191,6 +1231,7 @@ class TestConfigurationMergingAndInheritance:
         assert merged["permissions"] == ["admin"]
         assert merged["nested"]["array_field"] == ["item3"]
     
+    @pytest.mark.asyncio
     async def test_merge_with_null_and_empty_values(self, config_manager):
         """Test merging configurations with null and empty values."""
         await config_manager.initialize()
@@ -1213,6 +1254,7 @@ class TestConfigurationMergingAndInheritance:
         assert merged["setting2"] == {}
         assert merged["setting3"] == []
     
+    @pytest.mark.asyncio
     async def test_merge_with_type_conflicts(self, config_manager):
         """Test merging configurations with conflicting data types."""
         await config_manager.initialize()
@@ -1236,6 +1278,7 @@ class TestConfigurationMergingAndInheritance:
         assert merged["setting2"] == {"now": "object"}
         assert merged["setting3"] == {"now": "object"}
     
+    @pytest.mark.asyncio
     async def test_hierarchical_config_inheritance(self, config_manager):
         """Test hierarchical configuration inheritance patterns."""
         await config_manager.initialize()
@@ -1279,6 +1322,7 @@ class TestConfigurationMergingAndInheritance:
         assert group_inherited["database"]["port"] == 5432
         assert group_inherited["features"]["logging"] is True
     
+    @pytest.mark.asyncio
     async def test_config_override_behavior(self, config_manager):
         """Test configuration override behavior and conflict resolution."""
         await config_manager.initialize()
@@ -1320,6 +1364,7 @@ class TestConfigurationMergingAndInheritance:
         assert updated_config["module_settings"]["features"]["logging"] is True  # Overridden
         assert updated_config["module_settings"]["features"]["metrics"] is True  # Added
     
+    @pytest.mark.asyncio
     async def test_merge_with_metadata_handling(self, config_manager):
         """Test that metadata is properly handled during merging."""
         await config_manager.initialize()
@@ -1351,6 +1396,7 @@ class TestConfigurationMergingAndInheritance:
         assert merged["_metadata"]["updated_at"] == "2024-01-02T00:00:00"  # Override added
         assert merged["setting"] == "override_value"
     
+    @pytest.mark.asyncio
     async def test_complex_nested_merge_scenarios(self, config_manager):
         """Test complex nested merging scenarios."""
         await config_manager.initialize()
@@ -1394,6 +1440,7 @@ class TestConfigurationMergingAndInheritance:
         assert merged["level1"]["new_sibling"] == "override_new_sibling"        # Added
         assert merged["top_level"] == "base_top"                               # Preserved
     
+    @pytest.mark.asyncio
     async def test_merge_strategy_selection(self, config_manager):
         """Test different merge strategies (deep_merge, replace, etc.)."""
         await config_manager.initialize()
@@ -1431,6 +1478,7 @@ class TestConfigurationMergingAndInheritance:
         assert updated_config["database"]["options"]["ssl"] is True  # Preserved
         assert updated_config["database"]["options"]["timeout"] == 60  # Overridden
     
+    @pytest.mark.asyncio
     async def test_circular_reference_prevention_in_merge(self, config_manager):
         """Test prevention of circular references during merging."""
         await config_manager.initialize()
@@ -1455,6 +1503,7 @@ class TestConfigurationMergingAndInheritance:
         assert merged["reference"] == "config_a"  # Override wins
         assert merged["data"]["value"] == "b"  # Override wins
     
+    @pytest.mark.asyncio
     async def test_merge_performance_with_large_configs(self, config_manager):
         """Test merge performance with large configuration objects."""
         await config_manager.initialize()
@@ -1498,6 +1547,7 @@ class TestConfigConflictResolution:
         """Create config manager for conflict resolution tests."""
         return EnhancedConfigManager()
     
+    @pytest.mark.asyncio
     async def test_resolve_type_conflicts_in_merge(self, config_manager):
         """Test resolution of type conflicts during configuration merging."""
         await config_manager.initialize()
@@ -1523,6 +1573,7 @@ class TestConfigConflictResolution:
         merged = config_manager._deep_merge_configs(base_config, override_config)
         assert merged["setting"] == 42  # Primitive wins (override)
     
+    @pytest.mark.asyncio
     async def test_resolve_version_conflicts(self, config_manager):
         """Test resolution of version conflicts in configuration metadata."""
         await config_manager.initialize()
@@ -1544,6 +1595,7 @@ class TestConfigConflictResolution:
         assert merged["_metadata"]["schema_version"] == "1.1"
         assert merged["setting"] == "override"
     
+    @pytest.mark.asyncio
     async def test_resolve_timestamp_conflicts(self, config_manager):
         """Test resolution of timestamp conflicts in metadata."""
         await config_manager.initialize()
@@ -1574,6 +1626,7 @@ class TestConfigConflictResolution:
         # updated_at should use newer value
         assert merged["_metadata"]["updated_at"] == newer_time
     
+    @pytest.mark.asyncio
     async def test_resolve_priority_based_conflicts(self, config_manager):
         """Test resolution of conflicts based on configuration priority."""
         await config_manager.initialize()
@@ -1612,6 +1665,7 @@ class TestConfigMigrationAndVersioning:
         """Create config manager for migration tests."""
         return EnhancedConfigManager()
     
+    @pytest.mark.asyncio
     async def test_migrate_old_config_format(self, config_manager):
         """Test migration of old configuration format to new format."""
         await config_manager.initialize()
@@ -1633,6 +1687,7 @@ class TestConfigMigrationAndVersioning:
         assert migrated["config_modules"]["gpt"]["enabled"] is True
         assert migrated["config_modules"]["gpt"]["overrides"]["temperature"] == 0.8
     
+    @pytest.mark.asyncio
     async def test_migrate_with_unsupported_version(self, config_manager):
         """Test migration with unsupported version combination."""
         await config_manager.initialize()
@@ -1643,6 +1698,7 @@ class TestConfigMigrationAndVersioning:
         migrated = await config_manager.migrate_config(config, "3.0", "4.0")
         assert migrated == config
     
+    @pytest.mark.asyncio
     async def test_migrate_with_partial_data(self, config_manager):
         """Test migration with partial/incomplete data."""
         await config_manager.initialize()
@@ -1661,6 +1717,7 @@ class TestConfigMigrationAndVersioning:
         assert migrated["config_modules"]["gpt"]["enabled"] is True
         assert "overrides" not in migrated["config_modules"]["gpt"]  # No temperature to migrate
     
+    @pytest.mark.asyncio
     async def test_version_compatibility_checking(self, config_manager):
         """Test version compatibility checking during merging."""
         await config_manager.initialize()
@@ -1700,6 +1757,7 @@ class TestConfigManagerIntegration:
         with tempfile.TemporaryDirectory() as temp_dir:
             yield Path(temp_dir)
     
+    @pytest.mark.asyncio
     async def test_end_to_end_config_workflow(self, config_manager, temp_config_dir):
         """Test complete end-to-end configuration workflow."""
         # Initialize
@@ -1755,6 +1813,7 @@ class TestConfigManagerIntegration:
         # Clean up
         await config_manager.shutdown()
     
+    @pytest.mark.asyncio
     async def test_config_persistence_across_restarts(self, config_manager, temp_config_dir):
         """Test that configurations persist across manager restarts."""
         # First session - create and save config
