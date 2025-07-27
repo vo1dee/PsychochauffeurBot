@@ -816,6 +816,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         update: Telegram update object
         context: Telegram callback context
     """
+    # Get chat and user info
     chat_id = update.effective_chat.id if update.effective_chat else "unknown"
     user_id = update.effective_user.id if update.effective_user else "unknown"
     username = update.effective_user.username if update.effective_user and update.effective_user.username else f"ID:{user_id}"
@@ -845,7 +846,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     try:
         if not context.args:
-            messages = await get_messages_for_chat_today(int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0)
+            messages = await get_messages_for_chat_today(chat_id)
             time_period_key = "today"
         else:
             args = context.args
@@ -870,11 +871,11 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     return
                     
                 if args[2].lower() == "messages":
-                    messages = await get_last_n_messages_in_chat(int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, number)
+                    messages = await get_last_n_messages_in_chat(chat_id, number)
                     date_str = f"останні {number} повідомлень"
                     time_period_key = f"last_{number}_messages"
                 elif args[2].lower() == "days":
-                    messages = await get_messages_for_chat_last_n_days(int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, number)
+                    messages = await get_messages_for_chat_last_n_days(chat_id, number)
                     date_str = f"останні {number} днів"
                     time_period_key = f"last_{number}_days"
                 else:

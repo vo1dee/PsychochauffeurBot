@@ -182,8 +182,8 @@ class HandlerRegistry(ServiceInterface):
     async def _register_message_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Register message handlers."""
         # Setup message logging handler first
-        message_handler_service = service_registry.get_service('message_handler')
-        await message_handler_service.setup_handlers(application)
+        from modules.message_handler import setup_message_handlers
+        setup_message_handlers(application)
     
     async def _register_command_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Register command handlers."""
@@ -199,5 +199,6 @@ class HandlerRegistry(ServiceInterface):
     
     async def _register_video_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Register video download handlers."""
-        video_handler_service = service_registry.get_service('video_handler')
-        await video_handler_service.setup_handlers(application)
+        from modules.video_downloader import setup_video_handlers
+        from modules.url_processor import extract_urls
+        setup_video_handlers(application, extract_urls_func=extract_urls)
