@@ -393,9 +393,9 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
         chat_history = chat_history_manager.get_history(update.effective_chat.id) if update.effective_chat else []
         
         # Add up to context_messages_count previous messages (excluding current message)
-        for msg in reversed(chat_history[-context_messages_count:]):
+        for msg in chat_history[-context_messages_count:]:
             if msg.get('text'):
-                messages.insert(0, {
+                messages.append({
                     "role": "user" if msg.get('is_user') else "assistant",
                     "content": msg['text']
                 })

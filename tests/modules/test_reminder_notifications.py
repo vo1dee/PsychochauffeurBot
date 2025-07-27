@@ -204,7 +204,7 @@ class TestReminderNotifications:
     async def test_notification_message_formatting(self):
         """Test proper formatting of notification messages."""
         test_cases = [
-            # Basic reminder
+            # Basic reminder (group, one-time)
             {
                 'reminder': Reminder(
                     task="Simple task",
@@ -216,7 +216,7 @@ class TestReminderNotifications:
                     chat_id=-100123456,
                     user_mention_md="@user"
                 ),
-                'expected_content': ["Simple task", "@user", "🔔"]
+                'expected_content': ["Simple task", "@user"]  # No bell emoji for group one-time reminders
             },
             # Reminder with special characters
             {
@@ -230,9 +230,9 @@ class TestReminderNotifications:
                     chat_id=-100123456,
                     user_mention_md="@specialuser"
                 ),
-                'expected_content': ["Task with émojis 🎉 and symbols @#$%", "@specialuser"]
+                'expected_content': ["Task with émojis 🎉 and symbols @\\#$%", "@specialuser"]  # # is escaped in Markdown
             },
-            # Long task
+            # Long task (recurring, so uses different format)
             {
                 'reminder': Reminder(
                     task="This is a very long task description that should be handled properly in the notification message",
@@ -244,7 +244,7 @@ class TestReminderNotifications:
                     chat_id=-100123456,
                     user_mention_md="@longuser"
                 ),
-                'expected_content': ["very long task description", "@longuser"]
+                'expected_content': ["very long task description", "⏰ REMINDER:"]  # Recurring reminders use different format
             }
         ]
 

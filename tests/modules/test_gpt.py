@@ -1094,22 +1094,20 @@ class TestPromptEngineering:
                 return_text=False
             )
             
-            # Verify message ordering: system, context history, current message
+            # Verify message ordering: system, context history (last 3 messages), current message
             call_args = mock_client.chat.completions.create.call_args
             messages = call_args[1]["messages"]
             
             assert messages[0]["role"] == "system"
-            # The second message should be from the conversation history
-            assert messages[1]["role"] in ["user", "assistant"]
-            assert messages[1]["content"] == "First user message"
-            assert messages[2]["role"] == "assistant"
-            assert messages[2]["content"] == "First bot response"
-            assert messages[3]["role"] == "user"
-            assert messages[3]["content"] == "Second user message"
-            assert messages[4]["role"] == "assistant"
-            assert messages[4]["content"] == "Second bot response"
-            assert messages[5]["role"] == "user"
-            assert messages[5]["content"] == "Current message"
+            # The context should include the last 3 messages from history
+            assert messages[1]["role"] == "assistant"
+            assert messages[1]["content"] == "First bot response"
+            assert messages[2]["role"] == "user"
+            assert messages[2]["content"] == "Second user message"
+            assert messages[3]["role"] == "assistant"
+            assert messages[3]["content"] == "Second bot response"
+            assert messages[4]["role"] == "user"
+            assert messages[4]["content"] == "Current message"
     
     @pytest.mark.asyncio
     async def test_temperature_and_max_tokens_configuration(self, sample_config_data):
@@ -1908,6 +1906,7 @@ class TestConnectivityAndHealthChecks:
     async def test_check_api_health_with_openai(self):
         """Test API health check with OpenAI configuration."""
         with patch('modules.gpt.Config') as mock_config, \
+             patch('modules.gpt.USE_OPENROUTER', False), \
              patch('httpx.AsyncClient') as mock_client_class:
             
             mock_config.OPENROUTER_BASE_URL = None  # Use OpenAI
@@ -1930,13 +1929,12 @@ class TestConnectivityAndHealthChecks:
             url = call_args[0][0]
             parsed_url = urlparse(url)
             
-            # Check if it's an OpenAI endpoint or health endpoint
+            # Check if it's an OpenAI endpoint
             is_openai = (parsed_url.hostname and 
                         (parsed_url.hostname == "api.openai.com" or 
                          parsed_url.hostname.endswith(".openai.com")))
-            is_health = parsed_url.path == "/health"
             
-            assert is_openai or is_health, f"Invalid endpoint: {url}"
+            assert is_openai, f"Invalid endpoint: {url}"
 
 
 class TestImageAnalysisErrorHandling:
