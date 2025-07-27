@@ -8,7 +8,7 @@ import json
 import uuid
 import shutil
 import subprocess
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from typing import Optional, Tuple, List, Dict, Any, Callable
 from asyncio import Lock
 from dataclasses import dataclass
@@ -249,7 +249,9 @@ class VideoDownloader:
                 platform = self._get_platform(url)
                 is_youtube_shorts = "youtube.com/shorts" in url.lower()
                 is_youtube_clips = "youtube.com/clip" in url.lower()
-                is_instagram = "instagram.com/" in url.lower()
+                parsed_url = urlparse(url)
+                host = parsed_url.hostname or ""
+                is_instagram = host == "instagram.com" or host.endswith(".instagram.com")
 
                 if is_instagram or is_youtube_shorts or is_youtube_clips:
                     if await self._check_service_health():
