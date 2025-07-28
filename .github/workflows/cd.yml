@@ -127,15 +127,15 @@ jobs:
         # python scripts/smoke_tests.py --environment=staging
         echo "Smoke tests completed"
     
-    - name: Notify deployment
-      uses: 8398a7/action-slack@v3
-      if: always()
-      with:
-        status: ${{ job.status }}
-        channel: '#deployments'
-        text: 'Staging deployment ${{ job.status }} - Version: ${{ needs.build.outputs.version }}'
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    # - name: Notify deployment
+    #   uses: 8398a7/action-slack@v3
+    #   if: always()
+    #   with:
+    #     status: ${{ job.status }}
+    #     channel: '#deployments'
+    #     text: 'Staging deployment ${{ job.status }} - Version: ${{ needs.build.outputs.version }}'
+    #   env:
+    #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   deploy-production:
     runs-on: ubuntu-latest
