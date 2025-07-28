@@ -14,12 +14,15 @@ from dateutil.tz import tzlocal
 
 from telegram import Update, CallbackQuery
 from telegram.ext import CallbackContext
+from telegram.ext._jobqueue import JobQueue
+from typing import Any, Optional, List, cast
 from unittest.mock import MagicMock
 from modules.reminders.reminder_models import Reminder
 from modules.reminders.reminder_db import ReminderDB
 from modules.reminders.reminder_parser import ReminderParser
 
-def seconds_until(dt):
+
+def seconds_until(dt: datetime) -> float:
     now = datetime.now(KYIV_TZ)
     # Ensure dt is timezone-aware and in the same timezone as now
     if dt.tzinfo is None:
@@ -30,19 +33,22 @@ def seconds_until(dt):
     return max(0.01, (dt - now).total_seconds())
 
 class ReminderManager:
-    def __init__(self, db_file='reminders.db'):
+    db: ReminderDB
+    reminders: List[Any]
+    reminders_file: str
+    def __init__(self, db_file: str = 'reminders.db') -> None:
         self.db = ReminderDB(db_file)
         self.reminders = self.db.load_reminders()
         self.reminders_file = os.path.join('data', 'reminders.json')
 
-    async def initialize(self):
+    async def initialize(self) -> bool:
         """Initialize the reminder manager."""
         # Load existing reminders
         self.reminders = self.db.load_reminders()
         general_logger.info("Reminder manager initialized successfully")
         return True
 
-    async def stop(self):
+    async def stop(self) -> bool:
         """Clean up resources when stopping the reminder manager."""
         # Close database connection
         if hasattr(self.db, 'conn'):
@@ -50,35 +56,41 @@ class ReminderManager:
         general_logger.info("Reminder manager stopped successfully")
         return True
 
-    def load_reminders(self, chat_id=None):
+    def load_reminders(self, chat_id: Optional[int] = None) -> List[Any]:
         return self.db.load_reminders(chat_id)
 
-    def save_reminder(self, rem):
+    def save_reminder(self, rem: Any) -> Any:
         result = self.db.save_reminder(rem)
         self.reminders = self.db.load_reminders()
         return result
 
-    def remove_reminder(self, reminder):
+    def remove_reminder(self, reminder: Any) -> None:
         self.db.remove_reminder(reminder)
         self.reminders = self.db.load_reminders()
 
     # Add an alias for backward compatibility if needed
     delete_reminder = remove_reminder
 
-    async def remind(self, update: Update, context: CallbackContext):
-        args = context.args or []
-        chat_id = update.effective_chat.id if update.effective_chat else None  # Keep as int
-        chat_type = 'private' if update.effective_chat and update.effective_chat.type == 'private' else 'group'
+    async def remind(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
+        args = getattr(context, 'args', []) or []
+        user_id = None
+        if getattr(update, 'effective_user', None) is not None and update.effective_user is not None:
+            user_id = update.effective_user.id
+        chat_id = None
+        if getattr(update, 'effective_chat', None) is not None and update.effective_chat is not None:
+            chat_id = update.effective_chat.id
+        chat_type = 'private' if getattr(update, 'effective_chat', None) is not None and update.effective_chat is not None and update.effective_chat.type == 'private' else 'group'
         
         if not args:
-            await update.message.reply_text(
-                "Usage: /remind <task> [time/frequency]\n"
-                "Examples:\n"
-                "- /remind to pay rent every month on the 1st at 9AM\n"
-                "- /remind to take medicine in 2 hours\n"
-                "- /remind to call mom tomorrow at 3PM\n"
-                "- /remind to water plants every day at 8AM"
-            )
+            if getattr(update, 'message', None) is not None and update.message is not None:
+                await update.message.reply_text(
+                    "Usage: /remind <task> [time/frequency]\n"
+                    "Examples:\n"
+                    "- /remind to pay rent every month on the 1st at 9AM\n"
+                    "- /remind to take medicine in 2 hours\n"
+                    "- /remind to call mom tomorrow at 3PM\n"
+                    "- /remind to water plants every day at 8AM"
+                )
             return
 
         command = args[0].lower() if args else None
@@ -86,7 +98,8 @@ class ReminderManager:
         if command == "list":
             rems = [r for r in self.load_reminders() if r.chat_id == chat_id]
             if not rems:
-                await update.message.reply_text("No active reminders.")
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text("No active reminders.")
                 return
             s = ''
             now = datetime.now(KYIV_TZ)
@@ -104,17 +117,21 @@ class ReminderManager:
                 kind = r.frequency or 'one-time'
                 status = 'past' if r.next_execution and r.next_execution < now else ''
                 s += f"ID:{r.reminder_id} | {due} | {kind} {status}\n{r.task}\n\n"
-            await update.message.reply_text(s)
+            if getattr(update, 'message', None) is not None and update.message is not None:
+                await update.message.reply_text(s)
             return
             
         elif command == "to":
             # Check user's reminder limit only when creating new reminders
-            user_id = update.effective_user.id
+            user_id = None
+            if getattr(update, 'effective_user', None) is not None and update.effective_user is not None:
+                user_id = update.effective_user.id
             user_reminders = [r for r in self.load_reminders(chat_id) if r.user_id == user_id]
             max_reminders = 5  # Assuming a default max_reminders_per_user
             
             if len(user_reminders) >= max_reminders:
-                await update.message.reply_text(f"You have reached the maximum limit of {max_reminders} reminders.")
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text(f"You have reached the maximum limit of {max_reminders} reminders.")
                 return
                 
             # Check if recurring reminders are allowed
@@ -122,7 +139,7 @@ class ReminderManager:
             max_recurring = 3  # Assuming a default max_recurring_reminders
             
             reminder_text = " ".join(args[1:])
-            parsed = ReminderParser.parse(reminder_text)
+            parsed = ReminderParser.parse_reminder(reminder_text)
             general_logger.info(f"[REMINDER_CREATE] User input: '{reminder_text}', Parsed: {parsed}")
             # derive next_execution
             now = datetime.now(KYIV_TZ)
@@ -286,10 +303,11 @@ class ReminderManager:
             # If parser couldn't determine a schedule, report error and exit
             if not next_exec:
                 general_logger.error(f"Failed to parse reminder command: '{reminder_text}'")
-                await update.message.reply_text(
-                    f"Sorry, I couldn't understand your reminder: '{reminder_text}'.\n"
-                    "Example: /remind to pay rent every month on the 1st at 9AM"
-                )
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text(
+                        f"Sorry, I couldn't understand your reminder: '{reminder_text}'.\n"
+                        "Example: /remind to pay rent every month on the 1st at 9AM"
+                    )
                 return
 
             # For recurring reminders, ensure the time is set correctly
@@ -312,62 +330,81 @@ class ReminderManager:
                 next_exec = KYIV_TZ.localize(next_exec)
             general_logger.info(f"[REMINDER_SCHEDULE] Scheduling reminder for '{parsed['task']}' at {next_exec} (user input: '{reminder_text}')")
 
-            rem = Reminder(parsed['task'], parsed['frequency'], parsed['delay'],
-                           parsed['date_modifier'], next_exec, user_id, chat_id,
-                           update.effective_user.mention_markdown_v2())
-            rem = self.save_reminder(rem)
+            # Guard update.effective_user before calling mention_markdown_v2
+            user_mention_md = None
+            if getattr(update, 'effective_user', None) is not None and update.effective_user is not None:
+                user_mention_md = update.effective_user.mention_markdown_v2()
 
-            delay_sec = seconds_until(rem.next_execution)
-            if context.job_queue is not None:
-                context.job_queue.run_once(self.send_reminder, delay_sec, data=rem, name=f"reminder_{rem.reminder_id}")
-            else:
-                general_logger.error("JobQueue is not available. Cannot schedule reminder.")
-                await update.message.reply_text("❌ Reminder scheduling is not available. Please contact the administrator.")
-                return
+            if user_id is not None and chat_id is not None:
+                rem = Reminder(
+                    parsed['task'], parsed.get('frequency'), parsed.get('delay'),
+                    parsed['date_modifier'], next_exec, user_id, chat_id, user_mention_md
+                )
+                rem = self.save_reminder(rem)
 
-            # Ensure the displayed time is in the KYIV_TZ timezone
-            if next_exec.tzinfo is None:
-                next_exec = KYIV_TZ.localize(next_exec)
-            kyiv_time = next_exec.astimezone(KYIV_TZ)
-            await update.message.reply_text(f"✅ Reminder set for {kyiv_time.strftime('%d.%m.%Y %H:%M')}.")
+                if rem.next_execution is not None:
+                    delay_sec = seconds_until(rem.next_execution)
+                    if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
+                        job_queue = cast('JobQueue[Any]', context.job_queue)
+                        job_queue.run_once(self.send_reminder, delay_sec, data=rem, name=f"reminder_{rem.reminder_id}")
+                else:
+                    general_logger.error("JobQueue is not available. Cannot schedule reminder.")
+                    if getattr(update, 'message', None) is not None and update.message is not None:
+                        await update.message.reply_text("❌ Reminder scheduling is not available. Please contact the administrator.")
+                    return
+
+                # Ensure the displayed time is in the KYIV_TZ timezone
+                if next_exec.tzinfo is None:
+                    next_exec = KYIV_TZ.localize(next_exec)
+                kyiv_time = next_exec.astimezone(KYIV_TZ)
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text(f"✅ Reminder set for {kyiv_time.strftime('%d.%m.%Y %H:%M')}.")
 
         elif command == "delete":
             if len(args) < 2:
-                await update.message.reply_text("Usage /remind delete <id> or all")
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text("Usage /remind delete <id> or all")
                 return
             what = args[1].lower()
             if what == 'all':
                 chat_rems = [r for r in self.reminders if r.chat_id == chat_id]
                 for r in chat_rems: self.delete_reminder(r)
-                await update.message.reply_text("Deleted all reminders.")
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text("Deleted all reminders.")
             else:
                 try:
                     rid = int(what)
-                    rem = next((r for r in self.reminders if r.reminder_id == rid and r.chat_id == chat_id), None)
-                    if rem:
-                        self.delete_reminder(rem)
-                        await update.message.reply_text(f"Deleted reminder {rid}")
+                    rem_candidate: Optional[Reminder] = next((r for r in self.reminders if r.reminder_id == rid and r.chat_id == chat_id), None)
+                    if rem_candidate is not None:
+                        self.delete_reminder(rem_candidate)
+                        if getattr(update, 'message', None) is not None and update.message is not None:
+                            await update.message.reply_text(f"Deleted reminder {rid}")
                     else:
-                        await update.message.reply_text("Invalid ID.")
+                        if getattr(update, 'message', None) is not None and update.message is not None:
+                            await update.message.reply_text("Invalid ID.")
                 except:
-                    await update.message.reply_text("Invalid ID.")
+                    if getattr(update, 'message', None) is not None and update.message is not None:
+                        await update.message.reply_text("Invalid ID.")
 
         elif command == "edit":
             if len(args) < 3:
-                await update.message.reply_text("Usage: /remind edit <id> <new text>")
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text("Usage: /remind edit <id> <new text>")
                 return
             try:
                 rid = int(args[1])
             except:
-                await update.message.reply_text("Invalid ID.")
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text("Invalid ID.")
                 return
-            rem = next((r for r in self.load_reminders() if r.reminder_id==rid and r.chat_id==chat_id), None)
-            if not rem:
-                await update.message.reply_text("Reminder not found.")
+            rem_edit: Optional[Reminder] = next((r for r in self.load_reminders() if r.reminder_id==rid and r.chat_id==chat_id), None)
+            if rem_edit is None:
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text("Reminder not found.")
                 return
 
             new_txt = " ".join(args[2:])
-            parsed = ReminderParser.parse(new_txt)
+            parsed = ReminderParser.parse_reminder(new_txt)
             general_logger.info(f"[REMINDER_EDIT] User input: '{new_txt}', Parsed: {parsed}")
             now = datetime.now(KYIV_TZ)
             next_exec = None
@@ -549,30 +586,38 @@ class ReminderManager:
             if is_one_time and next_exec <= now:
                 next_exec = now + timedelta(minutes=5)
 
-            rem.task = parsed['task']
-            rem.frequency = parsed['frequency']
-            rem.delay = parsed['delay']
-            rem.date_modifier = parsed['date_modifier']
-            rem.next_execution = next_exec
-            self.save_reminder(rem)
+            rem_edit.task = parsed['task']
+            rem_edit.frequency = parsed['frequency']
+            rem_edit.delay = parsed['delay']
+            rem_edit.date_modifier = parsed['date_modifier']
+            rem_edit.next_execution = next_exec
+            self.save_reminder(rem_edit)
 
             # reschedule
-            jobs = context.job_queue.get_jobs_by_name(f"reminder_{rem.reminder_id}")
-            for j in jobs:
-                j.schedule_removal()
-            delay = seconds_until(rem.next_execution)
-            if context.job_queue is not None:
-                context.job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
+            jobs: list[Any] = []
+            if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
+                job_queue = cast('JobQueue[Any]', context.job_queue)
+                jobs = list(job_queue.get_jobs_by_name(f"reminder_{rem_edit.reminder_id}"))
+            if jobs:
+                for j in jobs:
+                    j.schedule_removal()
+            if rem_edit.next_execution is not None:
+                delay = seconds_until(rem_edit.next_execution)
+                if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
+                    job_queue = cast('JobQueue[Any]', context.job_queue)
+                    job_queue.run_once(self.send_reminder, delay, data=rem_edit, name=f"reminder_{rem_edit.reminder_id}")
             else:
                 general_logger.error("JobQueue is not available. Cannot schedule reminder.")
-                await update.message.reply_text("❌ Reminder scheduling is not available. Please contact the administrator.")
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text("❌ Reminder scheduling is not available. Please contact the administrator.")
                 return
 
             # Ensure the displayed time is in the KYIV_TZ timezone
             if next_exec.tzinfo is None:
                 next_exec = KYIV_TZ.localize(next_exec)
             kyiv_time = next_exec.astimezone(KYIV_TZ)
-            await update.message.reply_text(f"Reminder updated. Next execution: {kyiv_time.strftime('%d.%m.%Y %H:%M')}.")
+            if getattr(update, 'message', None) is not None and update.message is not None:
+                await update.message.reply_text(f"Reminder updated. Next execution: {kyiv_time.strftime('%d.%m.%Y %H:%M')}.")
 
             # Ensure the result is timezone-aware
             if next_exec and next_exec.tzinfo is None:
@@ -587,55 +632,62 @@ class ReminderManager:
                 reminder_text = " ".join(args)
                 # Check if it looks like a simple task without time specification
                 if len(args) <= 3 and not any(word in reminder_text.lower() for word in ['in', 'at', 'every', 'tomorrow', 'today']):
-                    await update.message.reply_text(
-                        f"⚠️ Did you mean to set a reminder for '{reminder_text}'?\n\n"
-                        "Please use the correct format:\n"
-                        "• `/remind to {task}` - for immediate reminder (5 min default)\n"
-                        "• `/remind to {task} in {time}` - for delayed reminder\n"
-                        "• `/remind to {task} at {time}` - for specific time\n"
-                        "• `/remind to {task} every {frequency}` - for recurring\n\n"
-                        "Examples:\n"
-                        "• `/remind to check email in 1 hour`\n"
-                        "• `/remind to call mom at 3PM`\n"
-                        "• `/remind to take medicine every day at 8AM`"
-                    )
+                    if getattr(update, 'message', None) is not None and update.message is not None:
+                        await update.message.reply_text(
+                            f"⚠️ Did you mean to set a reminder for '{reminder_text}'?\n\n"
+                            "Please use the correct format:\n"
+                            "• `/remind to {task}` - for immediate reminder (5 min default)\n"
+                            "• `/remind to {task} in {time}` - for delayed reminder\n"
+                            "• `/remind to {task} at {time}` - for specific time\n"
+                            "• `/remind to {task} every {frequency}` - for recurring\n\n"
+                            "Examples:\n"
+                            "• `/remind to check email in 1 hour`\n"
+                            "• `/remind to call mom at 3PM`\n"
+                            "• `/remind to take medicine every day at 8AM`"
+                        )
                 else:
                     # Try to parse it as a reminder anyway
-                    parsed = ReminderParser.parse(reminder_text)
+                    parsed = ReminderParser.parse_reminder(reminder_text)
                     # Check if parsing succeeded
-                    if not parsed.get('task') or not parsed.get('task').strip():
-                        await update.message.reply_text(
-                            f"❌ Couldn't understand the reminder format.\n\n"
-                            "Correct usage:\n"
-                            "• `/remind to {task}` followed by time/frequency\n"
-                            "• `/remind list` to see all reminders\n"
-                            "• `/remind delete {id}` to remove a reminder\n\n"
-                            "Example: `/remind to pay rent every month on the 1st at 9AM`"
-                        )
+                    task_val = parsed.get('task')
+                    if not task_val or not isinstance(task_val, str) or not task_val.strip():
+                        if getattr(update, 'message', None) is not None and update.message is not None:
+                            await update.message.reply_text(
+                                f"❌ Couldn't understand the reminder format.\n\n"
+                                "Correct usage:\n"
+                                "• `/remind to {task}` followed by time/frequency\n"
+                                "• `/remind list` to see all reminders\n"
+                                "• `/remind delete {id}` to remove a reminder\n\n"
+                                "Example: `/remind to pay rent every month on the 1st at 9AM`"
+                            )
                         return
                     
                     # Continue with reminder creation as if "to" was used
                     # [Rest of the reminder creation logic would go here]
-                    await update.message.reply_text(
-                        f"⚠️ I'll try to create a reminder, but please use `/remind to {reminder_text}` format next time.\n\n"
-                        "Setting reminder for: {parsed['task']}"
-                    )
+                    if getattr(update, 'message', None) is not None and update.message is not None:
+                        await update.message.reply_text(
+                            f"⚠️ I'll try to create a reminder, but please use `/remind to {reminder_text}` format next time.\n\n"
+                            "Setting reminder for: {parsed['task']}"
+                        )
             else:
-                await update.message.reply_text(
-                    "❌ Please specify a reminder command.\n\n"
-                    "Available commands:\n"
-                    "• `/remind to {task}` - create a reminder\n"
-                    "• `/remind list` - view all reminders\n"
-                    "• `/remind delete {id}` - delete a reminder"
-                )
+                if getattr(update, 'message', None) is not None and update.message is not None:
+                    await update.message.reply_text(
+                        "❌ Please specify a reminder command.\n\n"
+                        "Available commands:\n"
+                        "• `/remind to {task}` - create a reminder\n"
+                        "• `/remind list` - view all reminders\n"
+                        "• `/remind delete {id}` - delete a reminder"
+                    )
 
-    async def send_reminder(self, context: CallbackContext):
-        rem = context.job.data
+    async def send_reminder(self, context: CallbackContext[Any, Any, Any, Any]) -> None:
+        rem = getattr(context.job, 'data', None)
+        if rem is None:
+            return
 
         escaped_task = escape_markdown(rem.task, version=2)
-        is_group = rem.chat_id < 0
-        is_one_time = not rem.frequency
-        if is_group and is_one_time and rem.user_mention_md:
+        is_group = getattr(rem, 'chat_id', 0) < 0
+        is_one_time = not getattr(rem, 'frequency', None)
+        if is_group and is_one_time and getattr(rem, 'user_mention_md', None):
             msg = f"{rem.user_mention_md}: {escaped_task}"
         else:
             msg = f"⏰ REMINDER: {escaped_task}"
@@ -646,12 +698,14 @@ class ReminderManager:
 
         # handle recurring reschedule or delete
         rem.calculate_next_execution()
-        if rem.frequency or rem.date_modifier:
+        if getattr(rem, 'frequency', None) or getattr(rem, 'date_modifier', None):
             self.save_reminder(rem)
-            delay = seconds_until(rem.next_execution)
-            general_logger.info(f"[REMINDER_RECUR] Rescheduling recurring reminder (id={rem.reminder_id}, task='{rem.task}') for next execution at {rem.next_execution}")
-            if context.job_queue is not None:
-                context.job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
+            if rem.next_execution is not None:
+                delay = seconds_until(rem.next_execution)
+                general_logger.info(f"[REMINDER_RECUR] Rescheduling recurring reminder (id={getattr(rem, 'reminder_id', '?')}, task='{getattr(rem, 'task', '?')}') for next execution at {getattr(rem, 'next_execution', '?')}")
+                if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
+                    job_queue = cast('JobQueue[Any]', context.job_queue)
+                    job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{getattr(rem, 'reminder_id', '?')}")
             else:
                 general_logger.error("JobQueue is not available. Cannot schedule reminder.")
                 await context.bot.send_message(rem.chat_id, "❌ Reminder scheduling is not available. Please contact the administrator.")
@@ -659,97 +713,124 @@ class ReminderManager:
         else:
             self.delete_reminder(rem)
 
-    def schedule_startup(self, job_queue):
+    def schedule_startup(self, job_queue: Any) -> None:
         if job_queue is None:
             general_logger.warning("JobQueue is None, cannot schedule startup reminders.")
             return
         
         now = datetime.now(KYIV_TZ)
         for rem in self.load_reminders():
-            if rem.next_execution and rem.next_execution > now:
+            if getattr(rem, 'next_execution', None) and rem.next_execution is not None and rem.next_execution > now:
                 delay = seconds_until(rem.next_execution)
-                job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{rem.reminder_id}")
+                job_queue.run_once(self.send_reminder, delay, data=rem, name=f"reminder_{getattr(rem, 'reminder_id', '?')}")
 
-    async def button_callback(self, update: Update, context: CallbackContext):
+    async def button_callback(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle button callbacks for reminder actions."""
-        query = update.callback_query
+        query = getattr(update, 'callback_query', None)
+        if query is None:
+            return
         await query.answer()
         
         try:
-            data = query.data or ''
+            data = getattr(query, 'data', '') or ''
             if ':' not in data:
-                await query.message.edit_text("Invalid callback data.")
+                if getattr(query, 'message', None) is not None and query.message is not None:
+                    await query.message.edit_text("Invalid callback data.")
                 return
                 
             action, _ = data.split(':', 1)
             
             if action == 'confirm_delete_all':
                 # Check if it's a private chat or if user is admin
-                is_private = update.effective_chat.type == 'private'
+                is_private = getattr(update, 'effective_chat', None) is not None and update.effective_chat is not None and update.effective_chat.type == 'private'
                 if not is_private:
-                    chat_member = await context.bot.get_chat_member(update.effective_chat.id, update.effective_user.id)
-                    if chat_member.status not in ['creator', 'administrator']:
-                        await query.message.edit_text("❌ Only admins can delete all reminders.")
+                    chat_id = None
+                    if getattr(update, 'effective_chat', None) is not None and update.effective_chat is not None:
+                        chat_id = update.effective_chat.id
+                    user_id = None
+                    if getattr(update, 'effective_user', None) is not None and update.effective_user is not None:
+                        user_id = update.effective_user.id
+                    chat_member = await context.bot.get_chat_member(chat_id, user_id)
+                    if getattr(chat_member, 'status', None) not in ['creator', 'administrator']:
+                        if getattr(query, 'message', None) is not None and query.message is not None:
+                            await query.message.edit_text("❌ Only admins can delete all reminders.")
                         return
                 
                 # Delete all reminders
-                reminders = self.load_reminders(update.effective_chat.id)
+                chat_id = None
+                if getattr(update, 'effective_chat', None) is not None and update.effective_chat is not None:
+                    chat_id = update.effective_chat.id
+                user_id = None
+                if getattr(update, 'effective_user', None) is not None and update.effective_user is not None:
+                    user_id = update.effective_user.id
+                reminders = self.load_reminders(chat_id) if chat_id is not None else self.load_reminders()
                 for reminder in reminders:
                     self.delete_reminder(reminder)
                     # Remove any scheduled jobs for this reminder
-                    if context.job_queue is not None:
-                        jobs = context.job_queue.get_jobs_by_name(f"reminder_{reminder.reminder_id}")
+                    if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
+                        job_queue = cast('JobQueue[Any]', context.job_queue)
+                        jobs = job_queue.get_jobs_by_name(f"reminder_{getattr(reminder, 'reminder_id', '?')}")
                         for job in jobs:
                             job.schedule_removal()
                     else:
                         general_logger.warning("JobQueue not available, cannot remove scheduled jobs.")
                 
-                await query.message.edit_text("✅ All reminders have been deleted.")
+                if getattr(query, 'message', None) is not None and query.message is not None:
+                    await query.message.edit_text("✅ All reminders have been deleted.")
                 
             elif action == 'cancel_delete_all':
-                await query.message.edit_text("❌ Deletion cancelled.")
+                if getattr(query, 'message', None) is not None and query.message is not None:
+                    await query.message.edit_text("❌ Deletion cancelled.")
                 
         except Exception as e:
             error_logger.error(f"Error in button callback: {e}", exc_info=True)
-            await query.message.edit_text("❌ An error occurred while processing your request.")
+            if getattr(query, 'message', None) is not None and query.message is not None:
+                await query.message.edit_text("❌ An error occurred while processing your request.")
 
-    async def list_reminders(self, update: Update, context: CallbackContext):
+    async def list_reminders(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """List all active reminders in a visually appealing format."""
-        chat_id = update.effective_chat.id
-        user_reminders = [r for r in self.reminders if r.chat_id == chat_id]
+        chat_id = None
+        if getattr(update, 'effective_chat', None) is not None and update.effective_chat is not None:
+            chat_id = update.effective_chat.id
+        user_reminders = [r for r in self.reminders if getattr(r, 'chat_id', None) == chat_id]
 
         if not user_reminders:
-            await update.message.reply_text(
-                "🌟 *No Active Reminders* 🌟\n\n"
-                "Looks like you're all caught up! Create a new reminder with `/remind to`",
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
+            if getattr(update, 'message', None) is not None and update.message is not None:
+                await update.message.reply_text(
+                    "🌟 *No Active Reminders* 🌟\n\n"
+                    "Looks like you're all caught up! Create a new reminder with `/remind to`",
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
             return
 
         # Prepare a formatted list of reminders
         reminder_list = "🕰️ *Your Active Reminders* 🕰️\n\n"
         for reminder in user_reminders:
             # Format next execution time
-            next_exec = reminder.next_execution.strftime('%d %b %Y at %I:%M %p')
+            next_exec = getattr(reminder, 'next_execution', None)
+            next_exec_str = next_exec.strftime('%d %b %Y at %I:%M %p') if next_exec else 'N/A'
             
             # Add frequency info
-            freq_emoji = {
+            freq = getattr(reminder, 'frequency', None)
+            freq_str = str(freq) if freq is not None else ''
+            icon = {
                 'daily': '🔁',
                 'weekly': '📅',
                 'monthly': '📆',
                 'yearly': '🗓️'
-            }.get(reminder.frequency, '⏰')
+            }.get(freq_str, '⏰')
 
             reminder_list += (
-                f"*ID:* `{reminder.reminder_id}`\n"
-                f"{freq_emoji} *Task:* `{reminder.task}`\n"
-                f"🕒 *Next Reminder:* `{next_exec}`\n"
-                f"{'📆 *Frequency:* `' + reminder.frequency.capitalize() + '`' if reminder.frequency else ''}\n\n"
+                f"*ID:* `{getattr(reminder, 'reminder_id', '?')}`\n"
+                f"{icon} *Task:* `{getattr(reminder, 'task', '?')}`\n"
+                f" *Next Reminder:* `{next_exec_str}`\n"
+                f"{'📆 *Frequency:* `' + freq_str.capitalize() + '`' if freq_str else ''}\n\n"
             )
 
         reminder_list += "Use `/remind delete <id>` to remove a specific reminder."
 
-        await update.message.reply_text(
-            reminder_list,
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
+        if getattr(update, 'message', None) is not None and update.message is not None:
+            await update.message.reply_text(
+                reminder_list,
+                parse_mode=ParseMode.MARKDOWN_V2
+            )

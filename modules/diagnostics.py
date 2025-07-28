@@ -2,6 +2,7 @@ import socket
 import subprocess
 import platform
 import asyncio
+from typing import Dict, Any, Optional
 from modules.logger import general_logger, error_logger
 from urllib.parse import urlparse
 from modules.const import Config
@@ -11,14 +12,14 @@ from datetime import datetime
 
 
 # Global variables to track API health
-api_health = {
+api_health: Dict[str, Any] = {
     "last_check": None,
     "status": "unknown",
     "consecutive_failures": 0,
     "last_successful": None
 }
 
-async def run_diagnostics(url: str = None):
+async def run_diagnostics(url: Optional[str] = None) -> Dict[str, Any]:
     """
     Run network diagnostics to help troubleshoot connection issues.
     
@@ -28,7 +29,7 @@ async def run_diagnostics(url: str = None):
     Returns:
         dict: Dictionary with diagnostic results
     """
-    results = {
+    results: Dict[str, Any] = {
         "internet_connectivity": False,
         "dns_resolution": {},
         "ping_results": {},
@@ -95,12 +96,15 @@ async def run_diagnostics(url: str = None):
     
     return results
 
-async def run_api_diagnostics(api_url: str):
+async def run_api_diagnostics(api_url: str) -> Dict[str, Any]:
     """
     Run diagnostics specifically for API connections and log the results
     
     Args:
         api_url: The API base URL to test
+        
+    Returns:
+        Dict[str, Any]: Diagnostic results with status message
     """
     general_logger.info(f"Running network diagnostics for {api_url}")
     
@@ -122,21 +126,25 @@ async def run_api_diagnostics(api_url: str):
     # Generate recommendation based on results
     if not results["internet_connectivity"]:
         general_logger.error("DIAGNOSIS: No internet connectivity detected. Check network connection.")
-        return "No internet connectivity"
+        results["diagnosis"] = "No internet connectivity"
+        return results
     
     if any(result == "Failed to resolve" for result in results["dns_resolution"].values()):
         general_logger.error("DIAGNOSIS: DNS resolution issues detected. Check DNS configuration.")
-        return "DNS resolution issues"
+        results["diagnosis"] = "DNS resolution issues"
+        return results
     
     if not results["target_connection"]:
         general_logger.error(f"DIAGNOSIS: Cannot connect to API endpoint {api_url}. Check if the URL is correct and the service is available.")
-        return "API endpoint unreachable"
+        results["diagnosis"] = "API endpoint unreachable"
+        return results
     
     general_logger.info("DIAGNOSIS: Network appears to be functioning correctly. The issue may be related to authentication or API service availability.")
-    return "Network OK, potential API service issue"
+    results["diagnosis"] = "Network OK, potential API service issue"
+    return results
 
 
-async def monitor_api_health():
+async def monitor_api_health() -> None:
     """
     Periodically monitor API health and log status
     """
@@ -170,7 +178,7 @@ async def monitor_api_health():
         # Wait before next check (5 minutes)
         await asyncio.sleep(300)
 
-async def test_api_connectivity():
+async def test_api_connectivity() -> bool:
     """
     Test basic API connectivity with a minimal request
 
@@ -200,7 +208,7 @@ async def test_api_connectivity():
         return False
 
 # Function to start the monitoring in the background
-def start_api_monitoring():
+def start_api_monitoring() -> None:
     """
     Start the API monitoring as a background task
     """

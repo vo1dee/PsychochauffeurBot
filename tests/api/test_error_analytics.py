@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 # Skip testing ErrorTracker for now
 class TestErrorAnalytics(unittest.TestCase):
-    def test_placeholder(self):
+    def test_placeholder(self) -> None:
         """Placeholder test"""
         self.assertTrue(True)
 

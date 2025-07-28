@@ -5,7 +5,7 @@ import glob
 import os
 from modules.database import Database
 
-async def migrate_logs():
+async def migrate_logs() -> None:
     """
     Migrate chat logs from log files to PostgreSQL database.
     """

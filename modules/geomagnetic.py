@@ -8,6 +8,8 @@ from typing import Dict, List, Optional, Any
 import logging
 from datetime import datetime
 import pytz
+from telegram import Update
+from telegram.ext import CallbackContext
 
 from modules.logger import general_logger, error_logger
 from modules.const import KYIV_TZ
@@ -19,7 +21,7 @@ METEOFOR_URL = "https://meteofor.com.ua/weather-kyiv-4944/gm/"
 class GeomagneticData:
     """Structure for holding geomagnetic activity information."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.current_value: Optional[int] = None
         self.current_description: Optional[str] = None
         self.forecast: List[Dict[str, Any]] = []
@@ -56,12 +58,13 @@ class GeomagneticData:
                 return "Екстремальний шторм"
         
         # Group forecast by dates
-        dates = {}
+        dates: Dict[str, List[Dict[str, Any]]] = {}
         for item in self.forecast:
             date = item.get('date')
-            if date not in dates:
-                dates[date] = []
-            dates[date].append(item)
+            if date is not None:
+                if date not in dates:
+                    dates[date] = []
+                dates[date].append(item)
         
         # Calculate averages for today and tomorrow
         today_avg = tomorrow_avg = 0
@@ -130,9 +133,9 @@ class GeomagneticData:
 class GeomagneticAPI:
     """Handler for geomagnetic data from METEOFOR website."""
     
-    def __init__(self):
-        self.cache = None
-        self.last_update = None
+    def __init__(self) -> None:
+        self.cache: Optional[GeomagneticData] = None
+        self.last_update: Optional[datetime] = None
         self.cache_duration = 3600  # Cache for 1 hour
     
     @handle_errors(feedback_message="Помилка при отриманні даних про геомагнітну активність.")
@@ -205,9 +208,12 @@ class GeomagneticAPI:
             # Extract legend
             legend_items = soup.select('.legend-gm .legend-item')
             for item in legend_items:
-                value = item.select_one('.legend-icon').text.strip()
-                description = item.select_one('.legend-description').text.strip()
-                data.legend[value] = description
+                icon_element = item.select_one('.legend-icon')
+                desc_element = item.select_one('.legend-description')
+                if icon_element and desc_element:
+                    value = icon_element.text.strip()
+                    description = desc_element.text.strip()
+                    data.legend[value] = description
             
             # Update cache
             self.cache = data
@@ -239,11 +245,11 @@ class GeomagneticAPI:
 class GeomagneticCommandHandler:
     """Handler for geomagnetic activity telegram commands."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.geomagnetic_api = GeomagneticAPI()
     
     @handle_errors(feedback_message="Помилка при обробці запиту геомагнітної активності.")
-    async def __call__(self, update, context):
+    async def __call__(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle /gm command."""
         general_logger.info("Received geomagnetic command")
         
@@ -253,15 +259,17 @@ class GeomagneticCommandHandler:
             
             if data:
                 # Send formatted message with Markdown V2
-                await update.message.reply_text(
-                    data.format_message(),
-                    parse_mode='MarkdownV2'
-                )
+                if update.message:
+                    await update.message.reply_text(
+                        data.format_message(),
+                        parse_mode='MarkdownV2'
+                    )
             else:
-                await update.message.reply_text(
-                    "Не вдалося отримати дані про геомагнітну активність\\. Спробуйте пізніше\\.",
-                    parse_mode='MarkdownV2'
-                )
+                if update.message:
+                    await update.message.reply_text(
+                        "Не вдалося отримати дані про геомагнітну активність\\. Спробуйте пізніше\\.",
+                        parse_mode='MarkdownV2'
+                    )
                 
         except Exception as e:
             error = ErrorHandler.create_error(

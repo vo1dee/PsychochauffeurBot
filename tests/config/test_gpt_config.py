@@ -9,6 +9,7 @@ import json
 import tempfile
 from unittest.mock import patch, mock_open, MagicMock
 from datetime import datetime
+import typing
 
 # Add the project root to the Python path so we can import modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -16,8 +17,25 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 from config.config_manager import ConfigManager
 from modules.gpt import get_system_prompt
 
+@pytest.fixture
+def gpt_config() -> typing.Any:
+    """Fixture to provide a mock chat config for testing."""
+    return {
+        "config_modules": {
+            "gpt": {
+                "overrides": {
+                    "command": {"system_prompt": "Command prompt"},
+                    "mention": {"system_prompt": "Mention prompt"},
+                    "private": {"system_prompt": "Private prompt"},
+                    "random": {"system_prompt": "Random prompt"},
+                }
+            }
+        },
+        "chat_metadata": {"custom_config_enabled": True},
+    }
+
 @pytest.mark.asyncio
-async def test_gpt_config():
+async def test_gpt_config(gpt_config: typing.Any) -> None:
     """Test GPT configuration specifically for your chat."""
     
     print("🧪 Testing GPT Configuration...")

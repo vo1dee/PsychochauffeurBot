@@ -1,7 +1,7 @@
 import asyncio
 from modules.database import Database
 
-async def initialize_database():
+async def initialize_database() -> None:
     """
     Initialize the PostgreSQL database by creating tables.
     This is a one-time setup function.
