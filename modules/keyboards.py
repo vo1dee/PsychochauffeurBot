@@ -1,7 +1,7 @@
 import hashlib
 import os
 import re
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Message
 from telegram.ext import CallbackContext
 from typing import Any, Optional, List, Union, Dict
 from modules.logger import general_logger,error_logger
@@ -255,7 +255,8 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
         if action == 'translate':
             general_logger.info("Creating language menu")
             keyboard = create_language_menu(original_link, link_hash)  # Pass both arguments
-            if hasattr(query.message, 'text') and hasattr(query.message, 'edit_text') and query.message.text:
+            if (isinstance(query.message, Message) and 
+                hasattr(query.message, 'text') and hasattr(query.message, 'edit_text') and query.message.text):
                 # Check if keyboard is different from current one
                 current_keyboard = query.message.reply_markup
                 if keyboard != current_keyboard:
@@ -294,7 +295,8 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
 
         if new_link:
             # Update message with new link
-            if hasattr(query.message, 'text') and hasattr(query.message, 'edit_text') and query.message.text:
+            if (isinstance(query.message, Message) and 
+                hasattr(query.message, 'text') and hasattr(query.message, 'edit_text') and query.message.text):
                 new_message = query.message.text.replace(original_link, new_link)
                 
                 # Check if content actually changed
