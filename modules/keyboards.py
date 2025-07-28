@@ -256,10 +256,15 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
             general_logger.info("Creating language menu")
             keyboard = create_language_menu(original_link, link_hash)  # Pass both arguments
             if hasattr(query.message, 'text') and hasattr(query.message, 'edit_text') and query.message.text:
-                await query.message.edit_text(
-                    text=query.message.text,
-                    reply_markup=keyboard
-                )
+                # Check if keyboard is different from current one
+                current_keyboard = query.message.reply_markup
+                if keyboard != current_keyboard:
+                    await query.message.edit_text(
+                        text=query.message.text,
+                        reply_markup=keyboard
+                    )
+                else:
+                    general_logger.info("Keyboard unchanged, skipping edit")
             return
 
         # Handle all other link modifications
@@ -281,11 +286,20 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
         elif action == 'translate_remove':
             new_link = modify_language(original_link, 'none')
             general_logger.info(f"Removed translation: {new_link}")
+        
+        # Validate that the link actually changed
+        if new_link and new_link == original_link:
+            general_logger.info(f"Link modification resulted in same link, skipping edit: {new_link}")
+            new_link = None
 
         if new_link:
             # Update message with new link
             if hasattr(query.message, 'text') and hasattr(query.message, 'edit_text') and query.message.text:
                 new_message = query.message.text.replace(original_link, new_link)
+                
+                # Check if content actually changed
+                current_text = query.message.text
+                current_keyboard = query.message.reply_markup
                 
                 # Store new link hash
                 new_hash = hashlib.md5(new_link.encode()).hexdigest()[:8]
@@ -294,10 +308,14 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
                 # Create updated keyboard
                 keyboard = create_link_keyboard(new_link, context)
                 
-                await query.message.edit_text(
-                    text=new_message,
-                    reply_markup=keyboard
-                )
+                # Only edit if content or keyboard changed
+                if new_message != current_text or keyboard != current_keyboard:
+                    await query.message.edit_text(
+                        text=new_message,
+                        reply_markup=keyboard
+                    )
+                else:
+                    general_logger.info("Message content and keyboard unchanged, skipping edit")
             else:
                 error_logger.error("Message text is None, cannot replace link")
                 if hasattr(query.message, 'edit_text'):
@@ -309,8 +327,20 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
 
     except Exception as e:
         error_logger.error(f"Error in button callback: {str(e)}", exc_info=True)
+        
+        # Handle specific Telegram API errors
+        if "Message is not modified" in str(e):
+            general_logger.info("Message content unchanged, no edit needed")
+            return
+        
         if query and query.message and hasattr(query.message, 'edit_text'):
-            await query.message.edit_text(f"❌ Error: {str(e)}")
+            try:
+                await query.message.edit_text(f"❌ Error: {str(e)}")
+            except Exception as edit_error:
+                if "Message is not modified" in str(edit_error):
+                    general_logger.info("Error message also unchanged, skipping")
+                else:
+                    error_logger.error(f"Failed to edit error message: {str(edit_error)}")
 
 
 
@@ -393,13 +423,19 @@ def create_language_menu(link: str, link_hash: str) -> Optional[InlineKeyboardMa
 def modify_language(link: str, lang: str) -> str:
     """Modify link language"""
     base_link = link
+    current_lang = None
     
-    # Remove any existing language suffix
+    # Remove any existing language suffix and track current language
     for option in LANGUAGE_OPTIONS_CONFIG:
         lang_suffix = f"/{option['action']}"
         if base_link.endswith(lang_suffix):
+            current_lang = option['action']
             base_link = base_link[:-len(lang_suffix)]
             break
+    
+    # If trying to set the same language that's already set, return original
+    if current_lang == lang:
+        return link
     
     # Add new language if not 'none'
     if lang != 'none':
