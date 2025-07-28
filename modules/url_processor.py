@@ -16,7 +16,7 @@ from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, Er
 
 # URL shortener cache and rate limiter
 _url_shortener_cache: dict[str, str] = {}
-_shortener_calls: deque = deque()
+_shortener_calls: deque[float] = deque()
 _SHORTENER_MAX_CALLS_PER_MINUTE: int = int(os.getenv('SHORTENER_MAX_CALLS_PER_MINUTE', '30'))
 
 # Meta platform domains
@@ -116,7 +116,7 @@ async def shorten_url(url: str) -> str:
         
     # Check rate limit
     current_time = datetime.now()
-    while _shortener_calls and (current_time - _shortener_calls[0]).total_seconds() > 60:
+    while _shortener_calls and (current_time - datetime.fromtimestamp(_shortener_calls[0])).total_seconds() > 60:
         _shortener_calls.popleft()
         
     if len(_shortener_calls) >= _SHORTENER_MAX_CALLS_PER_MINUTE:
@@ -126,9 +126,13 @@ async def shorten_url(url: str) -> str:
     try:
         shortener = pyshorteners.Shortener()
         shortened = shortener.tinyurl.short(url)
-        _url_shortener_cache[url] = shortened
-        _shortener_calls.append(current_time)
-        return shortened
+        if isinstance(shortened, str):
+            _url_shortener_cache[url] = shortened
+            _shortener_calls.append(current_time.timestamp())
+            return shortened
+        else:
+            # Fallback if shortening fails
+            return url
         
     except Exception as e:
         error_logger.error(f"URL shortening failed: {str(e)}", exc_info=True)

@@ -35,12 +35,23 @@ python-web-screenshots/*
 # downloads
 downloads/*
 
+# Test Suite Optimizer temporary files
+test_suite_optimizer_project/temp_files/*
+test_suite_optimizer_project/analysis_results/*.json
+test_suite_optimizer_project/reports/*.json
+
+# Project management temporary files
+project_management/temp/*
+
 # Data files
 *.json
 reminders.json
 
-# Allow global config template to be tracked
+# Allow specific config files to be tracked
 !config/global/global_config.json
+!test_suite_optimizer_project/analysis_results/.gitkeep
+!test_suite_optimizer_project/reports/.gitkeep
+!test_suite_optimizer_project/temp_files/.gitkeep
 
 ### IDE and Editor Files ###
 # VS Code
@@ -110,3 +121,6 @@ downloads/
 *.m4v
 *.part
 *.temp
+
+# Ignore analysis results
+analysis_results/

@@ -31,13 +31,13 @@ analytics_logger = logging.getLogger('analytics_logger')
 
 class ErrorTracker:
     """
-    Track and analyze errors for system diagnostics and improvement.
+    Enhanced error tracking and analytics for system diagnostics and improvement.
     
     This class maintains statistics about errors that occur in the application,
     including counts by category, severity, and time period.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.stats: Dict[str, Any] = {
             "total_errors": 0,
             "by_category": {},
@@ -49,8 +49,8 @@ class ErrorTracker:
         }
         self.error_history: List[Dict[str, Any]] = []
         self.lock = Lock()
-        self._save_task = None
-        self._analyze_task = None
+        self._save_task: Optional[asyncio.Task[None]] = None
+        self._analyze_task: Optional[asyncio.Task[None]] = None
         
         # Ensure directories exist
         os.makedirs(ANALYTICS_DIR, exist_ok=True)
@@ -204,14 +204,19 @@ class ErrorTracker:
         with self.lock:
             try:
                 # Find common error messages
-                message_counts = defaultdict(int)
+                message_counts: Dict[str, int] = defaultdict(int)
                 for entry in self.error_history:
                     message_counts[entry["message"]] += 1
                 
                 # Sort by frequency and get top 10
+                error_list = [{"message": msg, "count": count} for msg, count in message_counts.items()]
+                # Use a type-safe key function
+                def get_count(item: Dict[str, Any]) -> int:
+                    return int(item["count"])
+                
                 common_errors = sorted(
-                    [{"message": msg, "count": count} for msg, count in message_counts.items()],
-                    key=lambda x: x["count"],
+                    error_list,
+                    key=get_count,
                     reverse=True
                 )[:10]
                 
@@ -298,18 +303,20 @@ class ErrorTracker:
     async def stop(self) -> None:
         """Stop the periodic tasks."""
         try:
-            if self._save_task is not None:
-                self._save_task.cancel()
+            save_task = self._save_task
+            if save_task is not None:
+                save_task.cancel()
                 try:
-                    await self._save_task
+                    await save_task
                 except asyncio.CancelledError:
                     pass
                 self._save_task = None
 
-            if self._analyze_task is not None:
-                self._analyze_task.cancel()
+            analyze_task = self._analyze_task
+            if analyze_task is not None:
+                analyze_task.cancel()
                 try:
-                    await self._analyze_task
+                    await analyze_task
                 except asyncio.CancelledError:
                     pass
                 self._analyze_task = None
@@ -320,7 +327,7 @@ class ErrorTracker:
             # Don't raise the exception, just log it
 
 # Initialize the error tracker
-error_tracker = ErrorTracker()
+error_tracker: ErrorTracker = ErrorTracker()
 
 def track_error(error: StandardError) -> None:
     """
@@ -352,7 +359,7 @@ def get_recent_errors(limit: int = 10) -> List[Dict[str, Any]]:
     """
     return error_tracker.get_recent_errors(limit)
 
-async def error_report_command(update, context) -> None:
+async def error_report_command(update: Any, context: Any) -> None:
     """
     Telegram command to get error statistics report.
     

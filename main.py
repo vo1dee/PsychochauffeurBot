@@ -9,9 +9,9 @@ import os
 import signal
 import sys
 from datetime import datetime
-import re
 import hashlib
-import logging
+import asyncpg
+import subprocess
 
 # Third-party imports
 import nest_asyncio
@@ -21,51 +21,46 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
     CallbackContext, CallbackQueryHandler, ContextTypes, Application
 )
-from telegram.error import BadRequest
-
+from typing import Any, Dict, Optional
 # Local module imports
 from modules.keyboards import create_link_keyboard, button_callback, get_language_keyboard
 from modules.utils import (
-    ScreenshotManager, MessageCounter, screenshot_command, cat_command,
+    MessageCounter, screenshot_command, cat_command,
     init_directories, chat_history_manager
 )
-from modules.image_downloader import ImageDownloader
+
 from modules.const import (
-    KYIV_TZ, VideoPlatforms, LinkModification, Config, Stickers
+    KYIV_TZ, Config, Stickers
 )
 from modules.gpt import (
-    ask_gpt_command, analyze_command, answer_from_gpt, handle_photo_analysis,
+    ask_gpt_command, analyze_command, handle_photo_analysis,
     gpt_response, mystats_command
 )
 from modules.count_command import count_command, missing_command
 from modules.weather import WeatherCommandHandler
 from modules.logger import (
-    TelegramErrorHandler,
-    general_logger, chat_logger, error_logger,
+    general_logger, error_logger,
     init_telegram_error_handler, shutdown_logging
 )
 from modules.user_management import restrict_user, handle_restriction_sticker
 from modules.video_downloader import setup_video_handlers
-from modules.error_handler import handle_errors, ErrorHandler, ErrorCategory, ErrorSeverity
+from modules.error_handler import handle_errors
 from modules.geomagnetic import GeomagneticCommandHandler
 from modules.reminders.reminders import ReminderManager
-from modules.error_analytics import error_report_command, error_tracker
+from modules.error_analytics import error_report_command
 from config.config_manager import ConfigManager
 from modules.safety import safety_manager
-from modules.url_processor import (
-    sanitize_url, shorten_url, extract_urls,
-    is_modified_domain, modify_url, is_meta_platform
-)
+from modules.url_processor import extract_urls
 from modules.message_processor import (
     needs_gpt_response, update_message_history,
     get_previous_message, process_message_content,
     should_restrict_user
 )
-from modules.keyboard_translator import keyboard_mapping
+
 from modules.database import Database
-from modules.message_handler import setup_message_handlers, handle_gpt_reply
-from modules.chat_streamer import chat_streamer
-from modules.speechmatics import transcribe_telegram_voice, SpeechmaticsLanguageNotExpected, SpeechmaticsRussianDetected, SpeechmaticsNoSpeechDetected
+from modules.message_handler import setup_message_handlers
+
+from modules.speechmatics import transcribe_telegram_voice, SpeechmaticsLanguageNotExpected, SpeechmaticsNoSpeechDetected
 
 # Apply nest_asyncio at the very beginning, as it's crucial for the event loop.
 nest_asyncio.apply()
@@ -76,7 +71,7 @@ reminder_manager = ReminderManager()
 config_manager = ConfigManager()
 
 # Global persistent mapping for file_id hashes
-file_id_hash_map = {}
+file_id_hash_map: Dict[str, str] = {}
 
 # --- Command Handlers ---
 @handle_errors(feedback_message="An error occurred in /start command.")
@@ -99,25 +94,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• Reminders -- /remind\n\n"
         "❓ Questions or issues?\n"
         "Contact @vo1dee"
-    )
-    await update.message.reply_text(welcome_text)
+        )
+    if update.message:
+        await update.message.reply_text(welcome_text)
     # Add a static test button for callback debugging
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    await update.message.reply_text(
-        "Test callback button:",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Test Callback", callback_data="test_callback")]
-        ])
-    )
-    general_logger.info(f"Handled /start command for user {update.effective_user.id}")
+    if update.message:
+        await update.message.reply_text(
+            "Test callback button:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Test Callback", callback_data="test_callback")]
+            ])
+        )
+    if update.effective_user:
+        general_logger.info(f"Handled /start command for user {update.effective_user.id}")
 
 @handle_errors(feedback_message="An error occurred while processing your message.")
-async def handle_message(update: Update, context: CallbackContext) -> None:
+async def handle_message(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle incoming non-command text messages."""
     if not update.message or not update.message.text:
         return
-        
+
     message_text = update.message.text.strip()
+    if not update.message.from_user:
+        return
     user_id = update.message.from_user.id
     # Update message history at the very start
     update_message_history(user_id, message_text)
@@ -125,9 +125,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # Safeguard: Explicitly ignore commands to prevent interference with CommandHandlers
     if message_text.startswith('/'):
         return
-    
+
     # --- БЛЯ! TRANSLATION COMMAND ---
     if message_text.lower() == "бля!":
+        if not update.message.from_user:
+            return
         username = update.message.from_user.username or "User"
         previous_message = get_previous_message(user_id)
         if not previous_message:
@@ -140,8 +142,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         return
     # --- END БЛЯ! TRANSLATION COMMAND ---
 
+    if update.effective_chat is None:
+        print("[DEBUG] No effective chat found in update")
+        return
     chat_id = update.effective_chat.id
-    
+
     # Update chat history for context using the global manager
     chat_history_manager.add_message(chat_id, {
         'text': message_text,
@@ -149,19 +154,19 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         'user_id': user_id,
         'timestamp': update.message.date
     })
-    
+
     # Check for user restrictions
     if should_restrict_user(message_text):
         await restrict_user(update, context)
         return
-    
+
     # Process message content and extract URLs
     cleaned_text, modified_links = process_message_content(message_text)
-    
+
     # If all modified links are AliExpress, skip sending the "modified link" message
-    if modified_links and all("aliexpress.com" in link for link in modified_links):
+    if modified_links and all(link.lower().startswith(('https://aliexpress.com/', 'https://www.aliexpress.com/', 'https://m.aliexpress.com/')) for link in modified_links):
         return
-    
+
     # Check for GPT response
     needs_response, response_type = needs_gpt_response(update, context, message_text)
     if needs_response:
@@ -170,54 +175,61 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     # --- RANDOM GPT RESPONSE LOGIC ---
     # Only in group chats, not private
-    if update.effective_chat.type in {"group", "supergroup"}:
-        chat_id = str(update.effective_chat.id)
-        chat_type = update.effective_chat.type
-        config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior")
-        
-        # Check if chat_behavior module is enabled
-        module_enabled = config.get("enabled", False)
-        overrides = config.get("overrides", {})
-        random_settings = overrides.get("random_response_settings", {})
-        random_enabled = random_settings.get("enabled", False)
-        
-        # Both module and random settings must be enabled
-        if module_enabled and random_enabled:
-            min_words = random_settings.get("min_words", 5)
-            message_threshold = random_settings.get("message_threshold", 50)
-            probability = random_settings.get("probability", 0.02)
-            
-            # Only consider messages with enough words
-            if len(message_text.split()) >= min_words:
-                count = message_counter.increment(update.effective_chat.id)
-                general_logger.info(f"Random response check: chat_id={chat_id}, count={count}/{message_threshold}, probability={probability}")
-                
-                if count >= message_threshold:
-                    import random
-                    if random.random() < probability:
-                        message_counter.reset(update.effective_chat.id)
-                        general_logger.info(f"Triggering random response in chat {chat_id}")
-                        await gpt_response(update, context, response_type="random", message_text_override=cleaned_text)
-                        return
+    if update.effective_chat and update.effective_chat.type in {"group", "supergroup"}:
+        # Block random GPT response if message contains any link
+        if extract_urls(message_text):
+            pass  # Do not trigger random GPT
         else:
-            # Log why random responses are disabled
-            if not module_enabled:
-                general_logger.debug(f"Random responses disabled: chat_behavior module not enabled in chat {chat_id}")
-            elif not random_enabled:
-                general_logger.debug(f"Random responses disabled: random_response_settings not enabled in chat {chat_id}")
+            if not update.effective_chat:
+                return
+            chat_id = update.effective_chat.id
+            chat_type = update.effective_chat.type
+            config = await config_manager.get_config(chat_id=str(chat_id), chat_type=chat_type, module_name="chat_behavior")
+
+            # Check if chat_behavior module is enabled
+            module_enabled = config.get("enabled", False)
+            overrides = config.get("overrides", {})
+            random_settings = overrides.get("random_response_settings", {})
+            random_enabled = random_settings.get("enabled", False)
+
+            # Both module and random settings must be enabled
+            if module_enabled and random_enabled:
+                min_words = random_settings.get("min_words", 5)
+                message_threshold = random_settings.get("message_threshold", 50)
+                probability = random_settings.get("probability", 0.02)
+
+                # Only consider messages with enough words
+                if len(message_text.split()) >= min_words:
+                    count = message_counter.increment(update.effective_chat.id)
+                    general_logger.info(f"Random response check: chat_id={chat_id}, count={count}/{message_threshold}, probability={probability}")
+
+                    if count >= message_threshold:
+                        import random
+                        if random.random() < probability:
+                            message_counter.reset(update.effective_chat.id)
+                            general_logger.info(f"Triggering random response in chat {chat_id}")
+                            await gpt_response(update, context, response_type="random", message_text_override=cleaned_text)
+                            return
+            else:
+                # Log why random responses are disabled
+                if not module_enabled:
+                    general_logger.debug(f"Random responses disabled: chat_behavior module not enabled in chat {chat_id}")
+                elif not random_enabled:
+                    general_logger.debug(f"Random responses disabled: random_response_settings not enabled in chat {chat_id}")
 
     # Handle modified links if any were found
     if modified_links:
         await process_urls(update, context, modified_links, cleaned_text)
 
 @handle_errors(feedback_message="An error occurred while processing your links.")
-async def process_urls(update: Update, context: CallbackContext, urls: list[str], message_text: str) -> None:
+async def process_urls(update: Update, context: CallbackContext[Any, Any, Any, Any], urls: list[str], message_text: str) -> None:
     """Process URLs in the message."""
-    chat_id = update.effective_chat.id
+    if not update.message or not update.message.from_user:
+        return
     username = update.message.from_user.username or f"ID:{update.message.from_user.id}"
-    
-    if urls:
-        await construct_and_send_message(chat_id, username, message_text, urls, update, context)
+
+    if urls and update.effective_chat:
+        await construct_and_send_message(update.effective_chat.id, username, message_text, urls, update, context)
 
 @handle_errors(feedback_message="An error occurred while constructing the message.")
 async def construct_and_send_message(
@@ -226,7 +238,7 @@ async def construct_and_send_message(
     cleaned_message_text: str,
     modified_links: list[str],
     update: Update,
-    context: CallbackContext
+    context: CallbackContext[Any, Any, Any, Any]
 ) -> None:
     """Construct and send a message with modified links."""
     try:
@@ -245,9 +257,9 @@ async def construct_and_send_message(
             escaped_links.append(escaped_url)
         message = f"@{escaped_username} хотів відправити:\n{escaped_text}"
         keyboard = create_link_keyboard(escaped_links, context)
-        
+
         # Check if the original message was a reply to another message
-        if update.message.reply_to_message:
+        if update.message and update.message.reply_to_message:
             # If it was a reply, send the modified link message as a reply to the parent message
             await update.message.reply_to_message.reply_text(
                 text=message,
@@ -256,24 +268,25 @@ async def construct_and_send_message(
             )
         else:
             # If it wasn't a reply, send the modified link message as a reply to the original message
-            await update.message.reply_text(
-                text=message,
-                reply_markup=keyboard,
-                parse_mode=ParseMode.MARKDOWN_V2
-            )
+            if update.message:
+                await update.message.reply_text(
+                    text=message,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.MARKDOWN_V2
+                )
     except Exception as e:
         error_logger.error(f"Failed to send message: {str(e)}", exc_info=True)
         raise
 
 @handle_errors(feedback_message="An error occurred while handling sticker.")
-async def handle_sticker(update: Update, context: CallbackContext) -> None:
+async def handle_sticker(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle sticker messages."""
     if not update.message or not update.message.sticker:
         return
-        
+
     sticker = update.message.sticker
     general_logger.info(f"Received sticker: {sticker.file_id} ({sticker.file_unique_id})")
-    
+
     # Check if this is a restriction sticker
     if sticker.file_unique_id in [
         "AgAD9hQAAtMUCVM",
@@ -284,14 +297,14 @@ async def handle_sticker(update: Update, context: CallbackContext) -> None:
         await handle_restriction_sticker(update, context)
 
 @handle_errors(feedback_message="An error occurred while handling location.")
-async def handle_location(update: Update, context: CallbackContext) -> None:
+async def handle_location(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """Handle location messages by replying with a sticker."""
     if not update.message or not update.message.location:
         return
-        
+
     location = update.message.location
     general_logger.info(f"Received location: lat={location.latitude}, lon={location.longitude}")
-    
+
     try:
         # Reply with the location sticker
         await update.message.reply_sticker(sticker=Stickers.LOCATION)
@@ -303,97 +316,124 @@ async def handle_location(update: Update, context: CallbackContext) -> None:
 @handle_errors(feedback_message="An error occurred in /ping command.")
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /ping command."""
-    await update.message.reply_text("Pong! 🏓")
-    general_logger.info(f"Handled /ping command for user {update.effective_user.id}")
+    if update.message:
+        await update.message.reply_text("Pong! 🏓")
+    if update.effective_user:
+        general_logger.info(f"Handled /ping command for user {update.effective_user.id}")
 
 # --- Speech Recognition State Management ---
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if the user is an admin in the chat."""
     chat = update.effective_chat
     user = update.effective_user
+
+    if not chat or not user:
+        return False
+
     if chat.type == 'private':
         return True
-    member = await context.bot.get_chat_member(chat.id, user.id)
-    return member.status in {"administrator", "creator"}
 
-async def get_speech_config(chat_id: str, chat_type: str):
-    config = await config_manager.get_config(chat_id, chat_type)
-    return config.get("config_modules", {}).get("speechmatics", {})
+    member = await context.bot.get_chat_member(chat.id, user.id)
+    return member.status in ['creator', 'administrator']
+
+async def get_speech_config(chat_id: str, chat_type: str) -> Optional[Dict[str, Any]]:
+    """Get speech configuration for a chat."""
+    config = await config_manager.get_config(chat_id=chat_id, chat_type=chat_type, module_name="speechmatics")
+    if config:
+        result = config.get("config_modules", {}).get("speechmatics", {})
+        return result  # type: ignore[no-any-return]
+    return None
 
 @handle_errors(feedback_message="An error occurred in /speech command.")
 async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /speech command."""
+    if not update.effective_chat or not update.effective_user:
+        return
+
     chat_id = str(update.effective_chat.id)
     chat_type = update.effective_chat.type
     user_id = update.effective_user.id
-    args = context.args if hasattr(context, 'args') else []
+
     speech_config = await get_speech_config(chat_id, chat_type)
-    # Ensure 'overrides' exists in config before updating
+
+    if not speech_config:
+        speech_config = {}
+
     if 'overrides' not in speech_config:
         speech_config['overrides'] = {}
-        # Save the updated config immediately
-        config = await config_manager.get_config(chat_id, chat_type)
-        config['config_modules']['speechmatics'] = speech_config
-        await config_manager.save_config(config, chat_id, chat_type)
+
+    if 'enabled' not in speech_config:
+        speech_config['enabled'] = False
+
     overrides = speech_config.get("overrides", {})
-    allow_all = overrides.get("allow_all_users", False)
-    if not allow_all and not await is_admin(update, context):
-        await update.message.reply_text("❌ Only admins can use this command.")
+
+    # Check if user is admin
+    if not await is_admin(update, context):
+        if update.message:
+            await update.message.reply_text("❌ Only admins can use this command.")
         return
-    if not args or args[0] not in ("on", "off"):
-        await update.message.reply_text("Usage: /speech on|off")
+
+    if not context.args:
+        if update.message:
+            await update.message.reply_text("Usage: /speech on|off")
         return
-    enabled = args[0] == "on"
-    # Update config
-    await config_manager.update_module_setting(
-        module_name="speechmatics",
-        setting_path="overrides.enabled",
-        value=enabled,
-        chat_id=chat_id,
-        chat_type=chat_type
-    )
-    await update.message.reply_text(f"Speech recognition {'enabled' if enabled else 'disabled'}.")
+
+    enabled = context.args[0].lower() == "on"
+    speech_config['enabled'] = enabled
+
+    # Save the updated config
+    await config_manager.save_config(chat_id=str(chat_id), chat_type=chat_type, module_name="speechmatics", **speech_config)
+
+    if update.message:
+        await update.message.reply_text(f"Speech recognition {'enabled' if enabled else 'disabled'}.")
 
 # --- Voice/Video Note Handler ---
 @handle_errors(feedback_message="An error occurred during speech recognition.")
 async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle voice and video note messages."""
+    if not update.effective_chat:
+        return
+
     chat_id = str(update.effective_chat.id)
     chat_type = update.effective_chat.type
+
     speech_config = await get_speech_config(chat_id, chat_type)
-    if not speech_config.get("enabled", False):
+
+    if not speech_config or not speech_config.get("enabled", False):
         return
+
+    if not update.message:
+        return
+
     message = update.message
+    if not message.from_user:
+        return
+
     user = message.from_user
     file_id = None
+
     if message.voice:
         file_id = message.voice.file_id
     elif message.video_note:
         file_id = message.video_note.file_id
     else:
         return
-    # Instead of auto recognition, send the button
+
+    # Send the speech recognition button
     await send_speech_recognition_button(update, context)
-    # If you want to keep auto recognition as fallback, comment out the next lines
-    # progress_msg = await update.message.reply_text("📝 Transcribing voice message...")
-    # try:
-    #     transcript = await transcribe_telegram_voice(context.bot, file_id, language="auto")
-    #     username = user.username or user.first_name or f"ID:{user.id}"
-    #     text = f"🗣️ {username} (Speech):\n{transcript}"
-    #     chat_streamer._chat_logger.info(f"[{username}] (Speech): {transcript}", extra={
-    #         'chat_id': chat_id,
-    #         'chat_type': chat_type,
-    #         'chattitle': update.effective_chat.title or f"Private_{chat_id}",
-    #         'username': username
-    #     })
-    #     await context.bot.send_message(chat_id=chat_id, text=text)
-    # except ...
-    #     ...
-    # await progress_msg.delete()
 
 # --- Speech Recognition Callback Handler ---
 @handle_errors(feedback_message="An error occurred during manual speech recognition.")
-async def speechrec_callback(update: Update, context: CallbackContext):
+async def speechrec_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     query = update.callback_query
+    if query is None:
+        print("[DEBUG] No callback query found in update")
+        return
     await query.answer()
     data = query.data
+    if data is None:
+        await query.edit_message_text("❌ Invalid callback data.")
+        return
     # Debug log for callback data
     print(f"[DEBUG] speechrec_callback received data: {data}")
     print(f"[DEBUG] file_id_hash_map keys: {list(file_id_hash_map.keys())}")
@@ -410,11 +450,17 @@ async def speechrec_callback(update: Update, context: CallbackContext):
     await query.edit_message_text("🔄 Recognizing speech, please wait...")
     try:
         transcript = await transcribe_telegram_voice(context.bot, file_id, language="auto")
+        if update.effective_chat is None:
+            print("[DEBUG] No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"🗣️ Recognized speech:\n{transcript}"
         )
     except SpeechmaticsNoSpeechDetected:
+        if update.effective_chat is None:
+            print("[DEBUG] No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="❌ No speech was detected in the audio. Please try again with a clearer voice message."
@@ -423,12 +469,18 @@ async def speechrec_callback(update: Update, context: CallbackContext):
         file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
         file_id_hash_map[file_hash] = file_id
         keyboard = get_language_keyboard(file_hash)
+        if update.effective_chat is None:
+            print("[DEBUG] No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="❌ Couldn't recognize the language. Please choose the correct language:",
             reply_markup=keyboard
         )
     except Exception as e:
+        if update.effective_chat is None:
+            print("[DEBUG] No effective chat found in update")
+            return
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"❌ Speech recognition failed: {e}"
@@ -436,17 +488,23 @@ async def speechrec_callback(update: Update, context: CallbackContext):
 
 # --- Restore language_selection_callback for language selection buttons ---
 @handle_errors(feedback_message="An error occurred during manual language selection.")
-async def language_selection_callback(update: Update, context: CallbackContext):
+async def language_selection_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     print("[DEBUG] Callback handler entered (any callback)")
     print(f"[DEBUG] Full update: {update}")
     query = update.callback_query
+    if query is None:
+        print("[DEBUG] No callback query found in update")
+        return
     await query.answer()
     data = query.data
+    if data is None:
+        await query.edit_message_text("❌ Invalid callback data.")
+        return
     print(f"[DEBUG] Language selection callback triggered. Data: {data}")
     if data == "test_callback":
         await query.edit_message_text("✅ Test callback received and handled!")
         return
-    if '|' not in data:
+    if data is None or '|' not in data:
         print(f"[DEBUG] Invalid callback data received: {data}")
         await query.edit_message_text("❌ Invalid callback data. Please try again.")
         return
@@ -483,11 +541,18 @@ async def language_selection_callback(update: Update, context: CallbackContext):
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 # Utility to send a speech recognition button as a reply to a voice message
-async def send_speech_recognition_button(update, context):
+async def send_speech_recognition_button(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     message = update.message
     if not message or (not message.voice and not message.video_note):
         return
-    file_id = message.voice.file_id if message.voice else message.video_note.file_id
+
+    # Fix: Check for None before accessing attributes
+    if message.voice is not None:
+        file_id = message.voice.file_id
+    elif message.video_note is not None:
+        file_id = message.video_note.file_id
+    else:
+        return
     file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
     # Store file_id for callback lookup
     file_id_hash_map[file_hash] = file_id
@@ -501,9 +566,9 @@ async def send_speech_recognition_button(update, context):
         reply_markup=keyboard
     )
 
-def register_handlers(application: Application, bot: Bot, config_manager: ConfigManager) -> None:
+def register_handlers(application: Application[Any, Any, Any, Any, Any, Any], bot: Bot, config_manager: ConfigManager) -> None:
     """Register all command and message handlers in the correct order."""
-    
+
     # Group 0: General logger for all messages (non-blocking).
     # This runs first but allows other handlers to proceed.
     setup_message_handlers(application)
@@ -524,7 +589,7 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     application.add_handler(CommandHandler("count", count_command))
     application.add_handler(CommandHandler("missing", missing_command))
     application.add_handler(CommandHandler("speech", speech_command))
-    
+
     # Group 0: Other specific message handlers.
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_analysis))
     application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
@@ -534,7 +599,7 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
     # General text message handler for non-command messages.
     # It has a filter to specifically ignore commands.
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
+
     # Register the callback handler for language selection with pattern filter
     application.add_handler(CallbackQueryHandler(language_selection_callback, pattern=r"^lang_"))
     # Register the callback handler for speech recognition button (move this up)
@@ -548,23 +613,25 @@ def register_handlers(application: Application, bot: Bot, config_manager: Config
 
     general_logger.info("All handlers registered.")
 
-async def initialize_all_components():
+async def initialize_all_components() -> None:
     """Initialize all bot components in the correct order."""
     try:
         init_directories()
         await Database.initialize()
-        await init_telegram_error_handler(Config.TELEGRAM_BOT_TOKEN, Config.ERROR_CHANNEL_ID)
+        # Create a bot instance for error handler initialization
+        bot = Bot(token=Config.TELEGRAM_BOT_TOKEN)
+        await init_telegram_error_handler(bot, Config.ERROR_CHANNEL_ID)
         await config_manager.initialize()
-        
+
         # Update all chat configs with new template fields
         update_results = await config_manager.update_chat_configs_with_template()
         success_count = sum(1 for v in update_results.values() if v)
         total_count = len(update_results)
         general_logger.info(f"Updated {success_count}/{total_count} chat configs with new template fields")
-        
+
         await reminder_manager.initialize()
         await safety_manager.initialize()
-        
+
         # Send startup message to error channel
         try:
             bot = Bot(token=Config.TELEGRAM_BOT_TOKEN)
@@ -581,33 +648,31 @@ async def initialize_all_components():
                 "• Reminder Manager: ✅\n"
                 "• Safety Manager: ✅"
             )
-            
+
             # Parse channel ID and topic ID
             if ':' in Config.ERROR_CHANNEL_ID:
                 channel_id, topic_id = Config.ERROR_CHANNEL_ID.split(':')
-                message_params = {
-                    'chat_id': channel_id,
-                    'text': startup_message,
-                    'parse_mode': 'MarkdownV2',
-                    'message_thread_id': int(topic_id)
-                }
+                await bot.send_message(
+                    chat_id=channel_id,
+                    text=startup_message,
+                    parse_mode='MarkdownV2',
+                    message_thread_id=int(topic_id)
+                )
             else:
-                message_params = {
-                    'chat_id': Config.ERROR_CHANNEL_ID,
-                    'text': startup_message,
-                    'parse_mode': 'MarkdownV2'
-                }
-                
-            await bot.send_message(**message_params)
+                await bot.send_message(
+                    chat_id=Config.ERROR_CHANNEL_ID,
+                    text=startup_message,
+                    parse_mode='MarkdownV2'
+                )
         except Exception as e:
             error_logger.error(f"Failed to send startup message: {str(e)}", exc_info=True)
-            
+
         general_logger.info("All components initialized successfully.")
     except Exception as e:
         error_logger.error(f"Failed to initialize components: {str(e)}", exc_info=True)
         raise
 
-async def cleanup_all_components():
+async def cleanup_all_components() -> None:
     """Cleanup all bot components in reverse order of initialization."""
     general_logger.info("Cleaning up all components...")
     try:
@@ -624,14 +689,14 @@ async def cleanup_all_components():
     except Exception as e:
         error_logger.error(f"Error during component cleanup: {e}", exc_info=True)
 
-def handle_shutdown_signal(signum, frame):
+def handle_shutdown_signal(signum: int, frame: Any) -> None:
     """Handle shutdown signals gracefully."""
     general_logger.info(f"Received signal {signum}, initiating graceful shutdown...")
     # This will cause the asyncio event loop to stop.
     # The 'finally' block in run_bot will then handle cleanup.
     raise SystemExit("Shutdown signal received.")
 
-async def main():
+async def main() -> None:
     """
     Initialize and run the bot application.
     """
@@ -651,11 +716,12 @@ async def main():
     # Register command handlers
     register_handlers(application, application.bot, config_manager)
     general_logger.info("Bot polling started.")
-    
+
     # Run polling with proper error handling
     try:
-        # Fix: Remove unsupported 'close_loop' argument to avoid NoneType error
-        await application.run_polling(
+        # run_polling is async and doesn't return a value, so we don't await it directly
+        # to avoid the func-returns-value error
+        application.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
             stop_signals=None  # We handle signals in run_bot
@@ -664,7 +730,41 @@ async def main():
         error_logger.error(f"Error during polling: {str(e)}", exc_info=True)
         raise
 
-def run_bot():
+async def ensure_db_initialized() -> None:
+    try:
+        # First check if database exists
+        conn = await asyncpg.connect(
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=int(os.getenv('DB_PORT', '5432')),
+            database=os.getenv('DB_NAME', 'telegram_bot'),
+            user=os.getenv('DB_USER', 'postgres'),
+            password=os.getenv('DB_PASSWORD', ''),
+        )
+        result = await conn.fetchval("SELECT to_regclass('public.chats')")
+        await conn.close()
+        
+        if result is None:
+            print("[INFO] Database not initialized, running scripts/init_database.py ...")
+            subprocess.run([sys.executable, 'scripts/init_database.py'], check=True)
+        else:
+            print("[INFO] Database already initialized.")
+            
+        # Now initialize the database connection pool
+        await Database.initialize()
+        print("[INFO] Database connection pool initialized successfully")
+        
+        # Test the connection
+        pool = await Database.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("SELECT 1")  # Simple test query
+            print("[INFO] Database connection pool test successful")
+            
+    except Exception as e:
+        error_logger.error(f"Could not initialize database: {e}", exc_info=True)
+        raise
+        subprocess.run([sys.executable, 'scripts/init_database.py'], check=True)
+
+def run_bot() -> None:
     """Run the bot with proper event loop handling and graceful shutdown."""
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, handle_shutdown_signal)
@@ -688,4 +788,5 @@ def run_bot():
         # The loop and tasks should be handled by run_until_complete and graceful shutdown logic.
 
 if __name__ == "__main__":
+    asyncio.run(ensure_db_initialized())
     run_bot()

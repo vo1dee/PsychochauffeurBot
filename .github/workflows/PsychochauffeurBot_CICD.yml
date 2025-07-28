@@ -15,6 +15,35 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:6
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: test_db
     strategy:
       fail-fast: false
       matrix:
@@ -31,9 +60,25 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
           python -m pip install --upgrade pip
-          python -m pip install flake8 pytest
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Wait for PostgreSQL
+        run: |
+          until pg_isready -h localhost -p 5432 -U postgres; do
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 2
+          done
+
+      - name: Initialize Database
+        run: |
+          python scripts/init_database.py
+
+      - name: Run type checking with mypy
+        run: |
+          python -m mypy modules/ config/ --ignore-missing-imports
 
       - name: Lint with flake8
         run: |
@@ -43,8 +88,13 @@ jobs:
       - name: Test with pytest
         env:
           USE_EMPTY_PROMPTS: "true"
+          TELEGRAM_BOT_TOKEN: test_token
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379
+          OPENAI_API_KEY: test_key
+          OPENWEATHER_API_KEY: test_key
         run: |
-          pytest --ignore=tests/test_service.py
+          pytest -c pytest-ci.ini --ignore=tests/test_service.py --ignore=tests/test_suite_optimizer -v
 
       - name: Show gpt.py lines 80-100
         run: sed -n '80,100p' modules/gpt.py
