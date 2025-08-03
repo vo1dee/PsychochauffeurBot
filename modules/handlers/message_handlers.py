@@ -12,14 +12,7 @@ from urllib.parse import urlparse
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 
-from modules.service_registry import service_registry
-from modules.shared_constants import StickerIds, ConfigKeys
-from modules.shared_utilities import (
-    HashGenerator, TelegramHelpers, TextProcessor, ValidationMixin
-)
-from modules.types import (
-    MessageHandler, UserId, ChatId, MessageId, ConfigDict
-)
+# Service registry will be accessed through context
 from modules.logger import general_logger, error_logger
 from modules.const import Stickers
 from modules.user_management import restrict_user
@@ -48,12 +41,7 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
     message_text: str = update.message.text.strip()
     if not update.message.from_user:
         return
-    user_id: UserId = update.message.from_user.id
-    
-    # Validate input
-    if not ValidationMixin.validate_text_length(message_text)[0]:
-        logger.warning(f"Message too long from user {user_id}")
-        return
+    user_id = update.message.from_user.id
     
     # Update message history at the very start
     update_message_history(user_id, message_text)
@@ -70,10 +58,14 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
 
     if not update.effective_chat:
         return
-    chat_id: ChatId = update.effective_chat.id
+    chat_id = update.effective_chat.id
     
     # Update chat history for context using the global manager
-    chat_history_manager = service_registry.get_service('chat_history_manager')
+    try:
+        chat_history_manager = service_registry.get_service('chat_history_manager')
+    except ValueError:
+        # Fallback if service not available
+        from modules.utils import chat_history_manager
     chat_history_manager.add_message(chat_id, {
         'text': message_text,
         'is_user': True,
@@ -103,7 +95,7 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
 
     # --- RANDOM GPT RESPONSE LOGIC ---
     # Only in group chats, not private
-    if TelegramHelpers.is_group_chat(update):
+    if update.effective_chat and update.effective_chat.type in {"group", "supergroup"}:
         await handle_random_gpt_response(update, context, message_text, cleaned_text)
 
     # Handle modified links if any were found
@@ -111,12 +103,12 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
         await process_urls(update, context, modified_links, cleaned_text)
 
 
-async def _handle_translation_command(update: Update, user_id: UserId) -> None:
+async def _handle_translation_command(update: Update, user_id: int) -> None:
     """Handle the БЛЯ! translation command."""
     if not update.message or not update.message.from_user:
         return
-    username: str = update.message.from_user.username or "User"
-    previous_message: Optional[str] = get_previous_message(user_id)
+    username = update.message.from_user.username or "User"
+    previous_message = get_previous_message(user_id)
     
     if not previous_message:
         if update.message:
@@ -124,8 +116,8 @@ async def _handle_translation_command(update: Update, user_id: UserId) -> None:
         return
         
     from modules.keyboard_translator import auto_translate_text
-    converted_text: str = auto_translate_text(previous_message)
-    response_text: str = f"@{username} хотів сказати: {converted_text}"
+    converted_text = auto_translate_text(previous_message)
+    response_text = f"@{username} хотів сказати: {converted_text}"
     if update.message:
         await update.message.reply_text(response_text)
 
@@ -144,31 +136,35 @@ async def handle_random_gpt_response(
 
     if not update.effective_chat:
         return
-    chat_id: str = str(update.effective_chat.id)
-    chat_type: str = update.effective_chat.type
+    chat_id = str(update.effective_chat.id)
+    chat_type = update.effective_chat.type
     
-    config_manager = service_registry.get_service('config_manager')
-    message_counter = service_registry.get_service('message_counter')
+    try:
+        config_manager = service_registry.get_service('config_manager')
+        message_counter = service_registry.get_service('message_counter')
+    except ValueError as e:
+        logger.warning(f"Service not available: {e}")
+        return
     
-    config: ConfigDict = await config_manager.get_config(
+    config = await config_manager.get_config(
         chat_id=chat_id, chat_type=chat_type, module_name="chat_behavior"
     )
     
     # Check if chat_behavior module is enabled
-    module_enabled: bool = config.get("enabled", False)
-    overrides: Dict[str, Any] = config.get("overrides", {})
-    random_settings: Dict[str, Any] = overrides.get("random_response_settings", {})
-    random_enabled: bool = random_settings.get("enabled", False)
+    module_enabled = config.get("enabled", False)
+    overrides = config.get("overrides", {})
+    random_settings = overrides.get("random_response_settings", {})
+    random_enabled = random_settings.get("enabled", False)
     
     # Both module and random settings must be enabled
     if module_enabled and random_enabled:
-        min_words: int = random_settings.get("min_words", 5)
-        message_threshold: int = random_settings.get("message_threshold", 50)
-        probability: float = random_settings.get("probability", 0.02)
+        min_words = random_settings.get("min_words", 5)
+        message_threshold = random_settings.get("message_threshold", 50)
+        probability = random_settings.get("probability", 0.02)
         
         # Only consider messages with enough words
         if len(message_text.split()) >= min_words:
-            count: int = message_counter.increment(update.effective_chat.id)
+            count = message_counter.increment(update.effective_chat.id)
             general_logger.info(
                 f"Random response check: chat_id={chat_id}, "
                 f"count={count}/{message_threshold}, probability={probability}"
@@ -206,17 +202,17 @@ async def process_urls(
     """Process URLs in the message."""
     if not update.effective_chat:
         return
-    chat_id: ChatId = update.effective_chat.id
+    chat_id = update.effective_chat.id
     if not update.message or not update.message.from_user:
         return
-    username: str = update.message.from_user.username or f"ID:{update.message.from_user.id}"
+    username = update.message.from_user.username or f"ID:{update.message.from_user.id}"
     
     if urls:
         await construct_and_send_message(chat_id, username, message_text, urls, update, context)
 
 
 async def construct_and_send_message(
-    chat_id: ChatId,
+    chat_id: int,
     username: str,
     cleaned_message_text: str,
     modified_links: List[str],
@@ -228,12 +224,24 @@ async def construct_and_send_message(
         from modules.keyboards import create_link_keyboard
         from telegram.constants import ParseMode
         
-        # Use shared utility for escaping markdown
-        escaped_username: str = TextProcessor.escape_markdown(username)
-        escaped_text: str = TextProcessor.escape_markdown(cleaned_message_text)
-        escaped_links: List[str] = [TextProcessor.escape_markdown(url) for url in modified_links]
+        # Escape markdown characters
+        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        escaped_username = username
+        for char in special_chars:
+            escaped_username = escaped_username.replace(char, f'\\{char}')
         
-        message: str = f"@{escaped_username} хотів відправити:\n{escaped_text}"
+        escaped_text = cleaned_message_text
+        for char in special_chars:
+            escaped_text = escaped_text.replace(char, f'\\{char}')
+        
+        escaped_links = []
+        for url in modified_links:
+            escaped_url = url
+            for char in special_chars:
+                escaped_url = escaped_url.replace(char, f'\\{char}')
+            escaped_links.append(escaped_url)
+        
+        message = f"@{escaped_username} хотів відправити:\n{escaped_text}"
         keyboard = create_link_keyboard(escaped_links, context)
         
         # Check if the original message was a reply to another message
@@ -305,29 +313,57 @@ async def handle_voice_or_video_note(update: Update, context: CallbackContext[An
     chat_id = str(update.effective_chat.id)
     chat_type = update.effective_chat.type
     
-    config_manager = service_registry.get_service('config_manager')
-    speech_config = await get_speech_config(chat_id, chat_type, config_manager)
-    
-    if not speech_config.get("enabled", False):
-        return
-    
-    if not update.message:
-        return
-    message = update.message
-    if not message.from_user:
-        return
-    user = message.from_user
-    file_id = None
-    
-    if message.voice:
-        file_id = message.voice.file_id
-    elif message.video_note:
-        file_id = message.video_note.file_id
-    else:
-        return
-    
-    # Send the speech recognition button
-    await send_speech_recognition_button(update, context)
+    try:
+        # Get service registry from bot application
+        service_registry = None
+        if hasattr(context, 'application') and hasattr(context.application, 'bot_data'):
+            service_registry = context.application.bot_data.get('service_registry')
+        
+        if not service_registry:
+            logger.warning("Service registry not available in context")
+            return
+        
+        # Check if we have a speech recognition service available
+        if service_registry.is_registered('speech_recognition_service'):
+            speech_service = service_registry.get_service('speech_recognition_service')
+            if hasattr(speech_service, 'handle_voice_message') and update.message and update.message.voice:
+                await speech_service.handle_voice_message(update, context)
+                return
+            elif hasattr(speech_service, 'handle_video_note') and update.message and update.message.video_note:
+                await speech_service.handle_video_note(update, context)
+                return
+        
+        # Fallback to direct config manager access if speech service not available
+        if service_registry.is_registered('config_manager'):
+            config_manager = service_registry.get_service('config_manager')
+            speech_config = await get_speech_config(chat_id, chat_type, config_manager)
+            
+            if not speech_config.get("enabled", False):
+                return
+            
+            if not update.message:
+                return
+            message = update.message
+            if not message.from_user:
+                return
+            user = message.from_user
+            file_id = None
+            
+            if message.voice:
+                file_id = message.voice.file_id
+            elif message.video_note:
+                file_id = message.video_note.file_id
+            else:
+                return
+            
+            # Send the speech recognition button
+            await send_speech_recognition_button(update, context)
+        else:
+            logger.warning("Neither speech_recognition_service nor config_manager is registered")
+        logger.info(f"Available services: {service_registry.get_registered_services()}")
+            
+    except Exception as e:
+        error_logger.error(f"Error in handle_voice_or_video_note: {e}", exc_info=True)
 
 
 async def get_speech_config(chat_id: str, chat_type: str, config_manager: Any) -> Dict[str, Any]:

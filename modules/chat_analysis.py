@@ -233,6 +233,10 @@ async def get_user_chat_stats(chat_id: int, user_id: int) -> Dict[str, Any]:
         }
 
 async def get_user_chat_stats_with_fallback(chat_id: int, user_id: int, username: str) -> Dict[str, Any]:
+    from modules.logger import general_logger
+    
+    general_logger.info(f"get_user_chat_stats_with_fallback: chat_id={chat_id}, user_id={user_id}, username={username}")
+    
     pool = await Database.get_pool()
     async with pool.acquire() as conn:
         # Get all user_ids for this username
@@ -243,11 +247,15 @@ async def get_user_chat_stats_with_fallback(chat_id: int, user_id: int, username
         for row in rows:
             if row['user_id'] not in user_ids:
                 user_ids.append(row['user_id'])
+        
+        general_logger.info(f"get_user_chat_stats_with_fallback: user_ids={user_ids}")
 
         # Aggregate stats for all user_ids
         total_messages = await conn.fetchval("""
             SELECT COUNT(*) FROM messages WHERE chat_id = $1 AND user_id = ANY($2::bigint[])
         """, chat_id, user_ids)
+        
+        general_logger.info(f"get_user_chat_stats_with_fallback: total_messages={total_messages}")
 
         week_ago = datetime.now(KYIV_TZ) - timedelta(days=7)
         messages_last_week = await conn.fetchval("""

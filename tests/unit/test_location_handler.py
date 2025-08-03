@@ -12,7 +12,7 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from main import handle_location
+from modules.handlers.message_handlers import handle_location
 from modules.const import Stickers
 
 
@@ -65,7 +65,7 @@ class TestLocationHandler(unittest.IsolatedAsyncioTestCase):
         self.message.reply_sticker.assert_not_called()
         self.message.reply_text.assert_not_called()
 
-    @patch('main.error_logger')
+    @patch('modules.handlers.message_handlers.error_logger')
     async def test_handle_location_sticker_failure_fallback(self, mock_error_logger: Any) -> None:
         """Test that handle_location falls back to text when sticker fails."""
         # Make reply_sticker raise an exception
@@ -84,7 +84,7 @@ class TestLocationHandler(unittest.IsolatedAsyncioTestCase):
 
     async def test_handle_location_logs_coordinates(self) -> None:
         """Test that handle_location logs the location coordinates."""
-        with patch('main.general_logger') as mock_logger:
+        with patch('modules.handlers.message_handlers.general_logger') as mock_logger:
             await handle_location(self.update, self.context)
             
             # Verify that coordinates were logged
