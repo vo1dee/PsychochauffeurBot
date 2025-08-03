@@ -26,11 +26,14 @@ from modules.message_processor import (
     process_message_content, should_restrict_user
 )
 from modules.service_registry import ServiceInterface
+from modules.service_error_boundary import ServiceErrorBoundary, with_error_boundary
 from modules.url_processor import extract_urls
 from modules.user_management import restrict_user, handle_restriction_sticker
 from modules.utils import MessageCounter, chat_history_manager
 
-logger = logging.getLogger(__name__)
+# Create component-specific logger with clear service identification
+logger = logging.getLogger('message_handler_service')
+logger.setLevel(logging.INFO)
 
 
 class BaseMessageHandler(ABC):
@@ -129,7 +132,7 @@ class TextMessageHandler(BaseMessageHandler):
             return
         
         # Handle random GPT response logic in group chats
-        if await self._should_trigger_random_gpt(update, message_text, cleaned_text):
+        if await self._should_trigger_random_gpt(update, context, message_text, cleaned_text):
             return
         
         # Handle modified links if any were found
@@ -153,7 +156,7 @@ class TextMessageHandler(BaseMessageHandler):
         response_text = f"@{username} хотів сказати: {converted_text}"
         await update.message.reply_text(response_text)
     
-    async def _should_trigger_random_gpt(self, update: Update, message_text: str, cleaned_text: str) -> bool:
+    async def _should_trigger_random_gpt(self, update: Update, context: CallbackContext[Any, Any, Any, Any], message_text: str, cleaned_text: str) -> bool:
         """Check if random GPT response should be triggered."""
         # Only in group chats, not private
         if not update.effective_chat or update.effective_chat.type not in {"group", "supergroup"}:
@@ -201,7 +204,7 @@ class TextMessageHandler(BaseMessageHandler):
             if random.random() < probability:
                 self.message_counter.reset(update.effective_chat.id)
                 general_logger.info(f"Triggering random response in chat {chat_id}")
-                await gpt_response(update, message_context.context, response_type="random", message_text_override=cleaned_text)
+                await gpt_response(update, context, response_type="random", message_text_override=cleaned_text)
                 return True
         
         return False
@@ -346,44 +349,81 @@ class LocationHandler(BaseMessageHandler):
 
 
 class MessageHandlerService(ServiceInterface):
-    """Centralized message processing service."""
+    """Centralized message processing service with enhanced configuration integration."""
     
-    def __init__(self, config_manager: ConfigManager) -> None:
+    def __init__(self, config_manager: ConfigManager, message_counter: Optional[MessageCounter] = None) -> None:
         self.config_manager = config_manager
-        self.message_counter = MessageCounter()
+        self.message_counter = message_counter or MessageCounter()
         self.handlers: List[BaseMessageHandler] = []
         self._initialized = False
+        self.error_boundary = ServiceErrorBoundary("message_handler_service")
+        
+        # Configuration integration
+        self._service_config: Dict[str, Any] = {}
+        self._config_change_callbacks: List[Any] = []
+        
+        # Enhanced logging with service identification
+        self.logger = logging.getLogger('message_handler_service')
+        self.logger.info("MessageHandlerService instance created with configuration integration")
     
     async def initialize(self) -> None:
-        """Initialize the message handler service."""
+        """Initialize the message handler service with configuration integration."""
         if self._initialized:
+            self.logger.debug("MessageHandlerService already initialized, skipping")
             return
         
-        # Initialize specialized handlers
-        self.handlers = [
-            TextMessageHandler(self.config_manager, self.message_counter),
-            StickerHandler(),
-            LocationHandler(),
-        ]
+        self.logger.info("Initializing MessageHandlerService with configuration integration...")
         
-        # Sort handlers by priority (higher priority first)
-        self.handlers.sort(key=lambda h: h.metadata.priority, reverse=True)
-        
-        self._initialized = True
-        logger.info("Message Handler Service initialized with %d handlers", len(self.handlers))
+        try:
+            # Load service configuration
+            await self._load_service_configuration()
+            
+            # Initialize specialized handlers with configuration
+            self.handlers = [
+                TextMessageHandler(self.config_manager, self.message_counter),
+                StickerHandler(),
+                LocationHandler(),
+            ]
+            
+            # Sort handlers by priority (higher priority first)
+            self.handlers.sort(key=lambda h: h.metadata.priority, reverse=True)
+            
+            # Setup configuration change notifications
+            await self._setup_configuration_notifications()
+            
+            self._initialized = True
+            self.logger.info("MessageHandlerService initialized successfully with %d handlers", len(self.handlers))
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize MessageHandlerService: {e}", exc_info=True)
+            raise
     
     async def shutdown(self) -> None:
-        """Shutdown the message handler service."""
-        self.handlers.clear()
-        self._initialized = False
-        logger.info("Message Handler Service shutdown")
+        """Shutdown the message handler service with proper cleanup."""
+        self.logger.info("Shutting down MessageHandlerService...")
+        
+        try:
+            # Clear configuration change callbacks
+            self._config_change_callbacks.clear()
+            
+            # Clear handlers
+            self.handlers.clear()
+            
+            # Clear service configuration
+            self._service_config.clear()
+            
+            self._initialized = False
+            self.logger.info("MessageHandlerService shutdown completed successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Error during MessageHandlerService shutdown: {e}", exc_info=True)
     
     async def handle_text_message(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle incoming text messages."""
-        if not self._initialized:
-            await self.initialize()
-        
-        try:
+        async def _handle_text_operation():
+            if not self._initialized:
+                await self.initialize()
+            
             message_context = MessageContext.from_update(update, context)
             
             # Extract URLs from message if it's a text message
@@ -398,15 +438,22 @@ class MessageHandlerService(ServiceInterface):
             else:
                 logger.debug("No handler found for message type: %s", type(update.message).__name__ if update.message else "unknown")
         
-        except Exception as e:
-            error_logger.error(f"Error in message handling: {str(e)}", exc_info=True)
+        await self.error_boundary.execute_with_boundary(
+            operation=_handle_text_operation,
+            operation_name="handle_text_message",
+            context={
+                "update_id": update.update_id if update else None,
+                "chat_id": update.effective_chat.id if update and update.effective_chat else None,
+                "user_id": update.effective_user.id if update and update.effective_user else None
+            }
+        )
     
     async def handle_sticker_message(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle incoming sticker messages."""
-        if not self._initialized:
-            await self.initialize()
-        
-        try:
+        async def _handle_sticker_operation():
+            if not self._initialized:
+                await self.initialize()
+            
             message_context = MessageContext.from_update(update, context)
             
             # Find the sticker handler
@@ -415,15 +462,22 @@ class MessageHandlerService(ServiceInterface):
                     await handler.handle(message_context)
                     break
         
-        except Exception as e:
-            error_logger.error(f"Error in sticker handling: {str(e)}", exc_info=True)
+        await self.error_boundary.execute_with_boundary(
+            operation=_handle_sticker_operation,
+            operation_name="handle_sticker_message",
+            context={
+                "update_id": update.update_id if update else None,
+                "chat_id": update.effective_chat.id if update and update.effective_chat else None,
+                "user_id": update.effective_user.id if update and update.effective_user else None
+            }
+        )
     
     async def handle_location_message(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle incoming location messages."""
-        if not self._initialized:
-            await self.initialize()
-        
-        try:
+        async def _handle_location_operation():
+            if not self._initialized:
+                await self.initialize()
+            
             message_context = MessageContext.from_update(update, context)
             
             # Find the location handler
@@ -432,8 +486,15 @@ class MessageHandlerService(ServiceInterface):
                     await handler.handle(message_context)
                     break
         
-        except Exception as e:
-            error_logger.error(f"Error in location handling: {str(e)}", exc_info=True)
+        await self.error_boundary.execute_with_boundary(
+            operation=_handle_location_operation,
+            operation_name="handle_location_message",
+            context={
+                "update_id": update.update_id if update else None,
+                "chat_id": update.effective_chat.id if update and update.effective_chat else None,
+                "user_id": update.effective_user.id if update and update.effective_user else None
+            }
+        )
     
     async def process_urls(self, update: Update, context: CallbackContext[Any, Any, Any, Any], urls: List[str]) -> None:
         """Process URLs in the message."""
@@ -457,10 +518,154 @@ class MessageHandlerService(ServiceInterface):
         
         text_handler = next((h for h in self.handlers if h.metadata.name == "text_message_handler"), None)
         if isinstance(text_handler, TextMessageHandler):
-            return await text_handler._should_trigger_random_gpt(update, update.message.text, update.message.text)
+            return await text_handler._should_trigger_random_gpt(update, context, update.message.text, update.message.text)
         
         return False
     
     def get_handler_metadata(self) -> List[HandlerMetadata]:
         """Get metadata for all registered handlers."""
         return [handler.metadata for handler in self.handlers]
+    
+    def get_health_status(self) -> Dict[str, Any]:
+        """Get health status of the message handler service."""
+        metrics = self.error_boundary.get_health_status()
+        return {
+            "service_name": "message_handler_service",
+            "status": metrics.status.value,
+            "error_rate": metrics.error_rate,
+            "success_rate": metrics.success_rate,
+            "total_requests": metrics.total_requests,
+            "consecutive_failures": metrics.consecutive_failures,
+            "circuit_breaker_state": self.error_boundary.circuit_breaker.state.value,
+            "handlers_count": len(self.handlers),
+            "initialized": self._initialized
+        }
+    
+    def register_fallback_handler(self, operation_name: str, fallback_handler: Any) -> None:
+        """Register a fallback handler for specific operations."""
+        self.error_boundary.register_fallback(operation_name, fallback_handler)
+        logger.info(f"Registered fallback handler for {operation_name}")
+    
+    async def perform_health_check(self) -> bool:
+        """Perform a health check on the message handler service."""
+        async def health_check():
+            # Check if service is initialized and handlers are available
+            return self._initialized and len(self.handlers) > 0
+        
+        return await self.error_boundary.perform_health_check(health_check)
+    
+    async def _load_service_configuration(self) -> None:
+        """Load service-specific configuration from ConfigManager."""
+        try:
+            # Load global message handler configuration
+            config = await self.config_manager.get_config(module_name="message_handler")
+            self._service_config = config.get("overrides", {}) if config else {}
+            
+            self.logger.info(f"Loaded service configuration: {len(self._service_config)} settings")
+            self.logger.debug(f"Configuration keys: {list(self._service_config.keys())}")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to load service configuration, using defaults: {e}")
+            self._service_config = {}
+    
+    async def _setup_configuration_notifications(self) -> None:
+        """Setup configuration change notification handling."""
+        try:
+            # Register for configuration change notifications if ConfigManager supports it
+            if hasattr(self.config_manager, 'register_change_callback'):
+                callback = self._handle_configuration_change
+                self.config_manager.register_change_callback("message_handler", callback)
+                self._config_change_callbacks.append(callback)
+                self.logger.info("Registered for configuration change notifications")
+            else:
+                self.logger.debug("ConfigManager does not support change notifications")
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to setup configuration notifications: {e}")
+    
+    async def _handle_configuration_change(self, module_name: str, new_config: Dict[str, Any]) -> None:
+        """Handle configuration changes for the message handler service.
+        
+        Args:
+            module_name: Name of the configuration module that changed
+            new_config: New configuration data
+        """
+        if module_name != "message_handler":
+            return
+            
+        self.logger.info(f"Configuration change detected for {module_name}")
+        
+        try:
+            # Update service configuration
+            old_config = self._service_config.copy()
+            self._service_config = new_config.get("overrides", {})
+            
+            # Log configuration changes
+            added_keys = set(self._service_config.keys()) - set(old_config.keys())
+            removed_keys = set(old_config.keys()) - set(self._service_config.keys())
+            modified_keys = {
+                key for key in self._service_config.keys() & old_config.keys()
+                if self._service_config[key] != old_config[key]
+            }
+            
+            if added_keys:
+                self.logger.info(f"Configuration added: {added_keys}")
+            if removed_keys:
+                self.logger.info(f"Configuration removed: {removed_keys}")
+            if modified_keys:
+                self.logger.info(f"Configuration modified: {modified_keys}")
+            
+            # Apply configuration changes to handlers if needed
+            await self._apply_configuration_changes()
+            
+        except Exception as e:
+            self.logger.error(f"Error handling configuration change: {e}", exc_info=True)
+    
+    async def _apply_configuration_changes(self) -> None:
+        """Apply configuration changes to message handlers."""
+        try:
+            # Notify handlers of configuration changes if they support it
+            for handler in self.handlers:
+                if hasattr(handler, 'update_configuration'):
+                    await handler.update_configuration(self._service_config)
+                    
+            self.logger.debug("Applied configuration changes to handlers")
+            
+        except Exception as e:
+            self.logger.error(f"Error applying configuration changes: {e}", exc_info=True)
+    
+    def get_service_configuration(self) -> Dict[str, Any]:
+        """Get current service configuration.
+        
+        Returns:
+            Current service configuration dictionary
+        """
+        return self._service_config.copy()
+    
+    async def update_service_configuration(self, new_config: Dict[str, Any]) -> None:
+        """Update service configuration.
+        
+        Args:
+            new_config: New configuration to apply
+        """
+        self.logger.info("Updating service configuration")
+        
+        try:
+            # Save configuration through ConfigManager
+            await self.config_manager.save_config(
+                module_name="message_handler",
+                enabled=True,
+                overrides=new_config
+            )
+            
+            # Update local configuration
+            self._service_config = new_config.copy()
+            
+            # Apply changes
+            await self._apply_configuration_changes()
+            
+            self.logger.info("Service configuration updated successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to update service configuration: {e}", exc_info=True)
+            raise

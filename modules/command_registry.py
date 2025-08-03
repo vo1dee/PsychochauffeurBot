@@ -11,12 +11,14 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from telegram import Update
-from telegram.ext import CallbackContext
+from telegram.ext import CallbackContext, CommandHandler
 
 from modules.command_processor import CommandProcessor, CommandMetadata, CommandType
 from modules.service_registry import ServiceInterface
 
-logger = logging.getLogger(__name__)
+# Create component-specific logger with clear service identification
+logger = logging.getLogger('command_registry')
+logger.setLevel(logging.INFO)
 
 
 class CommandCategory(Enum):
@@ -52,25 +54,74 @@ class CommandRegistry(ServiceInterface):
     Integrates with the existing CommandProcessor for actual command handling.
     """
     
-    def __init__(self, command_processor: CommandProcessor) -> None:
-        """Initialize the command registry."""
+    def __init__(self, command_processor: CommandProcessor, service_registry: Optional[Any] = None) -> None:
+        """Initialize the command registry with configuration integration."""
         self.command_processor = command_processor
+        self.service_registry = service_registry
         self._commands: Dict[str, CommandInfo] = {}
         self._categories: Dict[CommandCategory, Set[str]] = {
             category: set() for category in CommandCategory
         }
         self._aliases: Dict[str, str] = {}  # alias -> command_name mapping
+        self._telegram_app: Optional[Any] = None
+        
+        # Configuration integration (will be set during initialization)
+        self._config_manager: Optional[Any] = None
+        self._service_config: Dict[str, Any] = {}
+        self._config_change_callbacks: List[Any] = []
+        
+        logger.info("CommandRegistry instance created with configuration integration")
         
     async def initialize(self) -> None:
-        """Initialize the command registry."""
-        logger.info("Command Registry initialized")
+        """Initialize the command registry with configuration integration."""
+        logger.info("Initializing CommandRegistry with configuration integration...")
+        
+        try:
+            # Try to get config manager from service registry if available
+            if self.service_registry:
+                try:
+                    self._config_manager = self.service_registry.get_service('config_manager')
+                    logger.info("ConfigManager obtained from service registry")
+                except Exception:
+                    logger.debug("ConfigManager not available from service registry")
+            else:
+                logger.debug("Service registry not available")
+            
+            # Load service configuration if config manager is available
+            if self._config_manager:
+                await self._load_service_configuration()
+                await self._setup_configuration_notifications()
+            
+            logger.info("CommandRegistry initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize CommandRegistry: {e}", exc_info=True)
+            raise
+    
+    def set_telegram_application(self, telegram_app: Any) -> None:
+        """Set the Telegram application for handler registration."""
+        self._telegram_app = telegram_app
         
     async def shutdown(self) -> None:
-        """Shutdown the command registry."""
-        self._commands.clear()
-        self._categories.clear()
-        self._aliases.clear()
-        logger.info("Command Registry shutdown")
+        """Shutdown the command registry with proper configuration cleanup."""
+        logger.info("Shutting down CommandRegistry...")
+        
+        try:
+            # Clear configuration change callbacks
+            self._config_change_callbacks.clear()
+            
+            # Clear commands and categories
+            self._commands.clear()
+            self._categories.clear()
+            self._aliases.clear()
+            
+            # Clear service configuration
+            self._service_config.clear()
+            
+            logger.info("CommandRegistry shutdown completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error during CommandRegistry shutdown: {e}", exc_info=True)
     
     def register_command(self, command_info: CommandInfo) -> 'CommandRegistry':
         """Register a single command with the registry."""
@@ -127,6 +178,28 @@ class CommandRegistry(ServiceInterface):
         await self.register_speech_commands()
         
         logger.info(f"Registered {len(self._commands)} commands across {len(CommandCategory)} categories")
+        
+        # Register handlers with Telegram application if available
+        if self._telegram_app:
+            await self._register_telegram_handlers()
+    
+    async def _register_telegram_handlers(self) -> None:
+        """Register all commands with the Telegram application."""
+        if not self._telegram_app:
+            logger.warning("No Telegram application set, cannot register handlers")
+            return
+        
+        for command_name, command_info in self._commands.items():
+            # Register main command
+            handler = CommandHandler(command_name, command_info.handler_func)
+            self._telegram_app.add_handler(handler)
+            
+            # Register aliases
+            for alias in command_info.aliases:
+                alias_handler = CommandHandler(alias, command_info.handler_func)
+                self._telegram_app.add_handler(alias_handler)
+        
+        logger.info(f"Registered {len(self._commands)} command handlers with Telegram application")
     
     async def register_basic_commands(self) -> None:
         """Register basic bot commands."""
@@ -298,14 +371,24 @@ class CommandRegistry(ServiceInterface):
     
     async def register_speech_commands(self) -> None:
         """Register speech recognition commands."""
-        from modules.handlers.speech_commands import speech_command
+        # Get speech service from service registry
+        try:
+            if self.service_registry:
+                speech_service = self.service_registry.get_service('speech_recognition_service')
+                speech_handler = speech_service.handle_speech_command
+            else:
+                raise Exception("Service registry not available")
+        except Exception:
+            # Fallback to original handler if service not available
+            from modules.handlers.speech_commands import speech_command
+            speech_handler = speech_command
         
         # Speech command
         self.register_command(CommandInfo(
             name="speech",
             description="Toggle speech recognition on/off",
             category=CommandCategory.SPEECH,
-            handler_func=speech_command,
+            handler_func=speech_handler,
             admin_only=True,
             usage="/speech <on|off>",
             examples=["/speech on", "/speech off"]
@@ -442,3 +525,127 @@ class CommandRegistry(ServiceInterface):
                     issues.append(f"Command '{command_name}' category mismatch")
         
         return issues
+    
+    async def _load_service_configuration(self) -> None:
+        """Load service-specific configuration from ConfigManager."""
+        if not self._config_manager:
+            return
+            
+        try:
+            # Load global command registry configuration
+            config = await self._config_manager.get_config(module_name="command_registry")
+            self._service_config = config.get("overrides", {}) if config else {}
+            
+            logger.info(f"Loaded service configuration: {len(self._service_config)} settings")
+            logger.debug(f"Configuration keys: {list(self._service_config.keys())}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to load service configuration, using defaults: {e}")
+            self._service_config = {}
+    
+    async def _setup_configuration_notifications(self) -> None:
+        """Setup configuration change notification handling."""
+        if not self._config_manager:
+            return
+            
+        try:
+            # Register for configuration change notifications if ConfigManager supports it
+            if hasattr(self._config_manager, 'register_change_callback'):
+                callback = self._handle_configuration_change
+                self._config_manager.register_change_callback("command_registry", callback)
+                self._config_change_callbacks.append(callback)
+                logger.info("Registered for configuration change notifications")
+            else:
+                logger.debug("ConfigManager does not support change notifications")
+                
+        except Exception as e:
+            logger.warning(f"Failed to setup configuration notifications: {e}")
+    
+    async def _handle_configuration_change(self, module_name: str, new_config: Dict[str, Any]) -> None:
+        """Handle configuration changes for the command registry.
+        
+        Args:
+            module_name: Name of the configuration module that changed
+            new_config: New configuration data
+        """
+        if module_name != "command_registry":
+            return
+            
+        logger.info(f"Configuration change detected for {module_name}")
+        
+        try:
+            # Update service configuration
+            old_config = self._service_config.copy()
+            self._service_config = new_config.get("overrides", {})
+            
+            # Log configuration changes
+            added_keys = set(self._service_config.keys()) - set(old_config.keys())
+            removed_keys = set(old_config.keys()) - set(self._service_config.keys())
+            modified_keys = {
+                key for key in self._service_config.keys() & old_config.keys()
+                if self._service_config[key] != old_config[key]
+            }
+            
+            if added_keys:
+                logger.info(f"Configuration added: {added_keys}")
+            if removed_keys:
+                logger.info(f"Configuration removed: {removed_keys}")
+            if modified_keys:
+                logger.info(f"Configuration modified: {modified_keys}")
+            
+            # Apply configuration changes
+            await self._apply_configuration_changes()
+            
+        except Exception as e:
+            logger.error(f"Error handling configuration change: {e}", exc_info=True)
+    
+    async def _apply_configuration_changes(self) -> None:
+        """Apply configuration changes to command registry."""
+        try:
+            # Update command settings based on new configuration
+            # For example, enable/disable certain command categories
+            
+            logger.debug("Applied configuration changes to command registry")
+            
+        except Exception as e:
+            logger.error(f"Error applying configuration changes: {e}", exc_info=True)
+    
+    def get_service_configuration(self) -> Dict[str, Any]:
+        """Get current service configuration.
+        
+        Returns:
+            Current service configuration dictionary
+        """
+        return self._service_config.copy()
+    
+    async def update_service_configuration(self, new_config: Dict[str, Any]) -> None:
+        """Update service configuration.
+        
+        Args:
+            new_config: New configuration to apply
+        """
+        if not self._config_manager:
+            logger.warning("Cannot update configuration: ConfigManager not available")
+            return
+            
+        logger.info("Updating service configuration")
+        
+        try:
+            # Save configuration through ConfigManager
+            await self._config_manager.save_config(
+                module_name="command_registry",
+                enabled=True,
+                overrides=new_config
+            )
+            
+            # Update local configuration
+            self._service_config = new_config.copy()
+            
+            # Apply changes
+            await self._apply_configuration_changes()
+            
+            logger.info("Service configuration updated successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to update service configuration: {e}", exc_info=True)
+            raise

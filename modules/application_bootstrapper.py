@@ -12,12 +12,14 @@ import signal
 import sys
 from typing import Optional, Any
 
-from modules.service_registry import ServiceRegistry, ServiceInterface
+from modules.service_registry import ServiceRegistry, ServiceInterface, ServiceScope
 from modules.application_models import ServiceConfiguration
 from modules.const import Config
 from modules.logger import general_logger, error_logger
 
-logger = logging.getLogger(__name__)
+# Create component-specific logger with clear service identification
+logger = logging.getLogger('application_bootstrapper')
+logger.setLevel(logging.INFO)
 
 
 class ApplicationBootstrapper:
@@ -55,7 +57,7 @@ class ApplicationBootstrapper:
             ValueError: If required configuration is missing
             RuntimeError: If service configuration fails
         """
-        logger.info("Configuring services...")
+        logger.info("Configuring services with enhanced configuration integration...")
         
         try:
             # Create service registry
@@ -70,18 +72,34 @@ class ApplicationBootstrapper:
             
             # Register core configuration
             service_registry.register_instance('service_config', service_config)
+            logger.debug("Service configuration registered in service registry")
             
             # Import and register core services
             from config.config_manager import ConfigManager
             from modules.database import Database
             from modules.bot_application import BotApplication
             
-            # Register configuration manager as singleton
+            # Register configuration manager as singleton with initialization
             service_registry.register_singleton(
                 'config_manager',
                 ConfigManager,
                 ConfigManager
             )
+            logger.info("ConfigManager registered as singleton service")
+            
+            # Initialize configuration manager to ensure it's ready
+            config_manager = service_registry.get_service('config_manager')
+            if hasattr(config_manager, 'initialize'):
+                await config_manager.initialize()
+            logger.info("ConfigManager initialized successfully")
+            
+            # Verify config_manager is properly registered and accessible
+            if not service_registry.is_registered('config_manager'):
+                raise RuntimeError("ConfigManager failed to register properly")
+            
+            # Test config_manager access
+            test_config_manager = service_registry.get_service('config_manager')
+            logger.info(f"ConfigManager verification successful: {type(test_config_manager).__name__}")
             
             # Register database as singleton
             service_registry.register_singleton(
@@ -89,48 +107,62 @@ class ApplicationBootstrapper:
                 Database,
                 Database
             )
+            logger.debug("Database service registered")
             
             # Register bot application as singleton with service registry dependency
+            from modules.service_factories import ServiceFactory
             service_registry.register_factory(
                 'bot_application',
                 BotApplication,
-                lambda registry: BotApplication(registry),
+                ServiceFactory.create_bot_application,
                 dependencies=['config_manager', 'database']
             )
+            logger.debug("BotApplication registered with dependencies")
             
             # Register additional services that will be needed
             await self._register_specialized_services(service_registry)
             
-            logger.info("Services configured successfully")
+            logger.info("Services configured successfully with configuration integration")
             return service_registry
             
         except Exception as e:
-            logger.error(f"Failed to configure services: {e}")
+            logger.error(f"Failed to configure services: {e}", exc_info=True)
             raise RuntimeError(f"Service configuration failed: {e}") from e
     
     async def _register_specialized_services(self, service_registry: ServiceRegistry) -> None:
         """
-        Register specialized services for the refactored architecture.
+        Register specialized services with proper dependency injection using service factories.
         
-        This method registers the new specialized services that will be
-        implemented in subsequent tasks.
+        This method registers all services with their dependencies properly configured
+        to ensure proper initialization order and dependency resolution.
         
         Args:
             service_registry: The service registry to register services with
         """
-        # Note: These services will be implemented in later tasks
-        # For now, we'll register placeholders or existing services
+        logger.info("Registering specialized services with dependency injection...")
         
-        # Register existing services that are already available
+        from modules.service_factories import ServiceFactory
+        
+        # Register utility services first (no dependencies)
         try:
-            from modules.reminders.reminders import ReminderManager
-            service_registry.register_singleton(
-                'reminder_manager',
-                ReminderManager,
-                ReminderManager
+            service_registry.register_factory(
+                'message_counter',
+                type(None),  # Placeholder type
+                ServiceFactory.create_message_counter,
+                scope=ServiceScope.SINGLETON
             )
         except ImportError:
-            logger.warning("ReminderManager not available, skipping registration")
+            logger.warning("MessageCounter not available, skipping registration")
+        
+        # Register chat history manager
+        try:
+            from modules.utils import chat_history_manager
+            service_registry.register_instance('chat_history_manager', chat_history_manager)
+            logger.info("ChatHistoryManager registered successfully")
+        except ImportError as e:
+            logger.warning(f"ChatHistoryManager not available, skipping registration: {e}")
+        except Exception as e:
+            logger.error(f"Failed to register ChatHistoryManager: {e}", exc_info=True)
         
         try:
             from modules.safety import safety_manager
@@ -138,13 +170,127 @@ class ApplicationBootstrapper:
         except ImportError:
             logger.warning("Safety manager not available, skipping registration")
         
-        # Register message counter (global instance from main.py)
+        # Register command processor (no dependencies)
         try:
-            from modules.utils import MessageCounter
-            message_counter = MessageCounter()
-            service_registry.register_instance('message_counter', message_counter)
+            service_registry.register_factory(
+                'command_processor',
+                type(None),  # Placeholder type
+                ServiceFactory.create_command_processor,
+                scope=ServiceScope.SINGLETON
+            )
+        except ImportError as e:
+            logger.warning(f"CommandProcessor not available, skipping registration: {e}")
+        
+        # Register services with config_manager dependency
+        try:
+            service_registry.register_factory(
+                'message_handler_service',
+                type(None),  # Placeholder type
+                ServiceFactory.create_message_handler_service,
+                dependencies=['config_manager', 'message_counter'],
+                scope=ServiceScope.SINGLETON
+            )
+        except ImportError as e:
+            logger.warning(f"MessageHandlerService not available, skipping registration: {e}")
+        
+        try:
+            service_registry.register_factory(
+                'speech_recognition_service',
+                type(None),  # Placeholder type
+                ServiceFactory.create_speech_recognition_service,
+                dependencies=['config_manager'],
+                scope=ServiceScope.SINGLETON
+            )
+            logger.info("SpeechRecognitionService factory registered successfully")
+            
+            # Test that the service can actually be created
+            test_service = service_registry.get_service('speech_recognition_service')
+            logger.info(f"SpeechRecognitionService created successfully: {type(test_service).__name__}")
+            
+        except ImportError as e:
+            logger.warning(f"SpeechRecognitionService not available, skipping registration: {e}")
+        except Exception as e:
+            logger.error(f"Failed to register SpeechRecognitionService: {e}", exc_info=True)
+        
+        # Register services with command_processor dependency
+        try:
+            service_registry.register_factory(
+                'command_registry',
+                type(None),  # Placeholder type
+                ServiceFactory.create_command_registry,
+                dependencies=['command_processor'],
+                scope=ServiceScope.SINGLETON
+            )
+        except ImportError as e:
+            logger.warning(f"CommandRegistry not available, skipping registration: {e}")
+        
+        try:
+            service_registry.register_factory(
+                'handler_registry',
+                type(None),  # Placeholder type
+                ServiceFactory.create_handler_registry,
+                dependencies=['command_processor'],
+                scope=ServiceScope.SINGLETON
+            )
+        except ImportError as e:
+            logger.warning(f"HandlerRegistry not available, skipping registration: {e}")
+        
+        # Register services with speech_recognition_service dependency
+        try:
+            service_registry.register_factory(
+                'callback_handler_service',
+                type(None),  # Placeholder type
+                ServiceFactory.create_callback_handler_service,
+                dependencies=['speech_recognition_service'],
+                scope=ServiceScope.SINGLETON
+            )
+        except ImportError as e:
+            logger.warning(f"CallbackHandlerService not available, skipping registration: {e}")
+        
+        # Register domain-specific handlers (no dependencies)
+        try:
+            service_registry.register_factory(
+                'weather_handler',
+                type(None),  # Placeholder type
+                ServiceFactory.create_weather_handler,
+                scope=ServiceScope.SINGLETON
+            )
+        except ImportError as e:
+            logger.warning(f"WeatherCommandHandler not available, skipping registration: {e}")
+        
+        try:
+            service_registry.register_factory(
+                'geomagnetic_handler',
+                type(None),  # Placeholder type
+                ServiceFactory.create_geomagnetic_handler,
+                scope=ServiceScope.SINGLETON
+            )
+        except ImportError as e:
+            logger.warning(f"GeomagneticCommandHandler not available, skipping registration: {e}")
+        
+        # Register reminder manager (no dependencies for now)
+        try:
+            service_registry.register_factory(
+                'reminder_manager',
+                type(None),  # Placeholder type
+                ServiceFactory.create_reminder_manager,
+                scope=ServiceScope.SINGLETON
+            )
         except ImportError:
-            logger.warning("MessageCounter not available, skipping registration")
+            logger.warning("ReminderManager not available, skipping registration")
+        
+        # Register service error boundary for centralized error handling
+        try:
+            service_registry.register_factory(
+                'service_error_boundary',
+                type(None),  # Placeholder type
+                ServiceFactory.create_service_error_boundary,
+                scope=ServiceScope.SINGLETON
+            )
+        except ImportError as e:
+            logger.warning(f"ServiceErrorBoundary not available, skipping registration: {e}")
+        
+        logger.info("Specialized services registered with dependency injection using service factories")
     
     async def start_application(self) -> None:
         """
@@ -164,17 +310,17 @@ class ApplicationBootstrapper:
         logger.info("Starting application...")
         
         try:
-            # Configure services
+            # Configure services first
             self.service_registry = await self.configure_services()
             
             # Get bot application service
             self.bot_application = self.service_registry.get_service('bot_application')
             
+            # Setup signal handlers before initializing
+            self.setup_signal_handlers()
+            
             # Initialize the bot application
             await self.bot_application.initialize()
-            
-            # Setup signal handlers
-            self.setup_signal_handlers()
             
             # Mark as running
             self._running = True
@@ -197,18 +343,47 @@ class ApplicationBootstrapper:
         """
         def signal_handler(signum: int, frame: Any) -> None:
             """Handle shutdown signals."""
-            logger.info(f"Received signal {signum}, initiating graceful shutdown...")
-            self._shutdown_event.set()
+            signal_name = {
+                signal.SIGINT: "SIGINT",
+                signal.SIGTERM: "SIGTERM"
+            }.get(signum, f"Signal {signum}")
             
-            # Create a task to shutdown the application
-            if self._running:
-                asyncio.create_task(self.shutdown_application())
+            logger.info(f"Received {signal_name}, initiating enhanced graceful shutdown...")
+            
+            # Set shutdown event
+            if not self._shutdown_event.is_set():
+                self._shutdown_event.set()
+                
+                # Force immediate shutdown
+                if self._running and not hasattr(self, '_shutting_down'):
+                    self._shutting_down = True
+                    try:
+                        # Stop the bot application immediately
+                        if self.bot_application and hasattr(self.bot_application, 'telegram_app'):
+                            if self.bot_application.telegram_app:
+                                self.bot_application.telegram_app.stop_running()
+                        
+                        # Create shutdown task with timeout
+                        loop = asyncio.get_running_loop()
+                        shutdown_task = loop.create_task(self.shutdown_application())
+                        
+                        # Force exit after 3 seconds if shutdown doesn't complete
+                        def force_exit():
+                            logger.warning("Forcing exit after shutdown timeout")
+                            sys.exit(0)
+                        
+                        loop.call_later(3.0, force_exit)
+                        
+                    except Exception as e:
+                        logger.error(f"Error during signal shutdown: {e}")
+                        sys.exit(1)
         
-        # Register signal handlers
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-        
-        logger.info("Signal handlers configured")
+        # Use a global flag to prevent multiple signal handler registrations
+        if not hasattr(ApplicationBootstrapper, '_global_signal_handlers_registered'):
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+            ApplicationBootstrapper._global_signal_handlers_registered = True
+            logger.info("Signal handlers configured for graceful shutdown")
     
     async def shutdown_application(self) -> None:
         """
@@ -221,18 +396,29 @@ class ApplicationBootstrapper:
             logger.info("Application is not running")
             return
             
+        # Prevent multiple shutdown attempts
+        if hasattr(self, '_shutting_down') and self._shutting_down:
+            logger.info("Shutdown already in progress")
+            return
+            
+        self._shutting_down = True
         logger.info("Shutting down application...")
         
         try:
-            # Shutdown bot application
+            # Shutdown bot application (this will also shutdown the service registry)
             if self.bot_application:
                 try:
                     await self.bot_application.shutdown()
                 except Exception as e:
                     logger.error(f"Error shutting down bot application: {e}")
-            
-            # Shutdown service registry
-            if self.service_registry:
+                    # If bot application shutdown fails, try to shutdown service registry directly
+                    if self.service_registry:
+                        try:
+                            await self.service_registry.shutdown_services()
+                        except Exception as registry_error:
+                            logger.error(f"Error shutting down service registry: {registry_error}")
+            elif self.service_registry:
+                # If no bot application but we have service registry, shutdown directly
                 try:
                     await self.service_registry.shutdown_services()
                 except Exception as e:
@@ -245,6 +431,7 @@ class ApplicationBootstrapper:
             # Don't re-raise here as we're shutting down anyway
         finally:
             self._running = False
+            self._shutting_down = False
     
     @property
     def is_running(self) -> bool:

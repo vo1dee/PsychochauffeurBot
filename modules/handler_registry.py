@@ -6,9 +6,10 @@ including commands, message handlers, and callback handlers.
 """
 
 import logging
-from typing import List
+from typing import List, Optional, Any
 
-from telegram.ext import Application
+from telegram import Update
+from telegram.ext import Application, CallbackContext
 from typing import Any
 from telegram.ext import filters
 
@@ -26,8 +27,9 @@ class HandlerRegistry(ServiceInterface):
     and callback handlers with the Telegram application.
     """
     
-    def __init__(self, command_processor: CommandProcessor):
+    def __init__(self, command_processor: CommandProcessor, service_registry: Optional[Any] = None):
         self.command_processor = command_processor
+        self.service_registry = service_registry
         self._registered = False
     
     async def initialize(self) -> None:
@@ -80,9 +82,7 @@ class HandlerRegistry(ServiceInterface):
             handle_message, handle_photo_analysis, handle_sticker,
             handle_location, handle_voice_or_video_note
         )
-        from modules.handlers.callback_handlers import (
-            button_callback, speechrec_callback, language_selection_callback
-        )
+        # Old callback handlers removed - using service-based approach
         
         # Register basic commands
         self.command_processor.register_text_command(
@@ -128,20 +128,33 @@ class HandlerRegistry(ServiceInterface):
             "speech", speech_command, "Toggle speech recognition", admin_only=True
         )
         
-        # Register weather and geomagnetic commands
-        weather_handler = service_registry.get_service('weather_handler')
-        geomagnetic_handler = service_registry.get_service('geomagnetic_handler')
-        reminder_manager = service_registry.get_service('reminder_manager')
-        
-        self.command_processor.register_text_command(
-            "weather", weather_handler, "Get weather information"
-        )
-        self.command_processor.register_text_command(
-            "gm", geomagnetic_handler, "Get geomagnetic activity"
-        )
-        self.command_processor.register_text_command(
-            "remind", reminder_manager.remind, "Set a reminder"
-        )
+        # Register weather and geomagnetic commands using service registry
+        if self.service_registry:
+            try:
+                weather_handler = self.service_registry.get_service('weather_handler')
+                self.command_processor.register_text_command(
+                    "weather", weather_handler, "Get weather information"
+                )
+            except Exception as e:
+                logger.warning(f"Weather handler not available: {e}")
+            
+            try:
+                geomagnetic_handler = self.service_registry.get_service('geomagnetic_handler')
+                self.command_processor.register_text_command(
+                    "gm", geomagnetic_handler, "Get geomagnetic activity"
+                )
+            except Exception as e:
+                logger.warning(f"Geomagnetic handler not available: {e}")
+            
+            try:
+                reminder_manager = self.service_registry.get_service('reminder_manager')
+                self.command_processor.register_text_command(
+                    "remind", reminder_manager.remind, "Set a reminder"
+                )
+            except Exception as e:
+                logger.warning(f"Reminder manager not available: {e}")
+        else:
+            logger.warning("Service registry not available, skipping service-based command registration")
         
         # Register message handlers
         self.command_processor.register_message_handler(
@@ -166,18 +179,36 @@ class HandlerRegistry(ServiceInterface):
             "Handle voice and video note messages"
         )
         
-        # Register callback handlers
-        self.command_processor.register_callback_handler(
-            "button_callbacks", button_callback, description="Handle button callbacks"
-        )
-        self.command_processor.register_callback_handler(
-            "speech_recognition", speechrec_callback, pattern=r"^speechrec_",
-            description="Handle speech recognition callbacks"
-        )
-        self.command_processor.register_callback_handler(
-            "language_selection", language_selection_callback, pattern=r"^lang_",
-            description="Handle language selection callbacks"
-        )
+        # Register callback handlers using service-based approach
+        if self.service_registry:
+            try:
+                logger.info("Registering service-based callback handlers...")
+                
+                # Create a bridge function that uses the callback handler service
+                async def service_based_callback_handler(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
+                    """Bridge function to route callbacks through the callback handler service."""
+                    try:
+                        callback_handler_service = self.service_registry.get_service('callback_handler_service')
+                        await callback_handler_service.handle_callback_query(update, context)
+                    except Exception as e:
+                        logger.error(f"Error in service-based callback handler: {e}", exc_info=True)
+                        # Send error response
+                        if update.callback_query:
+                            await update.callback_query.answer()
+                            await update.callback_query.edit_message_text(f"❌ Callback processing error: {str(e)}")
+                
+                self.command_processor.register_callback_handler(
+                    "service_based_callbacks", service_based_callback_handler, 
+                    description="Handle all callbacks through callback handler service"
+                )
+                logger.info("Service-based callback handlers registered successfully")
+                
+            except Exception as e:
+                logger.error(f"Failed to register service-based callback handler: {e}", exc_info=True)
+                raise RuntimeError(f"Cannot register callback handlers: {e}")
+        else:
+            logger.error("No service registry available - cannot register callback handlers")
+            raise RuntimeError("Service registry is required for callback handling")
     
     async def _register_message_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Register message handlers."""

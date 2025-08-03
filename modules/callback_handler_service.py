@@ -13,6 +13,7 @@ validation, security checks, and error handling.
 """
 
 import hashlib
+import logging
 import re
 import time
 from typing import Any, Dict, Optional, Set, Tuple, Callable, Awaitable
@@ -23,6 +24,10 @@ from modules.service_registry import ServiceInterface
 from modules.speech_recognition_service import SpeechRecognitionService
 from modules.keyboards import BUTTONS_CONFIG, LANGUAGE_OPTIONS_CONFIG
 from modules.logger import general_logger, error_logger
+
+# Create component-specific logger with clear service identification
+service_logger = logging.getLogger('callback_handler_service')
+service_logger.setLevel(logging.INFO)
 
 
 class CallbackHandlerService(ServiceInterface):
@@ -40,15 +45,25 @@ class CallbackHandlerService(ServiceInterface):
     the existing ServiceRegistry for dependency injection.
     """
     
-    def __init__(self, speech_service: Optional[SpeechRecognitionService] = None) -> None:
-        """Initialize the callback handler service.
+    def __init__(self, speech_service: Optional[SpeechRecognitionService] = None, service_registry: Optional[Any] = None) -> None:
+        """Initialize the callback handler service with configuration integration.
         
         Args:
             speech_service: Speech recognition service for handling speech callbacks
+            service_registry: Service registry for dependency injection
         """
         self.speech_service = speech_service
+        self.service_registry = service_registry
         self.callback_timestamps: Dict[str, float] = {}
         self.callback_expiry_seconds = 3600  # 1 hour expiry for callbacks
+        
+        # Configuration integration
+        self._config_manager: Optional[Any] = None
+        self._service_config: Dict[str, Any] = {}
+        self._config_change_callbacks: List[Any] = []
+        
+        # Enhanced logging with service identification
+        self.logger = logging.getLogger('callback_handler_service')
         
         # Define callback patterns and their handlers
         self._callback_handlers: Dict[str, Callable[[Update, CallbackContext[Any, Any, Any, Any]], Awaitable[None]]] = {
@@ -58,14 +73,52 @@ class CallbackHandlerService(ServiceInterface):
             r"^[a-zA-Z_]+:[0-9a-f]+$": self._handle_link_modification_callback,
         }
         
+        self.logger.info("CallbackHandlerService instance created with configuration integration")
+        
     async def initialize(self) -> None:
-        """Initialize the service."""
-        general_logger.info("CallbackHandlerService initialized")
+        """Initialize the service with configuration integration."""
+        self.logger.info("Initializing CallbackHandlerService with configuration integration...")
+        
+        try:
+            # Try to get config manager from service registry if available
+            if self.service_registry:
+                try:
+                    self._config_manager = self.service_registry.get_service('config_manager')
+                    self.logger.info("ConfigManager obtained from service registry")
+                except Exception:
+                    self.logger.debug("ConfigManager not available from service registry")
+            else:
+                self.logger.debug("Service registry not available")
+            
+            # Load service configuration if config manager is available
+            if self._config_manager:
+                await self._load_service_configuration()
+                await self._setup_configuration_notifications()
+            
+            self.logger.info("CallbackHandlerService initialized successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize CallbackHandlerService: {e}", exc_info=True)
+            raise
         
     async def shutdown(self) -> None:
-        """Shutdown the service and cleanup resources."""
-        self.callback_timestamps.clear()
-        general_logger.info("CallbackHandlerService shutdown")
+        """Shutdown the service and cleanup resources with proper configuration cleanup."""
+        self.logger.info("Shutting down CallbackHandlerService...")
+        
+        try:
+            # Clear configuration change callbacks
+            self._config_change_callbacks.clear()
+            
+            # Clear callback timestamps
+            self.callback_timestamps.clear()
+            
+            # Clear service configuration
+            self._service_config.clear()
+            
+            self.logger.info("CallbackHandlerService shutdown completed successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Error during CallbackHandlerService shutdown: {e}", exc_info=True)
         
     async def handle_callback_query(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Main entry point for handling callback queries.
@@ -351,4 +404,136 @@ class CallbackHandlerService(ServiceInterface):
             speech_service: Speech recognition service instance
         """
         self.speech_service = speech_service
-        general_logger.info("Speech service set for CallbackHandlerService")
+        self.logger.info("Speech service set for CallbackHandlerService")
+    
+    async def _load_service_configuration(self) -> None:
+        """Load service-specific configuration from ConfigManager."""
+        if not self._config_manager:
+            return
+            
+        try:
+            # Load global callback handler configuration
+            config = await self._config_manager.get_config(module_name="callback_handler")
+            self._service_config = config.get("overrides", {}) if config else {}
+            
+            # Update callback expiry from configuration if available
+            if "callback_expiry_seconds" in self._service_config:
+                self.callback_expiry_seconds = self._service_config["callback_expiry_seconds"]
+            
+            self.logger.info(f"Loaded service configuration: {len(self._service_config)} settings")
+            self.logger.debug(f"Configuration keys: {list(self._service_config.keys())}")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to load service configuration, using defaults: {e}")
+            self._service_config = {}
+    
+    async def _setup_configuration_notifications(self) -> None:
+        """Setup configuration change notification handling."""
+        if not self._config_manager:
+            return
+            
+        try:
+            # Register for configuration change notifications if ConfigManager supports it
+            if hasattr(self._config_manager, 'register_change_callback'):
+                callback = self._handle_configuration_change
+                self._config_manager.register_change_callback("callback_handler", callback)
+                self._config_change_callbacks.append(callback)
+                self.logger.info("Registered for configuration change notifications")
+            else:
+                self.logger.debug("ConfigManager does not support change notifications")
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to setup configuration notifications: {e}")
+    
+    async def _handle_configuration_change(self, module_name: str, new_config: Dict[str, Any]) -> None:
+        """Handle configuration changes for the callback handler service.
+        
+        Args:
+            module_name: Name of the configuration module that changed
+            new_config: New configuration data
+        """
+        if module_name != "callback_handler":
+            return
+            
+        self.logger.info(f"Configuration change detected for {module_name}")
+        
+        try:
+            # Update service configuration
+            old_config = self._service_config.copy()
+            self._service_config = new_config.get("overrides", {})
+            
+            # Log configuration changes
+            added_keys = set(self._service_config.keys()) - set(old_config.keys())
+            removed_keys = set(old_config.keys()) - set(self._service_config.keys())
+            modified_keys = {
+                key for key in self._service_config.keys() & old_config.keys()
+                if self._service_config[key] != old_config[key]
+            }
+            
+            if added_keys:
+                self.logger.info(f"Configuration added: {added_keys}")
+            if removed_keys:
+                self.logger.info(f"Configuration removed: {removed_keys}")
+            if modified_keys:
+                self.logger.info(f"Configuration modified: {modified_keys}")
+            
+            # Apply configuration changes
+            await self._apply_configuration_changes()
+            
+        except Exception as e:
+            self.logger.error(f"Error handling configuration change: {e}", exc_info=True)
+    
+    async def _apply_configuration_changes(self) -> None:
+        """Apply configuration changes to callback handler service."""
+        try:
+            # Update callback expiry from configuration
+            if "callback_expiry_seconds" in self._service_config:
+                old_expiry = self.callback_expiry_seconds
+                self.callback_expiry_seconds = self._service_config["callback_expiry_seconds"]
+                if old_expiry != self.callback_expiry_seconds:
+                    self.logger.info(f"Updated callback expiry: {old_expiry} -> {self.callback_expiry_seconds} seconds")
+            
+            self.logger.debug("Applied configuration changes to callback handler service")
+            
+        except Exception as e:
+            self.logger.error(f"Error applying configuration changes: {e}", exc_info=True)
+    
+    def get_service_configuration(self) -> Dict[str, Any]:
+        """Get current service configuration.
+        
+        Returns:
+            Current service configuration dictionary
+        """
+        return self._service_config.copy()
+    
+    async def update_service_configuration(self, new_config: Dict[str, Any]) -> None:
+        """Update service configuration.
+        
+        Args:
+            new_config: New configuration to apply
+        """
+        if not self._config_manager:
+            self.logger.warning("Cannot update configuration: ConfigManager not available")
+            return
+            
+        self.logger.info("Updating service configuration")
+        
+        try:
+            # Save configuration through ConfigManager
+            await self._config_manager.save_config(
+                module_name="callback_handler",
+                enabled=True,
+                overrides=new_config
+            )
+            
+            # Update local configuration
+            self._service_config = new_config.copy()
+            
+            # Apply changes
+            await self._apply_configuration_changes()
+            
+            self.logger.info("Service configuration updated successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to update service configuration: {e}", exc_info=True)
+            raise

@@ -10,28 +10,6 @@ import main
 class TestMainUtilities:
     """Test utility functions in main module."""
 
-    @patch('main.general_logger')
-    def test_handle_shutdown_signal(self, mock_logger):
-        """Test shutdown signal handling."""
-        with pytest.raises(SystemExit) as exc_info:
-            main.handle_shutdown_signal(signal.SIGTERM, None)
-        
-        assert str(exc_info.value) == "Shutdown signal received."
-        mock_logger.info.assert_called_once_with(
-            f"Received signal {signal.SIGTERM}, initiating graceful shutdown..."
-        )
-
-    @patch('main.general_logger')
-    def test_handle_shutdown_signal_sigint(self, mock_logger):
-        """Test shutdown signal handling with SIGINT."""
-        with pytest.raises(SystemExit) as exc_info:
-            main.handle_shutdown_signal(signal.SIGINT, None)
-        
-        assert str(exc_info.value) == "Shutdown signal received."
-        mock_logger.info.assert_called_once_with(
-            f"Received signal {signal.SIGINT}, initiating graceful shutdown..."
-        )
-
     @patch('main.Config')
     @patch('main.error_logger')
     @pytest.mark.asyncio
@@ -46,93 +24,125 @@ class TestMainUtilities:
         )
 
     @patch('main.Config')
-    @patch('main.init_directories')
+    @patch('main.ApplicationBootstrapper')
     @patch('main.error_logger')
     @pytest.mark.asyncio
-    async def test_main_with_token_calls_init(self, mock_error_logger, mock_init_dirs, mock_config):
-        """Test that main function calls init_directories when token is present."""
+    async def test_main_with_token_creates_bootstrapper(self, mock_error_logger, mock_bootstrapper_class, mock_config):
+        """Test that main function creates ApplicationBootstrapper when token is present."""
         mock_config.TELEGRAM_BOT_TOKEN = "test_token"
         
-        # Mock the ApplicationBuilder to avoid actual bot creation
-        with patch('main.ApplicationBuilder') as mock_builder:
-            mock_app = AsyncMock()
-            mock_builder.return_value.token.return_value.build.return_value = mock_app
-            mock_app.run_polling = AsyncMock()
-            
-            # This will fail at some point but we just want to test the init call
-            try:
-                await main.main()
-            except Exception:
-                pass  # Expected to fail due to mocking
-            
-            mock_init_dirs.assert_called_once()
-
-    @patch('main.main')
-    @patch('main.signal.signal')
-    @patch('main.nest_asyncio.apply')
-    @patch('main.asyncio.get_event_loop')
-    def test_run_bot_signal_registration(self, mock_get_event_loop, mock_nest_asyncio, mock_signal, mock_main_func):
-        """Test that run_bot registers signal handlers."""
-        # Mock the main function to return a simple coroutine
-        mock_main_func.return_value = AsyncMock()
+        # Mock the ApplicationBootstrapper
+        mock_bootstrapper = AsyncMock()
+        mock_bootstrapper_class.return_value = mock_bootstrapper
+        mock_bootstrapper.start_application = AsyncMock()
+        mock_bootstrapper.shutdown_application = AsyncMock()
         
-        # Mock the event loop
-        mock_loop = Mock()
-        mock_loop.is_running.return_value = False
-        mock_loop.run_until_complete.return_value = None
-        mock_get_event_loop.return_value = mock_loop
+        await main.main()
+        
+        # Verify bootstrapper was created and started
+        mock_bootstrapper_class.assert_called_once()
+        mock_bootstrapper.start_application.assert_called_once()
+        mock_bootstrapper.shutdown_application.assert_called_once()
+
+    @patch('main.Config')
+    @patch('main.ApplicationBootstrapper')
+    @patch('main.error_logger')
+    @pytest.mark.asyncio
+    async def test_main_handles_keyboard_interrupt(self, mock_error_logger, mock_bootstrapper_class, mock_config):
+        """Test that main function handles KeyboardInterrupt properly."""
+        mock_config.TELEGRAM_BOT_TOKEN = "test_token"
+        
+        # Mock the ApplicationBootstrapper to raise KeyboardInterrupt
+        mock_bootstrapper = AsyncMock()
+        mock_bootstrapper_class.return_value = mock_bootstrapper
+        mock_bootstrapper.start_application.side_effect = KeyboardInterrupt()
+        mock_bootstrapper.shutdown_application = AsyncMock()
+        
+        await main.main()
+        
+        # Verify shutdown was still called
+        mock_bootstrapper.shutdown_application.assert_called_once()
+
+    @patch('main.Config')
+    @patch('main.ApplicationBootstrapper')
+    @patch('main.error_logger')
+    @pytest.mark.asyncio
+    async def test_main_handles_exception(self, mock_error_logger, mock_bootstrapper_class, mock_config):
+        """Test that main function handles exceptions properly."""
+        mock_config.TELEGRAM_BOT_TOKEN = "test_token"
+        
+        # Mock the ApplicationBootstrapper to raise an exception
+        mock_bootstrapper = AsyncMock()
+        mock_bootstrapper_class.return_value = mock_bootstrapper
+        test_exception = RuntimeError("Test error")
+        mock_bootstrapper.start_application.side_effect = test_exception
+        mock_bootstrapper.shutdown_application = AsyncMock()
+        
+        with pytest.raises(RuntimeError):
+            await main.main()
+        
+        # Verify error was logged and shutdown was called
+        mock_error_logger.error.assert_called_once()
+        mock_bootstrapper.shutdown_application.assert_called_once()
+
+    @patch('main.asyncio.run')
+    @patch('main.logger')
+    def test_run_bot_success(self, mock_logger, mock_asyncio_run):
+        """Test that run_bot executes successfully."""
+        mock_asyncio_run.return_value = None
         
         main.run_bot()
         
-        # Verify signal handlers are registered
-        mock_signal.assert_any_call(signal.SIGINT, main.handle_shutdown_signal)
-        mock_signal.assert_any_call(signal.SIGTERM, main.handle_shutdown_signal)
+        # Verify asyncio.run was called with main
+        mock_asyncio_run.assert_called_once()
+
+    @patch('main.asyncio.run')
+    @patch('main.logger')
+    @patch('main.error_logger')
+    def test_run_bot_handles_keyboard_interrupt(self, mock_error_logger, mock_logger, mock_asyncio_run):
+        """Test that run_bot handles KeyboardInterrupt."""
+        mock_asyncio_run.side_effect = KeyboardInterrupt()
         
-        # nest_asyncio is not called in run_bot function
-        mock_nest_asyncio.assert_not_called()
+        main.run_bot()
         
-        # Verify event loop methods are called
-        mock_get_event_loop.assert_called_once()
-        mock_loop.run_until_complete.assert_called_once()
+        # Verify the interrupt was logged and run finished was called
+        mock_logger.info.assert_any_call("Bot stopped by user or system signal")
+        mock_logger.info.assert_called_with("Bot run finished")
+
+    @patch('main.asyncio.run')
+    @patch('main.logger')
+    @patch('main.error_logger')
+    def test_run_bot_handles_exception(self, mock_error_logger, mock_logger, mock_asyncio_run):
+        """Test that run_bot handles exceptions."""
+        test_exception = RuntimeError("Test error")
+        mock_asyncio_run.side_effect = test_exception
+        
+        with pytest.raises(SystemExit):
+            main.run_bot()
+        
+        # Verify the error was logged
+        mock_error_logger.error.assert_called_once()
 
 
 class TestMainIntegration:
     """Test integration aspects of main module."""
 
-    @patch('main.register_handlers')
     @patch('main.Config')
-    @patch('main.init_directories')
-    @patch('main.ApplicationBuilder')
+    @patch('main.ApplicationBootstrapper')
     @pytest.mark.asyncio
-    async def test_main_integration_flow(self, mock_builder, mock_init_dirs, mock_config, mock_register):
+    async def test_main_integration_flow(self, mock_bootstrapper_class, mock_config):
         """Test the main integration flow."""
         mock_config.TELEGRAM_BOT_TOKEN = "test_token"
         
-        # Mock the application builder chain
-        mock_app = AsyncMock()
-        mock_builder_instance = Mock()
-        mock_builder.return_value = mock_builder_instance
-        mock_builder_instance.token.return_value = mock_builder_instance
-        mock_builder_instance.build.return_value = mock_app
-        mock_app.run_polling = AsyncMock()
+        # Mock the ApplicationBootstrapper
+        mock_bootstrapper = AsyncMock()
+        mock_bootstrapper_class.return_value = mock_bootstrapper
+        mock_bootstrapper.start_application = AsyncMock()
+        mock_bootstrapper.shutdown_application = AsyncMock()
         
-        # Mock other dependencies
-        with patch('main.ConfigManager') as mock_config_manager, \
-             patch('main.ReminderManager') as mock_reminder_manager, \
-             patch('main.init_telegram_error_handler') as mock_init_error:
-            
-            mock_config_manager_instance = AsyncMock()
-            mock_config_manager.return_value = mock_config_manager_instance
-            
-            mock_reminder_manager_instance = AsyncMock()
-            mock_reminder_manager.return_value = mock_reminder_manager_instance
-            
-            try:
-                await main.main()
-            except Exception:
-                pass  # Expected to fail due to incomplete mocking
-            
-            # Verify initialization steps
-            mock_init_dirs.assert_called_once()
-            mock_builder.assert_called_once()
-            mock_builder_instance.token.assert_called_once_with("test_token")
+        await main.main()
+        
+        # Verify the complete flow
+        mock_bootstrapper_class.assert_called_once()
+        mock_bootstrapper.start_application.assert_called_once()
+        mock_bootstrapper.shutdown_application.assert_called_once()

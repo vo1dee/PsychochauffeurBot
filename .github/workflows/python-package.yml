@@ -1,10 +1,12 @@
-name: Python package
+name: Python package (DISABLED - Use ci.yml instead)
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  # Disabled to avoid duplicate test runs
+  # push:
+  #   branches: [ "main" ]
+  # pull_request:
+  #   branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:

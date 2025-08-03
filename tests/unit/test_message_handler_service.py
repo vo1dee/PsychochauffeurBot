@@ -219,7 +219,7 @@ class TestTextMessageHandler:
         """Test random GPT trigger logic for private chats."""
         mock_update.effective_chat.type = "private"
         
-        result = await text_handler._should_trigger_random_gpt(mock_update, "test message", "test message")
+        result = await text_handler._should_trigger_random_gpt(mock_update, mock_context, "test message", "test message")
         
         assert result is False
     
@@ -231,7 +231,7 @@ class TestTextMessageHandler:
         with patch('modules.message_handler_service.extract_urls') as mock_extract:
             mock_extract.return_value = ["http://example.com"]
             
-            result = await text_handler._should_trigger_random_gpt(mock_update, "test http://example.com", "test")
+            result = await text_handler._should_trigger_random_gpt(mock_update, mock_context, "test http://example.com", "test")
             
             assert result is False
     
@@ -244,7 +244,7 @@ class TestTextMessageHandler:
         with patch('modules.message_handler_service.extract_urls') as mock_extract:
             mock_extract.return_value = []
             
-            result = await text_handler._should_trigger_random_gpt(mock_update, "test message", "test message")
+            result = await text_handler._should_trigger_random_gpt(mock_update, mock_context, "test message", "test message")
             
             assert result is False
 

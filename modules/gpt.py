@@ -1009,12 +1009,18 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     username = update.effective_user.username if update.effective_user and update.effective_user.username else f"ID:{user_id}"
     
     try:
+        # Debug logging
+        general_logger.info(f"mystats_command: chat_id={chat_id}, user_id={user_id}, username={username}")
+        
         # Get user statistics
         stats = await get_user_chat_stats_with_fallback(
-            int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, 
+            int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).lstrip('-').isdigit() else 0, 
             int(user_id) if isinstance(user_id, (int, str)) and str(user_id).isdigit() else 0, 
             username
         )
+        
+        # Debug logging for stats
+        general_logger.info(f"mystats_command: stats={stats}")
         
         if not stats['total_messages']:
             await update.message.reply_text(
