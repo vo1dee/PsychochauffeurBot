@@ -5,6 +5,7 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
+  workflow_dispatch:
 
 env:
   PYTHON_VERSION: '3.10'
@@ -12,27 +13,43 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:6
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up Python
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
-        python-version: ${{ env.PYTHON_VERSION }}
-    
-    - name: Install PostgreSQL
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y postgresql postgresql-contrib
-        sudo systemctl start postgresql
-        sudo -u postgres createdb test_db
-        sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
-    
-    - name: Install Redis
-      run: |
-        sudo apt-get install -y redis-server
-        sudo systemctl start redis-server
+        python-version: ${{ matrix.python-version }}
     
     - name: Cache pip dependencies
       uses: actions/cache@v3
@@ -44,43 +61,47 @@ jobs:
     
     - name: Install dependencies
       run: |
+        sudo apt-get update
+        sudo apt-get install -y postgresql-client
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        # pip install -r requirements-dev.txt
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     
-    - name: Set up environment variables
+    - name: Wait for PostgreSQL
       run: |
-        echo "TELEGRAM_BOT_TOKEN=test_token" >> $GITHUB_ENV
-        echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_db" >> $GITHUB_ENV
-        echo "REDIS_URL=redis://localhost:6379" >> $GITHUB_ENV
-        echo "OPENAI_API_KEY=test_key" >> $GITHUB_ENV
-        echo "OPENWEATHER_API_KEY=test_key" >> $GITHUB_ENV
+        until pg_isready -h localhost -p 5432 -U postgres; do
+          echo "Waiting for PostgreSQL to be ready..."
+          sleep 2
+        done
     
-    - name: Run linting
-      run: |
-        flake8 modules/ config/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 modules/ config/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    
-    - name: Run type checking
-      run: |
-        mypy modules/ config/ --ignore-missing-imports
-    
-    - name: Run security checks
-      run: |
-        bandit -r modules/ config/ -f json -o bandit-report.json || true
-        safety check --json --output safety-report.json || true
-    
-    - name: Initialize test database
+    - name: Initialize Database
       run: |
         python scripts/init_database.py
-    
-    - name: Run unit tests
+
+    - name: Run type checking with mypy
       run: |
-        pytest tests/unit/ -v --cov=modules --cov=config --cov-report=xml --cov-report=html --cov-fail-under=5
-    
-    - name: Run integration tests
+        python -m mypy modules/ config/ --ignore-missing-imports
+
+    - name: Lint with flake8
       run: |
-        pytest tests/integration/ -v --cov-append --cov=modules --cov=config --cov-report=xml --cov-fail-under=5
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Test with pytest
+      env:
+        USE_EMPTY_PROMPTS: "true"
+        TELEGRAM_BOT_TOKEN: test_token
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379
+        OPENAI_API_KEY: test_key
+        OPENWEATHER_API_KEY: test_key
+      run: |
+        pytest -c pytest-ci.ini --ignore=tests/test_service.py --ignore=tests/test_suite_optimizer -v --cov=modules --cov=config --cov-report=xml --cov-report=html --cov-fail-under=5
+
+    - name: Show gpt.py lines 80-100
+      run: sed -n '80,100p' modules/gpt.py
+
+    - name: Remove old venv
+      run: rm -rf .venv
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3

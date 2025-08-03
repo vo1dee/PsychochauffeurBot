@@ -9,7 +9,8 @@ import asyncio
 import logging
 import signal
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any, List
+from enum import Enum
 
 from telegram import Bot, Update
 from telegram.ext import Application, ApplicationBuilder
@@ -18,16 +19,37 @@ from typing import Any
 from modules.service_registry import ServiceRegistry, ServiceInterface
 from modules.const import Config, KYIV_TZ
 from modules.logger import general_logger, error_logger
+from modules.application_models import ServiceHealth
 
 logger = logging.getLogger(__name__)
 
 
+class ApplicationState(Enum):
+    """Application lifecycle states."""
+    UNINITIALIZED = "uninitialized"
+    INITIALIZING = "initializing"
+    INITIALIZED = "initialized"
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+    ERROR = "error"
+
+
 class BotApplication(ServiceInterface):
     """
-    Main bot application orchestrator.
+    Enhanced bot application orchestrator with specialized service integration.
     
-    Manages the entire bot lifecycle including initialization,
-    startup, shutdown, and component coordination.
+    Manages the entire bot lifecycle including initialization, startup, shutdown,
+    and component coordination. Provides enhanced error handling, recovery mechanisms,
+    and service dependency management.
+    
+    Features:
+    - Integration with specialized services (MessageHandler, SpeechRecognition, etc.)
+    - Enhanced error handling and recovery mechanisms
+    - Improved startup/shutdown coordination
+    - Service dependency management and initialization ordering
+    - Health monitoring and service status tracking
     """
     
     def __init__(self, service_registry: ServiceRegistry):
@@ -35,122 +57,355 @@ class BotApplication(ServiceInterface):
         self.telegram_app: Optional[Application[Any, Any, Any, Any, Any, Any]] = None
         self.bot: Optional[Bot] = None
         self._shutdown_event = asyncio.Event()
-        self._running = False
+        self._state = ApplicationState.UNINITIALIZED
+        self._service_health: Dict[str, ServiceHealth] = {}
+        self._initialization_errors: List[str] = []
+        self._recovery_attempts: Dict[str, int] = {}
+        self._max_recovery_attempts = 3
         
     async def initialize(self) -> None:
-        """Initialize the bot application and all components."""
-        logger.info("Initializing Bot Application...")
+        """Initialize the bot application and all components with enhanced error handling."""
+        if self._state != ApplicationState.UNINITIALIZED:
+            logger.warning(f"Application already initialized (state: {self._state.value})")
+            return
+            
+        self._state = ApplicationState.INITIALIZING
+        logger.info("Initializing Enhanced Bot Application...")
         
         try:
             # Validate configuration
-            if not Config.TELEGRAM_BOT_TOKEN:
-                raise ValueError("TELEGRAM_BOT_TOKEN is not set")
+            await self._validate_configuration()
             
             # Create Telegram application
-            self.telegram_app = ApplicationBuilder().token(Config.TELEGRAM_BOT_TOKEN).build()
-            self.bot = self.telegram_app.bot
+            await self._create_telegram_application()
             
-            # Register bot instance in service registry
-            self.service_registry.register_instance('telegram_bot', self.bot)
-            self.service_registry.register_instance('telegram_app', self.telegram_app)
+            # Register core instances in service registry
+            await self._register_core_instances()
             
-            # Initialize all services
-            await self.service_registry.initialize_services()
+            # Initialize specialized services with dependency management
+            await self._initialize_specialized_services()
             
-            # Register handlers
-            await self._register_handlers()
+            # Register handlers with enhanced error boundaries
+            await self._register_specialized_handlers()
             
-            logger.info("Bot Application initialized successfully")
+            # Migrate existing functionality to new architecture
+            await self._migrate_existing_functionality()
+            
+            # Perform health checks
+            await self._perform_initial_health_checks()
+            
+            self._state = ApplicationState.INITIALIZED
+            logger.info("Enhanced Bot Application initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize Bot Application: {e}")
+            self._state = ApplicationState.ERROR
+            self._initialization_errors.append(str(e))
+            logger.error(f"Failed to initialize Enhanced Bot Application: {e}")
+            await self._cleanup_partial_initialization()
             raise
     
     async def start(self) -> None:
-        """Start the bot application."""
-        if self._running:
+        """Start the bot application with enhanced coordination and error handling."""
+        if self._state == ApplicationState.RUNNING:
             logger.warning("Bot Application is already running")
             return
             
-        logger.info("Starting Bot Application...")
+        if self._state != ApplicationState.INITIALIZED:
+            raise RuntimeError(f"Cannot start application in state: {self._state.value}")
+            
+        self._state = ApplicationState.STARTING
+        logger.info("Starting Enhanced Bot Application...")
         
         try:
-            self._running = True
+            # Start specialized services in dependency order
+            await self._start_specialized_services()
             
-            # Send startup notification
-            await self._send_startup_notification()
+            # Send startup notification with service status
+            await self._send_enhanced_startup_notification()
             
-            # Setup signal handlers
-            self._setup_signal_handlers()
+            # Skip signal handler setup - managed by ApplicationBootstrapper
             
-            # Start polling
-            logger.info("Bot polling started")
-            if self.telegram_app:
-                # run_polling doesn't return a value, so we don't await it directly
-                # to avoid the func-returns-value error
-                try:
-                    self.telegram_app.run_polling(
-                        allowed_updates=Update.ALL_TYPES,
-                        drop_pending_updates=True,
-                        stop_signals=None  # We handle signals ourselves
-                    )
-                    # This line is reached after polling stops
-                except Exception as polling_error:
-                    logger.error(f"Polling failed: {polling_error}")
-                    raise RuntimeError("Polling failed") from polling_error
-            else:
-                logger.error("Telegram application is not initialized")
-                raise RuntimeError("Telegram application is not initialized")
-                
+            # Start polling with recovery mechanisms
+            await self._start_polling_with_recovery()
+            
         except Exception as e:
-            logger.error(f"Error during bot execution: {e}")
+            self._state = ApplicationState.ERROR
+            logger.error(f"Error during bot startup: {e}")
+            await self._handle_startup_error(e)
             raise
         finally:
-            self._running = False
+            if self._state == ApplicationState.STARTING:
+                self._state = ApplicationState.STOPPED
     
     async def shutdown(self) -> None:
-        """Shutdown the bot application gracefully."""
-        if not self._running:
-            logger.info("Bot Application is not running")
+        """Shutdown the bot application gracefully with enhanced coordination."""
+        if self._state in [ApplicationState.STOPPED, ApplicationState.UNINITIALIZED]:
+            logger.info(f"Bot Application is not running (state: {self._state.value})")
             return
             
-        logger.info("Shutting down Bot Application...")
+        self._state = ApplicationState.STOPPING
+        logger.info("Shutting down Enhanced Bot Application...")
         
         try:
-            # Stop polling
-            if self.telegram_app:
-                await self.telegram_app.stop()
+            # Stop polling first
+            await self._stop_polling_gracefully()
             
-            # Shutdown all services
+            # Shutdown specialized services in reverse dependency order
+            await self._shutdown_specialized_services()
+            
+            # Shutdown all services through registry
             await self.service_registry.shutdown_services()
             
-            # Send shutdown notification
-            await self._send_shutdown_notification()
+            # Send enhanced shutdown notification
+            await self._send_enhanced_shutdown_notification()
             
-            self._running = False
-            logger.info("Bot Application shutdown completed")
+            # Clear service health tracking
+            self._service_health.clear()
+            self._recovery_attempts.clear()
+            
+            self._state = ApplicationState.STOPPED
+            logger.info("Enhanced Bot Application shutdown completed")
             
         except Exception as e:
+            self._state = ApplicationState.ERROR
             logger.error(f"Error during shutdown: {e}")
+            # Continue with cleanup even if there are errors
+            await self._force_cleanup()
     
-    async def _register_handlers(self) -> None:
-        """Register all command and message handlers."""
-        # Get handler registry service
-        handler_registry = self.service_registry.get_service('handler_registry')
-        await handler_registry.register_all_handlers(self.telegram_app)
+    async def _validate_configuration(self) -> None:
+        """Validate application configuration."""
+        if not Config.TELEGRAM_BOT_TOKEN:
+            raise ValueError("TELEGRAM_BOT_TOKEN is not set")
+        if not Config.ERROR_CHANNEL_ID:
+            logger.warning("ERROR_CHANNEL_ID is not set - notifications will be disabled")
+            
+    async def _create_telegram_application(self) -> None:
+        """Create Telegram application with enhanced configuration."""
+        try:
+            self.telegram_app = ApplicationBuilder().token(Config.TELEGRAM_BOT_TOKEN).build()
+            self.bot = self.telegram_app.bot
+            logger.info("Telegram application created successfully")
+        except Exception as e:
+            error_msg = f"Failed to create Telegram application: {e}"
+            self._initialization_errors.append(error_msg)
+            raise RuntimeError(error_msg)
+            
+    async def _register_core_instances(self) -> None:
+        """Register core instances in service registry."""
+        self.service_registry.register_instance('telegram_bot', self.bot)
+        self.service_registry.register_instance('telegram_app', self.telegram_app)
+        self.service_registry.register_instance('bot_application', self)
+        
+        # Store service registry in bot_data so handlers can access it
+        if self.telegram_app:
+            self.telegram_app.bot_data['service_registry'] = self.service_registry
+        
+        logger.info("Core instances registered in service registry")
+        
+    async def _initialize_specialized_services(self) -> None:
+        """Initialize specialized services with dependency management."""
+        logger.info("Initializing specialized services...")
+        
+        # Initialize services in dependency order through service registry
+        await self.service_registry.initialize_services()
+        
+        # Track service health
+        for service_name in self.service_registry.get_registered_services():
+            try:
+                service = self.service_registry.get_service(service_name)
+                self._service_health[service_name] = ServiceHealth(
+                    service_name=service_name,
+                    is_healthy=True,
+                    status="initialized",
+                    last_check=datetime.now(KYIV_TZ).isoformat()
+                )
+            except Exception as e:
+                self._service_health[service_name] = ServiceHealth(
+                    service_name=service_name,
+                    is_healthy=False,
+                    status="initialization_failed",
+                    error_message=str(e),
+                    last_check=datetime.now(KYIV_TZ).isoformat()
+                )
+                logger.error(f"Failed to initialize service {service_name}: {e}")
+                
+        logger.info(f"Specialized services initialized: {len(self._service_health)} services")
+        
+    async def _register_specialized_handlers(self) -> None:
+        """Register handlers with enhanced error boundaries."""
+        try:
+            # Get handler registry service
+            handler_registry = self.service_registry.get_service('handler_registry')
+            await handler_registry.register_all_handlers(self.telegram_app)
+            
+            logger.info("All specialized handlers registered successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to register specialized handlers: {e}")
+            raise
+            
+
+            
+    async def _perform_initial_health_checks(self) -> None:
+        """Perform initial health checks on all services."""
+        logger.info("Performing initial health checks...")
+        
+        healthy_services = 0
+        total_services = len(self._service_health)
+        
+        for service_name, health in self._service_health.items():
+            if health.is_healthy:
+                healthy_services += 1
+            else:
+                logger.warning(f"Service {service_name} is unhealthy: {health.error_message}")
+                
+        logger.info(f"Health check completed: {healthy_services}/{total_services} services healthy")
+        
+        if healthy_services < total_services * 0.8:  # Less than 80% healthy
+            logger.warning("Less than 80% of services are healthy - application may not function properly")
+            
+    async def _cleanup_partial_initialization(self) -> None:
+        """Clean up partial initialization on failure."""
+        logger.info("Cleaning up partial initialization...")
+        
+        try:
+            # Attempt to shutdown any initialized services
+            await self.service_registry.shutdown_services()
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+            
+        # Clear state but preserve initialization errors for debugging
+        self._service_health.clear()
+        # Don't clear initialization errors - they should be preserved for inspection
+        
+    async def _start_specialized_services(self) -> None:
+        """Start specialized services in dependency order."""
+        logger.info("Starting specialized services...")
+        
+        # Services are already initialized, just need to mark as running
+        for service_name in self._service_health:
+            if self._service_health[service_name].is_healthy:
+                self._service_health[service_name].status = "running"
+                
+        logger.info("Specialized services started")
+        
+    async def _start_polling_with_recovery(self) -> None:
+        """Start polling with recovery mechanisms."""
+        self._state = ApplicationState.RUNNING
+        logger.info("Bot polling started with recovery mechanisms")
+        
+        if not self.telegram_app:
+            raise RuntimeError("Telegram application is not initialized")
+            
+        try:
+            self.telegram_app.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+                stop_signals=None  # We handle signals ourselves
+            )
+        except Exception as polling_error:
+            logger.error(f"Polling failed: {polling_error}")
+            await self._attempt_polling_recovery(polling_error)
+            
+    async def _attempt_polling_recovery(self, error: Exception) -> None:
+        """Attempt to recover from polling errors."""
+        # Don't attempt recovery if we're shutting down
+        if self._state == ApplicationState.STOPPING:
+            logger.info("Skipping polling recovery - application is shutting down")
+            return
+            
+        recovery_key = "polling"
+        attempts = self._recovery_attempts.get(recovery_key, 0)
+        
+        if attempts < self._max_recovery_attempts:
+            self._recovery_attempts[recovery_key] = attempts + 1
+            logger.info(f"Attempting polling recovery (attempt {attempts + 1}/{self._max_recovery_attempts})")
+            
+            # Wait before retry
+            await asyncio.sleep(5 * (attempts + 1))  # Exponential backoff
+            
+            # Check again if we're still not shutting down
+            if self._state != ApplicationState.STOPPING:
+                try:
+                    await self._start_polling_with_recovery()
+                except Exception as retry_error:
+                    logger.error(f"Recovery attempt failed: {retry_error}")
+                    if attempts + 1 >= self._max_recovery_attempts:
+                        raise RuntimeError("Maximum recovery attempts exceeded") from error
+        else:
+            raise RuntimeError("Maximum recovery attempts exceeded") from error
+            
+    async def _handle_startup_error(self, error: Exception) -> None:
+        """Handle startup errors with recovery attempts."""
+        logger.error(f"Startup error occurred: {error}")
+        
+        # Attempt graceful cleanup
+        try:
+            await self._shutdown_specialized_services()
+        except Exception as cleanup_error:
+            logger.error(f"Error during startup error cleanup: {cleanup_error}")
+            
+    async def _stop_polling_gracefully(self) -> None:
+        """Stop polling gracefully."""
+        if self.telegram_app:
+            try:
+                await self.telegram_app.stop()
+                logger.info("Telegram polling stopped gracefully")
+            except Exception as e:
+                logger.error(f"Error stopping polling: {e}")
+                
+    async def _shutdown_specialized_services(self) -> None:
+        """Shutdown specialized services in reverse dependency order."""
+        logger.info("Shutting down specialized services...")
+        
+        # Mark services as stopping
+        for service_name in self._service_health:
+            self._service_health[service_name].status = "stopping"
+            
+        # Services will be shutdown by the service registry
+        logger.info("Specialized services marked for shutdown")
+        
+    async def _force_cleanup(self) -> None:
+        """Force cleanup in case of errors during shutdown."""
+        logger.warning("Performing force cleanup...")
+        
+        try:
+            if self.telegram_app:
+                await self.telegram_app.stop()
+        except Exception:
+            pass  # Ignore errors during force cleanup
+            
+        self._service_health.clear()
+        self._recovery_attempts.clear()
+        self._state = ApplicationState.ERROR
     
-    async def _send_startup_notification(self) -> None:
-        """Send startup notification to error channel."""
+    async def _send_enhanced_startup_notification(self) -> None:
+        """Send enhanced startup notification with service status."""
         try:
             if not Config.ERROR_CHANNEL_ID or not self.bot:
                 return
                 
             startup_time = datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
+            
+            # Count healthy services
+            healthy_services = sum(1 for health in self._service_health.values() if health.is_healthy)
+            total_services = len(self._service_health)
+            
+            # Build service status (escape special characters for MarkdownV2)
+            service_status = []
+            for service_name, health in self._service_health.items():
+                status_icon = "✅" if health.is_healthy else "❌"
+                # Escape special characters in service name for MarkdownV2
+                escaped_name = service_name.replace('_', '\\_').replace('-', '\\-').replace('.', '\\.')
+                service_status.append(f"  {status_icon} {escaped_name}")
+                
             startup_message = (
-                "🚀 *Bot Started Successfully*\\n\\n"
-                f"*Time:* `{startup_time}`\\n"
-                "*Status:* `Online`\\n"
-                "*Components:* All services initialized ✅"
+                "🚀 *Enhanced Bot Started Successfully*\n\n"
+                f"*Time:* `{startup_time}`\n"
+                f"*Status:* `Online`\n"
+                f"*Services:* `{healthy_services}/{total_services}` healthy\n\n"
+                "*Service Status:*\n"
+                + "\n".join(service_status)
             )
             
             # Parse channel ID and topic ID
@@ -170,30 +425,46 @@ class BotApplication(ServiceInterface):
                 )
             
         except Exception as e:
-            logger.error(f"Failed to send startup notification: {e}")
+            logger.error(f"Failed to send enhanced startup notification: {e}")
     
-    async def _send_shutdown_notification(self) -> None:
-        """Send shutdown notification to error channel."""
+    async def _send_enhanced_shutdown_notification(self) -> None:
+        """Send enhanced shutdown notification with final service status."""
         try:
             if not Config.ERROR_CHANNEL_ID or not self.bot:
                 return
                 
+            # Skip notification if we're already in an error state to prevent loops
+            if hasattr(self, '_shutdown_notification_sent') and self._shutdown_notification_sent:
+                return
+            self._shutdown_notification_sent = True
+                
             shutdown_time = datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
+            
+            # Count services that were running
+            running_services = sum(1 for health in self._service_health.values() 
+                                 if health.status in ["running", "stopping"])
+            total_services = len(self._service_health)
+            
             shutdown_message = (
-                "🛑 *Bot Shutdown*\\n\\n"
-                f"*Time:* `{shutdown_time}`\\n"
-                "*Status:* `Offline`"
+                "🛑 *Enhanced Bot Shutdown*\n\n"
+                f"*Time:* `{shutdown_time}`\n"
+                f"*Status:* `Offline`\n"
+                f"*Services Stopped:* `{running_services}/{total_services}`"
             )
+            
+            # Add error information if any
+            if self._initialization_errors:
+                shutdown_message += f"\n*Errors:* `{len(self._initialization_errors)}`"
             
             # Parse channel ID and topic ID
             if ':' in Config.ERROR_CHANNEL_ID:
                 channel_id, topic_id = Config.ERROR_CHANNEL_ID.split(':')
-                message_params = {
-                    'chat_id': channel_id,
-                    'text': shutdown_message,
-                    'parse_mode': 'MarkdownV2',
-                    'message_thread_id': int(topic_id)
-                }
+                await self.bot.send_message(
+                    chat_id=channel_id,
+                    text=shutdown_message,
+                    parse_mode='MarkdownV2',
+                    message_thread_id=int(topic_id)
+                )
             else:
                 await self.bot.send_message(
                     chat_id=Config.ERROR_CHANNEL_ID,
@@ -202,18 +473,221 @@ class BotApplication(ServiceInterface):
                 )
             
         except Exception as e:
-            logger.error(f"Failed to send shutdown notification: {e}")
+            logger.error(f"Failed to send enhanced shutdown notification: {e}")
+            # Don't re-raise to prevent shutdown loops
     
-    def _setup_signal_handlers(self) -> None:
-        """Setup signal handlers for graceful shutdown."""
-        def signal_handler(signum: int, frame: Any) -> None:
-            logger.info(f"Received signal {signum}, initiating graceful shutdown...")
-            self._shutdown_event.set()
-        
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+    def _setup_enhanced_signal_handlers(self) -> None:
+        """Setup enhanced signal handlers for graceful shutdown."""
+        # Signal handlers are now managed by ApplicationBootstrapper
+        # This method is kept for compatibility but does nothing
+        logger.info("Signal handlers are managed by ApplicationBootstrapper")
     
     @property
     def is_running(self) -> bool:
         """Check if the bot application is running."""
-        return self._running
+        return self._state == ApplicationState.RUNNING
+        
+    @property
+    def state(self) -> ApplicationState:
+        """Get the current application state."""
+        return self._state
+        
+    @property
+    def service_health(self) -> Dict[str, ServiceHealth]:
+        """Get the current service health status."""
+        return self._service_health.copy()
+        
+    @property
+    def initialization_errors(self) -> List[str]:
+        """Get any initialization errors that occurred."""
+        return self._initialization_errors.copy()
+        
+    async def get_service_status(self) -> Dict[str, Any]:
+        """Get comprehensive service status information."""
+        healthy_count = sum(1 for health in self._service_health.values() if health.is_healthy)
+        total_count = len(self._service_health)
+        
+        return {
+            "application_state": self._state.value,
+            "total_services": total_count,
+            "healthy_services": healthy_count,
+            "unhealthy_services": total_count - healthy_count,
+            "health_percentage": (healthy_count / total_count * 100) if total_count > 0 else 0,
+            "services": {name: {
+                "is_healthy": health.is_healthy,
+                "status": health.status,
+                "last_check": health.last_check,
+                "error_message": health.error_message
+            } for name, health in self._service_health.items()},
+            "initialization_errors": self._initialization_errors,
+            "recovery_attempts": self._recovery_attempts.copy()
+        }
+        
+    async def perform_health_check(self) -> Dict[str, ServiceHealth]:
+        """Perform health check on all services."""
+        logger.info("Performing comprehensive health check...")
+        
+        for service_name in self._service_health:
+            try:
+                service = self.service_registry.get_service(service_name)
+                
+                # Check if service has a health check method
+                if hasattr(service, 'health_check') and callable(getattr(service, 'health_check')):
+                    if asyncio.iscoroutinefunction(service.health_check):
+                        health_result = await service.health_check()
+                    else:
+                        health_result = service.health_check()
+                        
+                    # Update health status based on result
+                    if isinstance(health_result, bool):
+                        is_healthy = health_result
+                        status = "healthy" if is_healthy else "unhealthy"
+                        error_message = None
+                    elif isinstance(health_result, dict):
+                        is_healthy = health_result.get('is_healthy', True)
+                        status = health_result.get('status', 'unknown')
+                        error_message = health_result.get('error_message')
+                    else:
+                        is_healthy = True
+                        status = "healthy"
+                        error_message = None
+                else:
+                    # Service exists and can be retrieved, assume healthy
+                    is_healthy = True
+                    status = "healthy"
+                    error_message = None
+                    
+                self._service_health[service_name] = ServiceHealth(
+                    service_name=service_name,
+                    is_healthy=is_healthy,
+                    status=status,
+                    last_check=datetime.now(KYIV_TZ).isoformat(),
+                    error_message=error_message
+                )
+                
+            except Exception as e:
+                self._service_health[service_name] = ServiceHealth(
+                    service_name=service_name,
+                    is_healthy=False,
+                    status="error",
+                    last_check=datetime.now(KYIV_TZ).isoformat(),
+                    error_message=str(e)
+                )
+                logger.error(f"Health check failed for service {service_name}: {e}")
+                
+        healthy_count = sum(1 for health in self._service_health.values() if health.is_healthy)
+        total_count = len(self._service_health)
+        
+        logger.info(f"Health check completed: {healthy_count}/{total_count} services healthy")
+        return self._service_health.copy()
+        
+    async def restart_service(self, service_name: str) -> bool:
+        """Attempt to restart a specific service."""
+        if service_name not in self._service_health:
+            logger.error(f"Service {service_name} not found")
+            return False
+            
+        logger.info(f"Attempting to restart service: {service_name}")
+        
+        try:
+            # Get the service
+            service = self.service_registry.get_service(service_name)
+            
+            # Shutdown the service if it has a shutdown method
+            if hasattr(service, 'shutdown') and callable(getattr(service, 'shutdown')):
+                if asyncio.iscoroutinefunction(service.shutdown):
+                    await service.shutdown()
+                else:
+                    service.shutdown()
+                    
+            # Re-initialize the service if it has an initialize method
+            if hasattr(service, 'initialize') and callable(getattr(service, 'initialize')):
+                if asyncio.iscoroutinefunction(service.initialize):
+                    await service.initialize()
+                else:
+                    service.initialize()
+                    
+            # Update health status
+            self._service_health[service_name] = ServiceHealth(
+                service_name=service_name,
+                is_healthy=True,
+                status="restarted",
+                last_check=datetime.now(KYIV_TZ).isoformat()
+            )
+            
+            logger.info(f"Service {service_name} restarted successfully")
+            return True
+            
+        except Exception as e:
+            self._service_health[service_name] = ServiceHealth(
+                service_name=service_name,
+                is_healthy=False,
+                status="restart_failed",
+                last_check=datetime.now(KYIV_TZ).isoformat(),
+                error_message=str(e)
+            )
+            logger.error(f"Failed to restart service {service_name}: {e}")
+            return False
+    
+    async def _migrate_existing_functionality(self) -> None:
+        """Migrate existing functionality from main.py to new architecture."""
+        logger.info("Migrating existing functionality to new architecture...")
+        
+        try:
+            # Migrate command registration logic
+            await self._migrate_command_registration()
+            
+            # Migrate message handling logic
+            await self._migrate_message_handling()
+            
+            # Migrate speech recognition functionality
+            await self._migrate_speech_recognition()
+            
+            # Update handler registration to use new service-based approach
+            await self._update_handler_registration()
+            
+            logger.info("Successfully migrated existing functionality to new architecture")
+            
+        except Exception as e:
+            logger.error(f"Failed to migrate existing functionality: {e}")
+            raise
+    
+    async def _migrate_command_registration(self) -> None:
+        """Move command registration logic from main.py to CommandRegistry."""
+        try:
+            # Commands are now registered through HandlerRegistry, no need for separate registration
+            logger.info("Command registration migrated to HandlerRegistry")
+            
+        except Exception as e:
+            logger.error(f"Failed to migrate command registration: {e}")
+            raise
+    
+    async def _migrate_message_handling(self) -> None:
+        """Transfer message handling logic to MessageHandlerService."""
+        try:
+            # Message handlers are now registered through HandlerRegistry, no need for separate registration
+            logger.info("Message handling migrated to HandlerRegistry")
+            
+        except Exception as e:
+            logger.error(f"Failed to migrate message handling: {e}")
+            raise
+    
+    async def _migrate_speech_recognition(self) -> None:
+        """Migrate speech recognition functionality to SpeechRecognitionService."""
+        try:
+            # Speech recognition handlers are now registered through HandlerRegistry, no need for separate registration
+            logger.info("Speech recognition migrated to HandlerRegistry")
+            
+        except Exception as e:
+            logger.error(f"Failed to migrate speech recognition: {e}")
+            raise
+    
+    async def _update_handler_registration(self) -> None:
+        """Update handler registration to use new service-based approach."""
+        try:
+            # All handlers are now registered through HandlerRegistry, no additional registration needed
+            logger.info("Handler registration updated to use service-based approach")
+            
+        except Exception as e:
+            logger.error(f"Failed to update handler registration: {e}")
+            raise

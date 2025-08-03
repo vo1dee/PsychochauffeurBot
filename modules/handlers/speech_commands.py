@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 from telegram import Update, Chat, User
 from telegram.ext import ContextTypes
 
-from modules.service_registry import service_registry
+# Service registry will be accessed through context
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,17 @@ async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     user_id = update.effective_user.id
     args = context.args if hasattr(context, 'args') else []
+    
+    # Get service registry from bot application
+    service_registry = None
+    if hasattr(context, 'application') and hasattr(context.application, 'bot_data'):
+        service_registry = context.application.bot_data.get('service_registry')
+    
+    if not service_registry:
+        logger.warning("Service registry not available in context")
+        if update.message:
+            await update.message.reply_text("❌ Service registry not available.")
+        return
     
     # Get config manager service
     config_manager = service_registry.get_service('config_manager')
