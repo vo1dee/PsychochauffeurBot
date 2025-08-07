@@ -16,8 +16,11 @@ async def test_handle_message_translation_command(mock_update: typing.Any, mock_
     update.message.text = "бля!"
     update.message.from_user.id = 1
     context = MagicMock()
-    with patch("modules.handlers.message_handlers._handle_translation_command", new=AsyncMock()) as mock_trans, \
-         patch("modules.handlers.message_handlers.service_registry.get_service", return_value=MagicMock()):
+    # Mock service registry through context
+    service_registry_mock = MagicMock()
+    context.application.bot_data = {'service_registry': service_registry_mock}
+    
+    with patch("modules.handlers.message_handlers._handle_translation_command", new=AsyncMock()) as mock_trans:
         await message_handlers.handle_message(update, context)
         mock_trans.assert_awaited_once()
 
@@ -27,8 +30,11 @@ async def test_handle_message_restriction(mock_update: typing.Any, mock_context:
     update.message.text = "Ы forbidden"
     update.message.from_user.id = 1
     context = MagicMock()
-    with patch("modules.handlers.message_handlers.restrict_user", new=AsyncMock()) as mock_restrict, \
-         patch("modules.handlers.message_handlers.service_registry.get_service", return_value=MagicMock()):
+    # Mock service registry through context
+    service_registry_mock = MagicMock()
+    context.application.bot_data = {'service_registry': service_registry_mock}
+    
+    with patch("modules.handlers.message_handlers.restrict_user", new=AsyncMock()) as mock_restrict:
         await message_handlers.handle_message(update, context)
         mock_restrict.assert_awaited_once()
 
@@ -38,9 +44,12 @@ async def test_handle_message_gpt_response(mock_update: typing.Any, mock_context
     update.message.text = "hello bot"
     update.message.from_user.id = 1
     context = MagicMock()
+    # Mock service registry through context
+    service_registry_mock = MagicMock()
+    context.application.bot_data = {'service_registry': service_registry_mock}
+    
     with patch("modules.handlers.message_handlers.needs_gpt_response", return_value=(True, "mention")), \
-         patch("modules.handlers.message_handlers.gpt_response", new=AsyncMock()) as mock_gpt, \
-         patch("modules.handlers.message_handlers.service_registry.get_service", return_value=MagicMock()):
+         patch("modules.handlers.message_handlers.gpt_response", new=AsyncMock()) as mock_gpt:
         await message_handlers.handle_message(update, context)
         mock_gpt.assert_awaited_once()
 
@@ -49,11 +58,16 @@ async def test_handle_message_random_gpt(mock_update: typing.Any, mock_context: 
     update = MagicMock()
     update.message.text = "random text"
     update.message.from_user.id = 1
+    update.effective_chat.type = "group"  # Set chat type to group
+    update.effective_chat.id = 123  # Set chat ID
     context = MagicMock()
+    # Mock service registry through context
+    service_registry_mock = MagicMock()
+    context.application.bot_data = {'service_registry': service_registry_mock}
+    
     with patch("modules.handlers.message_handlers.needs_gpt_response", return_value=(False, "")), \
-         patch("modules.handlers.message_handlers.TelegramHelpers.is_group_chat", return_value=True), \
-         patch("modules.handlers.message_handlers.handle_random_gpt_response", new=AsyncMock()) as mock_rand, \
-         patch("modules.handlers.message_handlers.service_registry.get_service", return_value=MagicMock()):
+         patch("modules.handlers.message_handlers.process_message_content", return_value=("cleaned", [])), \
+         patch("modules.handlers.message_handlers.handle_random_gpt_response", new=AsyncMock()) as mock_rand:
         await message_handlers.handle_message(update, context)
         mock_rand.assert_awaited_once()
 
@@ -63,11 +77,14 @@ async def test_handle_message_modified_links(mock_update: typing.Any, mock_conte
     update.message.text = "check this link"
     update.message.from_user.id = 1
     context = MagicMock()
+    # Mock service registry through context
+    service_registry_mock = MagicMock()
+    context.application.bot_data = {'service_registry': service_registry_mock}
+    
     with patch("modules.handlers.message_handlers.needs_gpt_response", return_value=(False, "")), \
-         patch("modules.handlers.message_handlers.TelegramHelpers.is_group_chat", return_value=False), \
+         patch("modules.shared_utilities.TelegramHelpers.is_group_chat", return_value=False), \
          patch("modules.handlers.message_handlers.process_message_content", return_value=("cleaned", ["http://example.com"])), \
-         patch("modules.handlers.message_handlers.process_urls", new=AsyncMock()) as mock_urls, \
-         patch("modules.handlers.message_handlers.service_registry.get_service", return_value=MagicMock()):
+         patch("modules.handlers.message_handlers.process_urls", new=AsyncMock()) as mock_urls:
         await message_handlers.handle_message(update, context)
         mock_urls.assert_awaited_once()
 

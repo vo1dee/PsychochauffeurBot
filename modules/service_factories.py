@@ -7,7 +7,7 @@ to create service instances with their dependencies properly resolved.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from modules.service_registry import ServiceRegistry
 
@@ -18,7 +18,7 @@ class ServiceFactory:
     """Factory class for creating services with dependency injection."""
     
     @staticmethod
-    def create_message_handler_service(registry: ServiceRegistry, **kwargs) -> Any:
+    def create_message_handler_service(registry: ServiceRegistry, **kwargs: Any) -> Any:
         """Create MessageHandlerService with injected dependencies."""
         from modules.message_handler_service import MessageHandlerService
         
@@ -32,7 +32,7 @@ class ServiceFactory:
         )
     
     @staticmethod
-    def create_speech_recognition_service(registry: ServiceRegistry, **kwargs) -> Any:
+    def create_speech_recognition_service(registry: ServiceRegistry, **kwargs: Any) -> Any:
         """Create SpeechRecognitionService with injected dependencies."""
         try:
             from modules.speech_recognition_service import SpeechRecognitionService
@@ -48,7 +48,7 @@ class ServiceFactory:
             raise
     
     @staticmethod
-    def create_callback_handler_service(registry: ServiceRegistry, **kwargs) -> Any:
+    def create_callback_handler_service(registry: ServiceRegistry, **kwargs: Any) -> Any:
         """Create CallbackHandlerService with injected dependencies."""
         from modules.callback_handler_service import CallbackHandlerService
         
@@ -58,7 +58,7 @@ class ServiceFactory:
         return CallbackHandlerService(speech_service=speech_service, service_registry=registry)
     
     @staticmethod
-    def create_command_registry(registry: ServiceRegistry, **kwargs) -> Any:
+    def create_command_registry(registry: ServiceRegistry, **kwargs: Any) -> Any:
         """Create CommandRegistry with injected dependencies."""
         from modules.command_registry import CommandRegistry
         
@@ -68,7 +68,7 @@ class ServiceFactory:
         return CommandRegistry(command_processor=command_processor, service_registry=registry)
     
     @staticmethod
-    def create_handler_registry(registry: ServiceRegistry, **kwargs) -> Any:
+    def create_handler_registry(registry: ServiceRegistry, **kwargs: Any) -> Any:
         """Create HandlerRegistry with injected dependencies."""
         from modules.handler_registry import HandlerRegistry
         
@@ -78,7 +78,7 @@ class ServiceFactory:
         return HandlerRegistry(command_processor=command_processor, service_registry=registry)
     
     @staticmethod
-    def create_bot_application(registry: ServiceRegistry, **kwargs) -> Any:
+    def create_bot_application(registry: ServiceRegistry, **kwargs: Any) -> Any:
         """Create BotApplication with injected dependencies."""
         from modules.bot_application import BotApplication
         
@@ -86,7 +86,7 @@ class ServiceFactory:
         return BotApplication(service_registry=registry)
     
     @staticmethod
-    def create_message_counter(registry: ServiceRegistry, **kwargs) -> Any:
+    def create_message_counter(registry: ServiceRegistry, **kwargs: Any) -> Any:
         """Create MessageCounter (no dependencies)."""
         from modules.utils import MessageCounter
         
@@ -94,7 +94,7 @@ class ServiceFactory:
         return MessageCounter()
     
     @staticmethod
-    def create_command_processor(registry: ServiceRegistry, **kwargs) -> Any:
+    def create_command_processor(registry: ServiceRegistry, **kwargs: Any) -> Any:
         """Create CommandProcessor (no dependencies)."""
         from modules.command_processor import CommandProcessor
         
@@ -102,7 +102,7 @@ class ServiceFactory:
         return CommandProcessor()
     
     @staticmethod
-    def create_weather_handler(registry: ServiceRegistry, **kwargs) -> Any:
+    def create_weather_handler(registry: ServiceRegistry, **kwargs: Any) -> Any:
         """Create WeatherCommandHandler (no dependencies)."""
         from modules.weather import WeatherCommandHandler
         
@@ -110,7 +110,7 @@ class ServiceFactory:
         return WeatherCommandHandler()
     
     @staticmethod
-    def create_geomagnetic_handler(registry: ServiceRegistry, **kwargs) -> Any:
+    def create_geomagnetic_handler(registry: ServiceRegistry, **kwargs: Any) -> Any:
         """Create GeomagneticCommandHandler (no dependencies)."""
         from modules.geomagnetic import GeomagneticCommandHandler
         
@@ -135,7 +135,7 @@ class ServiceFactory:
 
 
 # Convenience functions for common service creation patterns
-def create_singleton_service(service_class: type, *dependencies: str):
+def create_singleton_service(service_class: type, *dependencies: str) -> Callable[[ServiceRegistry], Any]:
     """Create a factory function for a singleton service with dependencies."""
     def factory(registry: ServiceRegistry) -> Any:
         deps = {dep: registry.get_service(dep) for dep in dependencies}
@@ -144,7 +144,7 @@ def create_singleton_service(service_class: type, *dependencies: str):
     return factory
 
 
-def create_transient_service(service_class: type, *dependencies: str):
+def create_transient_service(service_class: type, *dependencies: str) -> Callable[[ServiceRegistry], Any]:
     """Create a factory function for a transient service with dependencies."""
     def factory(registry: ServiceRegistry) -> Any:
         deps = {dep: registry.get_service(dep) for dep in dependencies}
@@ -153,7 +153,7 @@ def create_transient_service(service_class: type, *dependencies: str):
     return factory
 
 
-def create_no_dependency_service(service_class: type):
+def create_no_dependency_service(service_class: type) -> Callable[[ServiceRegistry], Any]:
     """Create a factory function for a service with no dependencies."""
     def factory(registry: ServiceRegistry) -> Any:
         logger.debug(f"Creating {service_class.__name__} with no dependencies")

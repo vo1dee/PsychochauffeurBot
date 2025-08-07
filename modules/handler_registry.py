@@ -188,8 +188,9 @@ class HandlerRegistry(ServiceInterface):
                 async def service_based_callback_handler(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
                     """Bridge function to route callbacks through the callback handler service."""
                     try:
-                        callback_handler_service = self.service_registry.get_service('callback_handler_service')
-                        await callback_handler_service.handle_callback_query(update, context)
+                        callback_handler_service = self.service_registry.get_service('callback_handler_service') if self.service_registry else None
+                        if callback_handler_service:
+                            await callback_handler_service.handle_callback_query(update, context)
                     except Exception as e:
                         logger.error(f"Error in service-based callback handler: {e}", exc_info=True)
                         # Send error response

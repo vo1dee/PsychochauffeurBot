@@ -8,6 +8,7 @@ lifecycle management, and application orchestration.
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from typing import Optional, Any
@@ -16,6 +17,11 @@ from modules.service_registry import ServiceRegistry, ServiceInterface, ServiceS
 from modules.application_models import ServiceConfiguration
 from modules.const import Config
 from modules.logger import general_logger, error_logger
+from config.config_manager import ConfigManager
+from modules.bot_application import BotApplication
+from modules.message_handler_service import MessageHandlerService
+from modules.speech_recognition_service import SpeechRecognitionService
+from modules.command_registry import CommandRegistry
 
 # Create component-specific logger with clear service identification
 logger = logging.getLogger('application_bootstrapper')
@@ -326,8 +332,11 @@ class ApplicationBootstrapper:
             self._running = True
             
             # Start the bot application
-            logger.info("Application started successfully")
-            await self.bot_application.start()
+            if hasattr(self.bot_application, 'start'):
+                await self.bot_application.start()
+                logger.info("Application started successfully")
+            else:
+                logger.error("Bot application does not have a start method")
             
         except Exception as e:
             logger.error(f"Failed to start application: {e}")
@@ -343,10 +352,12 @@ class ApplicationBootstrapper:
         """
         def signal_handler(signum: int, frame: Any) -> None:
             """Handle shutdown signals."""
-            signal_name = {
-                signal.SIGINT: "SIGINT",
-                signal.SIGTERM: "SIGTERM"
-            }.get(signum, f"Signal {signum}")
+            if signum == signal.SIGINT:
+                signal_name = "SIGINT"
+            elif signum == signal.SIGTERM:
+                signal_name = "SIGTERM"
+            else:
+                signal_name = f"Signal {signum}"
             
             logger.info(f"Received {signal_name}, initiating enhanced graceful shutdown...")
             
@@ -368,7 +379,7 @@ class ApplicationBootstrapper:
                         shutdown_task = loop.create_task(self.shutdown_application())
                         
                         # Force exit after 3 seconds if shutdown doesn't complete
-                        def force_exit():
+                        def force_exit() -> None:
                             logger.warning("Forcing exit after shutdown timeout")
                             sys.exit(0)
                         
@@ -378,12 +389,62 @@ class ApplicationBootstrapper:
                         logger.error(f"Error during signal shutdown: {e}")
                         sys.exit(1)
         
+        # Store the signal handler for testing
+        self._signal_handler_func = signal_handler
+        
         # Use a global flag to prevent multiple signal handler registrations
         if not hasattr(ApplicationBootstrapper, '_global_signal_handlers_registered'):
-            signal.signal(signal.SIGINT, signal_handler)
-            signal.signal(signal.SIGTERM, signal_handler)
-            ApplicationBootstrapper._global_signal_handlers_registered = True
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
+            setattr(ApplicationBootstrapper, '_global_signal_handlers_registered', True)
             logger.info("Signal handlers configured for graceful shutdown")
+    
+    def _create_service_configuration(self) -> Any:
+        """Create service configuration from environment variables."""
+        from dataclasses import dataclass
+        
+        @dataclass
+        class ServiceConfiguration:
+            telegram_token: str
+            error_channel_id: str
+            database_url: str
+            redis_url: str
+            debug_mode: bool
+        
+        # Get environment variables
+        telegram_token = os.getenv('TELEGRAM_TOKEN', '')
+        error_channel_id = os.getenv('ERROR_CHANNEL_ID', '')
+        database_url = os.getenv('DATABASE_URL', '')
+        redis_url = os.getenv('REDIS_URL', '')
+        debug_mode_str = os.getenv('DEBUG_MODE', 'false').lower()
+        
+        # Validate required fields
+        if not telegram_token:
+            raise ValueError("TELEGRAM_TOKEN cannot be empty")
+        if not error_channel_id:
+            raise ValueError("ERROR_CHANNEL_ID cannot be empty")
+        
+        # Parse debug mode
+        debug_mode = debug_mode_str in ('true', '1', 'yes', 'on')
+        
+        return ServiceConfiguration(
+            telegram_token=telegram_token,
+            error_channel_id=error_channel_id,
+            database_url=database_url,
+            redis_url=redis_url,
+            debug_mode=debug_mode
+        )
+    
+    def _signal_handler(self, signum: int, frame: Any) -> None:
+        """Handle shutdown signals."""
+        self._shutdown_gracefully()
+    
+    def _shutdown_gracefully(self) -> None:
+        """Initiate graceful shutdown."""
+        if not self._shutdown_event.is_set():
+            self._shutdown_event.set()
+            # Create shutdown task
+            asyncio.create_task(self.shutdown_application())
     
     async def shutdown_application(self) -> None:
         """

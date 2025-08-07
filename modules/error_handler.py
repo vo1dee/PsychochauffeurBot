@@ -96,6 +96,25 @@ class StandardError(Exception):
             }
 
         return result
+    
+    @classmethod
+    def from_exception(
+        cls,
+        exception: Exception,
+        message: Optional[str] = None,
+        severity: ErrorSeverity = ErrorSeverity.MEDIUM,
+        category: ErrorCategory = ErrorCategory.GENERAL,
+        context: Optional[Dict[str, Any]] = None
+    ) -> 'StandardError':
+        """Create a StandardError from an existing exception."""
+        error_message = message or f"Exception occurred: {str(exception)}"
+        return cls(
+            message=error_message,
+            severity=severity,
+            category=category,
+            context=context,
+            original_exception=exception
+        )
 
 
 class ErrorHandler:
