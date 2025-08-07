@@ -7,7 +7,7 @@ Contains handlers for speech-related functionality.
 import logging
 from typing import Any, Dict, Optional
 from telegram import Update, Chat, User
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, Application
 
 # Service registry will be accessed through context
 
@@ -29,7 +29,7 @@ async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     service_registry = None
     if hasattr(context, 'application') and context.application and hasattr(context.application, 'bot_data'):
         # Type annotation to help mypy understand the context structure
-        app = context.application
+        app: Any = context.application
         if hasattr(app, 'bot_data'):
             service_registry = app.bot_data.get('service_registry')
     
