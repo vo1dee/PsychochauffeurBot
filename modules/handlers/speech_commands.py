@@ -27,7 +27,7 @@ async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     # Get service registry from bot application
     service_registry = None
-    if hasattr(context, 'application') and hasattr(context.application, 'bot_data'):
+    if hasattr(context, 'application') and context.application and hasattr(context.application, 'bot_data'):
         service_registry = context.application.bot_data.get('service_registry')
     
     if not service_registry:

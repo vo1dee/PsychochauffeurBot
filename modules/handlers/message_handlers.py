@@ -62,7 +62,7 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
     
     # Get service registry from bot application
     service_registry = None
-    if hasattr(context, 'application') and hasattr(context.application, 'bot_data'):
+    if hasattr(context, 'application') and context.application and hasattr(context.application, 'bot_data'):
         service_registry = context.application.bot_data.get('service_registry')
     
     # Update chat history for context using the global manager
@@ -150,7 +150,7 @@ async def handle_random_gpt_response(
     
     # Get service registry from bot application
     service_registry = None
-    if hasattr(context, 'application') and hasattr(context.application, 'bot_data'):
+    if hasattr(context, 'application') and context.application and hasattr(context.application, 'bot_data'):
         service_registry = context.application.bot_data.get('service_registry')
     
     if not service_registry:
@@ -334,7 +334,7 @@ async def handle_voice_or_video_note(update: Update, context: CallbackContext[An
     try:
         # Get service registry from bot application
         service_registry = None
-        if hasattr(context, 'application') and hasattr(context.application, 'bot_data'):
+        if hasattr(context, 'application') and context.application and hasattr(context.application, 'bot_data'):
             service_registry = context.application.bot_data.get('service_registry')
         
         if not service_registry:
