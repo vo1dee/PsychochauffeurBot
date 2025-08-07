@@ -215,7 +215,7 @@ class TestServiceFactories:
         
         result = ServiceFactory.create_callback_handler_service(registry)
         
-        mock_callback_service.assert_called_once_with(speech_service=mock_speech_service)
+        mock_callback_service.assert_called_once_with(speech_service=mock_speech_service, service_registry=registry)
         assert result == mock_instance
 
 
@@ -238,9 +238,19 @@ class TestApplicationBootstrapperDependencyInjection:
     @pytest.mark.asyncio
     async def test_configure_services_creates_registry(self, bootstrapper, mock_config):
         """Test that configure_services creates a properly configured registry."""
-        with patch('config.config_manager.ConfigManager'), \
-             patch('modules.database.Database'), \
-             patch('modules.bot_application.BotApplication'):
+        with patch('config.config_manager.ConfigManager') as mock_config_manager, \
+             patch('modules.database.Database') as mock_database, \
+             patch('modules.bot_application.BotApplication') as mock_bot_app:
+            
+            # Configure async mocks
+            mock_config_instance = AsyncMock()
+            mock_config_manager.return_value = mock_config_instance
+            
+            mock_database_instance = AsyncMock()
+            mock_database.return_value = mock_database_instance
+            
+            mock_bot_app_instance = AsyncMock()
+            mock_bot_app.return_value = mock_bot_app_instance
             
             registry = await bootstrapper.configure_services()
             
@@ -257,10 +267,20 @@ class TestApplicationBootstrapperDependencyInjection:
     @pytest.mark.asyncio
     async def test_specialized_services_registration(self, bootstrapper, mock_config):
         """Test that specialized services are registered with proper dependencies."""
-        with patch('config.config_manager.ConfigManager'), \
-             patch('modules.database.Database'), \
-             patch('modules.bot_application.BotApplication'), \
+        with patch('config.config_manager.ConfigManager') as mock_config_manager, \
+             patch('modules.database.Database') as mock_database, \
+             patch('modules.bot_application.BotApplication') as mock_bot_app, \
              patch('modules.service_factories.ServiceFactory') as mock_factory:
+            
+            # Configure async mocks
+            mock_config_instance = AsyncMock()
+            mock_config_manager.return_value = mock_config_instance
+            
+            mock_database_instance = AsyncMock()
+            mock_database.return_value = mock_database_instance
+            
+            mock_bot_app_instance = AsyncMock()
+            mock_bot_app.return_value = mock_bot_app_instance
             
             registry = await bootstrapper.configure_services()
             
@@ -284,9 +304,19 @@ class TestApplicationBootstrapperDependencyInjection:
     @pytest.mark.asyncio
     async def test_service_initialization_order(self, bootstrapper, mock_config):
         """Test that services are initialized in the correct dependency order."""
-        with patch('config.config_manager.ConfigManager'), \
-             patch('modules.database.Database'), \
-             patch('modules.bot_application.BotApplication'):
+        with patch('config.config_manager.ConfigManager') as mock_config_manager, \
+             patch('modules.database.Database') as mock_database, \
+             patch('modules.bot_application.BotApplication') as mock_bot_app:
+            
+            # Configure async mocks
+            mock_config_instance = AsyncMock()
+            mock_config_manager.return_value = mock_config_instance
+            
+            mock_database_instance = AsyncMock()
+            mock_database.return_value = mock_database_instance
+            
+            mock_bot_app_instance = AsyncMock()
+            mock_bot_app.return_value = mock_bot_app_instance
             
             registry = await bootstrapper.configure_services()
             
@@ -431,7 +461,7 @@ class TestDependencyInjectionIntegration:
                 config_manager=mock_config_manager,
                 message_counter=mock_message_counter
             )
-            mock_cr.assert_called_once_with(command_processor=mock_command_processor)
+            mock_cr.assert_called_once_with(command_processor=mock_command_processor, service_registry=registry)
             mock_hr.assert_called_once_with(
                 command_processor=mock_command_processor,
                 service_registry=registry

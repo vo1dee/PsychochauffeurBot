@@ -140,9 +140,8 @@ class TestMessageHandlerServiceConfiguration:
         
         # Verify configuration was saved and updated
         mock_config_manager.save_config.assert_called_once_with(
-            module_name="message_handler",
-            enabled=True,
-            overrides=new_config
+            config_data={"enabled": True, "overrides": new_config},
+            module_name="message_handler"
         )
         assert message_handler_service._service_config == new_config
     
@@ -250,9 +249,8 @@ class TestSpeechRecognitionServiceConfiguration:
         
         # Verify configuration was saved and updated
         mock_config_manager.save_config.assert_called_once_with(
-            module_name="speechmatics",
-            enabled=True,
-            overrides=new_config
+            config_data={"enabled": True, "overrides": new_config},
+            module_name="speechmatics"
         )
         assert speech_service._service_config == new_config
 
@@ -294,19 +292,22 @@ class TestCommandRegistryConfiguration:
             assert command_registry._service_config == {}
     
     @pytest.mark.asyncio
-    async def test_initialization_with_config_manager(self, command_registry, mock_config_manager):
+    async def test_initialization_with_config_manager(self, mock_command_processor, mock_config_manager):
         """Test initialization when ConfigManager is available."""
-        # Mock service registry to return config manager
-        with patch('modules.service_registry.service_registry') as mock_registry:
-            mock_registry.get_service.return_value = mock_config_manager
-            mock_config_manager.get_config.return_value = {"overrides": {"max_commands": 100}}
-            
-            # Initialize service
-            await command_registry.initialize()
-            
-            # Verify config manager was set and configuration loaded
-            assert command_registry._config_manager is mock_config_manager
-            assert command_registry._service_config == {"max_commands": 100}
+        # Create mock service registry
+        mock_service_registry = Mock()
+        mock_service_registry.get_service.return_value = mock_config_manager
+        mock_config_manager.get_config.return_value = {"overrides": {"max_commands": 100}}
+        
+        # Create command registry with service registry
+        command_registry = CommandRegistry(mock_command_processor, mock_service_registry)
+        
+        # Initialize service
+        await command_registry.initialize()
+        
+        # Verify config manager was set and configuration loaded
+        assert command_registry._config_manager is mock_config_manager
+        assert command_registry._service_config == {"max_commands": 100}
     
     @pytest.mark.asyncio
     async def test_configuration_change_handling(self, command_registry, mock_config_manager):
@@ -356,28 +357,31 @@ class TestCallbackHandlerServiceConfiguration:
     @pytest.fixture
     def callback_service(self):
         """Create CallbackHandlerService."""
-        return CallbackHandlerService()
+        mock_service_registry = Mock()
+        return CallbackHandlerService(service_registry=mock_service_registry)
     
     @pytest.mark.asyncio
-    async def test_initialization_loads_configuration(self, callback_service, mock_config_manager):
+    async def test_initialization_loads_configuration(self, mock_config_manager):
         """Test that initialization loads service configuration."""
-        # Mock service registry to return config manager
-        with patch('modules.service_registry.service_registry') as mock_registry:
-            mock_registry.get_service.return_value = mock_config_manager
-            mock_config = {
-                "enabled": True,
-                "overrides": {
-                    "callback_expiry_seconds": 7200
-                }
+        # Create service with mocked service registry
+        mock_service_registry = Mock()
+        mock_service_registry.get_service.return_value = mock_config_manager
+        callback_service = CallbackHandlerService(service_registry=mock_service_registry)
+        
+        mock_config = {
+            "enabled": True,
+            "overrides": {
+                "callback_expiry_seconds": 7200
             }
-            mock_config_manager.get_config.return_value = mock_config
-            
-            # Initialize service
-            await callback_service.initialize()
-            
-            # Verify configuration was loaded and applied
-            assert callback_service._service_config == mock_config["overrides"]
-            assert callback_service.callback_expiry_seconds == 7200
+        }
+        mock_config_manager.get_config.return_value = mock_config
+        
+        # Initialize service
+        await callback_service.initialize()
+        
+        # Verify configuration was loaded and applied
+        assert callback_service._service_config == mock_config["overrides"]
+        assert callback_service.callback_expiry_seconds == 7200
     
     @pytest.mark.asyncio
     async def test_configuration_change_updates_expiry(self, callback_service, mock_config_manager):
@@ -412,9 +416,8 @@ class TestCallbackHandlerServiceConfiguration:
         
         # Verify configuration was saved and updated
         mock_config_manager.save_config.assert_called_once_with(
-            module_name="callback_handler",
-            enabled=True,
-            overrides=new_config
+            config_data={"enabled": True, "overrides": new_config},
+            module_name="callback_handler"
         )
         assert callback_service._service_config == new_config
         assert callback_service.callback_expiry_seconds == 900

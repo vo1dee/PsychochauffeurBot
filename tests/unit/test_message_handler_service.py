@@ -431,7 +431,7 @@ class TestMessageHandlerService:
     @pytest.fixture
     def message_service(self, mock_config_manager):
         """Create MessageHandlerService instance for testing."""
-        return MessageHandlerService(mock_config_manager)
+        return MessageHandlerService(config_manager=mock_config_manager)
     
     @pytest.fixture
     def mock_update(self):

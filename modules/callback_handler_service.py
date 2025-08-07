@@ -16,7 +16,7 @@ import hashlib
 import logging
 import re
 import time
-from typing import Any, Dict, Optional, Set, Tuple, Callable, Awaitable
+from typing import Any, Dict, List, Optional, Set, Tuple, Callable, Awaitable
 from telegram import Update
 from telegram.ext import CallbackContext
 
@@ -521,9 +521,8 @@ class CallbackHandlerService(ServiceInterface):
         try:
             # Save configuration through ConfigManager
             await self._config_manager.save_config(
-                module_name="callback_handler",
-                enabled=True,
-                overrides=new_config
+                config_data={"enabled": True, "overrides": new_config},
+                module_name="callback_handler"
             )
             
             # Update local configuration

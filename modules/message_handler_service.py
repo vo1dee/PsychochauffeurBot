@@ -104,7 +104,7 @@ class TextMessageHandler(BaseMessageHandler):
                 'text': message_text,
                 'is_user': True,
                 'user_id': user_id,
-                'timestamp': update.message.date
+                'timestamp': update.message.date if update.message else None
             })
         
         # Check for user restrictions
@@ -420,7 +420,7 @@ class MessageHandlerService(ServiceInterface):
     
     async def handle_text_message(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle incoming text messages."""
-        async def _handle_text_operation():
+        async def _handle_text_operation() -> None:
             if not self._initialized:
                 await self.initialize()
             
@@ -450,7 +450,7 @@ class MessageHandlerService(ServiceInterface):
     
     async def handle_sticker_message(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle incoming sticker messages."""
-        async def _handle_sticker_operation():
+        async def _handle_sticker_operation() -> None:
             if not self._initialized:
                 await self.initialize()
             
@@ -474,7 +474,7 @@ class MessageHandlerService(ServiceInterface):
     
     async def handle_location_message(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
         """Handle incoming location messages."""
-        async def _handle_location_operation():
+        async def _handle_location_operation() -> None:
             if not self._initialized:
                 await self.initialize()
             
@@ -548,7 +548,7 @@ class MessageHandlerService(ServiceInterface):
     
     async def perform_health_check(self) -> bool:
         """Perform a health check on the message handler service."""
-        async def health_check():
+        async def health_check() -> bool:
             # Check if service is initialized and handlers are available
             return self._initialized and len(self.handlers) > 0
         
@@ -653,9 +653,8 @@ class MessageHandlerService(ServiceInterface):
         try:
             # Save configuration through ConfigManager
             await self.config_manager.save_config(
-                module_name="message_handler",
-                enabled=True,
-                overrides=new_config
+                config_data={"enabled": True, "overrides": new_config},
+                module_name="message_handler"
             )
             
             # Update local configuration

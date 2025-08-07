@@ -104,7 +104,7 @@ class SpeechRecognitionService(ServiceInterface):
             update: Telegram update containing the voice message
             context: Telegram callback context
         """
-        async def _handle_voice_operation():
+        async def _handle_voice_operation() -> None:
             if not await self._should_process_speech(update):
                 return
                 
@@ -133,7 +133,7 @@ class SpeechRecognitionService(ServiceInterface):
             update: Telegram update containing the video note
             context: Telegram callback context
         """
-        async def _handle_video_note_operation():
+        async def _handle_video_note_operation() -> None:
             if not await self._should_process_speech(update):
                 return
                 
@@ -162,7 +162,7 @@ class SpeechRecognitionService(ServiceInterface):
             update: Telegram update containing the callback query
             context: Telegram callback context
         """
-        async def _process_speech_operation():
+        async def _process_speech_operation() -> None:
             query = update.callback_query
             if not query or not query.data:
                 return
@@ -313,8 +313,16 @@ class SpeechRecognitionService(ServiceInterface):
             module_name="speechmatics"
         )
         
-        # When module_name is specified, the config manager returns the module config directly
-        return config  # type: ignore[no-any-return]
+        if not config:
+            return None
+            
+        # If config has config_modules structure, extract speechmatics config
+        if isinstance(config, dict) and "config_modules" in config:
+            speechmatics_config = config.get("config_modules", {}).get("speechmatics")
+            return speechmatics_config if isinstance(speechmatics_config, dict) else None
+        
+        # Otherwise assume config is already the speechmatics config
+        return config
         
     async def is_speech_enabled(self, chat_id: str, chat_type: str) -> bool:
         """Check if speech recognition is enabled for a chat.
@@ -336,13 +344,13 @@ class SpeechRecognitionService(ServiceInterface):
             # Handle double-nested overrides structure
             nested_overrides = overrides.get("overrides", {})
             if isinstance(nested_overrides, dict) and "enabled" in nested_overrides:
-                return nested_overrides["enabled"]
+                return bool(nested_overrides["enabled"])
             # Handle single-level overrides
             if "enabled" in overrides:
-                return overrides["enabled"]
+                return bool(overrides["enabled"])
             
         # Fall back to root level enabled setting
-        return speech_config.get("enabled", False)
+        return bool(speech_config.get("enabled", False))
         
     async def toggle_speech_recognition(self, chat_id: str, chat_type: str, enabled: bool) -> None:
         """Toggle speech recognition for a chat.
@@ -363,10 +371,10 @@ class SpeechRecognitionService(ServiceInterface):
         speech_config['enabled'] = enabled
         
         await self.config_manager.save_config(
+            config_data=speech_config,
             chat_id=chat_id,
             chat_type=chat_type,
-            module_name="speechmatics",
-            **speech_config
+            module_name="speechmatics"
         )
         
     def validate_callback_data(self, callback_data: str) -> Tuple[bool, Optional[str]]:
@@ -466,7 +474,7 @@ class SpeechRecognitionService(ServiceInterface):
     
     async def perform_health_check(self) -> bool:
         """Perform a health check on the speech recognition service."""
-        async def health_check():
+        async def health_check() -> bool:
             # Check if service can access configuration
             try:
                 test_config = await self.get_speech_config("test", "private")
@@ -613,9 +621,8 @@ class SpeechRecognitionService(ServiceInterface):
         try:
             # Save configuration through ConfigManager
             await self.config_manager.save_config(
-                module_name="speechmatics",
-                enabled=True,
-                overrides=new_config
+                config_data={"enabled": True, "overrides": new_config},
+                module_name="speechmatics"
             )
             
             # Update local configuration

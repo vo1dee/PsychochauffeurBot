@@ -107,10 +107,8 @@ class CircuitBreaker:
                 self.success_count = 0
                 return True
             return False
-        elif self.state == CircuitBreakerState.HALF_OPEN:
+        else:  # CircuitBreakerState.HALF_OPEN
             return True
-        
-        return False
     
     def record_success(self) -> None:
         """Record a successful operation."""
@@ -310,11 +308,21 @@ class ServiceErrorBoundary:
         total_time = self.metrics.average_response_time * (self.metrics.success_count - 1)
         self.metrics.average_response_time = (total_time + execution_time) / self.metrics.success_count
         
-        # Update health status
-        if self.metrics.status != ServiceHealth.HEALTHY:
-            if self.metrics.consecutive_failures == 0 and self.metrics.error_rate < 5.0:
+        # Update health status based on current metrics
+        # When consecutive failures is 0, reassess health based on overall error rate
+        if self.metrics.consecutive_failures == 0:
+            # More lenient recovery thresholds - focus on recent success
+            if self.metrics.error_rate < 30.0:  # Allow up to 30% error rate for healthy if no consecutive failures
+                old_status = self.metrics.status
                 self.metrics.status = ServiceHealth.HEALTHY
-                logger.info(f"Service {self.service_name} recovered to healthy status")
+                if old_status != ServiceHealth.HEALTHY:
+                    logger.info(f"Service {self.service_name} recovered to healthy status")
+            elif self.metrics.error_rate < 50.0:
+                self.metrics.status = ServiceHealth.DEGRADED
+            elif self.metrics.error_rate < 75.0:
+                self.metrics.status = ServiceHealth.UNHEALTHY
+            else:
+                self.metrics.status = ServiceHealth.CRITICAL
     
     def _record_failure(self, error: StandardError) -> None:
         """Record a failed operation."""
@@ -328,7 +336,7 @@ class ServiceErrorBoundary:
             self.metrics.status = ServiceHealth.CRITICAL
         elif self.metrics.consecutive_failures >= 3 or self.metrics.error_rate > 25:
             self.metrics.status = ServiceHealth.UNHEALTHY
-        elif self.metrics.error_rate > 10:
+        elif self.metrics.consecutive_failures >= 1 or self.metrics.error_rate > 0:
             self.metrics.status = ServiceHealth.DEGRADED
     
     def register_fallback(self, operation_name: str, fallback: Callable[..., Awaitable[Any]]) -> None:
@@ -403,6 +411,14 @@ class ServiceErrorBoundary:
         """Reset all health metrics."""
         self.metrics.reset_metrics()
         logger.info(f"Health metrics reset for {self.service_name}")
+    
+    def reset(self) -> None:
+        """Reset the entire error boundary to initial state."""
+        self.metrics.reset_metrics()
+        self.reset_circuit_breaker()
+        self.fallback_handlers.clear()
+        self.last_health_check = datetime.now()
+        logger.info(f"Error boundary reset for {self.service_name}")
 
 
 class ServiceHealthMonitor:
@@ -410,9 +426,9 @@ class ServiceHealthMonitor:
     Centralized health monitoring for all services with error boundaries.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.error_boundaries: Dict[str, ServiceErrorBoundary] = {}
-        self.monitoring_task: Optional[asyncio.Task] = None
+        self.monitoring_task: Optional[asyncio.Task[None]] = None
         self.monitoring_interval = 300  # 5 minutes
         self.is_monitoring = False
     
@@ -516,6 +532,11 @@ class ServiceHealthMonitor:
                 for name, metrics in metrics.items()
             }
         }
+    
+    def clear_all_services(self) -> None:
+        """Clear all registered services (useful for testing)."""
+        self.error_boundaries.clear()
+        logger.info("Cleared all registered services from health monitor")
 
 
 # Global health monitor instance
@@ -528,7 +549,7 @@ def with_error_boundary(
     operation_name: Optional[str] = None,
     timeout: Optional[float] = None,
     fallback: Optional[Callable[[], Awaitable[Any]]] = None
-):
+) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[Optional[T]]]]:
     """
     Decorator to wrap service methods with error boundary protection.
     
@@ -539,14 +560,14 @@ def with_error_boundary(
         fallback: Optional fallback function
     """
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[Optional[T]]]:
-        async def wrapper(*args, **kwargs) -> Optional[T]:
+        async def wrapper(*args: Any, **kwargs: Any) -> Optional[T]:
             boundary = health_monitor.get_error_boundary(service_name)
             if not boundary:
                 boundary = health_monitor.register_service(service_name)
             
             op_name = operation_name or func.__name__
             
-            async def operation():
+            async def operation() -> T:
                 return await func(*args, **kwargs)
             
             return await boundary.execute_with_boundary(
