@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from urllib.parse import urlparse
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, Application
 
 # Service registry will be accessed through context
 from modules.logger import general_logger, error_logger
@@ -64,7 +64,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     service_registry = None
     if hasattr(context, 'application') and context.application and hasattr(context.application, 'bot_data'):
         # Type annotation to help mypy understand the context structure
-        app = context.application
+        app: Any = context.application
         if hasattr(app, 'bot_data'):
             service_registry = app.bot_data.get('service_registry')
     
@@ -155,7 +155,7 @@ async def handle_random_gpt_response(
     service_registry = None
     if hasattr(context, 'application') and context.application and hasattr(context.application, 'bot_data'):
         # Type annotation to help mypy understand the context structure
-        app = context.application
+        app: Any = context.application
         if hasattr(app, 'bot_data'):
             service_registry = app.bot_data.get('service_registry')
     
@@ -342,7 +342,7 @@ async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAU
         service_registry = None
         if hasattr(context, 'application') and context.application and hasattr(context.application, 'bot_data'):
             # Type annotation to help mypy understand the context structure
-            app = context.application
+            app: Any = context.application
             if hasattr(app, 'bot_data'):
                 service_registry = app.bot_data.get('service_registry')
         
