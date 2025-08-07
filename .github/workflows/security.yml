@@ -49,6 +49,7 @@ jobs:
           safety-report.json
           bandit-report.json
           semgrep-report.json
+        overwrite: true
 
   codeql-analysis:
     runs-on: ubuntu-latest
