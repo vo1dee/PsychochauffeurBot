@@ -162,6 +162,7 @@ jobs:
           bandit-report.json
           safety-report.json
           coverage.xml
+        overwrite: true
 
 
 
