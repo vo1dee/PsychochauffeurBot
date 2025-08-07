@@ -395,12 +395,10 @@ class ApplicationBootstrapper:
         # Store the signal handler for testing
         self._signal_handler_func = signal_handler
         
-        # Use a global flag to prevent multiple signal handler registrations
-        if not hasattr(ApplicationBootstrapper, '_global_signal_handlers_registered'):
-            signal.signal(signal.SIGINT, self._signal_handler)
-            signal.signal(signal.SIGTERM, self._signal_handler)
-            setattr(ApplicationBootstrapper, '_global_signal_handlers_registered', True)
-            logger.info("Signal handlers configured for graceful shutdown")
+        # Register signal handlers
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        logger.info("Signal handlers configured for graceful shutdown")
     
     def _create_service_configuration(self) -> Any:
         """Create service configuration from environment variables."""
