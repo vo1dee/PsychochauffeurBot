@@ -45,6 +45,7 @@ class TestApplicationBootstrapper:
     @patch('config.config_manager.ConfigManager')
     @patch('modules.database.Database')
     @patch('modules.bot_application.BotApplication')
+    @pytest.mark.asyncio
     async def test_configure_services_success(
         self,
         mock_bot_app: Mock,
@@ -75,6 +76,7 @@ class TestApplicationBootstrapper:
         assert service_config.error_channel_id == "test_channel"
     
     @patch('modules.application_bootstrapper.Config')
+    @pytest.mark.asyncio
     async def test_configure_services_missing_token(
         self,
         mock_config: Mock,
@@ -90,6 +92,7 @@ class TestApplicationBootstrapper:
             await bootstrapper.configure_services()
     
     @patch('modules.application_bootstrapper.Config')
+    @pytest.mark.asyncio
     async def test_configure_services_missing_channel(
         self,
         mock_config: Mock,
@@ -105,6 +108,7 @@ class TestApplicationBootstrapper:
             await bootstrapper.configure_services()
     
     @patch('modules.application_bootstrapper.ServiceRegistry')
+    @pytest.mark.asyncio
     async def test_configure_services_registry_failure(
         self,
         mock_registry_class: Mock,
@@ -118,6 +122,7 @@ class TestApplicationBootstrapper:
         with pytest.raises(RuntimeError, match="Service configuration failed"):
             await bootstrapper.configure_services()
     
+    @pytest.mark.asyncio
     async def test_start_application_success(self, bootstrapper: ApplicationBootstrapper) -> None:
         """Test successful application startup."""
         # Setup mocks
@@ -144,6 +149,7 @@ class TestApplicationBootstrapper:
             assert bootstrapper.service_registry == mock_service_registry
             assert bootstrapper.bot_application == mock_bot_application
     
+    @pytest.mark.asyncio
     async def test_start_application_already_running(self, bootstrapper: ApplicationBootstrapper) -> None:
         """Test starting application when it's already running."""
         # Set as running
@@ -156,6 +162,7 @@ class TestApplicationBootstrapper:
             # Verify configure_services was not called
             mock_configure.assert_not_called()
     
+    @pytest.mark.asyncio
     async def test_start_application_configuration_failure(self, bootstrapper: ApplicationBootstrapper) -> None:
         """Test application startup when service configuration fails."""
         with patch.object(bootstrapper, 'configure_services', side_effect=Exception("Config failed")) as mock_configure, \
@@ -168,6 +175,7 @@ class TestApplicationBootstrapper:
             # Verify cleanup was called
             mock_shutdown.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_start_application_initialization_failure(self, bootstrapper: ApplicationBootstrapper) -> None:
         """Test application startup when bot initialization fails."""
         # Setup mocks
@@ -213,6 +221,7 @@ class TestApplicationBootstrapper:
             bootstrapper._shutdown_event.set()
             assert bootstrapper._shutdown_event.is_set()
     
+    @pytest.mark.asyncio
     async def test_shutdown_application_success(self, bootstrapper: ApplicationBootstrapper) -> None:
         """Test successful application shutdown."""
         # Setup
@@ -230,6 +239,7 @@ class TestApplicationBootstrapper:
         mock_service_registry.shutdown_services.assert_called_once()
         assert not bootstrapper.is_running
     
+    @pytest.mark.asyncio
     async def test_shutdown_application_not_running(self, bootstrapper: ApplicationBootstrapper) -> None:
         """Test shutdown when application is not running."""
         # Setup
@@ -243,6 +253,7 @@ class TestApplicationBootstrapper:
         # Verify shutdown was not called
         mock_bot_application.shutdown.assert_not_called()
     
+    @pytest.mark.asyncio
     async def test_shutdown_application_bot_failure(self, bootstrapper: ApplicationBootstrapper) -> None:
         """Test shutdown when bot application shutdown fails."""
         # Setup
@@ -262,6 +273,7 @@ class TestApplicationBootstrapper:
         mock_service_registry.shutdown_services.assert_called_once()
         assert not bootstrapper.is_running
     
+    @pytest.mark.asyncio
     async def test_shutdown_application_registry_failure(self, bootstrapper: ApplicationBootstrapper) -> None:
         """Test shutdown when service registry shutdown fails."""
         # Setup
@@ -293,6 +305,7 @@ class TestApplicationBootstrapper:
         bootstrapper._running = False
         assert not bootstrapper.is_running
     
+    @pytest.mark.asyncio
     async def test_wait_for_shutdown(self, bootstrapper: ApplicationBootstrapper) -> None:
         """Test wait_for_shutdown method."""
         # Create a task to wait for shutdown
@@ -314,6 +327,7 @@ class TestRunApplication:
     """Test cases for the run_application function."""
     
     @patch('modules.application_bootstrapper.ApplicationBootstrapper')
+    @pytest.mark.asyncio
     async def test_run_application_success(self, mock_bootstrapper_class: Mock) -> None:
         """Test successful application run."""
         # Setup mock
@@ -329,6 +343,7 @@ class TestRunApplication:
         mock_bootstrapper.shutdown_application.assert_called_once()
     
     @patch('modules.application_bootstrapper.ApplicationBootstrapper')
+    @pytest.mark.asyncio
     async def test_run_application_keyboard_interrupt(self, mock_bootstrapper_class: Mock) -> None:
         """Test application run with keyboard interrupt."""
         # Setup mock
@@ -344,6 +359,7 @@ class TestRunApplication:
     
     @patch('modules.application_bootstrapper.ApplicationBootstrapper')
     @patch('sys.exit')
+    @pytest.mark.asyncio
     async def test_run_application_general_exception(
         self,
         mock_exit: Mock,
@@ -363,6 +379,7 @@ class TestRunApplication:
         mock_exit.assert_called_once_with(1)
     
     @patch('modules.application_bootstrapper.ApplicationBootstrapper')
+    @pytest.mark.asyncio
     async def test_run_application_shutdown_failure(self, mock_bootstrapper_class: Mock) -> None:
         """Test application run when shutdown fails."""
         # Setup mock
@@ -383,6 +400,7 @@ class TestServiceConfigurationIntegration:
     """Integration tests for service configuration."""
     
     @patch('modules.application_bootstrapper.Config')
+    @pytest.mark.asyncio
     async def test_service_configuration_creation(self, mock_config: Mock) -> None:
         """Test that ServiceConfiguration is created correctly."""
         # Setup
@@ -406,6 +424,7 @@ class TestServiceConfigurationIntegration:
             assert service_config.debug_mode is True
     
     @patch('modules.application_bootstrapper.Config')
+    @pytest.mark.asyncio
     async def test_specialized_services_registration(self, mock_config: Mock) -> None:
         """Test that specialized services are registered correctly."""
         # Setup
