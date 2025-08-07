@@ -669,7 +669,7 @@ async def answer_from_gpt(
                     max_tokens=150
                 )
                 
-                return response.choices[0].message.content
+                return str(response.choices[0].message.content)
             except Exception:
                 return None
         return None
