@@ -60,9 +60,18 @@ async def handle_message(update: Update, context: CallbackContext[Any, Any, Any,
         return
     chat_id = update.effective_chat.id
     
+    # Get service registry from bot application
+    service_registry = None
+    if hasattr(context, 'application') and hasattr(context.application, 'bot_data'):
+        service_registry = context.application.bot_data.get('service_registry')
+    
     # Update chat history for context using the global manager
     try:
-        chat_history_manager = service_registry.get_service('chat_history_manager')
+        if service_registry:
+            chat_history_manager = service_registry.get_service('chat_history_manager')
+        else:
+            # Fallback if service not available
+            from modules.utils import chat_history_manager
     except ValueError:
         # Fallback if service not available
         from modules.utils import chat_history_manager
@@ -138,6 +147,15 @@ async def handle_random_gpt_response(
         return
     chat_id = str(update.effective_chat.id)
     chat_type = update.effective_chat.type
+    
+    # Get service registry from bot application
+    service_registry = None
+    if hasattr(context, 'application') and hasattr(context.application, 'bot_data'):
+        service_registry = context.application.bot_data.get('service_registry')
+    
+    if not service_registry:
+        logger.warning("Service registry not available in context")
+        return
     
     try:
         config_manager = service_registry.get_service('config_manager')

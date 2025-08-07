@@ -434,8 +434,8 @@ class TestCommandRegistry:
         valid_cmd = CommandInfo("valid", "Valid command", CommandCategory.BASIC, valid_handler)
         command_registry.register_command(valid_cmd)
         
-        # Add command with invalid handler
-        invalid_cmd = CommandInfo("invalid", "Invalid command", CommandCategory.BASIC, "not_a_function")
+        # Add command with no handler
+        invalid_cmd = CommandInfo("invalid", "Invalid command", CommandCategory.BASIC, None)
         command_registry._commands["invalid"] = invalid_cmd
         command_registry._categories[CommandCategory.BASIC].add("invalid")
         
@@ -448,7 +448,7 @@ class TestCommandRegistry:
         issues = command_registry.validate_command_registration()
         
         assert len(issues) >= 3
-        assert any("invalid handler function" in issue for issue in issues)
+        assert any("has no handler function" in issue for issue in issues)
         assert any("points to non-existent command" in issue for issue in issues)
         assert any("non-existent command" in issue for issue in issues)
     

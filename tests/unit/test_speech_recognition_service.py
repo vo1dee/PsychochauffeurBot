@@ -403,11 +403,10 @@ class TestConfigurationManagement:
         await speech_service.toggle_speech_recognition("12345", "group", True)
         
         mock_config_manager.save_config.assert_called_once_with(
+            config_data={"enabled": True, "overrides": {}},
             chat_id="12345",
             chat_type="group", 
-            module_name="speechmatics",
-            enabled=True,
-            overrides={}
+            module_name="speechmatics"
         )
         
     @pytest.mark.asyncio
@@ -418,11 +417,10 @@ class TestConfigurationManagement:
         await speech_service.toggle_speech_recognition("12345", "group", True)
         
         mock_config_manager.save_config.assert_called_once_with(
+            config_data={"enabled": True, "overrides": {}},
             chat_id="12345",
             chat_type="group",
-            module_name="speechmatics", 
-            enabled=True,
-            overrides={}
+            module_name="speechmatics"
         )
 
 

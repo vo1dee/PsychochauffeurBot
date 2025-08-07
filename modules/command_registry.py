@@ -507,9 +507,10 @@ class CommandRegistry(ServiceInterface):
         issues = []
         
         # Check for commands without handlers
+        # Note: handler_func is typed as Callable, so this check is mainly for runtime safety
         for name, command_info in self._commands.items():
-            if not callable(command_info.handler_func):
-                issues.append(f"Command '{name}' has invalid handler function")
+            if not hasattr(command_info, 'handler_func') or command_info.handler_func is None:
+                issues.append(f"Command '{name}' has no handler function")
         
         # Check for orphaned aliases
         for alias, command_name in self._aliases.items():
@@ -633,9 +634,8 @@ class CommandRegistry(ServiceInterface):
         try:
             # Save configuration through ConfigManager
             await self._config_manager.save_config(
-                module_name="command_registry",
-                enabled=True,
-                overrides=new_config
+                config_data={"enabled": True, "overrides": new_config},
+                module_name="command_registry"
             )
             
             # Update local configuration

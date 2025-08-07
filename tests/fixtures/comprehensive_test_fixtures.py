@@ -217,8 +217,8 @@ class MockServices:
         registry = Mock(spec=ServiceRegistry)
         registry.register_service = Mock()
         registry.get_service = Mock()
-        registry.initialize_all_services = AsyncMock()
-        registry.shutdown_all_services = AsyncMock()
+        registry.initialize_services = AsyncMock()
+        registry.shutdown_services = AsyncMock()
         registry.is_service_registered = Mock(return_value=True)
         
         return registry
@@ -352,11 +352,13 @@ def mock_bot_application():
 
 
 @pytest.fixture
-async def message_handler_service(mock_config_manager, mock_gpt_service):
+async def message_handler_service(mock_config_manager):
     """Fixture for MessageHandlerService with mocked dependencies."""
+    from modules.utils import MessageCounter
+    message_counter = MessageCounter()
     return MessageHandlerService(
         config_manager=mock_config_manager,
-        gpt_service=mock_gpt_service
+        message_counter=message_counter
     )
 
 
@@ -399,20 +401,22 @@ async def integrated_service_registry():
     registry.register_service('command_processor', command_processor)
     
     # Create and register specialized services
+    from modules.utils import MessageCounter
+    message_counter = MessageCounter()
     message_service = MessageHandlerService(
         config_manager=config_manager,
-        gpt_service=gpt_service
+        message_counter=message_counter
     )
-    registry.register_service('message_handler_service', message_service)
+    registry.register_instance('message_handler_service', message_service)
     
     speech_service = SpeechRecognitionService(config_manager=config_manager)
-    registry.register_service('speech_recognition_service', speech_service)
+    registry.register_instance('speech_recognition_service', speech_service)
     
     callback_service = CallbackHandlerService(speech_service=speech_service)
-    registry.register_service('callback_handler_service', callback_service)
+    registry.register_instance('callback_handler_service', callback_service)
     
     command_registry = CommandRegistry(command_processor=command_processor)
-    registry.register_service('command_registry', command_registry)
+    registry.register_instance('command_registry', command_registry)
     
     return registry
 
