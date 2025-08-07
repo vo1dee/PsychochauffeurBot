@@ -322,6 +322,9 @@ class ApplicationBootstrapper:
             # Get bot application service
             self.bot_application = self.service_registry.get_service('bot_application')
             
+            if not self.bot_application:
+                raise RuntimeError("Bot application service not found in registry")
+            
             # Setup signal handlers before initializing
             self.setup_signal_handlers()
             
