@@ -73,7 +73,42 @@ jobs:
           sleep 2
         done
     
+    - name: Debug Database Configuration
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        DB_HOST: localhost
+        DB_PORT: "5432"
+        DB_NAME: test_db
+        DB_USER: postgres
+        DB_PASSWORD: postgres
+      run: |
+        echo "DATABASE_URL: $DATABASE_URL"
+        echo "DB_HOST: $DB_HOST"
+        echo "DB_USER: $DB_USER"
+        echo "DB_NAME: $DB_NAME"
+        python -c "
+        import os
+        from urllib.parse import urlparse
+        db_url = os.getenv('DATABASE_URL')
+        print(f'DATABASE_URL from env: {db_url}')
+        if db_url and db_url.startswith('postgresql://'):
+            parsed = urlparse(db_url)
+            print(f'Parsed - Host: {parsed.hostname}, User: {parsed.username}, DB: {parsed.path.lstrip(\"/\")}')
+        else:
+            print('Using individual env vars')
+            print(f'DB_HOST: {os.getenv(\"DB_HOST\")}')
+            print(f'DB_USER: {os.getenv(\"DB_USER\")}')
+            print(f'DB_PASSWORD: {\"***\" if os.getenv(\"DB_PASSWORD\") else \"None\"}')
+        "
+
     - name: Initialize Database
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        DB_HOST: localhost
+        DB_PORT: "5432"
+        DB_NAME: test_db
+        DB_USER: postgres
+        DB_PASSWORD: postgres
       run: |
         python scripts/init_database.py
 
@@ -94,6 +129,12 @@ jobs:
         REDIS_URL: redis://localhost:6379
         OPENAI_API_KEY: test_key
         OPENWEATHER_API_KEY: test_key
+        # Override .env file database settings
+        DB_HOST: localhost
+        DB_PORT: "5432"
+        DB_NAME: test_db
+        DB_USER: postgres
+        DB_PASSWORD: postgres
       run: |
         pytest -c pytest-ci.ini --ignore=tests/test_service.py --ignore=tests/test_suite_optimizer -v --cov=modules --cov=config --cov-report=xml --cov-report=html --cov-fail-under=5
 
