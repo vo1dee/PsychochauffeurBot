@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from urllib.parse import urlparse
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackContext
+from telegram.ext import ContextTypes
 
 # Service registry will be accessed through context
 from modules.logger import general_logger, error_logger
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 file_id_hash_map: Dict[str, str] = {}
 
 
-async def handle_message(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming non-command text messages."""
     if not update.message or not update.message.text:
         return
@@ -133,7 +133,7 @@ async def _handle_translation_command(update: Update, user_id: int) -> None:
 
 async def handle_random_gpt_response(
     update: Update, 
-    context: CallbackContext[Any, Any, Any, Any], 
+    context: ContextTypes.DEFAULT_TYPE, 
     message_text: str, 
     cleaned_text: str
 ) -> None:
@@ -213,7 +213,7 @@ async def handle_random_gpt_response(
 
 async def process_urls(
     update: Update, 
-    context: CallbackContext[Any, Any, Any, Any], 
+    context: ContextTypes.DEFAULT_TYPE, 
     urls: List[str], 
     message_text: str
 ) -> None:
@@ -235,7 +235,7 @@ async def construct_and_send_message(
     cleaned_message_text: str,
     modified_links: List[str],
     update: Update,
-    context: CallbackContext[Any, Any, Any, Any]
+    context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Construct and send a message with modified links."""
     try:
@@ -283,12 +283,12 @@ async def construct_and_send_message(
         raise
 
 
-async def handle_photo_analysis(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
+async def handle_photo_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle photo messages."""
     await _handle_photo(update, context)
 
 
-async def handle_sticker(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
+async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle sticker messages."""
     if not update.message or not update.message.sticker:
         return
@@ -307,7 +307,7 @@ async def handle_sticker(update: Update, context: CallbackContext[Any, Any, Any,
         await handle_restriction_sticker(update, context)
 
 
-async def handle_location(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
+async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle location messages by replying with a sticker."""
     if not update.message or not update.message.location:
         return
@@ -324,7 +324,7 @@ async def handle_location(update: Update, context: CallbackContext[Any, Any, Any
         await update.message.reply_text("📍 Location received!")
 
 
-async def handle_voice_or_video_note(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
+async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle voice and video note messages."""
     if not update.effective_chat:
         return
@@ -391,7 +391,7 @@ async def get_speech_config(chat_id: str, chat_type: str, config_manager: Any) -
     return result  # type: ignore[no-any-return]
 
 
-async def send_speech_recognition_button(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
+async def send_speech_recognition_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a speech recognition button as a reply to a voice message."""
     message = update.message
     if not message or (not message.voice and not message.video_note):
