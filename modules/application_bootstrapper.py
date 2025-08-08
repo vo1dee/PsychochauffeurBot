@@ -11,6 +11,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 from typing import Optional, Any
 
 from modules.service_registry import ServiceRegistry, ServiceInterface, ServiceScope
@@ -48,6 +49,8 @@ class ApplicationBootstrapper:
         self.bot_application: Optional[ServiceInterface] = None
         self._shutdown_event = asyncio.Event()
         self._running = False
+        self._signal_received = False
+        self._shutting_down = False
         
     async def configure_services(self) -> ServiceRegistry:
         """
@@ -354,43 +357,38 @@ class ApplicationBootstrapper:
         can be shut down gracefully when receiving termination signals.
         """
         def signal_handler(signum: int, frame: Any) -> None:
-            """Handle shutdown signals."""
+            """Handle shutdown signals gracefully."""
             if signum == signal.SIGINT:
-                signal_name = "SIGINT"
+                signal_name = "SIGINT (Ctrl+C)"
             elif signum == signal.SIGTERM:
                 signal_name = "SIGTERM"
             else:
                 signal_name = f"Signal {signum}"
             
-            logger.info(f"Received {signal_name}, initiating enhanced graceful shutdown...")
+            logger.info(f"Received {signal_name}, initiating graceful shutdown...")
             
-            # Set shutdown event
+            # Prevent multiple signal handling
+            if hasattr(self, '_signal_received') and self._signal_received:
+                logger.warning("Signal already received, forcing immediate exit...")
+                sys.exit(0)
+                
+            self._signal_received = True
+            
+            # Set shutdown event to trigger graceful shutdown in main loop
             if not self._shutdown_event.is_set():
                 self._shutdown_event.set()
-                
-                # Force immediate shutdown
-                if self._running and not hasattr(self, '_shutting_down'):
-                    self._shutting_down = True
-                    try:
-                        # Stop the bot application immediately
-                        if self.bot_application and hasattr(self.bot_application, 'telegram_app'):
-                            if self.bot_application.telegram_app:
-                                self.bot_application.telegram_app.stop_running()
-                        
-                        # Create shutdown task with timeout
-                        loop = asyncio.get_running_loop()
-                        shutdown_task = loop.create_task(self.shutdown_application())
-                        
-                        # Force exit after 3 seconds if shutdown doesn't complete
-                        def force_exit() -> None:
-                            logger.warning("Forcing exit after shutdown timeout")
-                            sys.exit(0)
-                        
-                        loop.call_later(3.0, force_exit)
-                        
-                    except Exception as e:
-                        logger.error(f"Error during signal shutdown: {e}")
-                        sys.exit(1)
+                logger.info("Shutdown event set, waiting for graceful shutdown...")
+            
+            # Set a timeout to force exit if graceful shutdown takes too long
+            def force_exit() -> None:
+                logger.warning("Graceful shutdown timeout reached, forcing exit...")
+                sys.exit(0)
+            
+            # Force exit after 5 seconds if graceful shutdown doesn't complete
+            import threading
+            timer = threading.Timer(5.0, force_exit)
+            timer.daemon = True
+            timer.start()
         
         # Store the signal handler for testing
         self._signal_handler_func = signal_handler
@@ -449,51 +447,59 @@ class ApplicationBootstrapper:
     
     async def shutdown_application(self) -> None:
         """
-        Shutdown the application gracefully.
+        Shutdown the application gracefully with timeout protection.
         
         This method handles the complete application shutdown process,
         including service cleanup and resource deallocation.
         """
         if not self._running:
-            logger.info("Application is not running")
+            logger.info("Application is not running, skipping shutdown")
             return
             
         # Prevent multiple shutdown attempts
         if hasattr(self, '_shutting_down') and self._shutting_down:
-            logger.info("Shutdown already in progress")
+            logger.info("Shutdown already in progress, waiting for completion...")
             return
             
         self._shutting_down = True
-        logger.info("Shutting down application...")
+        logger.info("Starting graceful application shutdown...")
+        
+        shutdown_start_time = asyncio.get_event_loop().time()
         
         try:
-            # Shutdown bot application (this will also shutdown the service registry)
+            # Shutdown bot application first
             if self.bot_application:
                 try:
-                    await self.bot_application.shutdown()
+                    logger.info("Shutting down bot application...")
+                    await asyncio.wait_for(self.bot_application.shutdown(), timeout=3.0)
+                    logger.info("Bot application shutdown completed")
+                except asyncio.TimeoutError:
+                    logger.warning("Bot application shutdown timed out, continuing...")
                 except Exception as e:
                     logger.error(f"Error shutting down bot application: {e}")
-                    # If bot application shutdown fails, try to shutdown service registry directly
-                    if self.service_registry:
-                        try:
-                            await self.service_registry.shutdown_services()
-                        except Exception as registry_error:
-                            logger.error(f"Error shutting down service registry: {registry_error}")
-            elif self.service_registry:
-                # If no bot application but we have service registry, shutdown directly
+            
+            # Always shutdown service registry if it exists
+            if self.service_registry:
                 try:
-                    await self.service_registry.shutdown_services()
+                    logger.info("Shutting down service registry...")
+                    await asyncio.wait_for(self.service_registry.shutdown_services(), timeout=3.0)
+                    logger.info("Service registry shutdown completed")
+                except asyncio.TimeoutError:
+                    logger.warning("Service registry shutdown timed out")
                 except Exception as e:
                     logger.error(f"Error shutting down service registry: {e}")
             
-            logger.info("Application shutdown completed successfully")
-            
+            shutdown_duration = asyncio.get_event_loop().time() - shutdown_start_time
+            logger.info(f"Application shutdown completed successfully in {shutdown_duration:.2f}s")
+                
         except Exception as e:
-            logger.error(f"Error during application shutdown: {e}")
+            shutdown_duration = asyncio.get_event_loop().time() - shutdown_start_time
+            logger.error(f"Error during application shutdown after {shutdown_duration:.2f}s: {e}")
             # Don't re-raise here as we're shutting down anyway
         finally:
             self._running = False
             self._shutting_down = False
+            logger.info("Application shutdown process completed")
     
     @property
     def is_running(self) -> bool:
