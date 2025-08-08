@@ -23,7 +23,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')   
 CITY_DATA_FILE = os.path.join(DATA_DIR, 'user_locations.csv')
 WEATHER_API_URL = 'https://api.meteoagent.com/widgets/v1/kindex'
-WKHTMLTOIMAGE_PATH = '/usr/local/bin/wkhtmltoimage'
+WKHTMLTOIMAGE_PATH = '/usr/bin/wkhtmltoimage'
 
 # Define imgkit options once to avoid duplication
 # Imgkit options that match the working direct command
@@ -482,15 +482,27 @@ class ScreenshotManager:
 
     def _check_wkhtmltoimage_availability(self) -> bool:
         """Check if wkhtmltoimage tool is available and executable."""
+        if not os.path.exists(WKHTMLTOIMAGE_PATH):
+            error_logger.error(f"wkhtmltoimage not found at: {WKHTMLTOIMAGE_PATH}")
+            return False
+        
+        if not os.access(WKHTMLTOIMAGE_PATH, os.X_OK):
+            error_logger.error(f"wkhtmltoimage not executable: {WKHTMLTOIMAGE_PATH}")
+            return False
+            
         try:
-            import subprocess
             result = subprocess.run([WKHTMLTOIMAGE_PATH, '--version'], 
-                                  capture_output=True, text=True, timeout=10)
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+                                  capture_output=True, text=True, timeout=10, check=True)
+            general_logger.info(f"wkhtmltoimage version: {result.stdout.strip()}")
+            return True
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            error_logger.error(f"wkhtmltoimage command failed: {e}")
+            return False
+        except subprocess.CalledProcessError as e:
+            error_logger.error(f"wkhtmltoimage command failed with exit code {e.returncode}: {e.stderr}")
             return False
         except Exception as e:
-            error_logger.error(f"Error checking wkhtmltoimage availability: {e}")
+            error_logger.error(f"An unexpected error occurred while checking wkhtmltoimage: {e}")
             return False
 
     async def ensure_screenshot_directory(self) -> bool:

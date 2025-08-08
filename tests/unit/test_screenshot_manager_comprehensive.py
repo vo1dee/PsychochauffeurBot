@@ -73,31 +73,50 @@ class TestScreenshotManagerComprehensive(AsyncBaseTestCase):
     
     def test_check_wkhtmltoimage_availability_success(self):
         """Test successful wkhtmltoimage availability check."""
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value.returncode = 0
-            
-            result = self.manager._check_wkhtmltoimage_availability()
-            
-            assert result is True
-            mock_run.assert_called_once()
+        with patch('os.path.exists', return_value=True):
+            with patch('os.access', return_value=True):
+                with patch('subprocess.run') as mock_run:
+                    mock_run.return_value.returncode = 0
+                    mock_run.return_value.stdout = "wkhtmltoimage 0.12.6"
+                    
+                    result = self.manager._check_wkhtmltoimage_availability()
+                    
+                    assert result is True
+                    mock_run.assert_called_once()
     
     def test_check_wkhtmltoimage_availability_failure(self):
         """Test wkhtmltoimage availability check failure scenarios."""
-        # Test command not found
-        with patch('subprocess.run', side_effect=FileNotFoundError()):
+        # Test path does not exist
+        with patch('os.path.exists', return_value=False):
             result = self.manager._check_wkhtmltoimage_availability()
             assert result is False
+
+        # Test path is not executable
+        with patch('os.path.exists', return_value=True):
+            with patch('os.access', return_value=False):
+                result = self.manager._check_wkhtmltoimage_availability()
+                assert result is False
+
+        # Test command not found
+        with patch('os.path.exists', return_value=True):
+            with patch('os.access', return_value=True):
+                with patch('subprocess.run', side_effect=FileNotFoundError()):
+                    result = self.manager._check_wkhtmltoimage_availability()
+                    assert result is False
         
         # Test command returns non-zero exit code
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value.returncode = 1
-            result = self.manager._check_wkhtmltoimage_availability()
-            assert result is False
+        with patch('os.path.exists', return_value=True):
+            with patch('os.access', return_value=True):
+                with patch('subprocess.run', side_effect=subprocess.CalledProcessError(1, 'cmd', stderr='error')):
+                    result = self.manager._check_wkhtmltoimage_availability()
+                    assert result is False
         
         # Test timeout
-        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('cmd', 10)):
-            result = self.manager._check_wkhtmltoimage_availability()
-            assert result is False
+        with patch('os.path.exists', return_value=True):
+            with patch('os.access', return_value=True):
+                with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('cmd', 10)):
+                    result = self.manager._check_wkhtmltoimage_availability()
+                    assert result is False
     
     @pytest.mark.asyncio
     async def test_ensure_screenshot_directory_success(self):
