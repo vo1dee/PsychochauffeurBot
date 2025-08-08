@@ -804,146 +804,275 @@ async def summarize_messages(messages: List[str]) -> str:
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Analyze chat messages based on various criteria and provide a summary.
+    Enhanced with flexible date parsing, comprehensive error handling, and detailed logging.
     
     Supported syntaxes:
     - /analyze: Analyze today's messages
     - /analyze last <number> messages: Analyze last N messages
     - /analyze last <number> days: Analyze messages from last N days
-    - /analyze period <YYYY-MM-DD> <YYYY-MM-DD>: Analyze messages in date range
-    - /analyze date <YYYY-MM-DD>: Analyze messages for specific date
+    - /analyze period <date1> <date2>: Analyze messages in date range (supports DD-MM-YYYY and YYYY-MM-DD)
+    - /analyze date <date>: Analyze messages for specific date (supports DD-MM-YYYY and YYYY-MM-DD)
     
     Args:
         update: Telegram update object
         context: Telegram callback context
     """
+    # Import DateParser from utils
+    from modules.utils import DateParser
+    
     # Get chat and user info
     chat_id = int(update.effective_chat.id) if update.effective_chat else 0
     user_id = int(update.effective_user.id) if update.effective_user else 0
     username = update.effective_user.username if update.effective_user and update.effective_user.username else f"ID:{user_id}"
-
-    # Admin-only cache flush
-    if context.args and context.args[0].lower() == "flush-cache":
-        member = await update.effective_chat.get_member(int(user_id)) if update.effective_chat and isinstance(user_id, (int, str)) else None
-        if not (member and member.status in ("administrator", "creator")):
-            if update.message:
-                await update.message.reply_text("❌ Тільки адміністратор може очищати кеш аналізу.")
-            return
-        if update.effective_chat:
-            await Database.invalidate_analysis_cache(chat_id)
-        if update.message:
-            await update.message.reply_text("✅ Кеш аналізу очищено для цього чату.")
-        return
-
-    # Get config
-    cache_cfg = config_manager.get_analysis_cache_config()
-    cache_enabled = cache_cfg["enabled"]
-    cache_ttl = cache_cfg["ttl"]
-
-    # Get messages based on command arguments
-    messages = []
-    date_str = "сьогодні"
-    time_period_key = None
-
+    
+    # Log command execution start
+    general_logger.info(
+        f"Analyze command started - Chat: {chat_id}, User: {username} ({user_id}), "
+        f"Args: {context.args if context.args else 'None'}"
+    )
+    
+    # Performance monitoring
+    start_time = datetime.now()
+    
     try:
+        # Admin-only cache flush
+        if context.args and context.args[0].lower() == "flush-cache":
+            member = await update.effective_chat.get_member(int(user_id)) if update.effective_chat and isinstance(user_id, (int, str)) else None
+            if not (member and member.status in ("administrator", "creator")):
+                error_message = "❌ Тільки адміністратор може очищати кеш аналізу."
+                general_logger.warning(f"Non-admin user {username} attempted cache flush in chat {chat_id}")
+                if update.message:
+                    await update.message.reply_text(error_message)
+                return
+            if update.effective_chat:
+                await Database.invalidate_analysis_cache(chat_id)
+            success_message = "✅ Кеш аналізу очищено для цього чату."
+            general_logger.info(f"Cache flushed by admin {username} in chat {chat_id}")
+            if update.message:
+                await update.message.reply_text(success_message)
+            return
+
+        # Check database connectivity before proceeding
+        try:
+            db_healthy = await Database.health_check()
+            if not db_healthy:
+                error_message = (
+                    "❌ Проблема з підключенням до бази даних. "
+                    "Спробуйте пізніше або зверніться до адміністратора."
+                )
+                error_logger.error(f"Database health check failed for analyze command in chat {chat_id}")
+                if update.message:
+                    await update.message.reply_text(error_message)
+                return
+        except Exception as db_error:
+            error_message = (
+                "❌ Не вдається підключитися до бази даних. "
+                "Спробуйте пізніше або зверніться до адміністратора."
+            )
+            error_logger.error(f"Database connection error in analyze command: {db_error}", exc_info=True)
+            if update.message:
+                await update.message.reply_text(error_message)
+            return
+
+        # Get config
+        cache_cfg = config_manager.get_analysis_cache_config()
+        cache_enabled = cache_cfg["enabled"]
+        cache_ttl = cache_cfg["ttl"]
+
+        # Initialize variables
+        messages = []
+        date_str = "сьогодні"
+        time_period_key = None
+
+        # Parse command arguments with enhanced validation
         if not context.args:
+            # Default: analyze today's messages
+            general_logger.info(f"Analyzing today's messages for chat {chat_id}")
             messages = await get_messages_for_chat_today(chat_id)
             time_period_key = "today"
         else:
             args = context.args
-            if args[0].lower() == "last":
+            command_type = args[0].lower()
+            
+            if command_type == "last":
+                # Handle "last N messages/days" commands
                 if len(args) < 3:
+                    error_message = (
+                        "❌ Неправильний формат команди. Використовуйте:\n"
+                        "/analyze last <число> messages\n"
+                        "або\n"
+                        "/analyze last <число> days\n\n"
+                        "Приклад: /analyze last 10 messages"
+                    )
+                    general_logger.warning(f"Invalid 'last' command format from user {username}: {args}")
                     if update.message:
-                        await update.message.reply_text(
-                            "❌ Неправильний формат команди. Використовуйте:\n"
-                            "/analyze last <number> messages\n"
-                            "або\n"
-                            "/analyze last <number> days"
-                        )
+                        await update.message.reply_text(error_message)
                     return
                     
                 try:
                     number = int(args[1])
                     if number <= 0:
                         raise ValueError("Number must be positive")
-                except ValueError:
+                    if number > 10000:  # Reasonable limit
+                        raise ValueError("Number too large (max 10000)")
+                except ValueError as e:
+                    error_message = (
+                        "❌ Будь ласка, вкажіть коректне число (1-10000).\n"
+                        "Приклад: /analyze last 50 messages"
+                    )
+                    general_logger.warning(f"Invalid number in 'last' command from user {username}: {args[1]} - {e}")
                     if update.message:
-                        await update.message.reply_text("❌ Будь ласка, вкажіть коректне число.")
+                        await update.message.reply_text(error_message)
                     return
                     
-                if args[2].lower() == "messages":
+                unit = args[2].lower()
+                if unit == "messages":
+                    general_logger.info(f"Analyzing last {number} messages for chat {chat_id}")
                     messages = await get_last_n_messages_in_chat(chat_id, number)
                     date_str = f"останні {number} повідомлень"
                     time_period_key = f"last_{number}_messages"
-                elif args[2].lower() == "days":
+                elif unit == "days":
+                    general_logger.info(f"Analyzing last {number} days for chat {chat_id}")
                     messages = await get_messages_for_chat_last_n_days(chat_id, number)
                     date_str = f"останні {number} днів"
                     time_period_key = f"last_{number}_days"
                 else:
-                    if update.message:
-                        await update.message.reply_text(
-                            "❌ Неправильний формат команди. Використовуйте:\n"
-                            "/analyze last <number> messages\n"
-                            "або\n"
-                            "/analyze last <number> days"
-                        )
-                    return
-                    
-            elif args[0].lower() == "period":
-                if len(args) != 3:
-                    if update.message:
-                        await update.message.reply_text(
-                            "❌ Неправильний формат команди. Використовуйте:\n"
-                            "/analyze period <YYYY-MM-DD> <YYYY-MM-DD>"
-                        )
-                    return
-                    
-                try:
-                    start_date = datetime.strptime(args[1], '%Y-%m-%d').date()
-                    end_date = datetime.strptime(args[2], '%Y-%m-%d').date()
-                    if end_date < start_date:
-                        raise ValueError("End date must be after start date")
-                except ValueError as e:
-                    if update.message:
-                        await update.message.reply_text(f"❌ Помилка в датах: {str(e)}")
-                    return
-                    
-                messages = await get_messages_for_chat_date_period(int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, start_date, end_date)
-                date_str = f"період {args[1]} - {args[2]}"
-                time_period_key = f"period_{args[1]}_{args[2]}"
-            elif args[0].lower() == "date":
-                if len(args) != 2:
-                    if update.message:
-                        await update.message.reply_text(
-                            "❌ Неправильний формат команди. Використовуйте:\n"
-                            "/analyze date <YYYY-MM-DD>"
-                        )
-                    return
-                    
-                try:
-                    target_date = datetime.strptime(args[1], '%Y-%m-%d').date()
-                except ValueError:
-                    if update.message:
-                        await update.message.reply_text("❌ Неправильний формат дати. Використовуйте YYYY-MM-DD")
-                    return
-                    
-                messages = await get_messages_for_chat_single_date(int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, target_date)
-                date_str = args[1]
-                time_period_key = f"date_{args[1]}"
-            else:
-                if update.message:
-                    await update.message.reply_text(
-                        "❌ Невідома команда. Доступні варіанти:\n"
-                        "/analyze - аналіз сьогоднішніх повідомлень\n"
-                        "/analyze last <number> messages - аналіз останніх N повідомлень\n"
-                        "/analyze last <number> days - аналіз повідомлень за останні N днів\n"
-                        "/analyze period <YYYY-MM-DD> <YYYY-MM-DD> - аналіз повідомлень за період\n"
-                        "/analyze date <YYYY-MM-DD> - аналіз повідомлень за конкретну дату"
+                    error_message = (
+                        "❌ Неправильний формат команди. Використовуйте:\n"
+                        "/analyze last <число> messages\n"
+                        "або\n"
+                        "/analyze last <число> days\n\n"
+                        "Приклади:\n"
+                        "• /analyze last 20 messages\n"
+                        "• /analyze last 7 days"
                     )
+                    general_logger.warning(f"Invalid unit in 'last' command from user {username}: {unit}")
+                    if update.message:
+                        await update.message.reply_text(error_message)
+                    return
+                    
+            elif command_type == "period":
+                # Handle date range analysis with flexible date parsing
+                if len(args) != 3:
+                    error_message = (
+                        "❌ Неправильний формат команди. Використовуйте:\n"
+                        "/analyze period <дата1> <дата2>\n\n"
+                        "Підтримувані формати дат:\n"
+                        "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
+                        "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
+                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                        "Приклад: /analyze period 01-01-2024 31-01-2024"
+                    )
+                    general_logger.warning(f"Invalid 'period' command format from user {username}: {args}")
+                    if update.message:
+                        await update.message.reply_text(error_message)
+                    return
+                    
+                try:
+                    # Use DateParser for flexible date parsing
+                    start_date, end_date = DateParser.validate_date_range(args[1], args[2])
+                    
+                    # Additional validation for reasonable date ranges
+                    date_diff = (end_date - start_date).days
+                    if date_diff > 365:  # More than a year
+                        raise ValueError("Date range too large (max 365 days)")
+                    
+                    general_logger.info(f"Analyzing period {start_date} to {end_date} for chat {chat_id}")
+                    messages = await get_messages_for_chat_date_period(
+                        int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, 
+                        start_date, 
+                        end_date
+                    )
+                    date_str = f"період {DateParser.format_date_for_display(start_date)} - {DateParser.format_date_for_display(end_date)}"
+                    time_period_key = f"period_{start_date}_{end_date}"
+                    
+                except ValueError as e:
+                    error_message = (
+                        f"❌ Помилка в датах: {str(e)}\n\n"
+                        "Підтримувані формати:\n"
+                        "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
+                        "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
+                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                        "Переконайтеся, що початкова дата передує кінцевій."
+                    )
+                    general_logger.warning(f"Date parsing error in 'period' command from user {username}: {args[1]}, {args[2]} - {e}")
+                    if update.message:
+                        await update.message.reply_text(error_message)
+                    return
+                    
+            elif command_type == "date":
+                # Handle single date analysis with flexible date parsing
+                if len(args) != 2:
+                    error_message = (
+                        "❌ Неправильний формат команди. Використовуйте:\n"
+                        "/analyze date <дата>\n\n"
+                        "Підтримувані формати дат:\n"
+                        "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
+                        "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
+                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                        "Приклад: /analyze date 15-01-2024"
+                    )
+                    general_logger.warning(f"Invalid 'date' command format from user {username}: {args}")
+                    if update.message:
+                        await update.message.reply_text(error_message)
+                    return
+                    
+                try:
+                    # Use DateParser for flexible date parsing
+                    target_date = DateParser.parse_date(args[1])
+                    
+                    general_logger.info(f"Analyzing date {target_date} for chat {chat_id}")
+                    messages = await get_messages_for_chat_single_date(
+                        int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, 
+                        target_date
+                    )
+                    date_str = DateParser.format_date_for_display(target_date)
+                    time_period_key = f"date_{target_date}"
+                    
+                except ValueError as e:
+                    error_message = (
+                        f"❌ Неправильний формат дати: {str(e)}\n\n"
+                        "Підтримувані формати:\n"
+                        "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
+                        "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
+                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                        "Приклад: /analyze date 15-01-2024"
+                    )
+                    general_logger.warning(f"Date parsing error in 'date' command from user {username}: {args[1]} - {e}")
+                    if update.message:
+                        await update.message.reply_text(error_message)
+                    return
+                    
+            else:
+                # Unknown command type
+                error_message = (
+                    "❌ Невідома команда. Доступні варіанти:\n\n"
+                    "📊 **Основні команди:**\n"
+                    "• /analyze - аналіз сьогоднішніх повідомлень\n"
+                    "• /analyze last <число> messages - останні N повідомлень\n"
+                    "• /analyze last <число> days - повідомлення за останні N днів\n"
+                    "• /analyze date <дата> - повідомлення за конкретну дату\n"
+                    "• /analyze period <дата1> <дата2> - повідомлення за період\n\n"
+                    "📅 **Формати дат:**\n"
+                    "• YYYY-MM-DD (2024-01-15)\n"
+                    "• DD-MM-YYYY (15-01-2024)\n"
+                    "• DD/MM/YYYY (15/01/2024)\n\n"
+                    "💡 **Приклади:**\n"
+                    "• /analyze last 50 messages\n"
+                    "• /analyze date 15-01-2024\n"
+                    "• /analyze period 01-01-2024 31-01-2024"
+                )
+                general_logger.warning(f"Unknown command type from user {username}: {command_type}")
+                if update.message:
+                    await update.message.reply_text(error_message)
                 return
                 
+        # Check if messages were found
         if not messages:
+            no_messages_text = f"📊 Немає повідомлень для аналізу за {date_str}."
+            general_logger.info(f"No messages found for analysis in chat {chat_id} for period: {date_str}")
             if update.message:
-                await update.message.reply_text(f"📊 Немає повідомлень для аналізу за {date_str}.")
+                await update.message.reply_text(no_messages_text)
             return
 
         # Format messages for GPT analysis
@@ -952,45 +1081,145 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if text:
                 time_str = timestamp.strftime('%H:%M')
                 messages_text.append(f"[{time_str}] {sender}: {text}")
+        
         analysis_text = "\n".join(messages_text)
-        # Hash for cache key
         message_content_hash = hashlib.sha256(analysis_text.encode("utf-8")).hexdigest()
+        
+        general_logger.info(f"Formatted {len(messages_text)} messages for analysis in chat {chat_id}")
 
         # Check cache
         if cache_enabled and time_period_key:
-            cached = await Database.get_analysis_cache(chat_id, time_period_key, message_content_hash, cache_ttl)
-            if cached:
-                if update.message:
-                    await update.message.reply_text(f"⚡️ (З кешу)\n{cached}")
-                return
+            try:
+                cached = await Database.get_analysis_cache(chat_id, time_period_key, message_content_hash, cache_ttl)
+                if cached:
+                    general_logger.info(f"Returning cached analysis for chat {chat_id}, key: {time_period_key}")
+                    if update.message:
+                        await update.message.reply_text(f"⚡️ (З кешу)\n{cached}")
+                    return
+            except Exception as cache_error:
+                error_logger.warning(f"Cache retrieval failed for chat {chat_id}: {cache_error}")
+                # Continue without cache
 
-        # Send initial message
-        status_message = await update.message.reply_text(
-            f"🔄 Аналізую {len(messages_text)} повідомлень за {date_str}..."
-        ) if update.message else None
+        # Send initial status message
+        status_message = None
+        try:
+            if update.message:
+                status_message = await update.message.reply_text(
+                    f"🔄 Аналізую {len(messages_text)} повідомлень за {date_str}..."
+                )
+        except Exception as status_error:
+            error_logger.warning(f"Failed to send status message: {status_error}")
 
-        # Get GPT analysis
-        gpt_result = await gpt_response(update, context, response_type="analyze", message_text_override=analysis_text, return_text=True)
-        if not gpt_result:
-            gpt_result = "(No summary returned)"
+        # Get GPT analysis with error handling
+        gpt_result = None
+        try:
+            general_logger.info(f"Requesting GPT analysis for {len(messages_text)} messages in chat {chat_id}")
+            gpt_result = await gpt_response(
+                update, 
+                context, 
+                response_type="analyze", 
+                message_text_override=analysis_text, 
+                return_text=True
+            )
+            
+            if not gpt_result or gpt_result.strip() == "":
+                gpt_result = "❌ Не вдалося отримати аналіз від GPT. Спробуйте пізніше."
+                error_logger.warning(f"Empty GPT response for chat {chat_id}")
+            else:
+                general_logger.info(f"GPT analysis completed successfully for chat {chat_id}")
+                
+        except Exception as gpt_error:
+            gpt_result = (
+                "❌ Виникла помилка при отриманні аналізу від GPT. "
+                "Можливо, сервіс тимчасово недоступний. Спробуйте пізніше."
+            )
+            error_logger.error(f"GPT analysis failed for chat {chat_id}: {gpt_error}", exc_info=True)
 
-        # Store in cache
-        if cache_enabled and time_period_key:
-            await Database.set_analysis_cache(chat_id, time_period_key, message_content_hash, gpt_result)
+        # Store successful result in cache
+        if cache_enabled and time_period_key and gpt_result and not gpt_result.startswith("❌"):
+            try:
+                await Database.set_analysis_cache(chat_id, time_period_key, message_content_hash, gpt_result)
+                general_logger.info(f"Analysis cached for chat {chat_id}, key: {time_period_key}")
+            except Exception as cache_error:
+                error_logger.warning(f"Failed to cache analysis for chat {chat_id}: {cache_error}")
 
         # Update status message
-        await status_message.edit_text(
-            f"📊 Аналіз повідомлень за {date_str} ({len(messages_text)} повідомлень) завершено."
-        ) if status_message else None
-        # Send the summary to the chat
-        await update.message.reply_text(gpt_result) if update.message else None
+        try:
+            if status_message:
+                await status_message.edit_text(
+                    f"📊 Аналіз повідомлень за {date_str} ({len(messages_text)} повідомлень) завершено."
+                )
+        except Exception as edit_error:
+            error_logger.warning(f"Failed to edit status message: {edit_error}")
+
+        # Send the analysis result
+        try:
+            if update.message and gpt_result:
+                await update.message.reply_text(gpt_result)
+                
+                # Log successful completion
+                execution_time = (datetime.now() - start_time).total_seconds()
+                general_logger.info(
+                    f"Analyze command completed successfully - Chat: {chat_id}, User: {username}, "
+                    f"Messages: {len(messages_text)}, Period: {date_str}, "
+                    f"Execution time: {execution_time:.2f}s"
+                )
+        except Exception as send_error:
+            error_logger.error(f"Failed to send analysis result to chat {chat_id}: {send_error}", exc_info=True)
+            # Try to send a simple error message
+            try:
+                if update.message:
+                    await update.message.reply_text(
+                        "❌ Аналіз завершено, але виникла помилка при відправці результату."
+                    )
+            except:
+                pass  # If even this fails, we can't do much more
 
     except Exception as e:
-        error_logger.error(f"Error in analyze command: {e}", exc_info=True)
-        if update.message:
-            await update.message.reply_text(
-                "❌ Виникла помилка при аналізі повідомлень. Спробуйте пізніше."
+        # Comprehensive error handling for any unexpected errors
+        execution_time = (datetime.now() - start_time).total_seconds()
+        error_context = {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "username": username,
+            "args": context.args if context.args else None,
+            "execution_time": execution_time
+        }
+        
+        error_logger.error(
+            f"Unexpected error in analyze command: {e}",
+            extra=error_context,
+            exc_info=True
+        )
+        
+        # Determine appropriate error message based on error type
+        if "database" in str(e).lower() or "connection" in str(e).lower():
+            user_error_message = (
+                "❌ Проблема з підключенням до бази даних. "
+                "Спробуйте пізніше або зверніться до адміністратора."
             )
+        elif "timeout" in str(e).lower():
+            user_error_message = (
+                "❌ Операція перевищила час очікування. "
+                "Спробуйте з меншим обсягом даних або пізніше."
+            )
+        else:
+            user_error_message = (
+                "❌ Виникла несподівана помилка при аналізі повідомлень. "
+                "Спробуйте пізніше або зверніться до адміністратора."
+            )
+        
+        try:
+            if update.message:
+                await update.message.reply_text(user_error_message)
+        except Exception as send_error:
+            error_logger.error(f"Failed to send error message to user: {send_error}")
+            
+        # Log final error summary
+        general_logger.error(
+            f"Analyze command failed - Chat: {chat_id}, User: {username}, "
+            f"Error: {str(e)[:100]}, Execution time: {execution_time:.2f}s"
+        )
 
 async def initialize_gpt() -> None:
     """Initialize GPT module."""
