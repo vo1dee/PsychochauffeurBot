@@ -5,17 +5,18 @@ This document provides comprehensive API documentation for the PsychoChauffeur B
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Internal Service APIs](#internal-service-apis)
-3. [Configuration API](#configuration-api)
-4. [Video Download API](#video-download-api)
-5. [AI Service API](#ai-service-api)
-6. [Weather Service API](#weather-service-api)
-7. [Database API](#database-api)
-8. [Error Handling API](#error-handling-api)
-9. [Performance Monitoring API](#performance-monitoring-api)
-10. [External API Integrations](#external-api-integrations)
-11. [Webhook APIs](#webhook-apis)
-12. [Authentication and Security](#authentication-and-security)
+2. [Enhanced Command APIs](#enhanced-command-apis)
+3. [Internal Service APIs](#internal-service-apis)
+4. [Configuration API](#configuration-api)
+5. [Video Download API](#video-download-api)
+6. [AI Service API](#ai-service-api)
+7. [Weather Service API](#weather-service-api)
+8. [Database API](#database-api)
+9. [Error Handling API](#error-handling-api)
+10. [Performance Monitoring API](#performance-monitoring-api)
+11. [External API Integrations](#external-api-integrations)
+12. [Webhook APIs](#webhook-apis)
+13. [Authentication and Security](#authentication-and-security)
 
 ## Overview
 
@@ -61,6 +62,255 @@ The PsychoChauffeur Bot exposes several internal APIs for service communication 
   "request_id": "req_123456789"
 }
 ```
+
+## Enhanced Command APIs
+
+The bot includes enhanced versions of the `/analyze` and `/flares` commands with comprehensive error handling, diagnostics, and improved user experience.
+
+### Enhanced Analyze Command API
+
+#### Command Formats
+
+The enhanced analyze command supports multiple flexible date formats and provides detailed error messages.
+
+**Basic Usage:**
+```
+/analyze                           # Today's messages
+/analyze last <N> messages         # Last N messages
+/analyze last <N> days             # Messages from last N days
+/analyze date <date>               # Messages from specific date
+/analyze period <date1> <date2>    # Messages from date range
+```
+
+**Supported Date Formats:**
+- `YYYY-MM-DD` (e.g., 2024-01-15)
+- `DD-MM-YYYY` (e.g., 15-01-2024)
+- `DD/MM/YYYY` (e.g., 15/01/2024)
+
+#### Python API
+
+```python
+from modules.enhanced_analyze_command import enhanced_analyze_command
+
+async def analyze_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enhanced analyze command with comprehensive diagnostics."""
+    await enhanced_analyze_command(update, context)
+```
+
+#### Response Format
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "analysis": "Detailed analysis text...",
+    "metadata": {
+      "period": "15.01.2024",
+      "message_count": 150,
+      "processing_time": 2.5,
+      "cached": false,
+      "model_used": "gpt-4"
+    }
+  }
+}
+```
+
+**Error Response:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "DATE_PARSING_ERROR",
+    "message": "❌ Помилка в форматі дати. Перевірте правильність:",
+    "details": {
+      "supported_formats": ["YYYY-MM-DD", "DD-MM-YYYY", "DD/MM/YYYY"],
+      "examples": ["2024-01-15", "15-01-2024", "15/01/2024"]
+    }
+  }
+}
+```
+
+#### Date Parser Utility API
+
+```python
+from modules.utils import DateParser
+
+# Parse single date
+date_obj = DateParser.parse_date("15-01-2024")
+
+# Validate date range
+start_date, end_date = DateParser.validate_date_range("01-01-2024", "31-01-2024")
+```
+
+**DateParser Methods:**
+
+| Method | Description | Parameters | Returns |
+|--------|-------------|------------|---------|
+| `parse_date(date_str)` | Parse date string in multiple formats | `date_str: str` | `datetime.date` |
+| `validate_date_range(start, end)` | Validate and parse date range | `start: str, end: str` | `Tuple[date, date]` |
+
+#### Error Codes
+
+| Code | Description | User Action |
+|------|-------------|-------------|
+| `DATE_PARSING_ERROR` | Invalid date format | Use supported date formats |
+| `DATE_RANGE_ERROR` | Invalid date range | Check start/end dates |
+| `NO_MESSAGES_FOUND` | No messages in period | Try different period |
+| `DATABASE_CONNECTION_ERROR` | Database unavailable | Retry later |
+| `AI_SERVICE_ERROR` | GPT API unavailable | Retry later |
+| `CONFIG_VALIDATION_ERROR` | Configuration issues | Contact administrator |
+
+### Enhanced Flares Command API
+
+#### Command Format
+
+```
+/flares    # Get current solar flares screenshot
+```
+
+#### Python API
+
+```python
+from modules.enhanced_flares_command import enhanced_flares_command
+
+async def get_solar_flares(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enhanced flares command with screenshot management."""
+    await enhanced_flares_command(update, context)
+```
+
+#### Screenshot Manager API
+
+```python
+from modules.utils import ScreenshotManager
+
+manager = ScreenshotManager()
+
+# Get current screenshot (generates if needed)
+screenshot_path = await manager.get_current_screenshot()
+
+# Check screenshot freshness
+is_fresh = await manager.validate_screenshot_freshness(screenshot_path)
+
+# Get status information
+status_info = manager.get_screenshot_status_info()
+```
+
+**ScreenshotManager Methods:**
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `get_current_screenshot()` | Get fresh screenshot path | `str` (file path) |
+| `validate_screenshot_freshness(path)` | Check if screenshot is fresh | `bool` |
+| `get_screenshot_status_info()` | Get detailed status | `Dict[str, Any]` |
+| `ensure_screenshot_directory()` | Create screenshot directory | `None` |
+
+#### Screenshot Status Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "screenshot_path": "/screenshots/flares_screenshot.png",
+    "metadata": {
+      "created_at": "2024-01-15T10:30:00Z",
+      "age_hours": 2.5,
+      "is_fresh": true,
+      "next_update": "2024-01-15T16:30:00Z",
+      "file_size_mb": 1.2,
+      "source_url": "https://api.meteoagent.com/flares"
+    }
+  }
+}
+```
+
+#### Error Codes
+
+| Code | Description | User Action |
+|------|-------------|-------------|
+| `WKHTMLTOIMAGE_UNAVAILABLE` | Screenshot tool missing | Contact administrator |
+| `SCREENSHOT_GENERATION_FAILED` | Generation failed | Retry later |
+| `NETWORK_CONNECTION_ERROR` | Network issues | Check connection |
+| `METEOAGENT_API_ERROR` | Data source unavailable | Retry later |
+| `FILE_SYSTEM_ERROR` | File system issues | Contact administrator |
+
+### Command Diagnostics API
+
+#### Performance Tracking
+
+```python
+from modules.command_diagnostics import (
+    track_api_call,
+    track_database_query,
+    log_command_milestone,
+    log_command_performance_metric
+)
+
+# Track API calls
+async with track_api_call("openrouter", "/chat/completions", "POST") as tracker:
+    result = await api_call()
+    tracker.set_status_code(200)
+
+# Track database queries
+async with track_database_query("message_retrieval", "messages"):
+    messages = await get_messages()
+
+# Log milestones
+log_command_milestone("analyze", "parsing_completed", user_id=123, chat_id=456)
+
+# Log performance metrics
+log_command_performance_metric("analyze", "processing_time", 2.5, "seconds")
+```
+
+#### Configuration Validation
+
+```python
+from modules.command_diagnostics import validate_command_configuration
+
+# Validate command configuration
+validation_result = await validate_command_configuration("analyze")
+# Returns: {"valid": bool, "issues": List[str]}
+```
+
+#### Dependency Health Checks
+
+```python
+from modules.command_diagnostics import check_command_dependencies
+
+# Check command dependencies
+health_result = await check_command_dependencies("flares")
+# Returns: {"healthy": bool, "dependencies": Dict[str, Any]}
+```
+
+### Help Messages API
+
+#### Centralized Help System
+
+```python
+from modules.command_help_messages import CommandHelpMessages
+
+# Get command help
+help_text = CommandHelpMessages.get_command_help("analyze")
+
+# Get error messages
+error_msg = CommandHelpMessages.get_analyze_error("date_parsing_error")
+
+# Get success messages
+success_msg = CommandHelpMessages.get_success_message(
+    "analyze", 
+    period="15.01.2024", 
+    message_count=150
+)
+```
+
+**Available Help Methods:**
+
+| Method | Description | Parameters |
+|--------|-------------|------------|
+| `get_command_help(command)` | Get command help text | `command: str` |
+| `get_analyze_error(error_type, **kwargs)` | Get analyze error message | `error_type: str, **kwargs` |
+| `get_flares_error(error_type, **kwargs)` | Get flares error message | `error_type: str, **kwargs` |
+| `get_success_message(command, **kwargs)` | Get success message | `command: str, **kwargs` |
 
 ## Internal Service APIs
 
@@ -760,6 +1010,64 @@ All API endpoints return errors in a consistent format:
 | `RATE_LIMIT_EXCEEDED` | Rate limit exceeded | 429 |
 | `INTERNAL_ERROR` | Internal server error | 500 |
 | `SERVICE_UNAVAILABLE` | External service unavailable | 503 |
+
+### Enhanced Command Error Codes
+
+The enhanced commands include additional specific error codes:
+
+#### Analyze Command Errors
+
+| Code | Description | User Message |
+|------|-------------|--------------|
+| `DATE_PARSING_ERROR` | Invalid date format | Includes supported formats and examples |
+| `DATE_RANGE_ERROR` | Invalid date range | Explains range validation rules |
+| `NO_MESSAGES_FOUND` | No messages in period | Suggests alternative periods |
+| `NO_TEXT_MESSAGES` | No text content found | Explains media-only content |
+| `DATABASE_CONNECTION_ERROR` | Database unavailable | Suggests retry with timing |
+| `AI_SERVICE_ERROR` | GPT API unavailable | Provides service status info |
+| `CONFIG_VALIDATION_ERROR` | Configuration invalid | Directs to administrator |
+| `DEPENDENCIES_UNHEALTHY` | Services unavailable | Lists affected services |
+
+#### Flares Command Errors
+
+| Code | Description | User Message |
+|------|-------------|--------------|
+| `WKHTMLTOIMAGE_UNAVAILABLE` | Screenshot tool missing | Installation instructions |
+| `SCREENSHOT_GENERATION_FAILED` | Generation failed | Troubleshooting steps |
+| `NETWORK_CONNECTION_ERROR` | Network issues | Connection diagnostics |
+| `METEOAGENT_API_ERROR` | Data source unavailable | Service status information |
+| `FILE_SYSTEM_ERROR` | File system issues | Permission and space checks |
+| `TELEGRAM_SEND_ERROR` | Failed to send image | File size and format info |
+
+### Enhanced Error Response Format
+
+Enhanced commands return detailed error information:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "DATE_PARSING_ERROR",
+    "message": "❌ Помилка в форматі дати. Перевірте правильність:",
+    "user_message": "User-friendly localized message with examples",
+    "details": {
+      "supported_formats": ["YYYY-MM-DD", "DD-MM-YYYY", "DD/MM/YYYY"],
+      "examples": ["2024-01-15", "15-01-2024", "15/01/2024"],
+      "input_received": "32-01-2024",
+      "validation_errors": ["Invalid day: 32"]
+    },
+    "help": {
+      "command_help": "Full command help text",
+      "troubleshooting_url": "/docs/COMMAND_FIXES_TROUBLESHOOTING.md"
+    },
+    "context": {
+      "command": "analyze",
+      "user_id": 123456789,
+      "chat_id": -1001234567890,
+      "timestamp": "2024-01-15T10:30:00Z"
+    }
+  }
+}
 
 ### Error Handling Decorators
 

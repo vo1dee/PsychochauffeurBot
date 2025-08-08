@@ -5,8 +5,9 @@ import os
 import asyncio
 import aiohttp
 import csv
-from datetime import datetime, time as dt_time, timedelta
-from typing import Optional, Any, List, Dict
+import subprocess
+from datetime import datetime, time as dt_time, timedelta, date
+from typing import Optional, Any, List, Dict, Tuple
 import logging
 
 from telegram import Update
@@ -22,22 +23,178 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')   
 CITY_DATA_FILE = os.path.join(DATA_DIR, 'user_locations.csv')
 WEATHER_API_URL = 'https://api.meteoagent.com/widgets/v1/kindex'
-WKHTMLTOIMAGE_PATH = '/usr/bin/wkhtmltoimage'
+WKHTMLTOIMAGE_PATH = '/usr/local/bin/wkhtmltoimage'
 
 # Define imgkit options once to avoid duplication
+# Imgkit options that match the working direct command
 IMGKIT_OPTIONS = {
-    'quality': '100',
     'format': 'png',
-    'width': '1024',  # Set a fixed width
+    'width': 1024,  # Use integer instead of string
+    'height': 768,  # Use integer instead of string
     'enable-javascript': None,
-    'javascript-delay': '1000',  # Wait 1 second for JavaScript
-    'custom-header': [
-        ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-    ]
+    'javascript-delay': 5000,  # Use integer instead of string
+    'quality': 100,
+    'encoding': 'UTF-8'
 }
 
 # Initialize config manager
 config_manager = ConfigManager()
+
+
+class DateParser:
+    """Utility class for parsing dates in multiple formats with automatic detection."""
+    
+    # Supported date formats in order of preference with regex patterns for strict validation
+    DATE_FORMATS = [
+        ('%Y-%m-%d', r'^\d{4}-\d{2}-\d{2}$'),    # YYYY-MM-DD (ISO format)
+        ('%d-%m-%Y', r'^\d{2}-\d{2}-\d{4}$'),    # DD-MM-YYYY (European format)
+        ('%d/%m/%Y', r'^\d{2}/\d{2}/\d{4}$'),    # DD/MM/YYYY (Alternative European format)
+        ('%Y/%m/%d', r'^\d{4}/\d{2}/\d{2}$'),    # YYYY/MM/DD (Alternative ISO format)
+    ]
+    
+    @staticmethod
+    def parse_date(date_str: str) -> date:
+        """
+        Parse date string in multiple formats with automatic format detection.
+        
+        Args:
+            date_str: Date string to parse
+            
+        Returns:
+            date: Parsed date object
+            
+        Raises:
+            ValueError: If date string cannot be parsed in any supported format
+        """
+        if not date_str or not isinstance(date_str, str):
+            raise ValueError("Date string cannot be empty or None")
+        
+        date_str = date_str.strip()
+        
+        # Check if string is empty after stripping
+        if not date_str:
+            raise ValueError("Date string cannot be empty or None")
+        
+        # Try each format until one works
+        for fmt, pattern in DateParser.DATE_FORMATS:
+            # First check if the string matches the expected pattern
+            if not re.match(pattern, date_str):
+                continue
+                
+            try:
+                parsed_date = datetime.strptime(date_str, fmt).date()
+                # Validate that the date is reasonable (not too far in past/future)
+                DateParser._validate_date_range(parsed_date)
+                return parsed_date
+            except ValueError as e:
+                # If it's a date range validation error, re-raise it
+                if "too far in the past" in str(e) or "too far in the future" in str(e):
+                    raise e
+                # Otherwise, continue trying other formats
+                continue
+        
+        # If no format worked, provide helpful error message
+        supported_formats = [fmt.replace('%Y', 'YYYY').replace('%m', 'MM').replace('%d', 'DD') 
+                           for fmt, _ in DateParser.DATE_FORMATS]
+        raise ValueError(
+            f"Unable to parse date '{date_str}'. "
+            f"Supported formats: {', '.join(supported_formats)}"
+        )
+    
+    @staticmethod
+    def validate_date_range(start_date_str: str, end_date_str: str) -> Tuple[date, date]:
+        """
+        Validate and parse date range ensuring start date is before end date.
+        
+        Args:
+            start_date_str: Start date string
+            end_date_str: End date string
+            
+        Returns:
+            Tuple[date, date]: Parsed start and end dates
+            
+        Raises:
+            ValueError: If dates cannot be parsed or start date is after end date
+        """
+        start_date = DateParser.parse_date(start_date_str)
+        end_date = DateParser.parse_date(end_date_str)
+        
+        if start_date > end_date:
+            raise ValueError(
+                f"Start date ({start_date_str}) cannot be after end date ({end_date_str})"
+            )
+        
+        return start_date, end_date
+    
+    @staticmethod
+    def detect_format(date_str: str) -> Optional[str]:
+        """
+        Detect the format of a date string.
+        
+        Args:
+            date_str: Date string to analyze
+            
+        Returns:
+            Optional[str]: Detected format string or None if no format matches
+        """
+        if not date_str or not isinstance(date_str, str):
+            return None
+        
+        date_str = date_str.strip()
+        
+        for fmt, pattern in DateParser.DATE_FORMATS:
+            # First check if the string matches the expected pattern
+            if not re.match(pattern, date_str):
+                continue
+                
+            try:
+                datetime.strptime(date_str, fmt)
+                return fmt
+            except ValueError:
+                continue
+        
+        return None
+    
+    @staticmethod
+    def _validate_date_range(parsed_date: date) -> None:
+        """
+        Validate that a parsed date is within reasonable bounds.
+        
+        Args:
+            parsed_date: Date to validate
+            
+        Raises:
+            ValueError: If date is outside reasonable bounds
+        """
+        today = date.today()
+        min_date = date(1900, 1, 1)  # Minimum reasonable date
+        max_date = date(today.year + 10, 12, 31)  # Maximum reasonable date (10 years in future)
+        
+        if parsed_date < min_date:
+            raise ValueError(f"Date {parsed_date} is too far in the past (before {min_date})")
+        
+        if parsed_date > max_date:
+            raise ValueError(f"Date {parsed_date} is too far in the future (after {max_date})")
+    
+    @staticmethod
+    def format_date_for_display(date_obj: date, format_style: str = 'european') -> str:
+        """
+        Format a date object for display in a specific style.
+        
+        Args:
+            date_obj: Date object to format
+            format_style: Style to use ('european' for DD-MM-YYYY, 'iso' for YYYY-MM-DD)
+            
+        Returns:
+            str: Formatted date string
+        """
+        if format_style == 'european':
+            return date_obj.strftime('%d-%m-%Y')
+        elif format_style == 'iso':
+            return date_obj.strftime('%Y-%m-%d')
+        else:
+            raise ValueError(f"Unsupported format style: {format_style}")
+
 
 class MessageCounter:
     """Manages message counts per chat for random GPT responses."""
@@ -293,6 +450,10 @@ class ScreenshotManager:
     timezone: Any
     schedule_time: dt_time
     config: Any
+    
+    # Screenshot freshness threshold (6 hours)
+    FRESHNESS_THRESHOLD_HOURS = 6
+    
     def __new__(cls) -> 'ScreenshotManager':
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -303,8 +464,103 @@ class ScreenshotManager:
         if not self._initialized:
             self.timezone = pytz.timezone('Europe/Kyiv')
             self.schedule_time = dt_time(2, 0)  # 2 AM Kyiv time
-            self.config = imgkit.config(wkhtmltoimage=WKHTMLTOIMAGE_PATH)
+            self.config = self._initialize_config()
             self._initialized = True
+
+    def _initialize_config(self) -> Optional[Any]:
+        """Initialize wkhtmltoimage configuration with error handling."""
+        try:
+            # Check if wkhtmltoimage tool is available
+            if not self._check_wkhtmltoimage_availability():
+                error_logger.error("wkhtmltoimage tool is not available")
+                return None
+            
+            return imgkit.config(wkhtmltoimage=WKHTMLTOIMAGE_PATH)
+        except Exception as e:
+            error_logger.error(f"Error initializing wkhtmltoimage config: {e}")
+            return None
+
+    def _check_wkhtmltoimage_availability(self) -> bool:
+        """Check if wkhtmltoimage tool is available and executable."""
+        try:
+            import subprocess
+            result = subprocess.run([WKHTMLTOIMAGE_PATH, '--version'], 
+                                  capture_output=True, text=True, timeout=10)
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+            return False
+        except Exception as e:
+            error_logger.error(f"Error checking wkhtmltoimage availability: {e}")
+            return False
+
+    async def ensure_screenshot_directory(self) -> bool:
+        """Ensure screenshot directory exists with proper permissions and comprehensive error handling."""
+        try:
+            # Check if directory already exists
+            if os.path.exists(Config.SCREENSHOT_DIR):
+                # Verify it's actually a directory
+                if not os.path.isdir(Config.SCREENSHOT_DIR):
+                    error_logger.error(f"Screenshot path exists but is not a directory: {Config.SCREENSHOT_DIR}")
+                    return False
+                
+                # Verify directory permissions
+                if not os.access(Config.SCREENSHOT_DIR, os.R_OK | os.W_OK | os.X_OK):
+                    error_logger.error(f"Screenshot directory lacks required permissions: {Config.SCREENSHOT_DIR}")
+                    try:
+                        # Attempt to fix permissions
+                        os.chmod(Config.SCREENSHOT_DIR, 0o755)
+                        general_logger.info(f"Fixed permissions for screenshot directory: {Config.SCREENSHOT_DIR}")
+                    except Exception as perm_e:
+                        error_logger.error(f"Failed to fix directory permissions: {perm_e}")
+                        return False
+                
+                general_logger.debug(f"Screenshot directory already exists with proper permissions: {Config.SCREENSHOT_DIR}")
+                return True
+            
+            # Create directory with proper permissions
+            general_logger.info(f"Creating screenshot directory: {Config.SCREENSHOT_DIR}")
+            os.makedirs(Config.SCREENSHOT_DIR, mode=0o755, exist_ok=True)
+            
+            # Double-check the directory was created successfully
+            if not os.path.exists(Config.SCREENSHOT_DIR):
+                error_logger.error(f"Directory creation appeared to succeed but directory does not exist: {Config.SCREENSHOT_DIR}")
+                return False
+            
+            # Verify all required permissions
+            required_permissions = os.R_OK | os.W_OK | os.X_OK
+            if not os.access(Config.SCREENSHOT_DIR, required_permissions):
+                error_logger.error(f"Screenshot directory created but lacks required permissions: {Config.SCREENSHOT_DIR}")
+                try:
+                    # Attempt to set correct permissions
+                    os.chmod(Config.SCREENSHOT_DIR, 0o755)
+                    general_logger.info(f"Set permissions for new screenshot directory: {Config.SCREENSHOT_DIR}")
+                except Exception as perm_e:
+                    error_logger.error(f"Failed to set directory permissions: {perm_e}")
+                    return False
+            
+            # Test write access by creating and removing a test file
+            test_file_path = os.path.join(Config.SCREENSHOT_DIR, '.write_test')
+            try:
+                with open(test_file_path, 'w') as test_file:
+                    test_file.write('test')
+                os.remove(test_file_path)
+                general_logger.debug(f"Write test successful for screenshot directory: {Config.SCREENSHOT_DIR}")
+            except Exception as write_e:
+                error_logger.error(f"Write test failed for screenshot directory: {write_e}")
+                return False
+                
+            general_logger.info(f"Screenshot directory successfully ensured with proper permissions: {Config.SCREENSHOT_DIR}")
+            return True
+            
+        except PermissionError as e:
+            error_logger.error(f"Permission error ensuring screenshot directory: {e}")
+            return False
+        except OSError as e:
+            error_logger.error(f"OS error ensuring screenshot directory: {e}")
+            return False
+        except Exception as e:
+            error_logger.error(f"Unexpected error ensuring screenshot directory: {e}")
+            return False
 
     def get_screenshot_path(self) -> str:
         """Constructs a path for storing screenshots with a timestamp."""
@@ -316,14 +572,55 @@ class ScreenshotManager:
         date_str = kyiv_time.strftime('%Y-%m-%d')
         return os.path.join(Config.SCREENSHOT_DIR, f'flares_{date_str}_kyiv.png')
 
+    def validate_screenshot_freshness(self, screenshot_path: str) -> bool:
+        """
+        Check if screenshot is less than 6 hours old.
+        
+        Args:
+            screenshot_path: Path to the screenshot file
+            
+        Returns:
+            bool: True if screenshot is fresh (< 6 hours old), False otherwise
+        """
+        try:
+            if not os.path.exists(screenshot_path):
+                return False
+                
+            # Get file modification time
+            mod_time = datetime.fromtimestamp(os.path.getmtime(screenshot_path))
+            mod_time = mod_time.replace(tzinfo=self.timezone)
+            
+            # Get current time in Kyiv timezone
+            current_time = datetime.now(self.timezone)
+            
+            # Calculate age in hours
+            age_hours = (current_time - mod_time).total_seconds() / 3600
+            
+            is_fresh = age_hours < self.FRESHNESS_THRESHOLD_HOURS
+            general_logger.info(f"Screenshot age: {age_hours:.1f} hours, fresh: {is_fresh}")
+            
+            return is_fresh
+        except Exception as e:
+            error_logger.error(f"Error validating screenshot freshness: {e}")
+            return False
+
     def get_latest_screenshot(self) -> Optional[str]:
         """
         Get the latest screenshot from the screenshot directory.
         """
         try:
-            files = [os.path.join(Config.SCREENSHOT_DIR, f) for f in os.listdir(Config.SCREENSHOT_DIR) if f.endswith('.png')]
-            if not files:
+            if not os.path.exists(Config.SCREENSHOT_DIR):
+                general_logger.info("Screenshot directory not found.")
                 return None
+                
+            files = [os.path.join(Config.SCREENSHOT_DIR, f) 
+                    for f in os.listdir(Config.SCREENSHOT_DIR) 
+                    if f.endswith('.png')]
+            
+            if not files:
+                general_logger.info("No screenshot files found.")
+                return None
+                
             latest_file = max(files, key=os.path.getctime)
             return latest_file
         except FileNotFoundError:
@@ -333,9 +630,48 @@ class ScreenshotManager:
             error_logger.error(f"Error getting latest screenshot: {e}")
             return None
 
-    async def take_screenshot(self, url: str, output_path: str) -> Optional[str]:
+    async def get_current_screenshot(self) -> Optional[str]:
         """
-        Take a screenshot of the given URL and save it to the output path.
+        Get current screenshot if fresh, otherwise generate new one.
+        
+        Returns:
+            Optional[str]: Path to current screenshot or None on failure
+        """
+        try:
+            # Ensure directory exists with proper permissions
+            if not await self.ensure_screenshot_directory():
+                error_logger.error("Failed to ensure screenshot directory exists")
+                return None
+            
+            # Check for existing fresh screenshot
+            latest_screenshot = self.get_latest_screenshot()
+            if latest_screenshot and self.validate_screenshot_freshness(latest_screenshot):
+                general_logger.info(f"Using existing fresh screenshot: {latest_screenshot}")
+                return latest_screenshot
+            
+            # Log screenshot generation attempt
+            if latest_screenshot:
+                general_logger.info(f"Existing screenshot is stale, generating new one. Old: {latest_screenshot}")
+            else:
+                general_logger.info("No existing screenshot found, generating new one")
+            
+            # Generate new screenshot if none exists or it's stale
+            new_screenshot = await self.take_screenshot(WEATHER_API_URL, self.get_screenshot_path())
+            
+            if new_screenshot:
+                general_logger.info(f"Successfully generated new screenshot: {new_screenshot}")
+            else:
+                error_logger.error("Failed to generate new screenshot")
+                
+            return new_screenshot
+            
+        except Exception as e:
+            error_logger.error(f"Error getting current screenshot: {e}")
+            return None
+
+    async def take_screenshot_simple(self, url: str, output_path: str) -> Optional[str]:
+        """
+        Take a screenshot with minimal options that match the working direct command.
         
         Args:
             url: URL to capture
@@ -345,16 +681,383 @@ class ScreenshotManager:
             Optional[str]: Path to saved screenshot or None on failure
         """
         try:
-            # Run imgkit in a thread pool to avoid blocking
+            if not self.config:
+                return None
+                
+            general_logger.info(f"Taking simple screenshot of {url}")
+            
+            # Use the exact same options as the working direct command
+            simple_options = {
+                'width': '1024',
+                'height': '768',
+                'enable-javascript': None,
+                'javascript-delay': '5000'
+            }
+            
+            # Use a temporary file to ensure atomic operations
+            temp_path = output_path + '.tmp'
+            
+            # Run in thread pool
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None, 
-                lambda: imgkit.from_url(url, output_path, options=IMGKIT_OPTIONS, config=self.config)
+                lambda: imgkit.from_url(url, temp_path, options=simple_options, config=self.config)
             )
-            return output_path
+            
+            # Wait a moment and move temp file to final location
+            await asyncio.sleep(0.2)
+            if os.path.exists(temp_path):
+                os.rename(temp_path, output_path)
+            
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                general_logger.info(f"Simple screenshot created: {os.path.getsize(output_path)} bytes")
+                return output_path
+            else:
+                return None
+                
         except Exception as e:
-            error_logger.error(f"Error taking screenshot: {str(e)}")
+            error_logger.error(f"Error in simple screenshot: {e}")
             return None
+
+    async def take_screenshot(self, url: str, output_path: str, max_retries: int = 3) -> Optional[str]:
+        """
+        Take a screenshot of the given URL and save it to the output path with comprehensive error handling.
+        
+        Args:
+            url: URL to capture
+            output_path: Path to save the screenshot
+            max_retries: Maximum number of retry attempts
+            
+        Returns:
+            Optional[str]: Path to saved screenshot or None on failure
+        """
+        general_logger.info(f"Starting screenshot generation for URL: {url}")
+        
+        # Validate inputs
+        if not url or not output_path:
+            error_logger.error("Invalid URL or output path provided")
+            return None
+        
+        # Check if wkhtmltoimage is available before attempting
+        if not self._check_wkhtmltoimage_availability():
+            error_logger.error("wkhtmltoimage tool is not available - cannot generate screenshot")
+            return None
+        
+        # Ensure directory exists with proper permissions
+        if not await self.ensure_screenshot_directory():
+            error_logger.error("Failed to ensure screenshot directory - cannot proceed")
+            return None
+        
+        # First try simple approach with minimal options
+        general_logger.info("Attempting simple screenshot generation")
+        simple_result = await self.take_screenshot_simple(url, output_path)
+        if simple_result and self._validate_screenshot_content(simple_result):
+            general_logger.info("Simple screenshot generation successful")
+            return simple_result
+        else:
+            general_logger.warning("Simple screenshot generation failed, trying advanced approach")
+        
+        # If simple approach fails, try with full options and retries
+        for attempt in range(max_retries):
+            try:
+                # Double-check configuration is available
+                if not self.config:
+                    error_logger.error("wkhtmltoimage configuration not available")
+                    return None
+                
+                general_logger.info(f"Taking advanced screenshot of {url} (attempt {attempt + 1}/{max_retries})")
+                
+                # Clean up any existing files from previous attempts
+                for cleanup_path in [output_path, output_path + '.tmp']:
+                    if os.path.exists(cleanup_path):
+                        try:
+                            os.remove(cleanup_path)
+                            general_logger.debug(f"Cleaned up existing file: {cleanup_path}")
+                        except OSError as e:
+                            general_logger.warning(f"Could not clean up {cleanup_path}: {e}")
+                
+                # Use a temporary file to ensure atomic operations
+                temp_path = output_path + '.tmp'
+                
+                # Run imgkit in a thread pool to avoid blocking
+                general_logger.debug(f"Executing imgkit with options: {IMGKIT_OPTIONS}")
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None, 
+                    lambda: imgkit.from_url(url, temp_path, options=IMGKIT_OPTIONS, config=self.config)
+                )
+                
+                # Wait a moment to ensure file is completely written
+                await asyncio.sleep(0.5)
+                
+                # Verify temp file was created
+                if not os.path.exists(temp_path):
+                    error_logger.warning(f"Temporary screenshot file was not created: {temp_path}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(3 * (attempt + 1))
+                        continue
+                    else:
+                        return None
+                
+                # Move temp file to final location atomically
+                try:
+                    os.rename(temp_path, output_path)
+                    general_logger.debug(f"Moved temporary file to final location: {output_path}")
+                except OSError as e:
+                    error_logger.error(f"Failed to move temporary file to final location: {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(3 * (attempt + 1))
+                        continue
+                    else:
+                        return None
+                
+                # Verify screenshot was created successfully and contains valid content
+                if os.path.exists(output_path) and self._validate_screenshot_content(output_path):
+                    file_size = os.path.getsize(output_path)
+                    general_logger.info(f"Screenshot saved and validated successfully: {output_path} ({file_size} bytes)")
+                    return output_path
+                else:
+                    error_logger.warning(f"Screenshot validation failed (attempt {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        # Wait before retry, increasing delay each time
+                        retry_delay = 3 * (attempt + 1)
+                        general_logger.info(f"Retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    else:
+                        error_logger.error("All screenshot attempts failed - validation failed")
+                        return None
+                        
+            except Exception as e:
+                error_logger.error(f"Error taking screenshot (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    # Wait before retry, increasing delay each time
+                    retry_delay = 2 * (attempt + 1)
+                    general_logger.info(f"Retrying in {retry_delay} seconds after error...")
+                    await asyncio.sleep(retry_delay)
+                    continue
+                else:
+                    error_logger.error("All screenshot attempts failed due to errors")
+                    return None
+        
+        error_logger.error("Screenshot generation completely failed after all attempts")
+        return None
+
+    def _validate_screenshot_content(self, screenshot_path: str) -> bool:
+        """
+        Validate that the screenshot contains expected content with comprehensive checks.
+        
+        Args:
+            screenshot_path: Path to the screenshot file
+            
+        Returns:
+            bool: True if screenshot appears to contain valid content
+        """
+        try:
+            # Check if file exists
+            if not os.path.exists(screenshot_path):
+                general_logger.warning(f"Screenshot validation failed: file does not exist: {screenshot_path}")
+                return False
+            
+            # Check if it's actually a file (not a directory)
+            if not os.path.isfile(screenshot_path):
+                general_logger.warning(f"Screenshot validation failed: path is not a file: {screenshot_path}")
+                return False
+            
+            # Check file permissions
+            if not os.access(screenshot_path, os.R_OK):
+                general_logger.warning(f"Screenshot validation failed: file is not readable: {screenshot_path}")
+                return False
+            
+            # Check file size - should be reasonable for a chart
+            file_size = os.path.getsize(screenshot_path)
+            min_size = 50000   # 50KB minimum (reduced from 100KB for more flexibility)
+            max_size = 25000000  # 25MB maximum (increased slightly for high-res charts)
+            
+            if file_size < min_size:
+                general_logger.warning(f"Screenshot validation failed: file too small ({file_size} bytes, minimum {min_size})")
+                return False
+            
+            if file_size > max_size:
+                general_logger.warning(f"Screenshot validation failed: file too large ({file_size} bytes, maximum {max_size})")
+                return False
+            
+            # Validate PNG header to ensure it's a proper image file
+            try:
+                with open(screenshot_path, 'rb') as f:
+                    header = f.read(8)
+                    if len(header) < 8:
+                        general_logger.warning(f"Screenshot validation failed: file too short to contain PNG header")
+                        return False
+                    
+                    if not header.startswith(b'\x89PNG\r\n\x1a\n'):
+                        general_logger.warning(f"Screenshot validation failed: invalid PNG header: {header.hex()}")
+                        return False
+                    
+                    # Read a bit more to ensure it's not just a header
+                    additional_data = f.read(100)
+                    if len(additional_data) < 50:
+                        general_logger.warning(f"Screenshot validation failed: PNG file appears truncated")
+                        return False
+                        
+            except IOError as e:
+                general_logger.warning(f"Screenshot validation failed: error reading file: {e}")
+                return False
+            except Exception as e:
+                general_logger.warning(f"Screenshot validation failed: unexpected error reading PNG header: {e}")
+                return False
+            
+            # Additional validation: check file modification time to ensure it's recent
+            try:
+                mod_time = datetime.fromtimestamp(os.path.getmtime(screenshot_path))
+                current_time = datetime.now()
+                age_hours = (current_time - mod_time).total_seconds() / 3600
+                
+                # If file is older than 24 hours, it might be stale (but still valid)
+                if age_hours > 24:
+                    general_logger.info(f"Screenshot is quite old ({age_hours:.1f} hours) but still valid")
+                    
+            except Exception as e:
+                general_logger.debug(f"Could not check file modification time: {e}")
+            
+            general_logger.debug(f"Screenshot validation successful: {screenshot_path} ({file_size} bytes)")
+            return True
+            
+        except Exception as e:
+            general_logger.warning(f"Screenshot validation failed with unexpected error: {e}")
+            return False
+            
+        except Exception as e:
+            error_logger.error(f"Error validating screenshot: {e}")
+            return False
+
+    async def _test_url_accessibility(self, url: str) -> bool:
+        """
+        Test if the URL is accessible and returns valid content.
+        
+        Args:
+            url: URL to test
+            
+        Returns:
+            bool: True if URL is accessible
+        """
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as response:
+                    if response.status == 200:
+                        content = await response.text()
+                        # Check if it contains expected content
+                        if 'solar' in content.lower() and 'forecast' in content.lower():
+                            general_logger.info("URL accessibility test passed")
+                            return True
+                        else:
+                            general_logger.warning("URL accessible but content doesn't match expected format")
+                            return False
+                    else:
+                        general_logger.warning(f"URL returned status {response.status}")
+                        return False
+        except Exception as e:
+            error_logger.error(f"Error testing URL accessibility: {e}")
+            return False
+
+    def get_screenshot_status_info(self) -> Dict[str, Any]:
+        """
+        Get comprehensive status information about screenshots.
+        
+        Returns:
+            Dict containing status information
+        """
+        try:
+            latest_screenshot = self.get_latest_screenshot()
+            
+            status_info: Dict[str, Any] = {
+                'has_screenshot': False,
+                'is_fresh': False,
+                'path': None,
+                'age_hours': None,
+                'file_size': None,
+                'next_update_hours': None,
+                'directory_exists': os.path.exists(Config.SCREENSHOT_DIR),
+                'directory_writable': os.access(Config.SCREENSHOT_DIR, os.W_OK) if os.path.exists(Config.SCREENSHOT_DIR) else False,
+                'tool_available': self._check_wkhtmltoimage_availability()
+            }
+            
+            if latest_screenshot and os.path.exists(latest_screenshot):
+                status_info['has_screenshot'] = True
+                status_info['path'] = latest_screenshot
+                status_info['is_fresh'] = self.validate_screenshot_freshness(latest_screenshot)
+                status_info['file_size'] = os.path.getsize(latest_screenshot)
+                
+                # Calculate age
+                mod_time = datetime.fromtimestamp(os.path.getmtime(latest_screenshot))
+                current_time = datetime.now()
+                age_hours = (current_time - mod_time).total_seconds() / 3600
+                status_info['age_hours'] = age_hours
+                
+                # Calculate next update time
+                if age_hours < self.FRESHNESS_THRESHOLD_HOURS:
+                    status_info['next_update_hours'] = self.FRESHNESS_THRESHOLD_HOURS - age_hours
+                else:
+                    status_info['next_update_hours'] = 0  # Update needed now
+            
+            return status_info
+            
+        except Exception as e:
+            error_logger.error(f"Error getting screenshot status info: {e}")
+            return {
+                'has_screenshot': False,
+                'is_fresh': False,
+                'path': None,
+                'age_hours': None,
+                'file_size': None,
+                'next_update_hours': None,
+                'directory_exists': False,
+                'directory_writable': False,
+                'tool_available': False,
+                'error': str(e)
+            }
+
+    def get_fallback_message(self) -> str:
+        """Get comprehensive fallback message when screenshot generation fails."""
+        # Check if we have any old screenshot as fallback
+        latest_screenshot = self.get_latest_screenshot()
+        
+        base_message = (
+            "На жаль, не вдалося згенерувати актуальний знімок сонячних спалахів.\n\n"
+            "Можливі причини:\n"
+            "• Проблеми з мережею або інтернет-з'єднанням\n"
+            "• Недоступність джерела даних (api.meteoagent.com)\n"
+            "• Технічні проблеми сервера\n"
+            "• Відсутність необхідних інструментів (wkhtmltoimage)\n"
+            "• Проблеми з правами доступу до файлової системи\n\n"
+        )
+        
+        if latest_screenshot and os.path.exists(latest_screenshot):
+            # We have an old screenshot, provide info about it
+            try:
+                mod_time = datetime.fromtimestamp(os.path.getmtime(latest_screenshot))
+                mod_time = mod_time.astimezone(self.timezone)
+                hours_old = (datetime.now(self.timezone) - mod_time).total_seconds() / 3600
+                
+                fallback_info = (
+                    f"📸 Доступний застарілий знімок від {mod_time.strftime('%H:%M %d.%m.%Y')} "
+                    f"(вік: {hours_old:.1f} годин)\n\n"
+                    "Для отримання застарілого знімку спробуйте команду ще раз.\n\n"
+                )
+            except Exception:
+                fallback_info = "📸 Доступний застарілий знімок (час невідомий)\n\n"
+        else:
+            fallback_info = "📸 Застарілих знімків також немає в наявності.\n\n"
+        
+        footer = (
+            "🔄 Спробуйте пізніше (рекомендується через 5-10 хвилин)\n"
+            "🌐 Або перевірте дані безпосередньо на сайті:\n"
+            "https://api.meteoagent.com/widgets/v1/kindex\n\n"
+            "ℹ️ Якщо проблема повторюється, зверніться до адміністратора."
+        )
+        
+        return base_message + fallback_info + footer
 
     async def schedule_task(self) -> None:
         """
@@ -364,26 +1067,41 @@ class ScreenshotManager:
         """
         while True:
             try:
-                # Get current time in Kyiv timezone
-                kyiv_now = datetime.now(self.timezone)
-
-                # Create target time for the next screenshot (6 hours from now)
-                target_time = kyiv_now + timedelta(hours=6)
-
-                # Convert target time to server's local time for sleep calculation
-                server_now = datetime.now(pytz.UTC).astimezone()  # Get server's local time
-                target_time_local = target_time.astimezone(server_now.tzinfo)
-
-                # Calculate sleep duration based on server time
-                sleep_seconds = (target_time_local - server_now).total_seconds()
-                general_logger.info(f"Current server time: {server_now}")
-                general_logger.info(f"Current Kyiv time: {kyiv_now}")
-                general_logger.info(f"Next screenshot scheduled for: {target_time} (Kyiv time)")
-                general_logger.info(f"Sleep duration: {sleep_seconds} seconds")
-
-                # Sleep until next run
-                await asyncio.sleep(max(1, sleep_seconds))  # Ensure positive sleep time
-                await self.take_screenshot(WEATHER_API_URL, self.get_screenshot_path())
+                # Ensure directory exists before scheduling
+                if not await self.ensure_screenshot_directory():
+                    error_logger.error("Failed to ensure screenshot directory, retrying in 5 minutes")
+                    await asyncio.sleep(300)
+                    continue
+                
+                # Check if we need a new screenshot
+                latest_screenshot = self.get_latest_screenshot()
+                if latest_screenshot and self.validate_screenshot_freshness(latest_screenshot):
+                    # Screenshot is still fresh, calculate next update time
+                    mod_time = datetime.fromtimestamp(os.path.getmtime(latest_screenshot))
+                    mod_time = mod_time.replace(tzinfo=self.timezone)
+                    next_update = mod_time + timedelta(hours=self.FRESHNESS_THRESHOLD_HOURS)
+                    
+                    # Sleep until next update is needed
+                    kyiv_now = datetime.now(self.timezone)
+                    sleep_seconds = (next_update - kyiv_now).total_seconds()
+                    
+                    if sleep_seconds > 0:
+                        general_logger.info(f"Screenshot is fresh, next update at: {next_update}")
+                        await asyncio.sleep(sleep_seconds)
+                        continue
+                
+                # Generate new screenshot
+                general_logger.info("Generating scheduled screenshot")
+                screenshot_path = await self.take_screenshot(WEATHER_API_URL, self.get_screenshot_path())
+                
+                if screenshot_path:
+                    general_logger.info(f"Scheduled screenshot generated successfully: {screenshot_path}")
+                else:
+                    error_logger.error("Failed to generate scheduled screenshot")
+                
+                # Sleep for the full threshold period before next check
+                await asyncio.sleep(self.FRESHNESS_THRESHOLD_HOURS * 3600)
+                
             except Exception as e:
                 error_logger.error(f"Error in screenshot scheduler: {e}")
                 await asyncio.sleep(300)  # Wait 5 minutes before retry on error
@@ -391,42 +1109,86 @@ class ScreenshotManager:
 # Command handlers
 async def screenshot_command(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """
-    Handle /screenshot command.
+    Handle /flares command for solar flares screenshot.
     
     Args:
         update: Telegram update
         context: Callback context
     """
+    status_msg = None
     try:
         manager = ScreenshotManager()
-        # Try to get today's existing screenshot first
-        screenshot_path = manager.get_latest_screenshot()
-
-        # Get current time in Kyiv timezone
-        kyiv_now = datetime.now(pytz.timezone('Europe/Kyiv'))
-        next_screenshot = kyiv_now + timedelta(hours=6)
-
-        # If no screenshot exists for today, take a new one
-        if not screenshot_path:
-            status_msg = await update.message.reply_text("Роблю новий знімок, будь ласка зачекайте...") if update.message else None
-            screenshot_path = await manager.take_screenshot(
-            WEATHER_API_URL,
-            manager.get_screenshot_path()
+        
+        # Check if wkhtmltoimage tool is available
+        if not manager._check_wkhtmltoimage_availability():
+            error_msg = (
+                "Інструмент для створення знімків недоступний.\n"
+                "Зверніться до адміністратора для встановлення wkhtmltoimage."
             )
-            if status_msg:
-                await status_msg.delete()
+            if update.message:
+                await update.message.reply_text(error_msg)
+            return
+        
+        # Get status information for better progress indicators
+        status_info = manager.get_screenshot_status_info()
+        
+        # Show initial status message with diagnostic info
+        initial_status = "🔍 Перевіряю наявність актуального знімку..."
+        if not status_info['tool_available']:
+            initial_status += "\n⚠️ Інструмент wkhtmltoimage недоступний"
+        elif not status_info['directory_exists']:
+            initial_status += "\n📁 Створюю директорію для знімків..."
+        elif status_info['has_screenshot'] and status_info['is_fresh']:
+            initial_status += "\n✅ Знайдено актуальний знімок"
+        elif status_info['has_screenshot']:
+            initial_status += f"\n🕐 Знайдено застарілий знімок (вік: {status_info['age_hours']:.1f} год)"
+        
+        if update.message:
+            status_msg = await update.message.reply_text(initial_status)
+        
+        # Try to get current screenshot (fresh or generate new)
+        screenshot_path = await manager.get_current_screenshot()
+        
+        # Update status based on what's happening
+        if status_msg:
+            if not status_info['has_screenshot'] or not status_info['is_fresh']:
+                progress_msg = (
+                    "🔄 Генерую новий знімок сонячних спалахів...\n"
+                    "⏳ Це може зайняти до 15-30 секунд\n"
+                    "📊 Завантажую дані з api.meteoagent.com..."
+                )
+                await status_msg.edit_text(progress_msg)
+            else:
+                await status_msg.edit_text("✅ Використовую актуальний знімок...")
 
-        if screenshot_path:
+        if screenshot_path and os.path.exists(screenshot_path):
             # Get file modification time
             mod_time = datetime.fromtimestamp(os.path.getmtime(screenshot_path))
             mod_time = mod_time.astimezone(pytz.timezone('Europe/Kyiv'))
             
+            # Calculate next update time
+            kyiv_now = datetime.now(pytz.timezone('Europe/Kyiv'))
+            hours_since_update = (kyiv_now - mod_time).total_seconds() / 3600
+            hours_until_next = max(0, manager.FRESHNESS_THRESHOLD_HOURS - hours_since_update)
+            next_screenshot = kyiv_now + timedelta(hours=hours_until_next)
+            
+            # Determine freshness status
+            freshness_status = "актуальний" if hours_since_update < manager.FRESHNESS_THRESHOLD_HOURS else "застарілий"
+            
             caption = (
-                f"Прогноз сонячних спалахів і магнітних бурь\n"
-                f"Час знімку: {mod_time.strftime('%H:%M %d.%m.%Y')}\n"
-                f"Наступний знімок: {next_screenshot.strftime('%H:%M %d.%m.%Y')}"
+                f"🌞 Прогноз сонячних спалахів і магнітних бурь\n\n"
+                f"📅 Час знімку: {mod_time.strftime('%H:%M %d.%m.%Y')}\n"
+                f"📊 Статус: {freshness_status}\n"
+                f"🔄 Наступне оновлення: {next_screenshot.strftime('%H:%M %d.%m.%Y')}\n\n"
+                f"🔗 Джерело: api.meteoagent.com"
             )
             
+            # Delete status message before sending photo
+            if status_msg:
+                await status_msg.delete()
+                status_msg = None
+            
+            # Send the screenshot
             with open(screenshot_path, 'rb') as photo:
                 if update.effective_chat:
                     await context.bot.send_photo(
@@ -434,13 +1196,39 @@ async def screenshot_command(update: Update, context: CallbackContext[Any, Any, 
                         photo=photo,
                         caption=caption
                     )
+                    
+            if update.effective_chat:
+                general_logger.info(f"Successfully sent flares screenshot to chat {update.effective_chat.id}")
+            
         else:
-            if update.message:
-                await update.message.reply_text("Не вдалося згенерувати знімок. Спробуйте пізніше.")
+            # Screenshot generation failed, provide fallback
+            fallback_msg = manager.get_fallback_message()
+            
+            if status_msg:
+                await status_msg.edit_text(fallback_msg)
+            elif update.message:
+                await update.message.reply_text(fallback_msg)
+                
+            error_logger.error("Failed to generate or retrieve screenshot for flares command")
+            
     except Exception as e:
         error_logger.error(f"Error in screenshot command: {e}")
+        
+        # Clean up status message
+        if status_msg:
+            try:
+                await status_msg.delete()
+            except:
+                pass
+        
+        # Send error message to user
+        error_msg = (
+            "Під час обробки вашого запиту сталася помилка.\n"
+            "Спробуйте пізніше або зверніться до адміністратора."
+        )
+        
         if update.message:
-            await update.message.reply_text("Під час обробки вашого запиту сталася помилка.")
+            await update.message.reply_text(error_msg)
 
 
 # Initialization and main functions
