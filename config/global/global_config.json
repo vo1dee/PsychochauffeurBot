@@ -10,5 +10,12 @@
     "checksum": "99a7493149a1299696cf05843bc7a0a7",
     "source": "api_update",
     "created_at": "2025-08-08T16:01:21.701833"
+  },
+  "config_modules": {
+    "test_global": {
+      "chat_settings": {
+        "test_key": "test_value"
+      }
+    }
   }
 }
