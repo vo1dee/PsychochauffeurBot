@@ -707,12 +707,33 @@ class ConfigManager:
         module_name: Optional[str] = None
     ) -> bool:
         """Save configuration data."""
+        # Data object that will actually be written to disk
+        data_to_save: Dict[str, Any] = config_data
+        # Track post-write actions to avoid deadlocks by running them outside of file locks
+        do_propagate_updates: bool = False
+        notify_module: Optional[str] = None
+
         if not chat_id or not chat_type:
             if module_name == "global":
+                # Overwrite the entire global config file
                 config_path = self.GLOBAL_CONFIG_FILE
+                # After saving global, we need to propagate and notify
+                do_propagate_updates = True
+                notify_module = "global"
             elif module_name:
-                config_path = self.GLOBAL_CONFIG_DIR / f"{module_name}_config.json"
+                # For module-specific global config, persist inside the global_config.json
+                # under the "config_modules" section so that _load_module_config can retrieve it.
+                config_path = self.GLOBAL_CONFIG_FILE
+                global_config = await self._load_global_config()
+                if "config_modules" not in global_config:
+                    global_config["config_modules"] = {}
+                global_config["config_modules"][module_name] = config_data
+                data_to_save = global_config
+                # Update cache for this module immediately
                 self._module_cache[module_name] = config_data
+                # After saving module config, propagate and notify that module
+                do_propagate_updates = True
+                notify_module = module_name
             else:
                 config_path = self.GLOBAL_CONFIG_FILE
         else:
@@ -736,37 +757,42 @@ class ConfigManager:
             
             # Update last_updated timestamp
             config_data["chat_metadata"]["last_updated"] = str(datetime.datetime.now())
+            data_to_save = config_data
 
         async with self._get_lock(str(config_path)):
             try:
                 # Ensure parent directory exists for all config types
                 config_path.parent.mkdir(parents=True, exist_ok=True)
                 async with aiofiles.open(config_path, 'w', encoding='utf-8') as f:
-                    await f.write(json.dumps(config_data, indent=2, ensure_ascii=False))
-
-                # Invalidate caches and propagate updates when saving global/module configs
+                    await f.write(json.dumps(data_to_save, indent=2, ensure_ascii=False))
+                # Minimal, lock-safe cache invalidation only
                 if not chat_id or not chat_type:
                     if module_name == "global":
                         self._global_version += 1
-                        # Clear module caches since global template might have changed
                         self._module_cache.clear()
-                        # Propagate new fields to existing chats
-                        await self.update_chat_configs_with_template()
-                        # Notify listeners interested in global changes
-                        await self._notify_change("global")
                     elif module_name:
-                        # Bump module version and clear its cache entry
                         self._module_versions[module_name] = self._module_versions.get(module_name, 0) + 1
                         if module_name in self._module_cache:
                             del self._module_cache[module_name]
-                        # Optionally propagate module new fields into chats
-                        await self.update_chat_configs_with_template()
-                        await self._notify_change(module_name)
-
-                return True
+                
+                write_success = True
             except Exception as e:
                 logger.error(f"Error saving config: {e}")
-                return False
+                write_success = False
+
+        # Run propagation and notifications OUTSIDE of file lock to avoid deadlocks
+        if write_success and do_propagate_updates:
+            try:
+                await self.update_chat_configs_with_template()
+            except Exception as e:
+                logger.error(f"Error propagating template updates: {e}")
+            if notify_module is not None:
+                try:
+                    await self._notify_change(notify_module)
+                except Exception as e:
+                    logger.error(f"Error notifying change for {notify_module}: {e}")
+
+        return write_success
 
     async def update_module_setting(
         self,
