@@ -19,22 +19,34 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
         
     welcome_text = (
-        "🤖 PsychoChauffeur Bot\n\n"
-        "🎥 Video Downloads from:\n"
-        "• TikTok\n• YouTube Shorts\n"
-        "• Twitter\n• Vimeo\n• Reddit\n• Twitch\n"
-        "🔗 Link Processing:\n"
-        "• AliExpress link optimization\n"
-        "• Link modification for restricted domains\n\n"
-        "🤖 Additional Features:\n"
-        "• GPT responses\n"
-        "• Weather updates -- /weather [city]\n"
-        "• Solar flares screenshot -- /flares\n"
-        "• Geomagnetic activity -- /gm\n"
-        "• Random cat photos -- /cat \n\n"
-        "• Reminders -- /remind\n\n"
-        "❓ Questions or issues?\n"
-        "Contact @vo1dee"
+        "🤖 **PsychoChauffeur Bot**\n\n"
+        
+        "📊 **Аналіз повідомлень:**\n"
+        "• `/analyze` - аналіз сьогоднішніх повідомлень\n"
+        "• `/analyze last 50 messages` - останні повідомлення\n"
+        "• `/analyze date 15-01-2024` - за конкретну дату\n"
+        "• Підтримка форматів: DD-MM-YYYY, YYYY-MM-DD, DD/MM/YYYY\n\n"
+        
+        "🌞 **Космічна погода:**\n"
+        "• `/flares` - актуальний знімок сонячних спалахів\n"
+        "• `/gm` - геомагнітна активність\n\n"
+        
+        "🎥 **Завантаження відео:**\n"
+        "• TikTok, YouTube Shorts, Twitter, Vimeo, Reddit, Twitch\n"
+        "• Просто надішліть посилання на відео\n\n"
+        
+        "🔗 **Обробка посилань:**\n"
+        "• Оптимізація посилань AliExpress\n"
+        "• Модифікація для обмежених доменів\n\n"
+        
+        "🌤️ **Інші функції:**\n"
+        "• `/weather [місто]` - прогноз погоди\n"
+        "• `/cat` - випадкове фото котика\n"
+        "• `/remind` - нагадування\n"
+        "• `/help` - детальна довідка\n\n"
+        
+        "❓ **Питання або проблеми?**\n"
+        "Зверніться до @vo1dee"
     )
     await update.message.reply_text(welcome_text)
     
@@ -52,8 +64,52 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /help command."""
-    # Reuse start command for now
-    await start_command(update, context)
+    if not update.message:
+        return
+        
+    help_text = (
+        "🤖 **PsychoChauffeur Bot - Довідка**\n\n"
+        
+        "📊 **Команди аналізу повідомлень:**\n"
+        "• `/analyze` - аналіз сьогоднішніх повідомлень\n"
+        "• `/analyze last <число> messages` - останні N повідомлень\n"
+        "• `/analyze last <число> days` - повідомлення за останні N днів\n"
+        "• `/analyze date <дата>` - повідомлення за конкретну дату\n"
+        "• `/analyze period <дата1> <дата2>` - повідомлення за період\n\n"
+        
+        "📅 **Підтримувані формати дат:**\n"
+        "• `YYYY-MM-DD` (наприклад: 2024-01-15)\n"
+        "• `DD-MM-YYYY` (наприклад: 15-01-2024)\n"
+        "• `DD/MM/YYYY` (наприклад: 15/01/2024)\n\n"
+        
+        "💡 **Приклади команд аналізу:**\n"
+        "• `/analyze last 50 messages`\n"
+        "• `/analyze date 15-01-2024`\n"
+        "• `/analyze period 01-01-2024 31-01-2024`\n"
+        "• `/analyze last 7 days`\n\n"
+        
+        "🌞 **Команди космічної погоди:**\n"
+        "• `/flares` - актуальний знімок сонячних спалахів\n"
+        "• `/gm` - геомагнітна активність\n\n"
+        
+        "🎥 **Завантаження відео:**\n"
+        "• Підтримка TikTok, YouTube Shorts, Twitter, Vimeo, Reddit, Twitch\n"
+        "• Просто надішліть посилання на відео\n\n"
+        
+        "🌤️ **Інші команди:**\n"
+        "• `/weather [місто]` - прогноз погоди\n"
+        "• `/cat` - випадкове фото котика\n"
+        "• `/remind` - нагадування\n"
+        "• `/ping` - перевірка роботи бота\n\n"
+        
+        "❓ **Питання або проблеми?**\n"
+        "Зверніться до @vo1dee"
+    )
+    
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+    
+    if update.effective_user:
+        general_logger.info(f"Handled /help command for user {update.effective_user.id}")
 
 
 async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
