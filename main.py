@@ -32,6 +32,12 @@ async def main() -> None:
         # Start the application (includes service configuration and signal handling)
         await app_bootstrapper.start_application()
         
+        # Wait for shutdown signal
+        logger.info("Bot started successfully. Press Ctrl+C to stop.")
+        await app_bootstrapper.wait_for_shutdown()
+        
+        logger.info("Shutdown signal received, stopping bot...")
+        
     except KeyboardInterrupt:
         logger.info("Bot stopped by user interrupt")
     except Exception as e:
@@ -39,12 +45,16 @@ async def main() -> None:
         raise
     finally:
         try:
-            await app_bootstrapper.shutdown_application()
-            logger.info("Bot shutdown completed")
+            # Perform graceful shutdown
+            if app_bootstrapper.is_running:
+                logger.info("Performing graceful shutdown...")
+                await app_bootstrapper.shutdown_application()
+                logger.info("Bot shutdown completed successfully")
+            else:
+                logger.info("Bot was already shut down")
         except Exception as shutdown_error:
             logger.error(f"Error during shutdown: {shutdown_error}")
             # Force exit if shutdown fails
-            import sys
             sys.exit(1)
 
 

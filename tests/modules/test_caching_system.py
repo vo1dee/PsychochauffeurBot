@@ -100,12 +100,18 @@ async def test_start_command_replies_and_logs():
         mock_log.assert_called_with("Handled /start command for user 123")
 
 @pytest.mark.asyncio
-async def test_help_command_calls_start():
+async def test_help_command_sends_help_text():
     update = MagicMock()
+    update.message = AsyncMock()
     context = MagicMock()
-    with patch("modules.handlers.basic_commands.start_command", new=AsyncMock()) as mock_start:
-        await basic_commands.help_command(update, context)
-        mock_start.assert_awaited_once_with(update, context)
+    
+    await basic_commands.help_command(update, context)
+    
+    # Verify that reply_text was called with help content
+    update.message.reply_text.assert_awaited_once()
+    call_args = update.message.reply_text.call_args[0][0]
+    assert "PsychoChauffeur Bot - Довідка" in call_args
+    assert "analyze" in call_args
 
 @pytest.mark.asyncio
 async def test_ping_command_replies_and_logs():
