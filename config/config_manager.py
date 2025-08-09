@@ -4,7 +4,7 @@ import os
 import json
 import asyncio
 import logging
-from typing import Dict, Any, Optional, Literal, List, Union
+from typing import Dict, Any, Optional, Literal, List, Union, Callable, Awaitable
 from pathlib import Path
 import datetime
 import aiofiles
@@ -38,6 +38,11 @@ class ConfigManager:
         self.GLOBAL_CONFIG_FILE = self.GLOBAL_CONFIG_DIR / "global_config.json"
         self._file_locks: Dict[str, asyncio.Lock] = {}
         self._module_cache: Dict[str, Dict[str, Any]] = {}
+        # Registered callbacks per module for config change notifications
+        self._change_callbacks: Dict[str, List[Callable[[str, Dict[str, Any]], Awaitable[None]]]] = {}
+        # Simple version counters to invalidate caches when configs change
+        self._global_version: int = 0
+        self._module_versions: Dict[str, int] = {}
         logger.debug("ConfigManager initialized")
 
     async def initialize(self) -> None:
@@ -425,6 +430,7 @@ class ConfigManager:
 
     async def _load_module_config(self, module_name: str) -> Dict[str, Any]:
         """Load a module's configuration from the global config."""
+        # Use cache if available and no known invalidation
         if module_name in self._module_cache:
             return self._module_cache[module_name]
 
@@ -433,6 +439,35 @@ class ConfigManager:
         self._module_cache[module_name] = module_config
         result: Dict[str, Any] = module_config
         return result
+
+    def register_change_callback(self, module_name: str, callback: Callable[[str, Dict[str, Any]], Awaitable[None]]) -> None:
+        """Register an async callback to be notified when a module/global config changes.
+
+        Args:
+            module_name: Name of the module to listen for (use "global" for global config changes)
+            callback: Coroutine function taking (module_name, new_config)
+        """
+        if module_name not in self._change_callbacks:
+            self._change_callbacks[module_name] = []
+        self._change_callbacks[module_name].append(callback)
+        logger.info(f"Registered config change callback for module: {module_name}")
+
+    async def _notify_change(self, module_name: str) -> None:
+        """Notify registered listeners of a configuration change."""
+        try:
+            # Load fresh config for the module being notified
+            if module_name == "global":
+                new_config = await self._load_global_config()
+            else:
+                new_config = await self._load_module_config(module_name)
+
+            for cb in self._change_callbacks.get(module_name, []):
+                try:
+                    await cb(module_name, new_config)
+                except Exception as e:
+                    logger.error(f"Error in config change callback for {module_name}: {e}")
+        except Exception as e:
+            logger.error(f"Failed to notify change for {module_name}: {e}")
 
     async def _load_main_config(self) -> Dict[str, Any]:
         """Load the main configuration file."""
@@ -708,6 +743,26 @@ class ConfigManager:
                 config_path.parent.mkdir(parents=True, exist_ok=True)
                 async with aiofiles.open(config_path, 'w', encoding='utf-8') as f:
                     await f.write(json.dumps(config_data, indent=2, ensure_ascii=False))
+
+                # Invalidate caches and propagate updates when saving global/module configs
+                if not chat_id or not chat_type:
+                    if module_name == "global":
+                        self._global_version += 1
+                        # Clear module caches since global template might have changed
+                        self._module_cache.clear()
+                        # Propagate new fields to existing chats
+                        await self.update_chat_configs_with_template()
+                        # Notify listeners interested in global changes
+                        await self._notify_change("global")
+                    elif module_name:
+                        # Bump module version and clear its cache entry
+                        self._module_versions[module_name] = self._module_versions.get(module_name, 0) + 1
+                        if module_name in self._module_cache:
+                            del self._module_cache[module_name]
+                        # Optionally propagate module new fields into chats
+                        await self.update_chat_configs_with_template()
+                        await self._notify_change(module_name)
+
                 return True
             except Exception as e:
                 logger.error(f"Error saving config: {e}")
