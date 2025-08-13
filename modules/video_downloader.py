@@ -97,16 +97,15 @@ class VideoDownloader:
         
         # Special configuration for YouTube Shorts - simplified for iOS compatibility
         self.youtube_shorts_config = DownloadConfig(
-            format="best[ext=mp4][vcodec~='^avc1'][height<=1080]/best[ext=mp4][vcodec*=avc1][height<=1080]/22/18/best[ext=mp4][height<=1080]/best[ext=mp4]/best",  # H.264 first, then YouTube specific formats
+            format="18/best[ext=mp4]/best",  # Start with format 18 (360p MP4) which is almost always available
             extra_args=[
                 "--ignore-errors",   # Continue on errors
                 "--ignore-config",   # Ignore system-wide config
                 "--no-playlist",     # Don't download playlists
                 "--geo-bypass",      # Try to bypass geo-restrictions
                 "--socket-timeout", "30",  # Increased timeout for better reliability
-                "--concurrent-fragment-downloads", "1",  # <--- REMOVE THIS LINE IF yt-dlp IS OLD
-                "--retries", "10",  # More retries for better reliability
-                "--fragment-retries", "10",  # More fragment retries
+                "--retries", "5",  # Reduced retries for faster response
+                "--fragment-retries", "5",  # Reduced fragment retries
                 "--merge-output-format", "mp4",  # Ensure MP4 output
             ]
         )
