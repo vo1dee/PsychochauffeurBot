@@ -268,19 +268,29 @@ class VideoDownloader:
                 platform = self._get_platform(url)
                 is_youtube_shorts = "youtube.com/shorts" in url.lower()
                 is_youtube_clips = "youtube.com/clip" in url.lower()
+                is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
                 parsed_url = urlparse(url)
                 host = parsed_url.hostname or ""
                 is_instagram = host == "instagram.com" or host.endswith(".instagram.com")
 
-                if is_instagram or is_youtube_shorts or is_youtube_clips:
+                # Prioritize service for YouTube, Instagram, and other problematic platforms
+                if is_youtube or is_instagram:
+                    error_logger.info(f"Attempting service download for YouTube/Instagram URL: {url}")
                     if await self._check_service_health():
                         result = await self._download_from_service(url)
                         if result and result[0]:
+                            error_logger.info(f"Service download successful for: {url}")
                             return result
+                        else:
+                            error_logger.warning(f"Service download failed for: {url}, falling back to direct download")
+                    else:
+                        error_logger.warning(f"Service unavailable for: {url}, falling back to direct download")
                 
+                # For TikTok, use direct download
                 if platform == Platform.TIKTOK:
                     return await self._download_tiktok_ytdlp(url)
                 
+                # For other platforms or YouTube fallback, use direct download
                 config = self.youtube_clips_config if is_youtube_clips else self.youtube_shorts_config if is_youtube_shorts else self.platform_configs.get(platform)
                 return await self._download_generic(url, platform, config)
 
@@ -659,28 +669,107 @@ class VideoDownloader:
             for key, value in config.headers.items():
                 yt_dlp_args.extend(['--add-header', f'{key}:{value}'])
 
-        # Special handling for YouTube Shorts - add bot detection avoidance
-        if "youtube.com/shorts" in url.lower() or "youtu.be/shorts" in url.lower():
-            error_logger.info(f"Applying YouTube Shorts bot detection avoidance for: {url}")
-            # Add additional bot detection avoidance arguments
-            additional_args = [
-                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                '--referer', 'https://www.youtube.com/',
-                '--extractor-args', 'youtube:player_client=web',
-                '--sleep-interval', '1',  # Add delay between requests
-                '--max-sleep-interval', '3',  # Random delay up to 3 seconds
+        # Special handling for YouTube URLs - add comprehensive bot detection avoidance
+        is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
+        if is_youtube:
+            error_logger.info(f"Applying YouTube bot detection avoidance for: {url}")
+            
+            # Try multiple strategies for YouTube API extraction issues
+            # Note: This is a fallback when the service is unavailable
+            strategies = [
+                # Strategy 1: Android client (most reliable without cookies)
+                [
+                    '--user-agent', 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
+                    '--extractor-args', 'youtube:player_client=android',
+                    '--sleep-interval', '1',
+                    '--max-sleep-interval', '3',
+                ],
+                # Strategy 2: iOS client (good fallback)
+                [
+                    '--user-agent', 'com.google.ios.youtube/17.36.4 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
+                    '--extractor-args', 'youtube:player_client=ios',
+                ],
+                # Strategy 3: Web client with browser headers (no cookies)
+                [
+                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    '--referer', 'https://www.youtube.com/',
+                    '--extractor-args', 'youtube:player_client=web',
+                    '--sleep-interval', '1',
+                    '--max-sleep-interval', '3',
+                ],
+                # Strategy 4: Try with available browser cookies (if any)
+                [
+                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    '--referer', 'https://www.youtube.com/',
+                    '--extractor-args', 'youtube:player_client=web',
+                    '--cookies-from-browser', 'chrome',  # Try Chrome first
+                    '--sleep-interval', '1',
+                    '--max-sleep-interval', '3',
+                ],
+                # Strategy 5: Basic approach with different user agent
+                [
+                    '--user-agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                    '--extractor-args', 'youtube:player_client=web',
+                ]
             ]
             
-            # Check for cookies file and add if available
-            cookies_file = "/opt/ytdl_service/cookies/youtube_cookies.txt"
-            if os.path.exists(cookies_file):
-                additional_args.extend(['--cookies', cookies_file])
-                error_logger.info(f"Using cookies from: {cookies_file}")
-            else:
-                error_logger.warning("No cookies file found - YouTube may detect bot behavior")
+            # Try each strategy
+            for i, strategy_args in enumerate(strategies):
+                error_logger.info(f"Trying YouTube strategy {i+1}/{len(strategies)}")
                 
-            yt_dlp_args.extend(additional_args)
+                # Create a copy of base args and add strategy-specific args
+                strategy_yt_dlp_args = yt_dlp_args.copy()
+                strategy_yt_dlp_args.extend(strategy_args)
+                
+                try:
+                    process = await asyncio.create_subprocess_exec(
+                        *strategy_yt_dlp_args, 
+                        stdout=asyncio.subprocess.PIPE, 
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=90.0)
 
+                    if process.returncode == 0 and os.path.exists(output_template):
+                        error_logger.info(f"YouTube download successful with strategy {i+1}")
+                        return output_template, await self._get_video_title(url)
+                    else:
+                        stderr_text = stderr.decode()
+                        
+                        # Check for specific cookie-related errors and skip to next strategy
+                        if "could not find" in stderr_text and "cookies database" in stderr_text:
+                            error_logger.warning(f"Strategy {i+1} failed due to missing browser cookies, trying next strategy")
+                        elif "Sign in to confirm you're not a bot" in stderr_text:
+                            error_logger.warning(f"Strategy {i+1} failed due to bot detection, trying next strategy")
+                        else:
+                            error_logger.warning(f"Strategy {i+1} failed: {stderr_text[:200]}...")
+                        
+                        # If this is not the last strategy, continue to next
+                        if i < len(strategies) - 1:
+                            continue
+                        else:
+                            error_logger.error(f"All YouTube strategies failed for {url}")
+                            return None, None
+                            
+                except (asyncio.TimeoutError, Exception) as e:
+                    error_logger.warning(f"Strategy {i+1} error: {e}")
+                    if 'process' in locals() and process.returncode is None:
+                        try:
+                            process.kill()
+                            await process.wait()
+                        except:
+                            pass
+                    
+                    # If this is not the last strategy, continue to next
+                    if i < len(strategies) - 1:
+                        continue
+                    else:
+                        error_logger.error(f"All YouTube strategies failed with errors for {url}")
+                        return None, None
+            
+            # This should not be reached, but just in case
+            return None, None
+
+        # For non-YouTube URLs, use the standard approach
         try:
             error_logger.info(f"Starting yt-dlp download with args: {' '.join(yt_dlp_args[:5])}...")  # Log first 5 args only
             process = await asyncio.create_subprocess_exec(
@@ -699,10 +788,6 @@ class VideoDownloader:
             else:
                 stderr_text = stderr.decode()
                 error_logger.error(f"Download failed for {url}: {stderr_text}")
-                
-                # Check for specific bot detection error
-                if "Sign in to confirm you're not a bot" in stderr_text:
-                    error_logger.error("YouTube bot detection triggered - consider using cookies or different approach")
                 
         except (asyncio.TimeoutError, Exception) as e:
             error_logger.error(f"Generic download error for {url}: {e}")
