@@ -91,24 +91,36 @@ class VideoDownloader:
                 format="best[ext=mp4][vcodec~='^avc1'][height<=1080]/best[ext=mp4][vcodec*=avc1][height<=1080]/22[height<=720]/18[height<=360]/best[ext=mp4][height<=1080]/best[ext=mp4]/best",  # H.264 + YouTube specific formats
                 extra_args=[
                     "--merge-output-format", "mp4",  # Ensure MP4 output
-                    "--cookies-from-browser", "firefox",  # Try to use Firefox cookies for authentication
                 ]
             )
         }
         
-        # Special configuration for YouTube Shorts - simplified for iOS compatibility
+        # Special configuration for YouTube Shorts - with bot detection avoidance
         self.youtube_shorts_config = DownloadConfig(
             format="18/best[ext=mp4]/best",  # Start with format 18 (360p MP4) which is almost always available
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            },
             extra_args=[
                 "--ignore-errors",   # Continue on errors
                 "--ignore-config",   # Ignore system-wide config
                 "--no-playlist",     # Don't download playlists
                 "--geo-bypass",      # Try to bypass geo-restrictions
                 "--socket-timeout", "30",  # Increased timeout for better reliability
-                "--retries", "5",  # Reduced retries for faster response
-                "--fragment-retries", "5",  # Reduced fragment retries
+                "--retries", "3",  # Reduced retries for faster response
+                "--fragment-retries", "3",  # Reduced fragment retries
                 "--merge-output-format", "mp4",  # Ensure MP4 output
-                "--cookies-from-browser", "firefox",  # Try to use Firefox cookies for authentication
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--referer", "https://www.youtube.com/",
+                "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "--add-header", "Accept-Language:en-US,en;q=0.9",
+                "--extractor-args", "youtube:player_client=web",  # Use web client
             ]
         )
         
@@ -122,7 +134,6 @@ class VideoDownloader:
                 "--geo-bypass",
                 "--socket-timeout", "10",
                 "--merge-output-format", "mp4",  # Ensure MP4 output
-                "--cookies-from-browser", "firefox",  # Try to use Firefox cookies for authentication
             ]
         )
 
@@ -496,27 +507,17 @@ class VideoDownloader:
         """Handle download errors with standardized handling."""
         from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity, send_error_feedback
         
-        # Determine if this is a YouTube URL for more specific error context
-        is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
-        platform = next((p for p in self.supported_platforms if p in url), 'unknown')
-        
         # Create context information
         context = {
             "url": url,
-            "platform": platform,
+            "platform": next((p for p in self.supported_platforms if p in url), 'unknown'),
             "user_id": update.effective_user.id if update and update.effective_user else None,
             "username": update.effective_user.username if update and update.effective_user else None,
         }
         
-        # Create a more specific error message for YouTube
-        if is_youtube:
-            message = f"Failed to download video from {platform} - may be due to bot detection or authentication requirements"
-        else:
-            message = f"Failed to download video from {platform}"
-        
         # Create a standard error
         error = ErrorHandler.create_error(
-            message=message,
+            message=f"Failed to download video from {context['platform']}",
             severity=ErrorSeverity.MEDIUM,
             category=ErrorCategory.NETWORK,
             context=context
@@ -601,36 +602,9 @@ class VideoDownloader:
     def _verify_yt_dlp(self) -> None:
         """Verify yt-dlp is installed and accessible."""
         try:
-            result = subprocess.run([self.yt_dlp_path, '--version'], check=True, capture_output=True, text=True)
-            error_logger.info(f"yt-dlp version: {result.stdout.strip()}")
-            
-            # Check if we can access browser cookies
-            self._check_browser_cookie_support()
-            
+            subprocess.run([self.yt_dlp_path, '--version'], check=True, capture_output=True, text=True)
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             error_logger.warning(f"yt-dlp verification failed: {e}. The application will rely on the service.")
-
-    def _check_browser_cookie_support(self) -> None:
-        """Check which browsers have accessible cookies."""
-        browsers = ["chrome", "firefox", "safari", "edge"]
-        supported_browsers = []
-        
-        for browser in browsers:
-            try:
-                # Test if we can access cookies from this browser
-                result = subprocess.run(
-                    [self.yt_dlp_path, "--cookies-from-browser", browser, "--simulate", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode == 0:
-                    supported_browsers.append(browser)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-                continue
-        
-        if supported_browsers:
-            error_logger.info(f"Browser cookies available from: {', '.join(supported_browsers)}")
-        else:
-            error_logger.warning("No browser cookies accessible. YouTube downloads may fail due to bot detection.")
 
     def _init_download_path(self) -> None:
         """Initialize the download directory."""
@@ -655,7 +629,7 @@ class VideoDownloader:
         return await self._download_generic(url, Platform.TIKTOK, config)
 
     async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None) -> Tuple[Optional[str], Optional[str]]:
-        """Generic video download using yt-dlp with cookie fallback mechanism."""
+        """Generic video download using yt-dlp with bot detection avoidance."""
         config = special_config or self.platform_configs.get(platform)
         if not config:
             return None, None
@@ -663,78 +637,82 @@ class VideoDownloader:
         unique_filename = f"video_{uuid.uuid4()}.mp4"
         output_template = os.path.join(self.download_path, unique_filename)
         
-        # Try multiple cookie strategies for YouTube URLs
-        is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
-        cookie_strategies = []
+        # Base yt-dlp arguments with bot detection avoidance
+        yt_dlp_args = [
+            self.yt_dlp_path, url, 
+            '-o', output_template, 
+            '--merge-output-format', 'mp4',
+            '--no-check-certificate',  # Skip SSL certificate verification
+            '--geo-bypass',  # Try to bypass geo-restrictions
+        ]
         
-        if is_youtube:
-            # Try different browsers in order of preference (Firefox first since it's working well)
-            cookie_strategies = [
-                ["--cookies-from-browser", "firefox"],
-                ["--cookies-from-browser", "chrome"],
-                ["--cookies-from-browser", "safari"],
-                ["--cookies-from-browser", "edge"],
-                []  # No cookies as last resort
+        # Add format if specified
+        if config.format:
+            yt_dlp_args.extend(['-f', config.format])
+            
+        # Add extra arguments if specified
+        if config.extra_args:
+            yt_dlp_args.extend(config.extra_args)
+            
+        # Add headers if specified
+        if config.headers:
+            for key, value in config.headers.items():
+                yt_dlp_args.extend(['--add-header', f'{key}:{value}'])
+
+        # Special handling for YouTube Shorts - add bot detection avoidance
+        if "youtube.com/shorts" in url.lower() or "youtu.be/shorts" in url.lower():
+            error_logger.info(f"Applying YouTube Shorts bot detection avoidance for: {url}")
+            # Add additional bot detection avoidance arguments
+            additional_args = [
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                '--referer', 'https://www.youtube.com/',
+                '--extractor-args', 'youtube:player_client=web',
+                '--sleep-interval', '1',  # Add delay between requests
+                '--max-sleep-interval', '3',  # Random delay up to 3 seconds
             ]
-        else:
-            cookie_strategies = [[]]  # No cookies for non-YouTube
-        
-        for cookie_args in cookie_strategies:
-            yt_dlp_args = [self.yt_dlp_path, url, '-o', output_template, '--merge-output-format', 'mp4']
             
-            if config.format:
-                yt_dlp_args.extend(['-f', config.format])
-            
-            # Add cookie arguments first
-            if cookie_args:
-                yt_dlp_args.extend(cookie_args)
-            
-            # Add other extra args, but filter out any existing cookie args to avoid conflicts
-            if config.extra_args:
-                filtered_args = []
-                skip_next = False
-                for i, arg in enumerate(config.extra_args):
-                    if skip_next:
-                        skip_next = False
-                        continue
-                    if arg == "--cookies-from-browser":
-                        skip_next = True  # Skip the next argument (browser name)
-                        continue
-                    filtered_args.append(arg)
-                yt_dlp_args.extend(filtered_args)
-            
-            if config.headers:
-                for key, value in config.headers.items():
-                    yt_dlp_args.extend(['--add-header', f'{key}: {value}'])
-
-            try:
-                error_logger.info(f"Attempting download with cookie strategy: {cookie_args or 'no cookies'}")
-                process = await asyncio.create_subprocess_exec(*yt_dlp_args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
-
-                if process.returncode == 0:
-                    if os.path.exists(output_template):
-                        error_logger.info(f"Download successful with cookie strategy: {cookie_args or 'no cookies'}")
-                        return output_template, await self._get_video_title(url)
-                else:
-                    stderr_text = stderr.decode()
-                    error_logger.warning(f"Download attempt failed with cookie strategy {cookie_args or 'no cookies'}: {stderr_text}")
-                    
-                    # If this is not the last strategy and we got a bot detection error, try next strategy
-                    if cookie_args != cookie_strategies[-1] and ("Sign in to confirm" in stderr_text or "bot" in stderr_text.lower()):
-                        continue
-                    
-            except (asyncio.TimeoutError, Exception) as e:
-                error_logger.warning(f"Download attempt error with cookie strategy {cookie_args or 'no cookies'}: {e}")
-                if 'process' in locals() and process.returncode is None:
-                    process.kill()
+            # Check for cookies file and add if available
+            cookies_file = "/opt/ytdl_service/cookies/youtube_cookies.txt"
+            if os.path.exists(cookies_file):
+                additional_args.extend(['--cookies', cookies_file])
+                error_logger.info(f"Using cookies from: {cookies_file}")
+            else:
+                error_logger.warning("No cookies file found - YouTube may detect bot behavior")
                 
-                # If this is not the last strategy, try the next one
-                if cookie_args != cookie_strategies[-1]:
-                    continue
+            yt_dlp_args.extend(additional_args)
 
-        # If we get here, all strategies failed
-        error_logger.error(f"All download strategies failed for {url}")
+        try:
+            error_logger.info(f"Starting yt-dlp download with args: {' '.join(yt_dlp_args[:5])}...")  # Log first 5 args only
+            process = await asyncio.create_subprocess_exec(
+                *yt_dlp_args, 
+                stdout=asyncio.subprocess.PIPE, 
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=90.0)  # Increased timeout
+
+            if process.returncode == 0:
+                if os.path.exists(output_template):
+                    error_logger.info(f"Download successful: {output_template}")
+                    return output_template, await self._get_video_title(url)
+                else:
+                    error_logger.warning(f"Download completed but file not found: {output_template}")
+            else:
+                stderr_text = stderr.decode()
+                error_logger.error(f"Download failed for {url}: {stderr_text}")
+                
+                # Check for specific bot detection error
+                if "Sign in to confirm you're not a bot" in stderr_text:
+                    error_logger.error("YouTube bot detection triggered - consider using cookies or different approach")
+                
+        except (asyncio.TimeoutError, Exception) as e:
+            error_logger.error(f"Generic download error for {url}: {e}")
+            if 'process' in locals() and process.returncode is None:
+                try:
+                    process.kill()
+                    await process.wait()
+                except:
+                    pass
+
         return None, None
 
     def _is_story_url(self, url: str) -> bool:
