@@ -676,82 +676,115 @@ class VideoDownloader:
             
             # Try multiple strategies for YouTube API extraction issues
             # Note: This is a fallback when the service is unavailable
+            # Based on successful strategies from the service
             strategies = [
-                # Strategy 1: Android client (most reliable without cookies)
-                [
-                    '--user-agent', 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
-                    '--extractor-args', 'youtube:player_client=android',
-                    '--sleep-interval', '1',
-                    '--max-sleep-interval', '3',
-                ],
-                # Strategy 2: iOS client (good fallback)
-                [
-                    '--user-agent', 'com.google.ios.youtube/17.36.4 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
-                    '--extractor-args', 'youtube:player_client=ios',
-                ],
-                # Strategy 3: Web client with browser headers (no cookies)
-                [
-                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    '--referer', 'https://www.youtube.com/',
-                    '--extractor-args', 'youtube:player_client=web',
-                    '--sleep-interval', '1',
-                    '--max-sleep-interval', '3',
-                ],
-                # Strategy 4: Try with available browser cookies (if any)
-                [
-                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    '--referer', 'https://www.youtube.com/',
-                    '--extractor-args', 'youtube:player_client=web',
-                    '--cookies-from-browser', 'chrome',  # Try Chrome first
-                    '--sleep-interval', '1',
-                    '--max-sleep-interval', '3',
-                ],
-                # Strategy 5: Basic approach with different user agent
-                [
-                    '--user-agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-                    '--extractor-args', 'youtube:player_client=web',
-                ]
+                # Strategy 1: Simple formats with Android client (most reliable)
+                {
+                    'name': 'Android client with simple formats',
+                    'format': '18/22/best[ext=mp4]/best',  # 360p, 720p, then best MP4
+                    'args': [
+                        '--user-agent', 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
+                        '--extractor-args', 'youtube:player_client=android',
+                        '--sleep-interval', '1',
+                        '--max-sleep-interval', '3',
+                    ]
+                },
+                # Strategy 2: iOS client with H.264 preference
+                {
+                    'name': 'iOS client with H.264',
+                    'format': 'bestvideo[vcodec^=avc1]+bestaudio/best[vcodec^=avc1]/best',
+                    'args': [
+                        '--user-agent', 'com.google.ios.youtube/17.36.4 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
+                        '--extractor-args', 'youtube:player_client=ios',
+                    ]
+                },
+                # Strategy 3: Web client with browser headers
+                {
+                    'name': 'Web client with headers',
+                    'format': '18/22/best[ext=mp4]/best',
+                    'args': [
+                        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        '--referer', 'https://www.youtube.com/',
+                        '--extractor-args', 'youtube:player_client=web',
+                        '--sleep-interval', '1',
+                        '--max-sleep-interval', '3',
+                    ]
+                },
+                # Strategy 4: Fallback to any format
+                {
+                    'name': 'Any format fallback',
+                    'format': 'best',
+                    'args': [
+                        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        '--extractor-args', 'youtube:player_client=web',
+                    ]
+                }
             ]
             
             # Try each strategy
-            for i, strategy_args in enumerate(strategies):
-                error_logger.info(f"Trying YouTube strategy {i+1}/{len(strategies)}")
+            for i, strategy in enumerate(strategies):
+                strategy_name = strategy['name']
+                strategy_format = strategy['format']
+                strategy_args = strategy['args']
                 
-                # Create a copy of base args and add strategy-specific args
-                strategy_yt_dlp_args = yt_dlp_args.copy()
+                error_logger.info(f"Trying YouTube strategy {i+1}/{len(strategies)}: {strategy_name}")
+                
+                # Create base args for this strategy
+                strategy_yt_dlp_args = [
+                    self.yt_dlp_path, url, 
+                    '-o', output_template, 
+                    '--merge-output-format', 'mp4',
+                    '--no-check-certificate',
+                    '--geo-bypass',
+                    '--retries', '2',
+                    '--fragment-retries', '3',
+                    '-f', strategy_format
+                ]
+                
+                # Add strategy-specific args
                 strategy_yt_dlp_args.extend(strategy_args)
                 
                 try:
+                    error_logger.info(f"Executing: {' '.join(strategy_yt_dlp_args[:8])}... (truncated)")
                     process = await asyncio.create_subprocess_exec(
                         *strategy_yt_dlp_args, 
                         stdout=asyncio.subprocess.PIPE, 
                         stderr=asyncio.subprocess.PIPE
                     )
-                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=90.0)
+                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
 
                     if process.returncode == 0 and os.path.exists(output_template):
-                        error_logger.info(f"YouTube download successful with strategy {i+1}")
+                        error_logger.info(f"✅ YouTube download successful with strategy: {strategy_name}")
                         return output_template, await self._get_video_title(url)
                     else:
                         stderr_text = stderr.decode()
                         
-                        # Check for specific cookie-related errors and skip to next strategy
+                        # Check for specific errors
                         if "could not find" in stderr_text and "cookies database" in stderr_text:
-                            error_logger.warning(f"Strategy {i+1} failed due to missing browser cookies, trying next strategy")
+                            error_logger.warning(f"❌ Strategy '{strategy_name}' failed: missing browser cookies")
                         elif "Sign in to confirm you're not a bot" in stderr_text:
-                            error_logger.warning(f"Strategy {i+1} failed due to bot detection, trying next strategy")
+                            error_logger.warning(f"❌ Strategy '{strategy_name}' failed: bot detection")
+                        elif "Failed to extract" in stderr_text and "player response" in stderr_text:
+                            error_logger.warning(f"❌ Strategy '{strategy_name}' failed: YouTube API extraction error")
                         else:
-                            error_logger.warning(f"Strategy {i+1} failed: {stderr_text[:200]}...")
+                            error_logger.warning(f"❌ Strategy '{strategy_name}' failed: {stderr_text[:150]}...")
+                        
+                        # Clean up any partial files
+                        if os.path.exists(output_template):
+                            try:
+                                os.remove(output_template)
+                            except:
+                                pass
                         
                         # If this is not the last strategy, continue to next
                         if i < len(strategies) - 1:
                             continue
                         else:
-                            error_logger.error(f"All YouTube strategies failed for {url}")
+                            error_logger.error(f"❌ All YouTube strategies failed for {url}")
                             return None, None
                             
                 except (asyncio.TimeoutError, Exception) as e:
-                    error_logger.warning(f"Strategy {i+1} error: {e}")
+                    error_logger.warning(f"❌ Strategy '{strategy_name}' error: {e}")
                     if 'process' in locals() and process.returncode is None:
                         try:
                             process.kill()
@@ -759,11 +792,18 @@ class VideoDownloader:
                         except:
                             pass
                     
+                    # Clean up any partial files
+                    if os.path.exists(output_template):
+                        try:
+                            os.remove(output_template)
+                        except:
+                            pass
+                    
                     # If this is not the last strategy, continue to next
                     if i < len(strategies) - 1:
                         continue
                     else:
-                        error_logger.error(f"All YouTube strategies failed with errors for {url}")
+                        error_logger.error(f"❌ All YouTube strategies failed with errors for {url}")
                         return None, None
             
             # This should not be reached, but just in case
