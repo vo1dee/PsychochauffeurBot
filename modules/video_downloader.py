@@ -9,7 +9,7 @@ import uuid
 import shutil
 import subprocess
 from urllib.parse import urljoin, urlparse
-from typing import Optional, Tuple, List, Dict, Any, Callable
+from typing import Optional, Tuple, List, Dict, Any, Callable, TypedDict
 from asyncio import Lock
 from dataclasses import dataclass
 from enum import Enum
@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 YTDL_SERVICE_API_KEY = os.getenv('YTDL_SERVICE_API_KEY')
+
+class DownloadStrategy(TypedDict):
+    name: str
+    format: str
+    args: List[str]
 
 class Platform(Enum):
     TIKTOK = "tiktok.com"
@@ -677,7 +682,7 @@ class VideoDownloader:
             # Try multiple strategies for YouTube API extraction issues
             # Note: This is a fallback when the service is unavailable
             # Based on successful strategies from the service
-            strategies = [
+            strategies: List[DownloadStrategy] = [
                 # Strategy 1: Simple formats with Android client (most reliable)
                 {
                     'name': 'Android client with simple formats',
