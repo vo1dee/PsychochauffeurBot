@@ -435,7 +435,7 @@ class VideoDownloader:
         error_logger.error(f"❌ All YouTube strategies failed for {url}")
         return None, None
 
-    async def _try_youtube_strategy(self, url: str, strategy: dict) -> Tuple[Optional[str], Optional[str]]:
+    async def _try_youtube_strategy(self, url: str, strategy: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Try a single YouTube download strategy."""
         unique_filename = f"yt_{uuid.uuid4().hex[:8]}.mp4"
         output_path = os.path.join(self.download_path, unique_filename)
