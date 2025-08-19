@@ -199,7 +199,7 @@ class CallbackHandlerService(ServiceInterface):
 class ServiceConfiguration:
     """Configuration for service initialization"""
     telegram_token: str
-    error_channel_id: str
+    error_channel_id: Optional[str] = None
     database_url: Optional[str] = None
     redis_url: Optional[str] = None
     debug_mode: bool = False
