@@ -21,13 +21,13 @@ class ServiceConfiguration:
     
     Attributes:
         telegram_token: The Telegram bot token for API access
-        error_channel_id: Channel ID for error reporting and notifications
+        error_channel_id: Optional channel ID for error reporting and notifications
         database_url: Optional database connection URL
         redis_url: Optional Redis connection URL for caching
         debug_mode: Whether to enable debug mode features
     """
     telegram_token: str
-    error_channel_id: str
+    error_channel_id: Optional[str] = None
     database_url: Optional[str] = None
     redis_url: Optional[str] = None
     debug_mode: bool = False
@@ -36,8 +36,6 @@ class ServiceConfiguration:
         """Validate configuration after initialization."""
         if not self.telegram_token:
             raise ValueError("telegram_token is required")
-        if not self.error_channel_id:
-            raise ValueError("error_channel_id is required")
 
 
 @dataclass
