@@ -513,13 +513,11 @@ class EnhancedAnalyzeCommand:
             # Parse the input date using DateParser
             target_date = DateParser.parse_date(args[1])
             
-            # Convert the date to YYYY-MM-DD format for consistent processing
+            # Get messages for the specified date (pass the date object directly)
+            messages = await get_messages_for_chat_single_date(chat_id, target_date)
+            
+            # Format the date for display and caching
             formatted_date = target_date.strftime('%Y-%m-%d')
-            
-            # Get messages for the specified date
-            messages = await get_messages_for_chat_single_date(chat_id, formatted_date)
-            
-            # Format the date for display
             date_str = target_date.strftime('%d.%m.%Y')
             time_period_key = f"date_{formatted_date}"
             

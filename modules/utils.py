@@ -46,10 +46,10 @@ class DateParser:
     
     # Supported date formats in order of preference with regex patterns for strict validation
     DATE_FORMATS = [
-        ('%Y-%m-%d', r'^\d{4}-\d{2}-\d{2}$'),    # YYYY-MM-DD (ISO format)
-        ('%d-%m-%Y', r'^\d{2}-\d{2}-\d{4}$'),    # DD-MM-YYYY (European format)
-        ('%d/%m/%Y', r'^\d{2}/\d{2}/\d{4}$'),    # DD/MM/YYYY (Alternative European format)
-        ('%Y/%m/%d', r'^\d{4}/\d{2}/\d{2}$'),    # YYYY/MM/DD (Alternative ISO format)
+        ('%Y-%m-%d', r'^\d{4}-\d{1,2}-\d{1,2}$'),    # YYYY-M-D or YYYY-MM-DD (ISO format)
+        ('%d-%m-%Y', r'^\d{1,2}-\d{1,2}-\d{4}$'),    # D-M-YYYY or DD-MM-YYYY (European format)
+        ('%d/%m/%Y', r'^\d{1,2}/\d{1,2}/\d{4}$'),    # D/M/YYYY or DD/MM/YYYY (Alternative European format)
+        ('%Y/%m/%d', r'^\d{4}/\d{1,2}/\d{1,2}$'),    # YYYY/M/D or YYYY/MM/DD (Alternative ISO format)
     ]
     
     @staticmethod
