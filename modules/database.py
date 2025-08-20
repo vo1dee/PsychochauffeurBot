@@ -30,24 +30,26 @@ logger = logging.getLogger(__name__)
 
 # Database connection configuration with type hints
 # Support both DATABASE_URL and individual environment variables
-DATABASE_URL = os.getenv('DATABASE_URL')
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+load_dotenv()
 
 # Database connection parameters
-if DATABASE_URL and DATABASE_URL.startswith('postgresql://'):
-    # Parse DATABASE_URL for PostgreSQL
-    from urllib.parse import urlparse
-    parsed = urlparse(DATABASE_URL)
-    DB_HOST = parsed.hostname or 'localhost'
-    DB_PORT = str(parsed.port or 5432)
-    DB_NAME = parsed.path.lstrip('/') or 'telegram_bot'
-    DB_USER = parsed.username or 'postgres'
-    DB_PASSWORD = parsed.password or ''
-else:
-    # Use individual environment variables
-    DB_HOST = os.getenv('DB_HOST', 'localhost')
-    DB_PORT = os.getenv('DB_PORT', '5432')
-    DB_NAME = os.getenv('DB_NAME', 'telegram_bot')
-    DB_USER = os.getenv('DB_USER', 'postgres')
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_PORT = os.getenv('DB_PORT', '5432')
+DB_NAME = os.getenv('DB_NAME', 'telegram_bot')
+DB_USER = os.getenv('DB_USER', 'postgres')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '')  # This should be set in production
+
+# Log the database connection details (without password)
+logger = logging.getLogger(__name__)
+logger.info(f"Connecting to database: postgresql://{DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+
+# Check for required environment variables
+if not DB_PASSWORD and not os.getenv('DATABASE_URL'):
+    logger.warning("DB_PASSWORD environment variable is not set. This may cause connection issues.")
     DB_PASSWORD = os.getenv('DB_PASSWORD', '')
 
 # Connection pool configuration

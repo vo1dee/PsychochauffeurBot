@@ -187,10 +187,12 @@ async def get_messages_for_chat_single_date(
         
         # Create date range in local timezone (Kyiv)
         local_tz = pytz.timezone('Europe/Kyiv')
+        
+        # Create start and end of day in local timezone
         local_start = local_tz.localize(datetime.combine(target_date, datetime.min.time()))
         local_end = local_tz.localize(datetime.combine(target_date, datetime.max.time()))
         
-        # Convert to UTC for database query
+        # Convert to UTC for database query (naive datetime)
         start_utc = local_start.astimezone(pytz.UTC).replace(tzinfo=None)
         end_utc = local_end.astimezone(pytz.UTC).replace(tzinfo=None)
         
@@ -222,10 +224,13 @@ async def get_messages_for_chat_single_date(
                     WHERE chat_id = $1
                 """, chat_id)
                 
-                if date_range['min_date']:
-                    min_local = date_range['min_date'].astimezone(local_tz)
-                    max_local = date_range['max_date'].astimezone(local_tz)
-                    logger.warning(f"No messages found for {target_date}. Database date range: {min_local} to {max_local}")
+                if date_range and date_range['min_date']:
+                    # Convert database timestamps to local timezone for display
+                    min_local = date_range['min_date'].replace(tzinfo=pytz.UTC).astimezone(local_tz)
+                    max_local = date_range['max_date'].replace(tzinfo=pytz.UTC).astimezone(local_tz)
+                    
+                    logger.warning(f"No messages found for {target_date}.")
+                    logger.warning(f"Database date range: {min_local} to {max_local}")
                     logger.warning(f"Total messages in database: {date_range['total_messages']}")
                     
                     # Get some sample messages to see what dates we have
@@ -240,8 +245,11 @@ async def get_messages_for_chat_single_date(
                     if sample_messages:
                         logger.warning("Sample messages from database:")
                         for msg in sample_messages:
-                            local_time = msg['timestamp'].astimezone(local_tz)
-                            logger.warning(f"- {local_time} (UTC: {msg['timestamp']}): {msg['text'][:100]}...")
+                            msg_time = msg['timestamp']
+                            if msg_time.tzinfo is None:
+                                msg_time = pytz.UTC.localize(msg_time)
+                            local_time = msg_time.astimezone(local_tz)
+                            logger.warning(f"- {local_time} (UTC: {msg_time}): {msg['text'][:100]}...")
                 else:
                     logger.warning("No messages found in the database for this chat")
                 
@@ -259,14 +267,17 @@ async def get_messages_for_chat_single_date(
             """, chat_id, start_utc, end_utc)
             
             # Convert timestamps back to local timezone for display
-            messages = [
-                (
-                    row['timestamp'].astimezone(local_tz),
+            messages = []
+            for row in rows:
+                timestamp = row['timestamp']
+                if timestamp.tzinfo is None:
+                    timestamp = pytz.UTC.localize(timestamp)
+                local_time = timestamp.astimezone(local_tz)
+                messages.append((
+                    local_time,
                     row['username'] or 'Unknown',
                     row['text']
-                )
-                for row in rows
-            ]
+                ))
             
             logger.info(f"Returning {len(messages)} messages")
             return messages
