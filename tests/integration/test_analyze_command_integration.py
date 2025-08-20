@@ -40,9 +40,12 @@ async def test_analyze_command_date(update_fixture, context_fixture):
     ]
     
     # Patch the message retrieval and GPT analysis
-    with patch('modules.chat_analysis.get_messages_for_chat_single_date', 
-              return_value=mock_messages) as mock_get_messages,\n         patch('modules.gpt.analyze_with_gpt', 
-              return_value="Test analysis result") as mock_analyze:
+    with (
+        patch('modules.chat_analysis.get_messages_for_chat_single_date', 
+             return_value=mock_messages) as mock_get_messages,
+        patch('modules.gpt.analyze_with_gpt', 
+             return_value="Test analysis result") as mock_analyze
+    ):
         
         await analyze_command(update_fixture, context_fixture)
         
