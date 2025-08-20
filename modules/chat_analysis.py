@@ -1,6 +1,7 @@
 from datetime import datetime, date, timedelta
 from typing import List, Tuple, Optional, Union, Dict, Any
 import pytz
+import logging
 from modules.database import Database
 from modules.const import KYIV_TZ
 
@@ -177,39 +178,102 @@ async def get_messages_for_chat_single_date(
     Returns:
         List of tuples containing (timestamp, sender_name, text)
     """
-    # Convert string date to date object if needed
-    if isinstance(target_date, str):
-        target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
+    logger = logging.getLogger(__name__)
     
-    # Convert local date to UTC for database query
-    local_start = datetime.combine(target_date, datetime.min.time(), tzinfo=KYIV_TZ)
-    local_end = datetime.combine(target_date, datetime.max.time(), tzinfo=KYIV_TZ)
-    
-    # Convert to UTC for database query
-    start_time_utc = local_start.astimezone(pytz.UTC).replace(tzinfo=None)
-    end_time_utc = local_end.astimezone(pytz.UTC).replace(tzinfo=None)
-    
-    pool = await Database.get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT m.timestamp, u.username, m.text
-            FROM messages m
-            LEFT JOIN users u ON m.user_id = u.user_id
-            WHERE m.chat_id = $1
-            AND m.timestamp >= $2
-            AND m.timestamp <= $3
-            ORDER BY m.timestamp ASC
-        """, chat_id, start_time_utc, end_time_utc)
+    try:
+        # Convert string date to date object if needed
+        if isinstance(target_date, str):
+            target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
         
-        # Convert timestamps back to local timezone for display
-        return [
-            (
-                row['timestamp'].replace(tzinfo=pytz.UTC).astimezone(KYIV_TZ),
-                row['username'] or 'Unknown',
-                row['text']
-            )
-            for row in rows
-        ]
+        # Create date range in local timezone (Kyiv)
+        local_tz = pytz.timezone('Europe/Kyiv')
+        local_start = local_tz.localize(datetime.combine(target_date, datetime.min.time()))
+        local_end = local_tz.localize(datetime.combine(target_date, datetime.max.time()))
+        
+        # Convert to UTC for database query
+        start_utc = local_start.astimezone(pytz.UTC).replace(tzinfo=None)
+        end_utc = local_end.astimezone(pytz.UTC).replace(tzinfo=None)
+        
+        logger.info(f"Querying messages for date: {target_date}")
+        logger.info(f"Local time range: {local_start} to {local_end}")
+        logger.info(f"UTC time range: {start_utc} to {end_utc}")
+        
+        pool = await Database.get_pool()
+        async with pool.acquire() as conn:
+            # First check if we have any messages in this date range
+            count = await conn.fetchval("""
+                SELECT COUNT(*)
+                FROM messages
+                WHERE chat_id = $1
+                AND timestamp >= $2
+                AND timestamp <= $3
+            """, chat_id, start_utc, end_utc)
+            
+            logger.info(f"Found {count} messages in the date range")
+            
+            if count == 0:
+                # If no messages found, check the date range of available messages
+                date_range = await conn.fetchrow("""
+                    SELECT 
+                        MIN(timestamp) as min_date, 
+                        MAX(timestamp) as max_date,
+                        COUNT(*) as total_messages
+                    FROM messages 
+                    WHERE chat_id = $1
+                """, chat_id)
+                
+                if date_range['min_date']:
+                    min_local = date_range['min_date'].astimezone(local_tz)
+                    max_local = date_range['max_date'].astimezone(local_tz)
+                    logger.warning(f"No messages found for {target_date}. Database date range: {min_local} to {max_local}")
+                    logger.warning(f"Total messages in database: {date_range['total_messages']}")
+                    
+                    # Get some sample messages to see what dates we have
+                    sample_messages = await conn.fetch("""
+                        SELECT timestamp, text 
+                        FROM messages 
+                        WHERE chat_id = $1 
+                        ORDER BY timestamp DESC 
+                        LIMIT 5
+                    """, chat_id)
+                    
+                    if sample_messages:
+                        logger.warning("Sample messages from database:")
+                        for msg in sample_messages:
+                            local_time = msg['timestamp'].astimezone(local_tz)
+                            logger.warning(f"- {local_time} (UTC: {msg['timestamp']}): {msg['text'][:100]}...")
+                else:
+                    logger.warning("No messages found in the database for this chat")
+                
+                return []
+            
+            # Fetch the messages
+            rows = await conn.fetch("""
+                SELECT m.timestamp, u.username, m.text
+                FROM messages m
+                LEFT JOIN users u ON m.user_id = u.user_id
+                WHERE m.chat_id = $1
+                AND m.timestamp >= $2
+                AND m.timestamp <= $3
+                ORDER BY m.timestamp ASC
+            """, chat_id, start_utc, end_utc)
+            
+            # Convert timestamps back to local timezone for display
+            messages = [
+                (
+                    row['timestamp'].astimezone(local_tz),
+                    row['username'] or 'Unknown',
+                    row['text']
+                )
+                for row in rows
+            ]
+            
+            logger.info(f"Returning {len(messages)} messages")
+            return messages
+            
+    except Exception as e:
+        logger.error(f"Error in get_messages_for_chat_single_date: {str(e)}", exc_info=True)
+        raise
 
 async def get_user_chat_stats(chat_id: int, user_id: int) -> Dict[str, Any]:
     """
