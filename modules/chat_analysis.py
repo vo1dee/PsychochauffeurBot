@@ -188,9 +188,9 @@ async def get_messages_for_chat_single_date(
         # Create date range in local timezone (Kyiv)
         local_tz = pytz.timezone('Europe/Kyiv')
         
-        # Create start and end of day in local timezone
+        # Create start of day and start of next day in local timezone
         local_start = local_tz.localize(datetime.combine(target_date, datetime.min.time()))
-        local_end = local_tz.localize(datetime.combine(target_date, datetime.max.time()))
+        local_end = local_tz.localize(datetime.combine(target_date + timedelta(days=1), datetime.min.time()))
         
         # Convert to UTC for database query (naive datetime)
         start_utc = local_start.astimezone(pytz.UTC).replace(tzinfo=None)
