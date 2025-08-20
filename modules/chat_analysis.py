@@ -1,4 +1,4 @@
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 from typing import List, Tuple, Optional, Union, Dict, Any
 import pytz
 import logging
@@ -164,16 +164,13 @@ async def get_messages_for_chat_date_period(
             for row in rows
         ]
 
-async def get_messages_for_chat_single_date(
-    chat_id: int,
-    target_date: Union[str, date]
-) -> List[Tuple[datetime, str, str]]:
+async def get_messages_for_chat_single_date(chat_id: int, target_date: Union[date, str]) -> List[Tuple[datetime, str, str]]:
     """
-    Fetch all messages from chat_id for a specific date.
+    Fetch all messages from the specified chat_id for a specific date.
     
     Args:
         chat_id: The chat ID to fetch messages from
-        target_date: Target date (YYYY-MM-DD string or date object)
+        target_date: The target date (as date object or 'YYYY-MM-DD' string)
         
     Returns:
         List of tuples containing (timestamp, sender_name, text)
@@ -188,13 +185,26 @@ async def get_messages_for_chat_single_date(
         # Create date range in local timezone (Kyiv)
         local_tz = pytz.timezone('Europe/Kyiv')
         
-        # Create start of day and start of next day in local timezone
-        local_start = local_tz.localize(datetime.combine(target_date, datetime.min.time()))
-        local_end = local_tz.localize(datetime.combine(target_date + timedelta(days=1), datetime.min.time()))
+        # Log the input parameters
+        logger.info(f"Getting messages for chat_id: {chat_id}, date: {target_date}")
         
-        # Convert to UTC for database query (naive datetime)
-        start_utc = local_start.astimezone(pytz.UTC).replace(tzinfo=None)
-        end_utc = local_end.astimezone(pytz.UTC).replace(tzinfo=None)
+        # Create start of day and start of next day in local timezone
+        local_start = local_tz.localize(datetime.combine(target_date, time.min))
+        local_end = local_tz.localize(datetime.combine(target_date + timedelta(days=1), time.min))
+        
+        # Convert to UTC for database query
+        start_utc = local_start.astimezone(pytz.UTC)
+        end_utc = local_end.astimezone(pytz.UTC)
+        
+        # For database query, we need naive datetime
+        start_naive = start_utc.replace(tzinfo=None)
+        end_naive = end_utc.replace(tzinfo=None)
+        
+        logger.info(f"Converted date range:")
+        logger.info(f"  Local: {local_start} to {local_end}")
+        logger.info(f"  UTC:   {start_utc} to {end_utc}")
+        logger.info(f"  Types: {type(start_utc)}, {type(end_utc)}")
+        logger.info(f"  Using chat_id: {chat_id}")
         
         logger.info(f"Querying messages for date: {target_date}")
         logger.info(f"Local time range: {local_start} to {local_end}")
@@ -203,15 +213,38 @@ async def get_messages_for_chat_single_date(
         pool = await Database.get_pool()
         async with pool.acquire() as conn:
             # First check if we have any messages in this date range
-            count = await conn.fetchval("""
+            # Using half-open interval [start, end) to avoid missing messages at the end of the day
+            count_query = """
                 SELECT COUNT(*)
                 FROM messages
                 WHERE chat_id = $1
                 AND timestamp >= $2
-                AND timestamp <= $3
-            """, chat_id, start_utc, end_utc)
+                AND timestamp < $3
+            """
+            logger.info(f"Executing count query:\n{count_query}\nWith params: chat_id={chat_id}, start_utc={start_naive}, end_utc={end_naive}")
+            
+            # Execute with naive datetime objects
+            count = await conn.fetchval(count_query, chat_id, start_naive, end_naive)
             
             logger.info(f"Found {count} messages in the date range")
+            
+            # Debug: Check if there are any messages in the database at all for this chat
+            total_count = await conn.fetchval("""
+                SELECT COUNT(*) FROM messages WHERE chat_id = $1
+            """, chat_id)
+            logger.info(f"Total messages in DB for chat {chat_id}: {total_count}")
+            
+            # Debug: Check the date range of messages in the database
+            date_range = await conn.fetchrow("""
+                SELECT 
+                    MIN(timestamp) as min_date, 
+                    MAX(timestamp) as max_date,
+                    COUNT(*) as total_count
+                FROM messages 
+                WHERE chat_id = $1
+            """, chat_id)
+            if date_range:
+                logger.info(f"Date range of messages in DB: {date_range['min_date']} to {date_range['max_date']} ({date_range['total_count']} total messages)")
             
             if count == 0:
                 # If no messages found, check the date range of available messages
@@ -255,31 +288,108 @@ async def get_messages_for_chat_single_date(
                 
                 return []
             
-            # Fetch the messages
-            rows = await conn.fetch("""
+            # Log the exact query being executed
+            query = """
                 SELECT m.timestamp, u.username, m.text
                 FROM messages m
                 LEFT JOIN users u ON m.user_id = u.user_id
                 WHERE m.chat_id = $1
                 AND m.timestamp >= $2
-                AND m.timestamp <= $3
+                AND m.timestamp < $3
                 ORDER BY m.timestamp ASC
-            """, chat_id, start_utc, end_utc)
+            """
+            logger.info(f"Executing query with params: chat_id={chat_id}, start_utc={start_naive}, end_utc={end_naive}")
+            logger.info(f"Query: {query}")
+            
+            # Execute the query with naive datetime objects
+            rows = await conn.fetch(query, chat_id, start_naive, end_naive)
+            
+            # Log the EXPLAIN ANALYZE output for debugging
+            try:
+                explain = await conn.fetch("""
+                    EXPLAIN ANALYZE 
+                    SELECT m.timestamp, u.username, m.text
+                    FROM messages m
+                    LEFT JOIN users u ON m.user_id = u.user_id
+                    WHERE m.chat_id = $1
+                    AND m.timestamp >= $2
+                    AND m.timestamp < $3
+                    ORDER BY m.timestamp ASC
+                """, chat_id, start_utc, end_utc)
+                logger.info("Query plan:")
+                for row in explain:
+                    logger.info(f"  {row['QUERY PLAN']}")
+            except Exception as e:
+                logger.warning(f"Failed to get query plan: {e}")
+            
+            # Fetch the messages
+            rows = await conn.fetch(query, chat_id, start_utc, end_utc)
+            
+            # Log the raw results
+            logger.info(f"Raw query returned {len(rows)} rows")
+            
+            # If no rows found, try to find any messages in the database
+            if not rows:
+                logger.warning("No rows returned. Checking for any messages in the database...")
+                any_messages = await conn.fetch("""
+                    SELECT timestamp, text 
+                    FROM messages 
+                    WHERE chat_id = $1 
+                    ORDER BY timestamp DESC 
+                    LIMIT 5
+                """, chat_id)
+                
+                if any_messages:
+                    logger.warning(f"Found {len(any_messages)} recent messages in the database:")
+                    for i, msg in enumerate(any_messages):
+                        logger.warning(f"  {i+1}. {msg['timestamp']} - {msg['text'][:100]}")
+                else:
+                    logger.warning("No messages found in the database for this chat")
             
             # Convert timestamps back to local timezone for display
             messages = []
-            for row in rows:
-                timestamp = row['timestamp']
-                if timestamp.tzinfo is None:
-                    timestamp = pytz.UTC.localize(timestamp)
-                local_time = timestamp.astimezone(local_tz)
-                messages.append((
-                    local_time,
-                    row['username'] or 'Unknown',
-                    row['text']
-                ))
+            processed_count = 0
+            error_count = 0
             
-            logger.info(f"Returning {len(messages)} messages")
+            for row in rows:
+                try:
+                    timestamp = row['timestamp']
+                    
+                    # Log raw timestamp info for debugging
+                    logger.debug(f"Processing message - raw timestamp: {timestamp}, type: {type(timestamp)}")
+                    
+                    # Handle timezone
+                    if timestamp is None:
+                        logger.warning(f"Skipping message with null timestamp: {row}")
+                        error_count += 1
+                        continue
+                        
+                    if timestamp.tzinfo is None:
+                        logger.debug("Localizing naive timestamp to UTC")
+                        timestamp = pytz.UTC.localize(timestamp)
+                    
+                    # Convert to local timezone
+                    local_time = timestamp.astimezone(local_tz)
+                    
+                    messages.append((
+                        local_time,
+                        row['username'] or 'Unknown',
+                        row['text'] or ''  # Ensure text is never None
+                    ))
+                    processed_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error processing message row: {e}", exc_info=True)
+                    error_count += 1
+            
+            # Log summary
+            logger.info(f"Processed {processed_count} messages successfully")
+            if error_count > 0:
+                logger.warning(f"Encountered {error_count} errors while processing messages")
+            
+            if not messages and rows:
+                logger.error("No messages were processed successfully despite having rows. Check logs for errors.")
+            
             return messages
             
     except Exception as e:
