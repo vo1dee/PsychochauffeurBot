@@ -14,9 +14,14 @@ async def get_messages_for_chat_today(chat_id: int) -> List[Tuple[datetime, str,
     Returns:
         List of tuples containing (timestamp, sender_name, text)
     """
+    # Get current date in local timezone
     today = datetime.now(KYIV_TZ).date()
-    start_time = datetime.combine(today, datetime.min.time(), tzinfo=KYIV_TZ)
-    end_time = datetime.combine(today, datetime.max.time(), tzinfo=KYIV_TZ)
+    local_start = datetime.combine(today, datetime.min.time(), tzinfo=KYIV_TZ)
+    local_end = datetime.combine(today, datetime.max.time(), tzinfo=KYIV_TZ)
+    
+    # Convert to UTC for database query
+    start_time_utc = local_start.astimezone(pytz.UTC).replace(tzinfo=None)
+    end_time_utc = local_end.astimezone(pytz.UTC).replace(tzinfo=None)
     
     pool = await Database.get_pool()
     async with pool.acquire() as conn:
@@ -28,9 +33,17 @@ async def get_messages_for_chat_today(chat_id: int) -> List[Tuple[datetime, str,
             AND m.timestamp >= $2
             AND m.timestamp <= $3
             ORDER BY m.timestamp ASC
-        """, chat_id, start_time, end_time)
+        """, chat_id, start_time_utc, end_time_utc)
         
-        return [(row['timestamp'], row['username'] or 'Unknown', row['text']) for row in rows]
+        # Convert timestamps back to local timezone for display
+        return [
+            (
+                row['timestamp'].replace(tzinfo=pytz.UTC).astimezone(KYIV_TZ),
+                row['username'] or 'Unknown',
+                row['text']
+            )
+            for row in rows
+        ]
 
 async def get_last_n_messages_in_chat(chat_id: int, count: int) -> List[Tuple[datetime, str, str]]:
     """
@@ -68,8 +81,13 @@ async def get_messages_for_chat_last_n_days(chat_id: int, days: int) -> List[Tup
     Returns:
         List of tuples containing (timestamp, sender_name, text)
     """
+    # Get current time in local timezone
     end_time = datetime.now(KYIV_TZ)
     start_time = end_time - timedelta(days=days)
+    
+    # Convert to UTC for database query
+    start_time_utc = start_time.astimezone(pytz.UTC).replace(tzinfo=None)
+    end_time_utc = end_time.astimezone(pytz.UTC).replace(tzinfo=None)
     
     pool = await Database.get_pool()
     async with pool.acquire() as conn:
@@ -81,9 +99,17 @@ async def get_messages_for_chat_last_n_days(chat_id: int, days: int) -> List[Tup
             AND m.timestamp >= $2
             AND m.timestamp <= $3
             ORDER BY m.timestamp ASC
-        """, chat_id, start_time, end_time)
+        """, chat_id, start_time_utc, end_time_utc)
         
-        return [(row['timestamp'], row['username'] or 'Unknown', row['text']) for row in rows]
+        # Convert timestamps back to local timezone for display
+        return [
+            (
+                row['timestamp'].replace(tzinfo=pytz.UTC).astimezone(KYIV_TZ),
+                row['username'] or 'Unknown',
+                row['text']
+            )
+            for row in rows
+        ]
 
 async def get_messages_for_chat_date_period(
     chat_id: int,
@@ -107,8 +133,13 @@ async def get_messages_for_chat_date_period(
     if isinstance(end_date, str):
         end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
     
-    start_time = datetime.combine(start_date, datetime.min.time(), tzinfo=KYIV_TZ)
-    end_time = datetime.combine(end_date, datetime.max.time(), tzinfo=KYIV_TZ)
+    # Create datetime objects in local timezone
+    local_start = datetime.combine(start_date, datetime.min.time(), tzinfo=KYIV_TZ)
+    local_end = datetime.combine(end_date, datetime.max.time(), tzinfo=KYIV_TZ)
+    
+    # Convert to UTC for database query
+    start_time_utc = local_start.astimezone(pytz.UTC).replace(tzinfo=None)
+    end_time_utc = local_end.astimezone(pytz.UTC).replace(tzinfo=None)
     
     pool = await Database.get_pool()
     async with pool.acquire() as conn:
@@ -120,9 +151,17 @@ async def get_messages_for_chat_date_period(
             AND m.timestamp >= $2
             AND m.timestamp <= $3
             ORDER BY m.timestamp ASC
-        """, chat_id, start_time, end_time)
+        """, chat_id, start_time_utc, end_time_utc)
         
-        return [(row['timestamp'], row['username'] or 'Unknown', row['text']) for row in rows]
+        # Convert timestamps back to local timezone for display
+        return [
+            (
+                row['timestamp'].replace(tzinfo=pytz.UTC).astimezone(KYIV_TZ),
+                row['username'] or 'Unknown',
+                row['text']
+            )
+            for row in rows
+        ]
 
 async def get_messages_for_chat_single_date(
     chat_id: int,
@@ -142,8 +181,13 @@ async def get_messages_for_chat_single_date(
     if isinstance(target_date, str):
         target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
     
-    start_time = datetime.combine(target_date, datetime.min.time(), tzinfo=KYIV_TZ)
-    end_time = datetime.combine(target_date, datetime.max.time(), tzinfo=KYIV_TZ)
+    # Convert local date to UTC for database query
+    local_start = datetime.combine(target_date, datetime.min.time(), tzinfo=KYIV_TZ)
+    local_end = datetime.combine(target_date, datetime.max.time(), tzinfo=KYIV_TZ)
+    
+    # Convert to UTC for database query
+    start_time_utc = local_start.astimezone(pytz.UTC).replace(tzinfo=None)
+    end_time_utc = local_end.astimezone(pytz.UTC).replace(tzinfo=None)
     
     pool = await Database.get_pool()
     async with pool.acquire() as conn:
@@ -155,9 +199,17 @@ async def get_messages_for_chat_single_date(
             AND m.timestamp >= $2
             AND m.timestamp <= $3
             ORDER BY m.timestamp ASC
-        """, chat_id, start_time, end_time)
+        """, chat_id, start_time_utc, end_time_utc)
         
-        return [(row['timestamp'], row['username'] or 'Unknown', row['text']) for row in rows]
+        # Convert timestamps back to local timezone for display
+        return [
+            (
+                row['timestamp'].replace(tzinfo=pytz.UTC).astimezone(KYIV_TZ),
+                row['username'] or 'Unknown',
+                row['text']
+            )
+            for row in rows
+        ]
 
 async def get_user_chat_stats(chat_id: int, user_id: int) -> Dict[str, Any]:
     """
