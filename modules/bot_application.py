@@ -62,6 +62,7 @@ class BotApplication(ServiceInterface):
         self._initialization_errors: List[str] = []
         self._recovery_attempts: Dict[str, int] = {}
         self._max_recovery_attempts = 3
+        self._shutting_down = False
         
     async def initialize(self) -> None:
         """Initialize the bot application and all components with enhanced error handling."""
@@ -154,6 +155,12 @@ class BotApplication(ServiceInterface):
             logger.info("Bot Application is not running")
             return
             
+        # Prevent recursive shutdown calls
+        if hasattr(self, '_shutting_down') and self._shutting_down:
+            logger.info("Bot Application shutdown already in progress")
+            return
+            
+        self._shutting_down = True
         self._state = ApplicationState.STOPPING
         logger.info("Shutting down Enhanced Bot Application...")
         
@@ -164,8 +171,10 @@ class BotApplication(ServiceInterface):
             # Shutdown specialized services in reverse dependency order
             await self._shutdown_specialized_services()
             
-            # Shutdown all services through registry
-            await self.service_registry.shutdown_services()
+            # NOTE: Do NOT call self.service_registry.shutdown_services() here
+            # as it would create a recursive loop since BotApplication is itself
+            # a service in the registry. The ApplicationBootstrapper will handle
+            # shutting down the service registry separately.
             
             # Send shutdown notification
             await self._send_shutdown_notification()
@@ -175,6 +184,7 @@ class BotApplication(ServiceInterface):
             self._recovery_attempts.clear()
             
             self._state = ApplicationState.STOPPED
+            self._shutting_down = False
             logger.info("Enhanced Bot Application shutdown completed")
             
         except Exception as e:
@@ -182,6 +192,8 @@ class BotApplication(ServiceInterface):
             logger.error(f"Error during shutdown: {e}")
             # Continue with cleanup even if there are errors
             await self._force_cleanup()
+        finally:
+            self._shutting_down = False
     
     async def _force_cleanup(self) -> None:
         """Force cleanup when graceful shutdown fails."""

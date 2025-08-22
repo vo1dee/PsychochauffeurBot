@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: telegram_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: psychochauffeur
+      POSTGRES_HOST_AUTH_METHOD: md5
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d telegram_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Uncomment to run bot in Docker too
+  # bot:
+  #   build: .
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - DB_HOST=postgres
+  #   volumes:
+  #     - ./logs:/app/logs
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:
