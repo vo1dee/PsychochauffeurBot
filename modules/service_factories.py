@@ -128,7 +128,7 @@ class ServiceFactory:
             logger.warning(f"ReminderManager not available due to compatibility issue: {e}")
             # Return a dummy object that has the required interface
             class DummyReminderManager:
-                async def shutdown(self):
+                async def shutdown(self) -> None:
                     pass
             return DummyReminderManager()
     
