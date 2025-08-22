@@ -120,10 +120,17 @@ class ServiceFactory:
     @staticmethod
     def create_reminder_manager(registry: ServiceRegistry) -> Any:
         """Create ReminderManager (no dependencies for now)."""
-        from modules.reminders.reminders import ReminderManager
-        
-        logger.debug("Creating ReminderManager")
-        return ReminderManager()
+        try:
+            from modules.reminders.reminders import ReminderManager
+            logger.debug("Creating ReminderManager")
+            return ReminderManager()
+        except (ImportError, TypeError) as e:
+            logger.warning(f"ReminderManager not available due to compatibility issue: {e}")
+            # Return a dummy object that has the required interface
+            class DummyReminderManager:
+                async def shutdown(self):
+                    pass
+            return DummyReminderManager()
     
     @staticmethod
     def create_service_error_boundary(registry: ServiceRegistry) -> Any:

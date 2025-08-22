@@ -7,6 +7,7 @@ A versatile Telegram bot that downloads videos and images from social media plat
 ## 📋 Table of Contents
 - [Features](#-features)
 - [Setup](#-setup)
+- [Docker Setup](#-docker-setup)
 - [Configuration](#-configuration)
 - [Development](#-development)
 - [Testing](#-testing)
@@ -81,15 +82,61 @@ A versatile Telegram bot that downloads videos and images from social media plat
 - Telegram Bot Token
 - OpenAI API Key
 - (Optional) OpenWeather API Key
+- Docker and Docker Compose (for containerized setup)
 
-### Installation
+### 🐳 Quick Start with Docker (Recommended)
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/yourusername/PsychochauffeurBot.git
    cd PsychochauffeurBot
    ```
 
-2. Create and activate virtual environment:
+2. Configure your `.env` file (already included with sample values)
+
+3. Start with automated setup:
+   ```bash
+   ./start.sh
+   source .venv/bin/activate && python main.py
+   ```
+
+**That's it!** The database will be automatically created and configured.
+
+### 🐳 Docker Setup Options
+
+#### Option 1: Database Only (Recommended)
+```bash
+# Start PostgreSQL database
+docker-compose up -d postgres
+
+# Run bot locally
+source .venv/bin/activate && python main.py
+```
+
+#### Option 2: Full Docker Setup
+```bash
+# Uncomment the bot service in docker-compose.yml, then:
+docker-compose up --build
+```
+
+#### Option 3: Automated Script
+```bash
+# Use the provided startup script
+./start.sh
+```
+
+### 📋 What Docker Provides
+
+- **PostgreSQL Database**: Automatically configured with proper schema
+- **Health Checks**: Ensures database is ready before bot starts
+- **Persistent Storage**: Data survives container restarts
+- **Easy Management**: Simple commands for backup, restore, and maintenance
+
+See [DOCKER_SETUP.md](DOCKER_SETUP.md) for detailed Docker documentation.
+
+### 🔧 Manual Installation (Alternative)
+
+1. Create and activate virtual environment:
    ```bash
    python -m venv .venv
    source .venv/bin/activate  # Linux/Mac
@@ -97,47 +144,85 @@ A versatile Telegram bot that downloads videos and images from social media plat
    .venv\Scripts\activate  # Windows
    ```
 
-3. Install dependencies:
+2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Create `.env` file:
-   ```env
-   # Required
-   TOKEN=your_telegram_bot_token
-   OPENROUTER_API_KEY=your_openrouter_api_key
-   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+3. Set up your database (PostgreSQL recommended)
 
-   # Optional but Recommended
-   ERROR_CHANNEL_ID=telegram_channel_id_for_errors
-   OPENWEATHER_API_KEY=openweather_api_key
-   SHORTENER_MAX_CALLS_PER_MINUTE=30
-
-   # YouTube Download Service
-   YTDL_SERVICE_API_KEY=your_ytdl_service_key
-   YTDL_SERVICE_URL=service_url
-   YTDL_MAX_RETRIES=3
-   YTDL_RETRY_DELAY=1
-   ```
+4. Configure `.env` file with your settings
 
 5. Run the bot:
    ```bash
    python main.py
    ```
 
+## 🐳 Docker Setup
+
+### Quick Commands
+
+```bash
+# Start database only
+docker-compose up -d postgres
+
+# Start everything (uncomment bot service first)
+docker-compose up --build
+
+# Stop services
+docker-compose down
+
+# Reset everything (deletes data)
+docker-compose down -v
+
+# View logs
+docker-compose logs -f postgres
+
+# Connect to database
+docker-compose exec postgres psql -U postgres -d telegram_bot
+```
+
+### Database Management
+
+```bash
+# Backup database
+docker-compose exec postgres pg_dump -U postgres telegram_bot > backup.sql
+
+# Restore database
+docker-compose exec -T postgres psql -U postgres -d telegram_bot < backup.sql
+
+# Check database status
+docker-compose exec postgres pg_isready -U postgres -d telegram_bot
+```
+
+### Files Included
+
+- **`docker-compose.yml`** - PostgreSQL service with auto-initialization
+- **`Dockerfile`** - Bot container configuration
+- **`init-db.sql`** - Database schema and setup
+- **`start.sh`** - Automated startup script
+- **`.dockerignore`** - Optimized build context
+
+For detailed Docker setup instructions, see [DOCKER_SETUP.md](DOCKER_SETUP.md).
+
 ## ⚙️ Configuration
 
 ### Environment Variables
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `TOKEN` | Yes | Telegram Bot Token |
+| `TELEGRAM_BOT_TOKEN` | Yes | Telegram Bot Token |
 | `OPENROUTER_API_KEY` | Yes | OpenRouter API Key |
 | `OPENROUTER_BASE_URL` | Yes | OpenRouter API Base URL |
+| `DB_HOST` | Yes | Database host (localhost or postgres) |
+| `DB_PORT` | Yes | Database port (5432) |
+| `DB_NAME` | Yes | Database name (telegram_bot) |
+| `DB_USER` | Yes | Database user (postgres) |
+| `DB_PASSWORD` | Yes | Database password |
 | `ERROR_CHANNEL_ID` | No | Channel for error logging |
 | `OPENWEATHER_API_KEY` | No | Weather API key |
 | `SHORTENER_MAX_CALLS_PER_MINUTE` | No | URL shortener rate limit |
 | `YTDL_SERVICE_*` | No | YouTube download service config |
+| `SPEECHMATICS_API_KEY` | No | Speech-to-text API key |
 
 ### Configuration Scopes
 - `global`: Default configuration
@@ -151,6 +236,12 @@ A versatile Telegram bot that downloads videos and images from social media plat
 PsychochauffeurBot/
 ├── main.py              # Main entry point
 ├── api.py              # API endpoints
+├── docker-compose.yml   # Docker services configuration
+├── Dockerfile          # Bot container configuration
+├── init-db.sql         # Database initialization
+├── start.sh            # Automated startup script
+├── .dockerignore       # Docker build optimization
+├── DOCKER_SETUP.md     # Docker documentation
 ├── config/             # Configuration files
 ├── modules/            # Core functionality
 │   ├── gpt.py         # GPT integration
