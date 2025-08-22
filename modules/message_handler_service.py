@@ -120,7 +120,8 @@ class TextMessageHandler(BaseMessageHandler):
             link.lower().startswith((
                 'https://aliexpress.com/', 
                 'https://www.aliexpress.com/', 
-                'https://m.aliexpress.com/'
+                'https://m.aliexpress.com/',
+                'https://a.aliexpress.com/'
             )) for link in modified_links
         ):
             return
