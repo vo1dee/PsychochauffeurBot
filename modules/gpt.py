@@ -1021,9 +1021,14 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     # Use DateParser for flexible date parsing
                     target_date = DateParser.parse_date(args[1])
                     
-                    general_logger.info(f"Analyzing date {target_date} for chat {chat_id}")
+                    # Ensure chat_id is passed as is, don't convert to 0 if not a number
+                    chat_id_to_use = chat_id
+                    if isinstance(chat_id, (int, str)) and str(chat_id).isdigit():
+                        chat_id_to_use = int(chat_id)
+                        
+                    general_logger.info(f"Analyzing date {target_date} for chat {chat_id_to_use}")
                     messages = await get_messages_for_chat_single_date(
-                        int(chat_id) if isinstance(chat_id, (int, str)) and str(chat_id).isdigit() else 0, 
+                        chat_id_to_use,
                         target_date
                     )
                     date_str = DateParser.format_date_for_display(target_date)

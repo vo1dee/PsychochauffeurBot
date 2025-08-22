@@ -165,21 +165,44 @@ class VideoDownloader:
         """Check if the download service is available."""
         if not self.service_url or not self.api_key:
             error_logger.error("Service health check failed: URL or API key not configured.")
+            error_logger.error(f"   YTDL_SERVICE_URL: {self.service_url}")
+            error_logger.error(f"   YTDL_SERVICE_API_KEY: {'***' + self.api_key[-4:] if self.api_key and len(self.api_key) > 4 else 'Not set'}")
             return False
         
         health_url = urljoin(self.service_url, "health")
         headers = {"X-API-Key": self.api_key}
         
+        error_logger.info(f"Checking service health at: {health_url}")
+        
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(health_url, headers=headers, timeout=2, ssl=False) as response:
+                async with session.get(health_url, headers=headers, timeout=5, ssl=False) as response:
                     if response.status == 200:
-                        error_logger.info("Service health check successful.")
-                        return True
-                    error_logger.warning(f"Service health check failed with status {response.status}.")
-                    return False
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            error_logger.error(f"Service health check failed: {e}")
+                        try:
+                            data = await response.json()
+                            error_logger.info("✅ Service health check successful.")
+                            error_logger.info(f"   Service status: {data.get('status', 'unknown')}")
+                            error_logger.info(f"   yt-dlp version: {data.get('yt_dlp_version', 'unknown')}")
+                            error_logger.info(f"   FFmpeg available: {data.get('ffmpeg_available', 'unknown')}")
+                            return True
+                        except Exception as json_error:
+                            error_logger.warning(f"Service responded 200 but JSON parsing failed: {json_error}")
+                            return True  # Still consider it healthy if it responds
+                    else:
+                        response_text = await response.text()
+                        error_logger.warning(f"❌ Service health check failed with status {response.status}")
+                        error_logger.warning(f"   Response: {response_text[:200]}...")
+                        return False
+        except aiohttp.ClientConnectorError as e:
+            error_logger.error(f"❌ Service health check - connection failed: {e}")
+            error_logger.error(f"   This usually means the service is not running or not accessible")
+            return False
+        except asyncio.TimeoutError:
+            error_logger.error(f"❌ Service health check - timeout after 5 seconds")
+            error_logger.error(f"   Service may be overloaded or network is slow")
+            return False
+        except Exception as e:
+            error_logger.error(f"❌ Service health check - unexpected error: {e}")
             return False
 
     async def _download_from_service(self, url: str, format: str = "bestvideo[height<=1080][ext=mp4]+bestaudio/best[height<=1080][ext=mp4]/best[ext=mp4]") -> Tuple[Optional[str], Optional[str]]:
@@ -192,31 +215,63 @@ class VideoDownloader:
         payload = {"url": url, "format": format}
         download_url = urljoin(self.service_url, "download")
 
+        error_logger.info(f"🔄 Attempting service download for: {url}")
+        error_logger.info(f"   Service URL: {download_url}")
+        error_logger.info(f"   Format: {format}")
+
         try:
             async with aiohttp.ClientSession() as session:
                 for attempt in range(self.max_retries):
+                    error_logger.info(f"   Attempt {attempt + 1}/{self.max_retries}")
                     try:
                         async with session.post(download_url, json=payload, headers=headers, timeout=120, ssl=False) as response:
+                            error_logger.info(f"   Response status: {response.status}")
+                            
                             if response.status == 200:
                                 data = await response.json()
+                                error_logger.info(f"   Service response: success={data.get('success')}, status={data.get('status')}")
+                                
                                 if data.get("success"):
                                     if data.get("status") == "processing":
+                                        error_logger.info(f"   Background processing started, download_id: {data.get('download_id')}")
                                         return await self._poll_service_for_completion(session, data["download_id"], headers)
                                     else:
+                                        error_logger.info(f"   Direct download completed: {data.get('title', 'Unknown title')}")
                                         return await self._fetch_service_file(session, data, headers)
+                                else:
+                                    error_message = data.get('error', 'Unknown error')
+                                    error_logger.error(f"   Service reported failure: {error_message}")
+                                    return None, None
                             elif response.status in [502, 503, 504]:
-                                error_logger.warning(f"Service unavailable (HTTP {response.status}). Retrying...")
+                                error_logger.warning(f"   Service unavailable (HTTP {response.status}). Retrying in {self.retry_delay * (attempt + 1)}s...")
                                 await asyncio.sleep(self.retry_delay * (attempt + 1))
-                            else:
-                                error_logger.error(f"Service download failed with status {response.status}.")
+                            elif response.status == 403:
+                                error_logger.error(f"   Authentication failed (HTTP 403) - check API key")
                                 return None, None
-                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                        error_logger.error(f"Service download attempt {attempt + 1} failed: {e}")
+                            else:
+                                response_text = await response.text()
+                                error_logger.error(f"   Service download failed with status {response.status}")
+                                error_logger.error(f"   Response: {response_text[:200]}...")
+                                return None, None
+                    except aiohttp.ClientConnectorError as e:
+                        error_logger.error(f"   Connection error on attempt {attempt + 1}: {e}")
+                        if attempt < self.max_retries - 1:
+                            error_logger.info(f"   Retrying in {self.retry_delay * (attempt + 1)}s...")
+                            await asyncio.sleep(self.retry_delay * (attempt + 1))
+                    except asyncio.TimeoutError:
+                        error_logger.error(f"   Timeout on attempt {attempt + 1} (120s limit)")
+                        if attempt < self.max_retries - 1:
+                            error_logger.info(f"   Retrying in {self.retry_delay * (attempt + 1)}s...")
+                            await asyncio.sleep(self.retry_delay * (attempt + 1))
+                    except Exception as e:
+                        error_logger.error(f"   Unexpected error on attempt {attempt + 1}: {e}")
                         if attempt < self.max_retries - 1:
                             await asyncio.sleep(self.retry_delay * (attempt + 1))
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            error_logger.error(f"Service session creation failed: {e}")
+        except Exception as e:
+            error_logger.error(f"❌ Service session creation failed: {e}")
             return None, None
+        
+        error_logger.error(f"❌ All service download attempts failed for: {url}")
         return None, None
 
     async def _poll_service_for_completion(self, session: aiohttp.ClientSession, download_id: str, headers: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
@@ -280,28 +335,165 @@ class VideoDownloader:
 
                 # Prioritize service for YouTube, Instagram, and other problematic platforms
                 if is_youtube or is_instagram:
-                    error_logger.info(f"Attempting service download for YouTube/Instagram URL: {url}")
+                    error_logger.info(f"🎬 Processing {'YouTube' if is_youtube else 'Instagram'} URL: {url}")
+                    error_logger.info(f"   URL type: {'Shorts' if is_youtube_shorts else 'Clips' if is_youtube_clips else 'Regular'}")
+                    
+                    # Try service first
+                    error_logger.info(f"🔧 Checking service availability...")
                     if await self._check_service_health():
                         result = await self._download_from_service(url)
                         if result and result[0]:
-                            error_logger.info(f"Service download successful for: {url}")
+                            error_logger.info(f"✅ Service download successful for: {url}")
                             return result
                         else:
-                            error_logger.warning(f"Service download failed for: {url}, falling back to direct download")
+                            error_logger.warning(f"⚠️ Service download failed for: {url}, falling back to direct strategies")
                     else:
-                        error_logger.warning(f"Service unavailable for: {url}, falling back to direct download")
+                        error_logger.warning(f"⚠️ Service unavailable for: {url}, using direct strategies")
                 
                 # For TikTok, use direct download
                 if platform == Platform.TIKTOK:
                     return await self._download_tiktok_ytdlp(url)
                 
-                # For other platforms or YouTube fallback, use direct download
-                config = self.youtube_clips_config if is_youtube_clips else self.youtube_shorts_config if is_youtube_shorts else self.platform_configs.get(platform)
+                # For YouTube, try multiple strategies
+                if is_youtube:
+                    return await self._download_youtube_with_strategies(url, is_youtube_shorts, is_youtube_clips)
+                
+                # For other platforms, use direct download
+                config = self.platform_configs.get(platform)
                 return await self._download_generic(url, platform, config)
 
             except Exception as e:
                 error_logger.error(f"Download error for {url}: {e}")
                 return None, None
+
+    async def _download_youtube_with_strategies(self, url: str, is_shorts: bool = False, is_clips: bool = False) -> Tuple[Optional[str], Optional[str]]:
+        """Download YouTube video using multiple fallback strategies."""
+        error_logger.info(f"🎯 Starting YouTube download with multiple strategies for: {url}")
+        error_logger.info(f"   Type: {'Shorts' if is_shorts else 'Clips' if is_clips else 'Regular'}")
+        
+        # Define strategies in order of preference (Android client works best based on testing)
+        strategies = [
+            {
+                'name': 'Android client with simple formats',
+                'format': '18/22/best[ext=mp4]/best',
+                'args': [
+                    '--user-agent', 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
+                    '--extractor-args', 'youtube:player_client=android',
+                    '--sleep-interval', '1',
+                    '--max-sleep-interval', '3',
+                ]
+            },
+            {
+                'name': 'iOS client with H.264',
+                'format': 'bestvideo[vcodec^=avc1]+bestaudio/best[vcodec^=avc1]/18/22/best',
+                'args': [
+                    '--user-agent', 'com.google.ios.youtube/17.36.4 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
+                    '--extractor-args', 'youtube:player_client=ios',
+                ]
+            },
+            {
+                'name': 'Web client with headers',
+                'format': '18/22/best[ext=mp4]/best',
+                'args': [
+                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    '--referer', 'https://www.youtube.com/',
+                    '--extractor-args', 'youtube:player_client=web',
+                    '--sleep-interval', '1',
+                    '--max-sleep-interval', '3',
+                ]
+            },
+            {
+                'name': 'TV client fallback',
+                'format': 'best[ext=mp4]/best',
+                'args': [
+                    '--extractor-args', 'youtube:player_client=tv_embedded',
+                ]
+            },
+            {
+                'name': 'Any format fallback',
+                'format': 'best',
+                'args': [
+                    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                ]
+            }
+        ]
+        
+        # Try each strategy
+        for i, strategy in enumerate(strategies, 1):
+            error_logger.info(f"📋 Strategy {i}/{len(strategies)}: {strategy['name']}")
+            
+            try:
+                result = await self._try_youtube_strategy(url, strategy)
+                if result and result[0]:
+                    error_logger.info(f"✅ Strategy '{strategy['name']}' succeeded!")
+                    return result
+                else:
+                    error_logger.warning(f"❌ Strategy '{strategy['name']}' failed")
+            except Exception as e:
+                error_logger.error(f"❌ Strategy '{strategy['name']}' error: {e}")
+        
+        error_logger.error(f"❌ All YouTube strategies failed for {url}")
+        return None, None
+
+    async def _try_youtube_strategy(self, url: str, strategy: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+        """Try a single YouTube download strategy."""
+        unique_filename = f"yt_{uuid.uuid4().hex[:8]}.mp4"
+        output_path = os.path.join(self.download_path, unique_filename)
+        
+        # Build command
+        cmd = [
+            self.yt_dlp_path, url,
+            '-o', output_path,
+            '--merge-output-format', 'mp4',
+            '--no-check-certificate',
+            '--geo-bypass',
+            '--ignore-errors',
+            '--no-playlist',
+            '--socket-timeout', '30',
+            '--retries', '2',
+            '--fragment-retries', '2',
+            '-f', strategy['format']
+        ] + strategy['args']
+        
+        error_logger.info(f"   Command: {' '.join(cmd[:8])}... (truncated)")
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=90.0)
+            
+            if process.returncode == 0 and os.path.exists(output_path):
+                file_size = os.path.getsize(output_path)
+                error_logger.info(f"   ✅ Downloaded {file_size} bytes")
+                
+                # Get title
+                title = await self._get_video_title(url)
+                return output_path, title
+            else:
+                stderr_text = stderr.decode()
+                error_logger.warning(f"   ❌ Process failed (code {process.returncode})")
+                error_logger.warning(f"   Error: {stderr_text[:200]}...")
+                return None, None
+                
+        except asyncio.TimeoutError:
+            error_logger.warning(f"   ⏰ Strategy timed out after 90 seconds")
+            return None, None
+        except Exception as e:
+            error_logger.error(f"   ❌ Strategy execution error: {e}")
+            return None, None
+        finally:
+            # Clean up any partial files
+            if os.path.exists(output_path):
+                try:
+                    # Only remove if download failed
+                    if not (process.returncode == 0 and os.path.getsize(output_path) > 0):
+                        os.remove(output_path)
+                except:
+                    pass
 
     async def _get_video_title(self, url: str) -> str:
         try:
@@ -522,17 +714,33 @@ class VideoDownloader:
         """Handle download errors with standardized handling."""
         from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity, send_error_feedback
         
+        # Determine platform for better error context
+        platform = "unknown"
+        if "youtube.com" in url or "youtu.be" in url:
+            if "shorts" in url:
+                platform = "youtube.com/shorts"
+            elif "clip" in url:
+                platform = "youtube.com/clips"
+            else:
+                platform = "youtube.com"
+        elif "instagram.com" in url:
+            platform = "instagram.com"
+        elif "tiktok.com" in url:
+            platform = "tiktok.com"
+        else:
+            platform = next((p for p in self.supported_platforms if p in url), 'unknown')
+        
         # Create context information
         context = {
             "url": url,
-            "platform": next((p for p in self.supported_platforms if p in url), 'unknown'),
+            "platform": platform,
             "user_id": update.effective_user.id if update and update.effective_user else None,
             "username": update.effective_user.username if update and update.effective_user else None,
         }
         
         # Create a standard error
         error = ErrorHandler.create_error(
-            message=f"Failed to download video from {context['platform']}",
+            message=f"Failed to download video from {platform}",
             severity=ErrorSeverity.MEDIUM,
             category=ErrorCategory.NETWORK,
             context=context

@@ -75,7 +75,7 @@ class ApplicationBootstrapper:
             # Create service configuration
             service_config = ServiceConfiguration(
                 telegram_token=Config.TELEGRAM_BOT_TOKEN,
-                error_channel_id=Config.ERROR_CHANNEL_ID,
+                error_channel_id=Config.ERROR_CHANNEL_ID if Config.ERROR_CHANNEL_ID else None,
                 debug_mode=getattr(Config, 'DEBUG_MODE', False)
             )
             
@@ -365,30 +365,11 @@ class ApplicationBootstrapper:
             else:
                 signal_name = f"Signal {signum}"
             
-            logger.info(f"Received {signal_name}, initiating graceful shutdown...")
+            logger.info(f"Received signal {signum}, forcing immediate exit...")
             
-            # Prevent multiple signal handling
-            if hasattr(self, '_signal_received') and self._signal_received:
-                logger.warning("Signal already received, forcing immediate exit...")
-                sys.exit(0)
-                
-            self._signal_received = True
-            
-            # Set shutdown event to trigger graceful shutdown in main loop
-            if not self._shutdown_event.is_set():
-                self._shutdown_event.set()
-                logger.info("Shutdown event set, waiting for graceful shutdown...")
-            
-            # Set a timeout to force exit if graceful shutdown takes too long
-            def force_exit() -> None:
-                logger.warning("Graceful shutdown timeout reached, forcing exit...")
-                sys.exit(0)
-            
-            # Force exit after 5 seconds if graceful shutdown doesn't complete
-            import threading
-            timer = threading.Timer(5.0, force_exit)
-            timer.daemon = True
-            timer.start()
+            # Force exit immediately - no graceful shutdown
+            logger.warning("Signal received, exiting immediately...")
+            os._exit(0)
         
         # Store the signal handler for testing
         self._signal_handler_func = signal_handler
@@ -420,8 +401,6 @@ class ApplicationBootstrapper:
         # Validate required fields
         if not telegram_token:
             raise ValueError("TELEGRAM_TOKEN cannot be empty")
-        if not error_channel_id:
-            raise ValueError("ERROR_CHANNEL_ID cannot be empty")
         
         # Parse debug mode
         debug_mode = debug_mode_str in ('true', '1', 'yes', 'on')
@@ -471,10 +450,16 @@ class ApplicationBootstrapper:
             if self.bot_application:
                 try:
                     logger.info("Shutting down bot application...")
-                    await asyncio.wait_for(self.bot_application.shutdown(), timeout=3.0)
+                    await asyncio.wait_for(self.bot_application.shutdown(), timeout=10.0)
                     logger.info("Bot application shutdown completed")
                 except asyncio.TimeoutError:
-                    logger.warning("Bot application shutdown timed out, continuing...")
+                    logger.warning("Bot application shutdown timed out, forcing cleanup...")
+                    # Force cleanup if timeout
+                    if hasattr(self.bot_application, '_force_cleanup'):
+                        try:
+                            await asyncio.wait_for(self.bot_application._force_cleanup(), timeout=2.0)
+                        except Exception:
+                            pass
                 except Exception as e:
                     logger.error(f"Error shutting down bot application: {e}")
             

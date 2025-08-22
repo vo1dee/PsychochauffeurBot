@@ -510,10 +510,16 @@ class EnhancedAnalyzeCommand:
             raise ValueError(error_message)
         
         try:
+            # Parse the input date using DateParser
             target_date = DateParser.parse_date(args[1])
+            
+            # Get messages for the specified date (pass the date object directly)
             messages = await get_messages_for_chat_single_date(chat_id, target_date)
+            
+            # Format the date for display and caching
+            formatted_date = target_date.strftime('%Y-%m-%d')
             date_str = target_date.strftime('%d.%m.%Y')
-            time_period_key = f"date_{target_date.isoformat()}"
+            time_period_key = f"date_{formatted_date}"
             
             return "date", messages, date_str, time_period_key
             

@@ -183,6 +183,28 @@ class BotApplication(ServiceInterface):
             # Continue with cleanup even if there are errors
             await self._force_cleanup()
     
+    async def _force_cleanup(self) -> None:
+        """Force cleanup when graceful shutdown fails."""
+        logger.warning("Performing force cleanup...")
+        try:
+            # Force stop telegram app
+            if self.telegram_app:
+                try:
+                    # Cancel all running tasks
+                    if hasattr(self.telegram_app, '_updater') and self.telegram_app._updater:
+                        self.telegram_app._updater = None
+                    self.telegram_app = None
+                except Exception as e:
+                    logger.error(f"Error in force cleanup: {e}")
+            
+            # Clear all tracking
+            self._service_health.clear()
+            self._recovery_attempts.clear()
+            self._state = ApplicationState.STOPPED
+            logger.info("Force cleanup completed")
+        except Exception as e:
+            logger.error(f"Error during force cleanup: {e}")
+    
     async def _validate_configuration(self) -> None:
         """Validate application configuration."""
         if not Config.TELEGRAM_BOT_TOKEN:
@@ -319,11 +341,17 @@ class BotApplication(ServiceInterface):
             raise RuntimeError("Telegram application is not initialized")
             
         try:
-            self.telegram_app.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True,
-                stop_signals=None  # We handle signals ourselves
-            )
+            # Initialize and start the application properly
+            await self.telegram_app.initialize()
+            await self.telegram_app.start()
+            
+            # Start polling and store the task for proper cleanup
+            if self.telegram_app.updater:
+                await self.telegram_app.updater.start_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=True
+                )
+            logger.info("Telegram polling started successfully")
         except Exception as polling_error:
             logger.error(f"Polling failed: {polling_error}")
             await self._attempt_polling_recovery(polling_error)
@@ -368,12 +396,78 @@ class BotApplication(ServiceInterface):
             
     async def _stop_polling_gracefully(self) -> None:
         """Stop polling gracefully."""
-        if self.telegram_app:
-            try:
-                await self.telegram_app.stop()
-                logger.info("Telegram polling stopped gracefully")
-            except Exception as e:
-                logger.error(f"Error stopping polling: {e}")
+        if not self.telegram_app:
+            return
+            
+        logger.info("Stopping Telegram polling...")
+        
+        try:
+            # Force stop immediately - don't wait for graceful shutdown
+            await self._force_stop_telegram()
+            
+        except Exception as e:
+            logger.error(f"Error stopping polling: {e}")
+    
+    async def _force_stop_telegram(self) -> None:
+        """Force stop telegram application immediately."""
+        logger.info("Force stopping telegram application...")
+        try:
+            if self.telegram_app:
+                # Stop updater first
+                if hasattr(self.telegram_app, 'updater') and self.telegram_app.updater and self.telegram_app.updater.running:
+                    logger.info("Force stopping updater...")
+                    try:
+                        await asyncio.wait_for(self.telegram_app.updater.stop(), timeout=1.0)
+                        logger.info("Updater force stopped")
+                    except asyncio.TimeoutError:
+                        logger.warning("Updater stop timed out")
+                        # Force set running to False
+                        if hasattr(self.telegram_app.updater, '_running'):
+                            self.telegram_app.updater._running = False
+                
+                # Stop application
+                if self.telegram_app.running:
+                    logger.info("Force stopping telegram application...")
+                    try:
+                        await asyncio.wait_for(self.telegram_app.stop(), timeout=1.0)
+                        logger.info("Telegram application force stopped")
+                    except asyncio.TimeoutError:
+                        logger.warning("Telegram app stop timed out")
+                        # Force set running to False
+                        if hasattr(self.telegram_app, '_running'):
+                            self.telegram_app._running = False
+                
+                # Shutdown application
+                try:
+                    await asyncio.wait_for(self.telegram_app.shutdown(), timeout=1.0)
+                    logger.info("Telegram application shutdown completed")
+                except asyncio.TimeoutError:
+                    logger.warning("Telegram app shutdown timed out")
+                
+                # Cancel all remaining telegram tasks
+                current_task = asyncio.current_task()
+                all_tasks = [task for task in asyncio.all_tasks() if task != current_task and not task.done()]
+                
+                telegram_tasks = []
+                for task in all_tasks:
+                    # Check task name and coroutine name
+                    task_repr = str(task).lower()
+                    if any(keyword in task_repr for keyword in ['telegram', 'updater', 'polling', 'fetch', 'get_updates']):
+                        telegram_tasks.append(task)
+                        task.cancel()
+                        logger.info(f"Cancelled task: {task}")
+                
+                if telegram_tasks:
+                    logger.info(f"Cancelled {len(telegram_tasks)} telegram-related tasks")
+                
+                # Set to None to prevent further operations
+                self.telegram_app = None
+                logger.info("Telegram application force cleanup completed")
+                
+        except Exception as e:
+            logger.error(f"Error in force stop: {e}")
+            # Set to None anyway
+            self.telegram_app = None
                 
     async def _shutdown_specialized_services(self) -> None:
         """Shutdown specialized services in reverse dependency order."""
@@ -385,20 +479,6 @@ class BotApplication(ServiceInterface):
             
         # Services will be shutdown by the service registry
         logger.info("Specialized services marked for shutdown")
-        
-    async def _force_cleanup(self) -> None:
-        """Force cleanup in case of errors during shutdown."""
-        logger.warning("Performing force cleanup...")
-        
-        try:
-            if self.telegram_app:
-                await self.telegram_app.stop()
-        except Exception:
-            pass  # Ignore errors during force cleanup
-            
-        self._service_health.clear()
-        self._recovery_attempts.clear()
-        self._state = ApplicationState.ERROR
     
     async def _send_startup_notification(self) -> None:
         """Send startup notification."""
@@ -517,18 +597,9 @@ class BotApplication(ServiceInterface):
     
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
-        import signal
-        
-        def signal_handler(signum: int, frame: Any) -> None:
-            """Handle shutdown signals."""
-            logger.info(f"Received signal {signum}, initiating shutdown...")
-            # In production, this would be handled by ApplicationBootstrapper
-            # For tests, we just log the signal
-        
-        # Set up basic signal handlers for testing
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-        logger.info("Signal handlers configured")
+        # Signal handlers are now managed by ApplicationBootstrapper
+        # Don't register signal handlers here to avoid overriding the bootstrapper's handlers
+        logger.info("Signal handlers are managed by ApplicationBootstrapper - skipping local setup")
     
     def _setup_enhanced_signal_handlers(self) -> None:
         """Setup enhanced signal handlers for graceful shutdown."""

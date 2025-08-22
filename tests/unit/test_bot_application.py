@@ -33,7 +33,13 @@ class TestBotApplication:
         app = Mock(spec=Application)
         app.bot = Mock(spec=Bot)
         app.bot.send_message = AsyncMock()
-        app.run_polling = AsyncMock()
+        app.initialize = AsyncMock()
+        app.start = AsyncMock()
+        
+        # Mock the updater
+        mock_updater = Mock()
+        mock_updater.start_polling = AsyncMock()
+        app.updater = mock_updater
         app.stop = AsyncMock()
         return app
     
@@ -94,7 +100,14 @@ class TestBotApplication:
         mock_app = Mock(spec=Application)
         mock_app.bot = Mock(spec=Bot)
         mock_app.bot.send_message = AsyncMock()
-        mock_app.run_polling = AsyncMock()
+        mock_app.initialize = AsyncMock()
+        mock_app.start = AsyncMock()
+        
+        # Mock the updater
+        mock_updater = Mock()
+        mock_updater.start_polling = AsyncMock()
+        mock_app.updater = mock_updater
+        
         bot_app.telegram_app = mock_app
         bot_app.bot = mock_app.bot
         
@@ -104,8 +117,10 @@ class TestBotApplication:
                 
                 mock_startup.assert_called_once()
                 mock_signals.assert_called_once()
-                mock_app.run_polling.assert_called_once()
-                assert bot_app.is_running is False  # Set to False after run_polling completes
+                mock_app.initialize.assert_called_once()
+                mock_app.start.assert_called_once()
+                mock_updater.start_polling.assert_called_once()
+                assert bot_app.is_running is False  # Set to False after polling completes
     
     @pytest.mark.asyncio
     async def test_start_already_running(self, bot_app):
@@ -120,7 +135,14 @@ class TestBotApplication:
     async def test_start_polling_failure(self, bot_app):
         """Test start failure during polling with recovery exhaustion."""
         mock_app = Mock(spec=Application)
-        mock_app.run_polling = Mock(side_effect=RuntimeError("Polling failed"))
+        mock_app.initialize = AsyncMock()
+        mock_app.start = AsyncMock()
+        
+        # Mock the updater to fail
+        mock_updater = Mock()
+        mock_updater.start_polling = AsyncMock(side_effect=RuntimeError("Polling failed"))
+        mock_app.updater = mock_updater
+        
         bot_app.telegram_app = mock_app
         bot_app.bot = Mock()
         bot_app._max_recovery_attempts = 1  # Reduce attempts for faster test
@@ -252,22 +274,20 @@ class TestBotApplication:
     
     def test_setup_signal_handlers(self, bot_app):
         """Test signal handler setup."""
-        with patch('signal.signal') as mock_signal:
+        with patch('modules.bot_application.logger') as mock_logger:
             bot_app._setup_signal_handlers()
             
-            # Verify signal handlers were registered
-            assert mock_signal.call_count == 2
-            mock_signal.assert_any_call(signal.SIGINT, mock_signal.call_args_list[0][0][1])
-            mock_signal.assert_any_call(signal.SIGTERM, mock_signal.call_args_list[1][0][1])
+            # Verify that the method logs that signal handlers are managed by ApplicationBootstrapper
+            mock_logger.info.assert_called_with("Signal handlers are managed by ApplicationBootstrapper - skipping local setup")
     
     def test_signal_handler_functionality(self, bot_app):
         """Test signal handler functionality."""
-        # Test that signal handler setup works
-        with patch('signal.signal') as mock_signal:
+        # Test that signal handler setup works (now just logs)
+        with patch('modules.bot_application.logger') as mock_logger:
             bot_app._setup_signal_handlers()
             
-            # Verify signal handlers were registered
-            assert mock_signal.call_count >= 2  # SIGINT and SIGTERM
+            # Verify that the method logs appropriately
+            mock_logger.info.assert_called_with("Signal handlers are managed by ApplicationBootstrapper - skipping local setup")
             
             # Test the shutdown event can be set
             bot_app._shutdown_event.set()

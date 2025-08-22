@@ -356,11 +356,37 @@ class ServiceRegistry:
             if service_name in self._instances:
                 service = self._instances[service_name]
                 if hasattr(service, 'shutdown') and callable(getattr(service, 'shutdown')):
-                    if asyncio.iscoroutinefunction(service.shutdown):
-                        await service.shutdown()
+                    # Special handling for telegram_app which might be stuck
+                    if service_name == 'telegram_app':
+                        try:
+                            if asyncio.iscoroutinefunction(service.shutdown):
+                                await asyncio.wait_for(service.shutdown(), timeout=2.0)
+                            else:
+                                service.shutdown()
+                        except asyncio.TimeoutError:
+                            logger.warning(f"Service '{service_name}' shutdown timed out, skipping...")
+                            return
+                        except Exception as e:
+                            if "still running" in str(e):
+                                logger.warning(f"Service '{service_name}' still running, forcing cleanup...")
+                                # Force cleanup for telegram app
+                                try:
+                                    if hasattr(service, '_running'):
+                                        service._running = False
+                                except Exception:
+                                    pass
+                                return
+                            else:
+                                raise
                     else:
-                        service.shutdown()
+                        # Normal shutdown for other services
+                        if asyncio.iscoroutinefunction(service.shutdown):
+                            await asyncio.wait_for(service.shutdown(), timeout=5.0)
+                        else:
+                            service.shutdown()
                 logger.info(f"Shutdown service: {service_name}")
+        except asyncio.TimeoutError:
+            logger.warning(f"Service '{service_name}' shutdown timed out")
         except Exception as e:
             logger.error(f"Failed to shutdown service '{service_name}': {e}")
     
