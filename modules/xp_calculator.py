@@ -206,15 +206,24 @@ class ThankYouDetector(ActivityDetector):
 class XPCalculator:
     """Main XP calculation engine."""
     
-    def __init__(self):
-        """Initialize the XP calculator with activity detectors."""
+    def __init__(self, message_xp: int = 1, link_xp: int = 3, thanks_xp: int = 5):
+        """
+        Initialize the XP calculator with activity detectors and configurable XP rates.
+        
+        Args:
+            message_xp: XP awarded per message (default: 1)
+            link_xp: XP awarded for sharing links (default: 3)
+            thanks_xp: XP awarded for receiving thanks (default: 5)
+        """
         self.link_detector = LinkDetector()
         self.thank_you_detector = ThankYouDetector()
         
-        # XP rates as per requirements
-        self.MESSAGE_XP = 1
-        self.LINK_XP = 3
-        self.THANKS_XP = 5
+        # Configurable XP rates
+        self.MESSAGE_XP = message_xp
+        self.LINK_XP = link_xp
+        self.THANKS_XP = thanks_xp
+        
+        logger.info(f"XPCalculator initialized with rates: message={message_xp}, link={link_xp}, thanks={thanks_xp}")
     
     def calculate_message_xp(self, message: Message) -> int:
         """

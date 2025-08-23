@@ -2,8 +2,8 @@
 Comprehensive unit tests for the User Leveling System core components.
 
 This module provides extensive unit testing for XPCalculator, LevelManager, 
-AchievementEngine, and related components with full coverage of edge cases,
-error conditions, and requirements validation.
+and related components with full coverage of edge cases, error conditions, 
+and requirements validation.
 """
 
 import pytest
@@ -14,12 +14,10 @@ from typing import List, Dict, Any
 
 from telegram import Message, User, Chat
 
-# Import core components
+# Import core components that are available
 from modules.xp_calculator import XPCalculator, LinkDetector, ThankYouDetector, ActivityDetector
 from modules.level_manager import LevelManager
-from modules.achievement_engine import AchievementEngine, AchievementDefinitions
-from modules.leveling_models import UserStats, Achievement, UserAchievement, LevelUpResult
-from modules.repositories import UserStatsRepository, AchievementRepository
+from modules.leveling_models import UserStats, LevelUpResult
 
 # Import test base classes
 from tests.base_test_classes import BaseTestCase, AsyncBaseTestCase

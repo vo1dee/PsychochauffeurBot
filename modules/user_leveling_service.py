@@ -29,6 +29,7 @@ from modules.caching_system import cache_manager, CacheConfig, CacheBackend
 from modules.performance_monitor import performance_monitor, monitor_performance
 from modules.leveling_cache import leveling_cache
 from modules.leveling_performance_monitor import leveling_performance_monitor, record_processing_time, record_database_time
+from modules.leveling_config import LevelingConfigManager, LevelingSystemConfig, get_leveling_config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,8 @@ class UserLevelingService(ServiceInterface):
         # Service configuration
         self._service_config: Dict[str, Any] = {}
         self._enabled = True
+        self.leveling_config_manager: Optional[LevelingConfigManager] = None
+        self._current_leveling_config: Optional[LevelingSystemConfig] = None
         
         # Enhanced error handling and resilience
         self.error_boundary = health_monitor.register_service("user_leveling_service")
@@ -127,6 +130,9 @@ class UserLevelingService(ServiceInterface):
         logger.info("Initializing UserLevelingService with enhanced error handling...")
         
         try:
+            # Initialize leveling configuration manager
+            await self._initialize_leveling_config()
+            
             # Load service configuration with error handling
             await self._load_service_configuration()
             
@@ -167,6 +173,69 @@ class UserLevelingService(ServiceInterface):
             await self._initialize_degraded_mode()
             raise
     
+    async def _initialize_leveling_config(self) -> None:
+        """Initialize the leveling configuration manager."""
+        try:
+            self.leveling_config_manager = LevelingConfigManager(self.config_manager)
+            await self.leveling_config_manager.initialize()
+            
+            # Load current configuration
+            self._current_leveling_config = await self.leveling_config_manager.get_configuration()
+            
+            # Register for configuration changes
+            self.leveling_config_manager.register_change_callback(self._on_leveling_config_change)
+            
+            logger.info("Leveling configuration manager initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize leveling configuration manager: {e}", exc_info=True)
+            # Create default configuration as fallback
+            self._current_leveling_config = LevelingSystemConfig()
+    
+    async def _on_leveling_config_change(self, old_config: LevelingSystemConfig, new_config: LevelingSystemConfig) -> None:
+        """Handle leveling configuration changes."""
+        try:
+            logger.info("Leveling configuration changed, updating service")
+            
+            # Update current configuration
+            self._current_leveling_config = new_config
+            
+            # Update service enabled status
+            self._enabled = new_config.enabled
+            
+            # Update core components if needed
+            if (old_config.level_formula.base_xp != new_config.level_formula.base_xp or
+                old_config.level_formula.multiplier != new_config.level_formula.multiplier):
+                
+                # Reinitialize level manager with new parameters
+                self.level_manager = LevelManager(
+                    base_xp=new_config.level_formula.base_xp,
+                    multiplier=new_config.level_formula.multiplier
+                )
+                logger.info("Level manager updated with new formula parameters")
+            
+            # Update rate limiting parameters
+            if old_config.rate_limiting != new_config.rate_limiting:
+                self._max_xp_per_window = new_config.rate_limiting.max_xp_per_minute
+                self._rate_limit_window = new_config.rate_limiting.window_size_seconds
+                logger.info("Rate limiting parameters updated")
+            
+            # Update performance thresholds
+            if old_config.performance != new_config.performance:
+                self._max_processing_time = new_config.performance.max_processing_time_ms / 1000.0
+                self._performance_degradation_threshold = new_config.performance.performance_degradation_threshold_ms / 1000.0
+                logger.info("Performance thresholds updated")
+            
+            # Update cache configuration if needed
+            if old_config.cache != new_config.cache and self._cache:
+                # Note: Cache reconfiguration would require cache system support
+                logger.info("Cache configuration changed (requires cache system restart)")
+            
+            logger.info("Leveling configuration update completed")
+            
+        except Exception as e:
+            logger.error(f"Error handling leveling configuration change: {e}", exc_info=True)
+
     async def _initialize_caching(self) -> None:
         """Initialize caching system for performance optimization."""
         try:
@@ -205,11 +274,26 @@ class UserLevelingService(ServiceInterface):
     async def _initialize_core_components(self) -> None:
         """Initialize core components with error handling."""
         try:
-            self.xp_calculator = XPCalculator()
-            self.level_manager = LevelManager(
-                base_xp=self._service_config.get('level_base_xp', 50),
-                multiplier=self._service_config.get('level_multiplier', 2.0)
-            )
+            # Initialize XP calculator with configuration
+            if self._current_leveling_config:
+                self.xp_calculator = XPCalculator(
+                    message_xp=self._current_leveling_config.xp_rates.message,
+                    link_xp=self._current_leveling_config.xp_rates.link,
+                    thanks_xp=self._current_leveling_config.xp_rates.thanks
+                )
+                
+                self.level_manager = LevelManager(
+                    base_xp=self._current_leveling_config.level_formula.base_xp,
+                    multiplier=self._current_leveling_config.level_formula.multiplier
+                )
+            else:
+                # Fallback to defaults
+                self.xp_calculator = XPCalculator()
+                self.level_manager = LevelManager(
+                    base_xp=self._service_config.get('level_base_xp', 50),
+                    multiplier=self._service_config.get('level_multiplier', 2.0)
+                )
+            
             logger.info("Core components initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize core components: {e}")
@@ -238,7 +322,19 @@ class UserLevelingService(ServiceInterface):
     async def _initialize_notification_service(self) -> None:
         """Initialize notification service."""
         try:
-            notification_config = self._service_config.get('notifications', {})
+            if self._current_leveling_config:
+                notification_config = {
+                    'enabled': self._current_leveling_config.notifications.enabled,
+                    'level_up_enabled': self._current_leveling_config.notifications.level_up_enabled,
+                    'achievements_enabled': self._current_leveling_config.notifications.achievements_enabled,
+                    'celebration_emoji': self._current_leveling_config.notifications.celebration_emoji,
+                    'batch_achievements': self._current_leveling_config.notifications.batch_achievements,
+                    'max_achievements_per_message': self._current_leveling_config.notifications.max_achievements_per_message
+                }
+            else:
+                # Fallback to legacy configuration
+                notification_config = self._service_config.get('notifications', {})
+            
             self.notification_service = LevelingNotificationService(notification_config)
             logger.info("Notification service initialized successfully")
         except Exception as e:
@@ -511,7 +607,11 @@ class UserLevelingService(ServiceInterface):
             is_thanks: Whether this is a thanks XP award (for thanked user)
         """
         # Apply enhanced rate limiting
-        if self._service_config.get('rate_limiting_enabled', False):
+        rate_limiting_enabled = (self._current_leveling_config.rate_limiting.enabled 
+                               if self._current_leveling_config 
+                               else self._service_config.get('rate_limiting_enabled', False))
+        
+        if rate_limiting_enabled:
             if not self._check_rate_limit(user_id, xp_amount):
                 self._stats['rate_limited'] += 1
                 logger.debug(f"Rate limited user {user_id} for {xp_amount} XP")
@@ -622,7 +722,11 @@ class UserLevelingService(ServiceInterface):
             original_message: Original message that triggered the notifications
             context: Bot context for sending messages
         """
-        if not self._service_config.get('notifications_enabled', True) or not self.notification_service:
+        notifications_enabled = (self._current_leveling_config.notifications.enabled 
+                                if self._current_leveling_config 
+                                else self._service_config.get('notifications_enabled', True))
+        
+        if not notifications_enabled or not self.notification_service:
             return
         
         try:
@@ -874,6 +978,110 @@ class UserLevelingService(ServiceInterface):
             }
             self._enabled = True
     
+    async def update_configuration(self, config_updates: Dict[str, Any]) -> bool:
+        """
+        Update leveling system configuration at runtime.
+        
+        Args:
+            config_updates: Dictionary of configuration updates
+            
+        Returns:
+            True if update was successful, False otherwise
+        """
+        if not self.leveling_config_manager:
+            logger.error("Cannot update configuration: leveling config manager not initialized")
+            return False
+        
+        try:
+            success = await self.leveling_config_manager.update_partial_configuration(config_updates)
+            if success:
+                logger.info(f"Configuration updated successfully: {config_updates}")
+            else:
+                logger.error(f"Failed to update configuration: {config_updates}")
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error updating configuration: {e}", exc_info=True)
+            return False
+    
+    async def toggle_feature(self, feature_path: str, enabled: bool) -> bool:
+        """
+        Toggle a specific feature on or off.
+        
+        Args:
+            feature_path: Dot-separated path to the feature (e.g., 'notifications.level_up_enabled')
+            enabled: Whether to enable or disable the feature
+            
+        Returns:
+            True if toggle was successful, False otherwise
+        """
+        if not self.leveling_config_manager:
+            logger.error("Cannot toggle feature: leveling config manager not initialized")
+            return False
+        
+        try:
+            success = await self.leveling_config_manager.toggle_feature(feature_path, enabled)
+            if success:
+                logger.info(f"Feature {feature_path} {'enabled' if enabled else 'disabled'}")
+            else:
+                logger.error(f"Failed to toggle feature {feature_path}")
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error toggling feature {feature_path}: {e}", exc_info=True)
+            return False
+    
+    async def get_feature_status(self, feature_path: str) -> Optional[bool]:
+        """
+        Get the status of a specific feature.
+        
+        Args:
+            feature_path: Dot-separated path to the feature
+            
+        Returns:
+            Feature status or None if not found
+        """
+        if not self.leveling_config_manager:
+            return None
+        
+        try:
+            return await self.leveling_config_manager.get_feature_status(feature_path)
+        except Exception as e:
+            logger.error(f"Error getting feature status for {feature_path}: {e}", exc_info=True)
+            return None
+    
+    async def reload_configuration(self) -> bool:
+        """
+        Reload configuration from the global config manager.
+        
+        Returns:
+            True if reload was successful, False otherwise
+        """
+        if not self.leveling_config_manager:
+            logger.error("Cannot reload configuration: leveling config manager not initialized")
+            return False
+        
+        try:
+            await self.leveling_config_manager.load_configuration()
+            logger.info("Configuration reloaded successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error reloading configuration: {e}", exc_info=True)
+            return False
+    
+    def get_current_configuration(self) -> Optional[Dict[str, Any]]:
+        """
+        Get the current leveling system configuration.
+        
+        Returns:
+            Current configuration as dictionary or None if not available
+        """
+        if not self._current_leveling_config:
+            return None
+        
+        return self._current_leveling_config.to_dict()
+    
     def _check_rate_limit(self, user_id: int, xp_amount: int) -> bool:
         """
         Check if user is within rate limits for XP earning.
@@ -888,7 +1096,9 @@ class UserLevelingService(ServiceInterface):
             True if within limits, False if rate limited
         """
         current_time = time.time()
-        max_xp = self._service_config.get('max_xp_per_minute', self._max_xp_per_window)
+        max_xp = (self._current_leveling_config.rate_limiting.max_xp_per_minute 
+                 if self._current_leveling_config 
+                 else self._service_config.get('max_xp_per_minute', self._max_xp_per_window))
         
         # Initialize user tracking if not exists
         if user_id not in self._user_xp_timestamps:
@@ -1159,9 +1369,15 @@ class UserLevelingService(ServiceInterface):
             'enabled': self._enabled,
             'stats': self._stats.copy(),
             'config': self._service_config.copy(),
+            'leveling_config': (self.leveling_config_manager.get_config_summary() 
+                              if self.leveling_config_manager else None),
             'rate_limiting': {
-                'enabled': self._service_config.get('rate_limiting_enabled', False),
-                'max_xp_per_minute': self._service_config.get('max_xp_per_minute', self._max_xp_per_window),
+                'enabled': (self._current_leveling_config.rate_limiting.enabled 
+                          if self._current_leveling_config 
+                          else self._service_config.get('rate_limiting_enabled', False)),
+                'max_xp_per_minute': (self._current_leveling_config.rate_limiting.max_xp_per_minute 
+                                    if self._current_leveling_config 
+                                    else self._service_config.get('max_xp_per_minute', self._max_xp_per_window)),
                 'active_users': len(self._user_xp_timestamps)
             },
             'health_status': health_status.__dict__ if health_status else None,

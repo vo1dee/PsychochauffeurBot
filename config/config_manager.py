@@ -342,18 +342,57 @@ class ConfigManager:
                     "leveling_system": {
                         "enabled": True,
                         "overrides": {
-                            "level_base_xp": 50,
-                            "level_multiplier": 2.0,
+                            "enabled": True,
                             "xp_rates": {
                                 "message": 1,
                                 "link": 3,
                                 "thanks": 5
                             },
-                            "notifications_enabled": True,
-                            "rate_limiting_enabled": False,
-                            "max_xp_per_minute": 10,
-                            "perform_startup_retroactive_checks": False,
-                            "celebration_emoji": True
+                            "level_formula": {
+                                "formula": "exponential",
+                                "base_xp": 50,
+                                "multiplier": 2.0,
+                                "linear_increment": 100,
+                                "logarithmic_base": 1.5,
+                                "custom_thresholds": []
+                            },
+                            "rate_limiting": {
+                                "enabled": False,
+                                "max_xp_per_minute": 10,
+                                "window_size_seconds": 60,
+                                "burst_limit": 5
+                            },
+                            "notifications": {
+                                "enabled": True,
+                                "level_up_enabled": True,
+                                "achievements_enabled": True,
+                                "celebration_emoji": True,
+                                "batch_achievements": True,
+                                "max_achievements_per_message": 5
+                            },
+                            "cache": {
+                                "enabled": True,
+                                "user_stats_ttl": 300,
+                                "achievements_ttl": 3600,
+                                "leaderboard_ttl": 600,
+                                "max_cache_size": 1000
+                            },
+                            "performance": {
+                                "monitoring_enabled": True,
+                                "max_processing_time_ms": 100,
+                                "performance_degradation_threshold_ms": 500,
+                                "health_check_interval_seconds": 300,
+                                "circuit_breaker_enabled": True,
+                                "circuit_breaker_failure_threshold": 5,
+                                "circuit_breaker_recovery_timeout": 60
+                            },
+                            "retroactive": {
+                                "perform_startup_checks": False,
+                                "check_achievements_on_profile": true,
+                                "check_levels_on_profile": true,
+                                "batch_size": 100,
+                                "max_concurrent_checks": 5
+                            }
                         }
                     }
                 }
