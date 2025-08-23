@@ -110,6 +110,7 @@ class Achievement:
     title: str
     description: str
     emoji: str
+    sticker: str
     condition_type: str
     condition_value: int
     category: str
@@ -127,6 +128,7 @@ class Achievement:
             'title': self.title,
             'description': self.description,
             'emoji': self.emoji,
+            'sticker': self.sticker,
             'condition_type': self.condition_type,
             'condition_value': self.condition_value,
             'category': self.category,

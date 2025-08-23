@@ -6,7 +6,7 @@
   - Create database indexes for performance optimization
   - _Requirements: 6.1, 6.2, 6.3, 6.4_
 
-- [ ] 2. Implement core XP calculation engine
+- [x] 2. Implement core XP calculation engine
   - Create XPCalculator class with message, link, and thanks XP calculation methods
   - Implement LinkDetector for identifying URLs in messages
   - Implement ThankYouDetector for identifying gratitude expressions with mentions
