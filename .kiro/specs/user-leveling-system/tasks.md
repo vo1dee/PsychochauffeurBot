@@ -56,7 +56,7 @@
   - Check for stats and achievmens based on current db stats per user (retroactively)
   - _Requirements: 1.5, 2.5, 7.1, 7.2, 8.1, 8.4_
 
-- [ ] 8. Create notification system
+- [x] 8. Create notification system
 
   - Implement level-up celebration messages sent to group chat
   - Implement achievement unlock celebration messages
@@ -64,7 +64,7 @@
   - Create tests for notification message generation
   - _Requirements: 2.2, 3.50_
 
-- [ ] 9. Implement profile command functionality
+- [-] 9. Implement profile command functionality
 
   - Create /profile command handler showing user stats, level, XP, and achievements
   - Add support for viewing other users' profiles with @username parameter

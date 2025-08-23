@@ -20,6 +20,7 @@ from modules.level_manager import LevelManager
 from modules.achievement_engine import AchievementEngine
 from modules.repositories import UserStatsRepository, AchievementRepository
 from modules.leveling_models import UserStats, UserProfile, LevelUpResult
+from modules.leveling_notification_service import LevelingNotificationService
 from modules.types import UserId, ChatId
 from modules.error_decorators import database_operation
 from modules.service_error_boundary import ServiceErrorBoundary
@@ -57,6 +58,9 @@ class UserLevelingService(ServiceInterface):
         # Repositories
         self.user_stats_repo: Optional[UserStatsRepository] = None
         self.achievement_repo: Optional[AchievementRepository] = None
+        
+        # Notification service
+        self.notification_service: Optional[LevelingNotificationService] = None
         
         # Service configuration
         self._service_config: Dict[str, Any] = {}
@@ -114,6 +118,10 @@ class UserLevelingService(ServiceInterface):
             # Initialize achievement engine with repository
             self.achievement_engine = AchievementEngine(self.achievement_repo)
             
+            # Initialize notification service
+            notification_config = self._service_config.get('notifications', {})
+            self.notification_service = LevelingNotificationService(notification_config)
+            
             # Initialize achievement definitions in database
             await self.achievement_engine.initialize_achievement_definitions()
             
@@ -147,6 +155,7 @@ class UserLevelingService(ServiceInterface):
             self.achievement_engine = None
             self.user_stats_repo = None
             self.achievement_repo = None
+            self.notification_service = None
             
             self._initialized = False
             logger.info("UserLevelingService shutdown completed")
@@ -368,81 +377,31 @@ class UserLevelingService(ServiceInterface):
             original_message: Original message that triggered the notifications
             context: Bot context for sending messages
         """
-        if not self._service_config.get('notifications_enabled', True):
+        if not self._service_config.get('notifications_enabled', True) or not self.notification_service:
             return
         
         try:
+            user = original_message.from_user
+            if not user:
+                logger.warning("Cannot send notifications: no user info in message")
+                return
+            
             # Send level up notification
             if level_up_result:
-                await self._send_level_up_notification(level_up_result, original_message, context)
+                await self.notification_service.send_level_up_notification(
+                    level_up_result, user, original_message, context
+                )
             
-            # Send achievement notifications
-            for achievement in new_achievements:
-                await self._send_achievement_notification(achievement, original_message, context)
+            # Send achievement notifications (batch multiple achievements if applicable)
+            if new_achievements:
+                await self.notification_service.send_multiple_achievements_notification(
+                    new_achievements, user, original_message, context
+                )
                 
         except Exception as e:
             logger.error(f"Error sending notifications: {e}", exc_info=True)
     
-    async def _send_level_up_notification(
-        self,
-        level_up_result: LevelUpResult,
-        original_message: Message,
-        context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """
-        Send a level up celebration message.
-        
-        Args:
-            level_up_result: Level up information
-            original_message: Original message that triggered the level up
-            context: Bot context
-        """
-        try:
-            user = original_message.from_user
-            username = user.username or user.first_name or f"User {user.id}"
-            
-            message_text = (
-                f"🎉 Congratulations {username}! 🎉\n"
-                f"You've reached Level {level_up_result.new_level}!\n"
-                f"Total XP: {level_up_result.total_xp}\n\n"
-                f"Use /profile to see your stats and achievements!"
-            )
-            
-            await original_message.reply_text(message_text)
-            logger.info(f"Sent level up notification for user {level_up_result.user_id}")
-            
-        except Exception as e:
-            logger.error(f"Failed to send level up notification: {e}", exc_info=True)
-    
-    async def _send_achievement_notification(
-        self,
-        achievement: Any,
-        original_message: Message,
-        context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """
-        Send an achievement unlock celebration message.
-        
-        Args:
-            achievement: Unlocked achievement
-            original_message: Original message that triggered the achievement
-            context: Bot context
-        """
-        try:
-            user = original_message.from_user
-            username = user.username or user.first_name or f"User {user.id}"
-            
-            message_text = (
-                f"🏆 Achievement Unlocked! 🏆\n"
-                f"{username} earned: {achievement.emoji} {achievement.title}\n"
-                f"{achievement.description}"
-            )
-            
-            await original_message.reply_text(message_text)
-            logger.info(f"Sent achievement notification for {achievement.id}")
-            
-        except Exception as e:
-            logger.error(f"Failed to send achievement notification: {e}", exc_info=True)
+
     
     async def get_user_profile(self, user_id: UserId, chat_id: ChatId) -> Optional[UserProfile]:
         """

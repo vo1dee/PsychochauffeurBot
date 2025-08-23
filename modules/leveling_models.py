@@ -324,17 +324,19 @@ class LevelUpResult:
     
     Contains information about whether a level up occurred and the new level.
     """
-    leveled_up: bool
+    user_id: UserId
     old_level: int
     new_level: int
-    xp_for_next_level: int
+    total_xp: int
+    xp_for_next_level: Optional[int] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
-            'leveled_up': self.leveled_up,
+            'user_id': self.user_id,
             'old_level': self.old_level,
             'new_level': self.new_level,
+            'total_xp': self.total_xp,
             'xp_for_next_level': self.xp_for_next_level
         }
 
