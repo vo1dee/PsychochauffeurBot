@@ -139,6 +139,16 @@ class ServiceFactory:
         
         logger.debug("Creating global ServiceErrorBoundary")
         return ServiceErrorBoundary("global")
+    
+    @staticmethod
+    def create_user_leveling_service(registry: ServiceRegistry, **kwargs: Any) -> Any:
+        """Create UserLevelingService with injected dependencies."""
+        from modules.user_leveling_service import UserLevelingService
+        
+        config_manager = registry.get_service('config_manager')
+        
+        logger.debug("Creating UserLevelingService with injected dependencies")
+        return UserLevelingService(config_manager=config_manager)
 
 
 # Convenience functions for common service creation patterns

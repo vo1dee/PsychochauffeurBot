@@ -277,7 +277,7 @@ class CommandRegistry(ServiceInterface):
         """Register utility commands."""
         from modules.handlers.utility_commands import (
             cat_command, screenshot_command, count_command, 
-            missing_command, error_report_command
+            missing_command, error_report_command, profile_command, leaderboard_command
         )
         from modules.weather import WeatherCommandHandler
         from modules.geomagnetic import GeomagneticCommandHandler
@@ -365,6 +365,29 @@ class CommandRegistry(ServiceInterface):
             admin_only=True,
             usage="/error_report",
             examples=["/error_report"]
+        ))
+        
+        # Profile command for leveling system
+        self.register_command(CommandInfo(
+            name="profile",
+            description="Show your level, XP, and achievements",
+            category=CommandCategory.UTILITY,
+            handler_func=profile_command,
+            group_only=True,
+            usage="/profile [@username]",
+            examples=["/profile", "/profile @john"]
+        ))
+        
+        # Leaderboard command for leveling system
+        self.register_command(CommandInfo(
+            name="leaderboard",
+            description="Show chat leaderboard",
+            category=CommandCategory.UTILITY,
+            handler_func=leaderboard_command,
+            aliases=["top", "rank"],
+            group_only=True,
+            usage="/leaderboard [limit]",
+            examples=["/leaderboard", "/leaderboard 20"]
         ))
         
         logger.info("Registered utility commands")

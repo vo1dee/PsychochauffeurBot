@@ -7,7 +7,9 @@ level management, achievement checking, and notifications.
 
 import logging
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timedelta
+import asyncio
+import time
 
 from telegram import Update, Message
 from telegram.ext import ContextTypes
@@ -69,8 +71,20 @@ class UserLevelingService(ServiceInterface):
             'xp_awarded': 0,
             'levels_gained': 0,
             'achievements_unlocked': 0,
-            'errors': 0
+            'errors': 0,
+            'rate_limited': 0,
+            'processing_time_total': 0.0,
+            'processing_time_avg': 0.0
         }
+        
+        # Rate limiting
+        self._user_xp_timestamps: Dict[int, List[float]] = {}
+        self._rate_limit_window = 60  # 1 minute window
+        self._max_xp_per_window = 10  # Max XP per user per minute
+        
+        # Performance monitoring
+        self._processing_times: List[float] = []
+        self._max_processing_time = 0.1  # 100ms max processing time
         
         logger.info("UserLevelingService instance created")
     
@@ -157,9 +171,29 @@ class UserLevelingService(ServiceInterface):
         if update.effective_chat and update.effective_chat.type == 'private':
             return
         
+        # Performance monitoring
+        start_time = time.time()
+        
         try:
             await self._process_user_message(update.message, context)
             self._stats['messages_processed'] += 1
+            
+            # Track processing time
+            processing_time = time.time() - start_time
+            self._processing_times.append(processing_time)
+            self._stats['processing_time_total'] += processing_time
+            
+            # Keep only recent processing times for average calculation
+            if len(self._processing_times) > 100:
+                self._processing_times = self._processing_times[-50:]
+            
+            # Update average processing time
+            if self._processing_times:
+                self._stats['processing_time_avg'] = sum(self._processing_times) / len(self._processing_times)
+            
+            # Log performance warning if processing is slow
+            if processing_time > self._max_processing_time:
+                logger.warning(f"Slow leveling processing: {processing_time:.3f}s (max: {self._max_processing_time:.3f}s)")
             
         except Exception as e:
             logger.error(f"Error processing message for leveling: {e}", exc_info=True)
@@ -207,6 +241,13 @@ class UserLevelingService(ServiceInterface):
             message: Original message that triggered the XP
             context: Bot context for sending notifications
         """
+        # Apply rate limiting if enabled
+        if self._service_config.get('rate_limiting_enabled', False):
+            if not self._check_rate_limit(user_id, xp_amount):
+                self._stats['rate_limited'] += 1
+                logger.debug(f"Rate limited user {user_id} for {xp_amount} XP")
+                return
+        
         # Get or create user stats
         user_stats = await self.user_stats_repo.get_user_stats(user_id, chat_id)
         if not user_stats:
@@ -385,6 +426,17 @@ class UserLevelingService(ServiceInterface):
             if not user_stats:
                 return None
             
+            # Recalculate level based on current XP (retroactive)
+            await self.recalculate_user_level(user_id, chat_id)
+            
+            # Check for any missing achievements (retroactive)
+            await self.check_retroactive_achievements(user_id, chat_id)
+            
+            # Get updated user stats after retroactive checks
+            user_stats = await self.user_stats_repo.get_user_stats(user_id, chat_id)
+            if not user_stats:
+                return None
+            
             # Get user achievements
             achievements = await self.achievement_repo.get_user_achievements(user_id, chat_id)
             
@@ -498,6 +550,44 @@ class UserLevelingService(ServiceInterface):
             self._service_config = {'enabled': True}
             self._enabled = True
     
+    def _check_rate_limit(self, user_id: int, xp_amount: int) -> bool:
+        """
+        Check if user is within rate limits for XP earning.
+        
+        Args:
+            user_id: User ID to check
+            xp_amount: Amount of XP being awarded
+            
+        Returns:
+            True if within limits, False if rate limited
+        """
+        current_time = time.time()
+        max_xp = self._service_config.get('max_xp_per_minute', self._max_xp_per_window)
+        
+        # Initialize user tracking if not exists
+        if user_id not in self._user_xp_timestamps:
+            self._user_xp_timestamps[user_id] = []
+        
+        # Clean old timestamps outside the window
+        window_start = current_time - self._rate_limit_window
+        self._user_xp_timestamps[user_id] = [
+            timestamp for timestamp in self._user_xp_timestamps[user_id]
+            if timestamp > window_start
+        ]
+        
+        # Calculate current XP in window (assuming 1 XP per timestamp for simplicity)
+        current_xp_in_window = len(self._user_xp_timestamps[user_id])
+        
+        # Check if adding this XP would exceed the limit
+        if current_xp_in_window + xp_amount > max_xp:
+            return False
+        
+        # Add timestamps for the XP being awarded
+        for _ in range(xp_amount):
+            self._user_xp_timestamps[user_id].append(current_time)
+        
+        return True
+    
     def get_service_stats(self) -> Dict[str, Any]:
         """
         Get service performance statistics.
@@ -509,9 +599,90 @@ class UserLevelingService(ServiceInterface):
             'initialized': self._initialized,
             'enabled': self._enabled,
             'stats': self._stats.copy(),
-            'config': self._service_config.copy()
+            'config': self._service_config.copy(),
+            'rate_limiting': {
+                'enabled': self._service_config.get('rate_limiting_enabled', False),
+                'max_xp_per_minute': self._service_config.get('max_xp_per_minute', self._max_xp_per_window),
+                'active_users': len(self._user_xp_timestamps)
+            }
         }
     
     def is_enabled(self) -> bool:
         """Check if the leveling service is enabled."""
         return self._initialized and self._enabled
+    
+    async def check_retroactive_achievements(self, user_id: UserId, chat_id: ChatId) -> List[Any]:
+        """
+        Check and unlock achievements based on current user stats (retroactively).
+        
+        This method is called when a user requests their profile or when the system
+        needs to ensure all achievements are properly unlocked based on current stats.
+        
+        Args:
+            user_id: User ID to check
+            chat_id: Chat ID
+            
+        Returns:
+            List of newly unlocked achievements
+        """
+        if not self._initialized or not self._enabled:
+            return []
+        
+        try:
+            # Get current user stats
+            user_stats = await self.user_stats_repo.get_user_stats(user_id, chat_id)
+            if not user_stats:
+                return []
+            
+            # Check for achievements based on current stats
+            new_achievements = await self.achievement_engine.check_achievements(user_stats)
+            
+            if new_achievements:
+                logger.info(f"Retroactively unlocked {len(new_achievements)} achievements for user {user_id}")
+                self._stats['achievements_unlocked'] += len(new_achievements)
+            
+            return new_achievements
+            
+        except Exception as e:
+            logger.error(f"Error checking retroactive achievements for user {user_id}: {e}", exc_info=True)
+            return []
+    
+    async def recalculate_user_level(self, user_id: UserId, chat_id: ChatId) -> Optional[int]:
+        """
+        Recalculate and update user level based on current XP.
+        
+        This ensures level is consistent with XP, useful for retroactive updates.
+        
+        Args:
+            user_id: User ID
+            chat_id: Chat ID
+            
+        Returns:
+            New level if updated, None if no change or error
+        """
+        if not self._initialized or not self._enabled:
+            return None
+        
+        try:
+            # Get current user stats
+            user_stats = await self.user_stats_repo.get_user_stats(user_id, chat_id)
+            if not user_stats:
+                return None
+            
+            # Calculate correct level based on current XP
+            correct_level = self.level_manager.calculate_level(user_stats.xp)
+            
+            # Update if different
+            if correct_level != user_stats.level:
+                old_level = user_stats.level
+                user_stats.level = correct_level
+                await self.user_stats_repo.update_user_stats(user_stats)
+                
+                logger.info(f"Recalculated level for user {user_id}: {old_level} -> {correct_level}")
+                return correct_level
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error recalculating level for user {user_id}: {e}", exc_info=True)
+            return None

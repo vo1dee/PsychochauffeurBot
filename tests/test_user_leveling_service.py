@@ -281,6 +281,7 @@ class TestUserLevelingService:
             # Mock level manager
             mock_level_mgr = Mock()
             mock_level_mgr.get_level_threshold.side_effect = lambda level: level * 50
+            mock_level_mgr.calculate_level.return_value = 2  # Return the same level to avoid changes
             mock_level_mgr_class.return_value = mock_level_mgr
             
             mock_ach_engine_instance = AsyncMock()

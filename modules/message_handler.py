@@ -14,6 +14,38 @@ from .const import Stickers
 from .logger import error_logger, general_logger
 from .chat_streamer import chat_streamer
 
+async def _process_leveling_system(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Process message for the leveling system with performance safeguards.
+    
+    This function integrates the leveling system with the message processing pipeline,
+    handling XP calculation, level progression, and achievement checking.
+    """
+    try:
+        # Get service registry from bot_data
+        service_registry = context.bot_data.get('service_registry')
+        if not service_registry:
+            # Leveling system not available, skip processing
+            return
+        
+        # Get leveling service
+        try:
+            leveling_service = service_registry.get_service('user_leveling_service')
+        except (ValueError, KeyError):
+            # Leveling service not registered or not available
+            return
+        
+        # Check if leveling service is enabled
+        if not leveling_service or not leveling_service.is_enabled():
+            return
+        
+        # Process message for leveling (with built-in error handling)
+        await leveling_service.process_message(update, context)
+        
+    except Exception as e:
+        # Log error but don't interrupt message processing
+        error_logger.error(f"Error in leveling system processing: {e}", exc_info=True)
+
 async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle incoming messages and store them in the database.
@@ -29,6 +61,9 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
         # Stream message to log file first - this handles ALL message types
         await chat_streamer.stream_message(update, context)
         general_logger.info("Message streamed to log file")
+        
+        # Process message for leveling system (before other processing)
+        await _process_leveling_system(update, context)
         
         # Only save to database if it's a text message, bot reply, or has image description
         if update.message:

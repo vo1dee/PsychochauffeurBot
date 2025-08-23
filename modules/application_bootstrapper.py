@@ -299,6 +299,21 @@ class ApplicationBootstrapper:
         except ImportError as e:
             logger.warning(f"ServiceErrorBoundary not available, skipping registration: {e}")
         
+        # Register user leveling service with config_manager dependency
+        try:
+            service_registry.register_factory(
+                'user_leveling_service',
+                type(None),  # Placeholder type
+                ServiceFactory.create_user_leveling_service,
+                dependencies=['config_manager'],
+                scope=ServiceScope.SINGLETON
+            )
+            logger.info("UserLevelingService factory registered successfully")
+        except ImportError as e:
+            logger.warning(f"UserLevelingService not available, skipping registration: {e}")
+        except Exception as e:
+            logger.error(f"Failed to register UserLevelingService: {e}", exc_info=True)
+        
         logger.info("Specialized services registered with dependency injection using service factories")
     
     async def start_application(self) -> None:

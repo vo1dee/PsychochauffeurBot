@@ -864,7 +864,7 @@ class AchievementEngine:
         # Check for swear words (basic detection)
         # This is a simplified implementation - in production you'd want a more sophisticated approach
         swear_patterns = [
-            r'\b(блять|сука|хуй|пизда|ебать|fuck|shit|damn)\b'
+            r'\b(блять|сука|хуй|пизда|ебать|fuck|shit|damn|пізда|їбать|блядь|сука)\b'
         ]
         
         swear_count = 0

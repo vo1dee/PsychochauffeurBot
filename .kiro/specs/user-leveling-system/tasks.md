@@ -53,6 +53,7 @@
   - Add real-time XP calculation and user stats updates
   - Implement level-up and achievement checking after each message
   - Add performance safeguards and rate limiting
+  - Check for stats and achievmens based on current db stats per user (retroactively)
   - _Requirements: 1.5, 2.5, 7.1, 7.2, 8.1, 8.4_
 
 - [ ] 8. Create notification system
