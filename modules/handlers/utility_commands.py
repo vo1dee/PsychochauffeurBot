@@ -16,6 +16,48 @@ from modules.error_analytics import error_report_command as _error_report
 logger = logging.getLogger(__name__)
 
 
+async def _find_user_by_username(username: str, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> tuple[int, str]:
+    """
+    Find a user by username in the chat.
+    
+    Args:
+        username: Username to search for (without @)
+        chat_id: Chat ID to search in
+        context: Bot context
+        
+    Returns:
+        Tuple of (user_id, display_name) or (None, None) if not found
+    """
+    try:
+        # Get database service
+        service_registry = context.bot_data.get('service_registry')
+        if not service_registry:
+            return None, None
+        
+        # Try to get user from database by username
+        from modules.database import Database
+        
+        # Query users table for username
+        query = """
+            SELECT user_id, username, first_name, last_name 
+            FROM users 
+            WHERE LOWER(username) = LOWER(?)
+        """
+        
+        result = await Database.fetch_one(query, (username,))
+        
+        if result:
+            user_id = result['user_id']
+            display_name = result['username'] or result['first_name'] or f"User {user_id}"
+            return user_id, display_name
+        
+        return None, None
+        
+    except Exception as e:
+        logger.error(f"Error finding user by username {username}: {e}", exc_info=True)
+        return None, None
+
+
 async def cat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /cat command for random cat photos."""
     await _cat(update, context)
@@ -65,20 +107,38 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         target_user_id = update.message.from_user.id
         target_username = update.message.from_user.username or update.message.from_user.first_name
         
-        # Check if user mentioned another user
+        # Check if user wants to view another user's profile
         if context.args and len(context.args) > 0:
-            # For now, only show own profile (can be extended later)
-            await update.message.reply_text("🔒 You can only view your own profile for now.")
-            return
+            username_arg = context.args[0]
+            
+            # Remove @ if present
+            if username_arg.startswith('@'):
+                username_arg = username_arg[1:]
+            
+            # Try to find user by username in the chat
+            target_user_id, target_username = await _find_user_by_username(
+                username_arg, update.effective_chat.id, context
+            )
+            
+            if not target_user_id:
+                await update.message.reply_text(
+                    f"❌ User @{username_arg} not found in this chat or has no leveling data."
+                )
+                return
         
         # Get user profile
         chat_id = update.effective_chat.id
         profile = await leveling_service.get_user_profile(target_user_id, chat_id)
         
         if not profile:
-            await update.message.reply_text(
-                "📊 No leveling data found. Send some messages to start earning XP!"
-            )
+            if target_user_id == update.message.from_user.id:
+                await update.message.reply_text(
+                    "📊 No leveling data found. Send some messages to start earning XP!"
+                )
+            else:
+                await update.message.reply_text(
+                    f"📊 No leveling data found for {target_username}."
+                )
             return
         
         # Format profile message
