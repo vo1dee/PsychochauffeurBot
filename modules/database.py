@@ -413,6 +413,16 @@ class Database:
         async with manager.get_connection() as conn:
             await conn.execute(CREATE_TABLES_SQL)
             logger.info("Database tables initialized successfully")
+            
+            # Run leveling system migration
+            try:
+                from modules.leveling_database_migration import run_leveling_migration
+                await run_leveling_migration(conn)
+                logger.info("Leveling system migration completed successfully")
+            except Exception as e:
+                logger.error(f"Failed to run leveling system migration: {e}")
+                # Don't fail the entire initialization if leveling migration fails
+                pass
 
     @classmethod
     @database_operation("save_chat_info", raise_exception=True)
