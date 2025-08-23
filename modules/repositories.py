@@ -1,654 +1,683 @@
 """
-Repository Pattern Implementation
+Repository layer for the user leveling system.
 
-This module provides data access abstraction using the Repository pattern
-for clean separation between business logic and data persistence.
+This module provides database access layer for user statistics and achievements,
+implementing CRUD operations with transaction support and error handling.
 """
 
 import logging
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Dict, List, Optional, TypeVar, Generic, Union, Tuple
-import json
+from typing import Optional, List, Dict, Any, Tuple
+from datetime import datetime, timedelta
+from contextlib import asynccontextmanager
 
-from telegram import Chat, User, Message
+import asyncpg
+import pytz
+
 from modules.database import Database
+from modules.leveling_models import UserStats, Achievement, UserAchievement, UserProfile
+from modules.types import UserId, ChatId
+from modules.error_decorators import database_operation
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
 
-
-class Repository(ABC, Generic[T]):
-    """Abstract base repository interface."""
+class UserStatsRepository:
+    """
+    Repository for user statistics database operations.
     
-    @abstractmethod
-    async def get_by_id(self, id: Any) -> Optional[T]:
-        """Get entity by ID."""
-        pass
+    Provides CRUD operations for user statistics with transaction support
+    and optimized queries for performance.
+    """
     
-    @abstractmethod
-    async def save(self, entity: T) -> T:
-        """Save entity."""
-        pass
+    def __init__(self):
+        self._connection_manager = Database.get_connection_manager()
     
-    @abstractmethod
-    async def delete(self, id: Any) -> bool:
-        """Delete entity by ID."""
-        pass
-    
-    @abstractmethod
-    async def find_all(self, limit: int = 100, offset: int = 0) -> List[T]:
-        """Find all entities with pagination."""
-        pass
-    
-    @abstractmethod
-    async def find_by_criteria(self, criteria: Dict[str, Any]) -> List[T]:
-        """Find entities by criteria."""
-        pass
-
-
-@dataclass
-class ChatEntity:
-    """Chat entity model."""
-    chat_id: int
-    chat_type: str
-    title: Optional[str] = None
-    created_at: Optional[datetime] = None
-
-
-@dataclass
-class UserEntity:
-    """User entity model."""
-    user_id: int
-    first_name: str
-    last_name: Optional[str] = None
-    username: Optional[str] = None
-    is_bot: bool = False
-    created_at: Optional[datetime] = None
-
-
-@dataclass
-class MessageEntity:
-    """Message entity model."""
-    internal_message_id: Optional[int] = None
-    message_id: int = 0
-    chat_id: int = 0
-    user_id: Optional[int] = None
-    timestamp: Optional[datetime] = None
-    text: Optional[str] = None
-    is_command: bool = False
-    command_name: Optional[str] = None
-    is_gpt_reply: bool = False
-    replied_to_message_id: Optional[int] = None
-    gpt_context_message_ids: Optional[List[int]] = None
-    raw_telegram_message: Optional[Dict[str, Any]] = None
-
-
-@dataclass
-class AnalysisCacheEntity:
-    """Analysis cache entity model."""
-    chat_id: int
-    time_period: str
-    message_content_hash: str
-    result: str
-    created_at: Optional[datetime] = None
-
-
-class ChatRepository(Repository[ChatEntity]):
-    """Repository for chat entities."""
-    
-    async def get_by_id(self, chat_id: int) -> Optional[ChatEntity]:
-        """Get chat by ID."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM chats WHERE chat_id = $1",
-                chat_id
-            )
-            if row:
-                return ChatEntity(
-                    chat_id=row['chat_id'],
-                    chat_type=row['chat_type'],
-                    title=row['title'],
-                    created_at=row['created_at']
-                )
-        return None
-    
-    async def save(self, entity: ChatEntity) -> ChatEntity:
-        """Save chat entity."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO chats (chat_id, chat_type, title)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (chat_id) DO UPDATE
-                SET chat_type = $2, title = $3
-            """, entity.chat_id, entity.chat_type, entity.title)
+    @database_operation("get_user_stats")
+    async def get_user_stats(self, user_id: UserId, chat_id: ChatId) -> Optional[UserStats]:
+        """
+        Get user statistics for a specific user in a specific chat.
         
-        # Return the saved entity (fetch to get created_at if it was inserted)
-        return await self.get_by_id(entity.chat_id) or entity
+        Args:
+            user_id: The user's ID
+            chat_id: The chat's ID
+            
+        Returns:
+            UserStats object if found, None otherwise
+        """
+        async with self._connection_manager.get_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT user_id, chat_id, xp, level, messages_count, links_shared, 
+                       thanks_received, last_activity, created_at, updated_at
+                FROM user_chat_stats
+                WHERE user_id = $1 AND chat_id = $2
+            """, user_id, chat_id)
+            
+            if row:
+                return UserStats.from_dict(dict(row))
+            return None
     
-    async def delete(self, chat_id: int) -> bool:
-        """Delete chat by ID."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            result = await conn.execute(
-                "DELETE FROM chats WHERE chat_id = $1",
-                chat_id
+    @database_operation("create_user_stats")
+    async def create_user_stats(self, user_id: UserId, chat_id: ChatId) -> UserStats:
+        """
+        Create new user statistics record.
+        
+        Args:
+            user_id: The user's ID
+            chat_id: The chat's ID
+            
+        Returns:
+            Newly created UserStats object
+        """
+        now = datetime.now(pytz.utc)
+        user_stats = UserStats(
+            user_id=user_id,
+            chat_id=chat_id,
+            xp=0,
+            level=1,
+            messages_count=0,
+            links_shared=0,
+            thanks_received=0,
+            last_activity=now,
+            created_at=now,
+            updated_at=now
+        )
+        
+        async with self._connection_manager.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO user_chat_stats (
+                    user_id, chat_id, xp, level, messages_count, links_shared,
+                    thanks_received, last_activity, created_at, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                ON CONFLICT (user_id, chat_id) DO NOTHING
+            """, 
+                user_stats.user_id, user_stats.chat_id, user_stats.xp, user_stats.level,
+                user_stats.messages_count, user_stats.links_shared, user_stats.thanks_received,
+                user_stats.last_activity, user_stats.created_at, user_stats.updated_at
             )
-            return result != "DELETE 0"  # type: ignore
+            
+            logger.debug(f"Created user stats for user_id={user_id}, chat_id={chat_id}")
+            return user_stats
     
-    async def find_all(self, limit: int = 100, offset: int = 0) -> List[ChatEntity]:
-        """Find all chats with pagination."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM chats ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-                limit, offset
+    @database_operation("update_user_stats")
+    async def update_user_stats(self, user_stats: UserStats) -> None:
+        """
+        Update existing user statistics.
+        
+        Args:
+            user_stats: UserStats object with updated values
+        """
+        user_stats.updated_at = datetime.now(pytz.utc)
+        
+        async with self._connection_manager.get_connection() as conn:
+            await conn.execute("""
+                UPDATE user_chat_stats
+                SET xp = $3, level = $4, messages_count = $5, links_shared = $6,
+                    thanks_received = $7, last_activity = $8, updated_at = $9
+                WHERE user_id = $1 AND chat_id = $2
+            """,
+                user_stats.user_id, user_stats.chat_id, user_stats.xp, user_stats.level,
+                user_stats.messages_count, user_stats.links_shared, user_stats.thanks_received,
+                user_stats.last_activity, user_stats.updated_at
             )
-            return [
-                ChatEntity(
+            
+            logger.debug(f"Updated user stats for user_id={user_stats.user_id}, chat_id={user_stats.chat_id}")
+    
+    @database_operation("get_or_create_user_stats")
+    async def get_or_create_user_stats(self, user_id: UserId, chat_id: ChatId) -> UserStats:
+        """
+        Get user statistics or create if not exists.
+        
+        Args:
+            user_id: The user's ID
+            chat_id: The chat's ID
+            
+        Returns:
+            UserStats object (existing or newly created)
+        """
+        user_stats = await self.get_user_stats(user_id, chat_id)
+        if user_stats is None:
+            user_stats = await self.create_user_stats(user_id, chat_id)
+        return user_stats
+    
+    @database_operation("get_leaderboard")
+    async def get_leaderboard(self, chat_id: ChatId, limit: int = 10) -> List[UserStats]:
+        """
+        Get leaderboard for a chat ordered by XP.
+        
+        Args:
+            chat_id: The chat's ID
+            limit: Maximum number of users to return
+            
+        Returns:
+            List of UserStats objects ordered by XP (descending)
+        """
+        async with self._connection_manager.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT user_id, chat_id, xp, level, messages_count, links_shared,
+                       thanks_received, last_activity, created_at, updated_at
+                FROM user_chat_stats
+                WHERE chat_id = $1
+                ORDER BY xp DESC, level DESC, messages_count DESC
+                LIMIT $2
+            """, chat_id, limit)
+            
+            return [UserStats.from_dict(dict(row)) for row in rows]
+    
+    @database_operation("get_user_rank")
+    async def get_user_rank(self, user_id: UserId, chat_id: ChatId) -> Optional[int]:
+        """
+        Get user's rank in the chat leaderboard.
+        
+        Args:
+            user_id: The user's ID
+            chat_id: The chat's ID
+            
+        Returns:
+            User's rank (1-based) or None if user not found
+        """
+        async with self._connection_manager.get_connection() as conn:
+            row = await conn.fetchrow("""
+                WITH ranked_users AS (
+                    SELECT user_id, 
+                           ROW_NUMBER() OVER (ORDER BY xp DESC, level DESC, messages_count DESC) as rank
+                    FROM user_chat_stats
+                    WHERE chat_id = $1
+                )
+                SELECT rank FROM ranked_users WHERE user_id = $2
+            """, chat_id, user_id)
+            
+            return row['rank'] if row else None
+    
+    @database_operation("get_active_users")
+    async def get_active_users(self, chat_id: ChatId, days: int = 7) -> List[UserStats]:
+        """
+        Get users active within the specified number of days.
+        
+        Args:
+            chat_id: The chat's ID
+            days: Number of days to look back for activity
+            
+        Returns:
+            List of UserStats objects for active users
+        """
+        cutoff_date = datetime.now(pytz.utc) - timedelta(days=days)
+        
+        async with self._connection_manager.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT user_id, chat_id, xp, level, messages_count, links_shared,
+                       thanks_received, last_activity, created_at, updated_at
+                FROM user_chat_stats
+                WHERE chat_id = $1 AND last_activity >= $2
+                ORDER BY last_activity DESC
+            """, chat_id, cutoff_date)
+            
+            return [UserStats.from_dict(dict(row)) for row in rows]
+    
+    @database_operation("bulk_update_user_stats")
+    async def bulk_update_user_stats(self, user_stats_list: List[UserStats]) -> None:
+        """
+        Update multiple user statistics in a single transaction.
+        
+        Args:
+            user_stats_list: List of UserStats objects to update
+        """
+        if not user_stats_list:
+            return
+        
+        async with self._connection_manager.get_connection() as conn:
+            async with conn.transaction():
+                for user_stats in user_stats_list:
+                    user_stats.updated_at = datetime.now(pytz.utc)
+                    await conn.execute("""
+                        UPDATE user_chat_stats
+                        SET xp = $3, level = $4, messages_count = $5, links_shared = $6,
+                            thanks_received = $7, last_activity = $8, updated_at = $9
+                        WHERE user_id = $1 AND chat_id = $2
+                    """,
+                        user_stats.user_id, user_stats.chat_id, user_stats.xp, user_stats.level,
+                        user_stats.messages_count, user_stats.links_shared, user_stats.thanks_received,
+                        user_stats.last_activity, user_stats.updated_at
+                    )
+                
+                logger.debug(f"Bulk updated {len(user_stats_list)} user stats records")
+    
+    @asynccontextmanager
+    async def transaction(self):
+        """
+        Context manager for database transactions.
+        
+        Usage:
+            async with repository.transaction() as conn:
+                # Perform multiple operations
+                await conn.execute(...)
+        """
+        async with self._connection_manager.get_connection() as conn:
+            async with conn.transaction():
+                yield conn
+
+
+class AchievementRepository:
+    """
+    Repository for achievement database operations.
+    
+    Provides CRUD operations for achievements and user achievements
+    with transaction support and optimized queries.
+    """
+    
+    def __init__(self):
+        self._connection_manager = Database.get_connection_manager()
+    
+    @database_operation("get_achievement")
+    async def get_achievement(self, achievement_id: str) -> Optional[Achievement]:
+        """
+        Get achievement definition by ID.
+        
+        Args:
+            achievement_id: The achievement's ID
+            
+        Returns:
+            Achievement object if found, None otherwise
+        """
+        async with self._connection_manager.get_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT id, title, description, emoji, condition_type, condition_value, category, created_at
+                FROM achievements
+                WHERE id = $1
+            """, achievement_id)
+            
+            if row:
+                return Achievement.from_dict(dict(row))
+            return None
+    
+    @database_operation("get_all_achievements")
+    async def get_all_achievements(self) -> List[Achievement]:
+        """
+        Get all achievement definitions.
+        
+        Returns:
+            List of all Achievement objects
+        """
+        async with self._connection_manager.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT id, title, description, emoji, condition_type, condition_value, category, created_at
+                FROM achievements
+                ORDER BY category, condition_value
+            """)
+            
+            return [Achievement.from_dict(dict(row)) for row in rows]
+    
+    @database_operation("get_achievements_by_category")
+    async def get_achievements_by_category(self, category: str) -> List[Achievement]:
+        """
+        Get achievements by category.
+        
+        Args:
+            category: The achievement category
+            
+        Returns:
+            List of Achievement objects in the specified category
+        """
+        async with self._connection_manager.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT id, title, description, emoji, condition_type, condition_value, category, created_at
+                FROM achievements
+                WHERE category = $1
+                ORDER BY condition_value
+            """, category)
+            
+            return [Achievement.from_dict(dict(row)) for row in rows]
+    
+    @database_operation("save_achievement")
+    async def save_achievement(self, achievement: Achievement) -> None:
+        """
+        Save or update achievement definition.
+        
+        Args:
+            achievement: Achievement object to save
+        """
+        async with self._connection_manager.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO achievements (id, title, description, emoji, condition_type, condition_value, category, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (id) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    description = EXCLUDED.description,
+                    emoji = EXCLUDED.emoji,
+                    condition_type = EXCLUDED.condition_type,
+                    condition_value = EXCLUDED.condition_value,
+                    category = EXCLUDED.category
+            """,
+                achievement.id, achievement.title, achievement.description, achievement.emoji,
+                achievement.condition_type, achievement.condition_value, achievement.category,
+                achievement.created_at
+            )
+            
+            logger.debug(f"Saved achievement: {achievement.id}")
+    
+    @database_operation("get_user_achievements")
+    async def get_user_achievements(self, user_id: UserId, chat_id: ChatId) -> List[UserAchievement]:
+        """
+        Get all achievements unlocked by a user in a specific chat.
+        
+        Args:
+            user_id: The user's ID
+            chat_id: The chat's ID
+            
+        Returns:
+            List of UserAchievement objects
+        """
+        async with self._connection_manager.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT user_id, chat_id, achievement_id, unlocked_at
+                FROM user_achievements
+                WHERE user_id = $1 AND chat_id = $2
+                ORDER BY unlocked_at DESC
+            """, user_id, chat_id)
+            
+            return [UserAchievement.from_dict(dict(row)) for row in rows]
+    
+    @database_operation("get_user_achievements_with_details")
+    async def get_user_achievements_with_details(self, user_id: UserId, chat_id: ChatId) -> List[Tuple[UserAchievement, Achievement]]:
+        """
+        Get user achievements with full achievement details.
+        
+        Args:
+            user_id: The user's ID
+            chat_id: The chat's ID
+            
+        Returns:
+            List of tuples containing (UserAchievement, Achievement)
+        """
+        async with self._connection_manager.get_connection() as conn:
+            rows = await conn.fetch("""
+                SELECT ua.user_id, ua.chat_id, ua.achievement_id, ua.unlocked_at,
+                       a.title, a.description, a.emoji, a.condition_type, a.condition_value, a.category, a.created_at
+                FROM user_achievements ua
+                JOIN achievements a ON ua.achievement_id = a.id
+                WHERE ua.user_id = $1 AND ua.chat_id = $2
+                ORDER BY ua.unlocked_at DESC
+            """, user_id, chat_id)
+            
+            result = []
+            for row in rows:
+                user_achievement = UserAchievement(
+                    user_id=row['user_id'],
                     chat_id=row['chat_id'],
-                    chat_type=row['chat_type'],
+                    achievement_id=row['achievement_id'],
+                    unlocked_at=row['unlocked_at']
+                )
+                achievement = Achievement(
+                    id=row['achievement_id'],
                     title=row['title'],
+                    description=row['description'],
+                    emoji=row['emoji'],
+                    condition_type=row['condition_type'],
+                    condition_value=row['condition_value'],
+                    category=row['category'],
                     created_at=row['created_at']
                 )
-                for row in rows
-            ]
+                result.append((user_achievement, achievement))
+            
+            return result
     
-    async def find_by_criteria(self, criteria: Dict[str, Any]) -> List[ChatEntity]:
-        """Find chats by criteria."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            where_clauses = []
-            params = []
-            param_count = 0
+    @database_operation("has_achievement")
+    async def has_achievement(self, user_id: UserId, chat_id: ChatId, achievement_id: str) -> bool:
+        """
+        Check if user has unlocked a specific achievement.
+        
+        Args:
+            user_id: The user's ID
+            chat_id: The chat's ID
+            achievement_id: The achievement's ID
             
-            for key, value in criteria.items():
-                param_count += 1
-                if key == 'chat_type':
-                    where_clauses.append(f"chat_type = ${param_count}")
-                    params.append(value)
-                elif key == 'title_contains':
-                    where_clauses.append(f"title ILIKE ${param_count}")
-                    params.append(f"%{value}%")
+        Returns:
+            True if user has the achievement, False otherwise
+        """
+        async with self._connection_manager.get_connection() as conn:
+            row = await conn.fetchrow("""
+                SELECT 1 FROM user_achievements
+                WHERE user_id = $1 AND chat_id = $2 AND achievement_id = $3
+            """, user_id, chat_id, achievement_id)
             
-            where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-            query = f"SELECT * FROM chats WHERE {where_clause} ORDER BY created_at DESC"
-            
-            rows = await conn.fetch(query, *params)
-            return [
-                ChatEntity(
-                    chat_id=row['chat_id'],
-                    chat_type=row['chat_type'],
-                    title=row['title'],
-                    created_at=row['created_at']
-                )
-                for row in rows
-            ]
+            return row is not None
     
-    async def get_chat_statistics(self, chat_id: int) -> Dict[str, Any]:
-        """Get statistics for a specific chat."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            stats = await conn.fetchrow("""
-                SELECT 
-                    COUNT(*) as total_messages,
-                    COUNT(DISTINCT user_id) as unique_users,
-                    COUNT(*) FILTER (WHERE is_command = true) as command_count,
-                    COUNT(*) FILTER (WHERE is_gpt_reply = true) as gpt_replies,
-                    MIN(timestamp) as first_message,
-                    MAX(timestamp) as last_message
-                FROM messages 
+    @database_operation("unlock_achievement")
+    async def unlock_achievement(self, user_achievement: UserAchievement) -> None:
+        """
+        Unlock an achievement for a user.
+        
+        Args:
+            user_achievement: UserAchievement object to save
+        """
+        async with self._connection_manager.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO user_achievements (user_id, chat_id, achievement_id, unlocked_at)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (user_id, chat_id, achievement_id) DO NOTHING
+            """,
+                user_achievement.user_id, user_achievement.chat_id,
+                user_achievement.achievement_id, user_achievement.unlocked_at
+            )
+            
+            logger.debug(f"Unlocked achievement {user_achievement.achievement_id} for user_id={user_achievement.user_id}, chat_id={user_achievement.chat_id}")
+    
+    @database_operation("bulk_unlock_achievements")
+    async def bulk_unlock_achievements(self, user_achievements: List[UserAchievement]) -> None:
+        """
+        Unlock multiple achievements in a single transaction.
+        
+        Args:
+            user_achievements: List of UserAchievement objects to unlock
+        """
+        if not user_achievements:
+            return
+        
+        async with self._connection_manager.get_connection() as conn:
+            async with conn.transaction():
+                for user_achievement in user_achievements:
+                    await conn.execute("""
+                        INSERT INTO user_achievements (user_id, chat_id, achievement_id, unlocked_at)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (user_id, chat_id, achievement_id) DO NOTHING
+                    """,
+                        user_achievement.user_id, user_achievement.chat_id,
+                        user_achievement.achievement_id, user_achievement.unlocked_at
+                    )
+                
+                logger.debug(f"Bulk unlocked {len(user_achievements)} achievements")
+    
+    @database_operation("get_achievement_stats")
+    async def get_achievement_stats(self, chat_id: ChatId) -> Dict[str, int]:
+        """
+        Get achievement statistics for a chat.
+        
+        Args:
+            chat_id: The chat's ID
+            
+        Returns:
+            Dictionary with achievement statistics
+        """
+        async with self._connection_manager.get_connection() as conn:
+            # Get total achievements available
+            total_achievements = await conn.fetchval("""
+                SELECT COUNT(*) FROM achievements
+            """)
+            
+            # Get achievements unlocked in this chat
+            unlocked_achievements = await conn.fetchval("""
+                SELECT COUNT(DISTINCT achievement_id) FROM user_achievements
                 WHERE chat_id = $1
             """, chat_id)
             
-            return dict(stats) if stats else {}
+            # Get users with achievements
+            users_with_achievements = await conn.fetchval("""
+                SELECT COUNT(DISTINCT user_id) FROM user_achievements
+                WHERE chat_id = $1
+            """, chat_id)
+            
+            # Get most popular achievement
+            popular_achievement = await conn.fetchrow("""
+                SELECT achievement_id, COUNT(*) as unlock_count
+                FROM user_achievements
+                WHERE chat_id = $1
+                GROUP BY achievement_id
+                ORDER BY unlock_count DESC
+                LIMIT 1
+            """, chat_id)
+            
+            return {
+                'total_achievements': total_achievements,
+                'unlocked_achievements': unlocked_achievements,
+                'users_with_achievements': users_with_achievements,
+                'most_popular_achievement': popular_achievement['achievement_id'] if popular_achievement else None,
+                'most_popular_count': popular_achievement['unlock_count'] if popular_achievement else 0
+            }
+    
+    @asynccontextmanager
+    async def transaction(self):
+        """
+        Context manager for database transactions.
+        
+        Usage:
+            async with repository.transaction() as conn:
+                # Perform multiple operations
+                await conn.execute(...)
+        """
+        async with self._connection_manager.get_connection() as conn:
+            async with conn.transaction():
+                yield conn
 
 
-class UserRepository(Repository[UserEntity]):
-    """Repository for user entities."""
+class LevelingRepository:
+    """
+    Combined repository for leveling system operations.
     
-    async def get_by_id(self, user_id: int) -> Optional[UserEntity]:
-        """Get user by ID."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM users WHERE user_id = $1",
-                user_id
-            )
-            if row:
-                return UserEntity(
-                    user_id=row['user_id'],
-                    first_name=row['first_name'],
-                    last_name=row['last_name'],
-                    username=row['username'],
-                    is_bot=row['is_bot'],
-                    created_at=row['created_at']
-                )
-        return None
+    Provides high-level operations that combine user stats and achievements
+    with atomic transaction support.
+    """
     
-    async def save(self, entity: UserEntity) -> UserEntity:
-        """Save user entity."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO users (user_id, first_name, last_name, username, is_bot)
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT (user_id) DO UPDATE
-                SET first_name = $2, last_name = $3, username = $4, is_bot = $5
-            """, entity.user_id, entity.first_name, entity.last_name, 
-                entity.username, entity.is_bot)
+    def __init__(self):
+        self.user_stats = UserStatsRepository()
+        self.achievements = AchievementRepository()
+        self._connection_manager = Database.get_connection_manager()
+    
+    @database_operation("update_user_xp_atomic")
+    async def update_user_xp_atomic(
+        self,
+        user_id: UserId,
+        chat_id: ChatId,
+        xp_gain: int,
+        new_level: int,
+        activity_updates: Dict[str, int],
+        new_achievements: List[UserAchievement]
+    ) -> UserStats:
+        """
+        Atomically update user XP, level, activity counters, and unlock achievements.
         
-        return await self.get_by_id(entity.user_id) or entity
-    
-    async def delete(self, user_id: int) -> bool:
-        """Delete user by ID."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            result = await conn.execute(
-                "DELETE FROM users WHERE user_id = $1",
-                user_id
-            )
-            return result != "DELETE 0"  # type: ignore
-    
-    async def find_all(self, limit: int = 100, offset: int = 0) -> List[UserEntity]:
-        """Find all users with pagination."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-                limit, offset
-            )
-            return [
-                UserEntity(
-                    user_id=row['user_id'],
-                    first_name=row['first_name'],
-                    last_name=row['last_name'],
-                    username=row['username'],
-                    is_bot=row['is_bot'],
-                    created_at=row['created_at']
-                )
-                for row in rows
-            ]
-    
-    async def find_by_criteria(self, criteria: Dict[str, Any]) -> List[UserEntity]:
-        """Find users by criteria."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            where_clauses = []
-            params = []
-            param_count = 0
+        Args:
+            user_id: The user's ID
+            chat_id: The chat's ID
+            xp_gain: Amount of XP to add
+            new_level: New level for the user
+            activity_updates: Dictionary of activity counters to update
+            new_achievements: List of new achievements to unlock
             
-            for key, value in criteria.items():
-                param_count += 1
-                if key == 'username':
-                    where_clauses.append(f"username = ${param_count}")
-                    params.append(value)
-                elif key == 'is_bot':
-                    where_clauses.append(f"is_bot = ${param_count}")
-                    params.append(value)
-                elif key == 'name_contains':
-                    where_clauses.append(f"(first_name ILIKE ${param_count} OR last_name ILIKE ${param_count})")
-                    params.append(f"%{value}%")
-            
-            where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-            query = f"SELECT * FROM users WHERE {where_clause} ORDER BY created_at DESC"
-            
-            rows = await conn.fetch(query, *params)
-            return [
-                UserEntity(
-                    user_id=row['user_id'],
-                    first_name=row['first_name'],
-                    last_name=row['last_name'],
-                    username=row['username'],
-                    is_bot=row['is_bot'],
-                    created_at=row['created_at']
+        Returns:
+            Updated UserStats object
+        """
+        async with self._connection_manager.get_connection() as conn:
+            async with conn.transaction():
+                # Get or create user stats
+                user_stats = await self.user_stats.get_or_create_user_stats(user_id, chat_id)
+                
+                # Update user stats
+                user_stats.add_xp(xp_gain)
+                user_stats.update_level(new_level)
+                
+                # Apply activity updates
+                for activity, increment in activity_updates.items():
+                    if activity == 'messages_count':
+                        user_stats.messages_count += increment
+                    elif activity == 'links_shared':
+                        user_stats.links_shared += increment
+                    elif activity == 'thanks_received':
+                        user_stats.thanks_received += increment
+                
+                # Update in database
+                await conn.execute("""
+                    UPDATE user_chat_stats
+                    SET xp = $3, level = $4, messages_count = $5, links_shared = $6,
+                        thanks_received = $7, last_activity = $8, updated_at = $9
+                    WHERE user_id = $1 AND chat_id = $2
+                """,
+                    user_stats.user_id, user_stats.chat_id, user_stats.xp, user_stats.level,
+                    user_stats.messages_count, user_stats.links_shared, user_stats.thanks_received,
+                    user_stats.last_activity, user_stats.updated_at
                 )
-                for row in rows
-            ]
+                
+                # Unlock new achievements
+                for user_achievement in new_achievements:
+                    await conn.execute("""
+                        INSERT INTO user_achievements (user_id, chat_id, achievement_id, unlocked_at)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (user_id, chat_id, achievement_id) DO NOTHING
+                    """,
+                        user_achievement.user_id, user_achievement.chat_id,
+                        user_achievement.achievement_id, user_achievement.unlocked_at
+                    )
+                
+                logger.debug(f"Atomically updated user {user_id} in chat {chat_id}: +{xp_gain} XP, level {new_level}, {len(new_achievements)} new achievements")
+                return user_stats
     
-    async def get_user_activity_stats(self, user_id: int) -> Dict[str, Any]:
-        """Get activity statistics for a user."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            stats = await conn.fetchrow("""
-                SELECT 
-                    COUNT(*) as total_messages,
-                    COUNT(DISTINCT chat_id) as chats_participated,
-                    COUNT(*) FILTER (WHERE is_command = true) as commands_used,
-                    MIN(timestamp) as first_message,
-                    MAX(timestamp) as last_message
-                FROM messages 
-                WHERE user_id = $1
-            """, user_id)
-            
-            return dict(stats) if stats else {}
-
-
-class MessageRepository(Repository[MessageEntity]):
-    """Repository for message entities."""
-    
-    async def get_by_id(self, message_id: Union[int, Tuple[int, int]]) -> Optional[MessageEntity]:
-        """Get message by ID (can be internal_id or (chat_id, message_id) tuple)."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            if isinstance(message_id, tuple):
-                chat_id, msg_id = message_id
-                row = await conn.fetchrow(
-                    "SELECT * FROM messages WHERE chat_id = $1 AND message_id = $2",
-                    chat_id, msg_id
-                )
-            else:
-                row = await conn.fetchrow(
-                    "SELECT * FROM messages WHERE internal_message_id = $1",
-                    message_id
-                )
-            
-            if row:
-                return self._row_to_entity(row)
-        return None
-    
-    async def save(self, entity: MessageEntity) -> MessageEntity:
-        """Save message entity."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO messages (
-                    message_id, chat_id, user_id, timestamp, text,
-                    is_command, command_name, is_gpt_reply,
-                    replied_to_message_id, gpt_context_message_ids,
-                    raw_telegram_message
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                ON CONFLICT (chat_id, message_id) DO UPDATE SET
-                text = EXCLUDED.text,
-                user_id = EXCLUDED.user_id,
-                timestamp = EXCLUDED.timestamp,
-                is_command = EXCLUDED.is_command,
-                command_name = EXCLUDED.command_name,
-                is_gpt_reply = EXCLUDED.is_gpt_reply,
-                replied_to_message_id = EXCLUDED.replied_to_message_id,
-                gpt_context_message_ids = EXCLUDED.gpt_context_message_ids,
-                raw_telegram_message = EXCLUDED.raw_telegram_message
-            """,
-                entity.message_id,
-                entity.chat_id,
-                entity.user_id,
-                entity.timestamp,
-                entity.text,
-                entity.is_command,
-                entity.command_name,
-                entity.is_gpt_reply,
-                entity.replied_to_message_id,
-                json.dumps(entity.gpt_context_message_ids) if entity.gpt_context_message_ids else None,
-                json.dumps(entity.raw_telegram_message) if entity.raw_telegram_message else None
-            )
+    @database_operation("get_user_profile")
+    async def get_user_profile(self, user_id: UserId, chat_id: ChatId, username: Optional[str] = None) -> Optional[UserProfile]:
+        """
+        Get complete user profile with stats, achievements, and rank.
         
-        return await self.get_by_id((entity.chat_id, entity.message_id)) or entity
-    
-    async def delete(self, message_id: Union[int, Tuple[int, int]]) -> bool:
-        """Delete message by ID."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            if isinstance(message_id, tuple):
-                chat_id, msg_id = message_id
-                result = await conn.execute(
-                    "DELETE FROM messages WHERE chat_id = $1 AND message_id = $2",
-                    chat_id, msg_id
-                )
-            else:
-                result = await conn.execute(
-                    "DELETE FROM messages WHERE internal_message_id = $1",
-                    message_id
-                )
-            return result != "DELETE 0"  # type: ignore
-    
-    async def find_all(self, limit: int = 100, offset: int = 0) -> List[MessageEntity]:
-        """Find all messages with pagination."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM messages ORDER BY timestamp DESC LIMIT $1 OFFSET $2",
-                limit, offset
-            )
-            return [self._row_to_entity(row) for row in rows]
-    
-    async def find_by_criteria(self, criteria: Dict[str, Any]) -> List[MessageEntity]:
-        """Find messages by criteria."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            where_clauses = []
-            params = []
-            param_count = 0
+        Args:
+            user_id: The user's ID
+            chat_id: The chat's ID
+            username: Optional username for display
             
-            for key, value in criteria.items():
-                param_count += 1
-                if key == 'chat_id':
-                    where_clauses.append(f"chat_id = ${param_count}")
-                    params.append(value)
-                elif key == 'user_id':
-                    where_clauses.append(f"user_id = ${param_count}")
-                    params.append(value)
-                elif key == 'is_command':
-                    where_clauses.append(f"is_command = ${param_count}")
-                    params.append(value)
-                elif key == 'is_gpt_reply':
-                    where_clauses.append(f"is_gpt_reply = ${param_count}")
-                    params.append(value)
-                elif key == 'text_contains':
-                    where_clauses.append(f"text ILIKE ${param_count}")
-                    params.append(f"%{value}%")
-                elif key == 'command_name':
-                    where_clauses.append(f"command_name = ${param_count}")
-                    params.append(value)
-                elif key == 'date_from':
-                    where_clauses.append(f"timestamp >= ${param_count}")
-                    params.append(value)
-                elif key == 'date_to':
-                    where_clauses.append(f"timestamp <= ${param_count}")
-                    params.append(value)
-            
-            where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-            query = f"SELECT * FROM messages WHERE {where_clause} ORDER BY timestamp DESC"
-            
-            rows = await conn.fetch(query, *params)
-            return [self._row_to_entity(row) for row in rows]
-    
-    async def get_chat_messages(self, chat_id: int, limit: int = 50, offset: int = 0) -> List[MessageEntity]:
-        """Get messages for a specific chat."""
-        return await self.find_by_criteria({'chat_id': chat_id})
-    
-    async def get_user_messages(self, user_id: int, limit: int = 50, offset: int = 0) -> List[MessageEntity]:
-        """Get messages from a specific user."""
-        return await self.find_by_criteria({'user_id': user_id})
-    
-    async def search_messages(self, chat_id: int, search_text: str, limit: int = 50) -> List[MessageEntity]:
-        """Search messages by text content."""
-        return await self.find_by_criteria({
-            'chat_id': chat_id,
-            'text_contains': search_text
-        })
-    
-    def _row_to_entity(self, row: Any) -> MessageEntity:
-        """Convert database row to MessageEntity."""
-        gpt_context_ids = None
-        if row['gpt_context_message_ids']:
-            try:
-                gpt_context_ids = json.loads(row['gpt_context_message_ids'])
-            except json.JSONDecodeError:
-                pass
+        Returns:
+            UserProfile object if user exists, None otherwise
+        """
+        user_stats = await self.user_stats.get_user_stats(user_id, chat_id)
+        if not user_stats:
+            return None
         
-        raw_message = None
-        if row['raw_telegram_message']:
-            try:
-                raw_message = json.loads(row['raw_telegram_message'])
-            except json.JSONDecodeError:
-                pass
+        # Get user achievements with details
+        achievement_data = await self.achievements.get_user_achievements_with_details(user_id, chat_id)
+        achievements = [achievement for _, achievement in achievement_data]
         
-        return MessageEntity(
-            internal_message_id=row['internal_message_id'],
-            message_id=row['message_id'],
-            chat_id=row['chat_id'],
-            user_id=row['user_id'],
-            timestamp=row['timestamp'],
-            text=row['text'],
-            is_command=row['is_command'],
-            command_name=row['command_name'],
-            is_gpt_reply=row['is_gpt_reply'],
-            replied_to_message_id=row['replied_to_message_id'],
-            gpt_context_message_ids=gpt_context_ids,
-            raw_telegram_message=raw_message
+        # Get user rank
+        rank = await self.user_stats.get_user_rank(user_id, chat_id)
+        
+        # Calculate next level progress (this would typically use LevelManager)
+        # For now, using a simple calculation
+        next_level_xp = user_stats.level * 100  # Simplified calculation
+        progress_percentage = min(100.0, (user_stats.xp / next_level_xp) * 100)
+        
+        return UserProfile.from_user_stats(
+            user_stats=user_stats,
+            username=username,
+            next_level_xp=next_level_xp,
+            progress_percentage=progress_percentage,
+            achievements=achievements,
+            rank=rank
         )
-
-
-class AnalysisCacheRepository(Repository[AnalysisCacheEntity]):
-    """Repository for analysis cache entities."""
     
-    async def get_by_id(self, cache_key: Tuple[int, str, str]) -> Optional[AnalysisCacheEntity]:
-        """Get cache entry by composite key (chat_id, time_period, hash)."""
-        chat_id, time_period, message_hash = cache_key
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM analysis_cache WHERE chat_id = $1 AND time_period = $2 AND message_content_hash = $3",
-                chat_id, time_period, message_hash
-            )
-            if row:
-                return AnalysisCacheEntity(
-                    chat_id=row['chat_id'],
-                    time_period=row['time_period'],
-                    message_content_hash=row['message_content_hash'],
-                    result=row['result'],
-                    created_at=row['created_at']
-                )
-        return None
-    
-    async def save(self, entity: AnalysisCacheEntity) -> AnalysisCacheEntity:
-        """Save cache entity."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO analysis_cache (chat_id, time_period, message_content_hash, result, created_at)
-                VALUES ($1, $2, $3, $4, NOW())
-                ON CONFLICT (chat_id, time_period, message_content_hash)
-                DO UPDATE SET result = EXCLUDED.result, created_at = EXCLUDED.created_at
-            """, entity.chat_id, entity.time_period, entity.message_content_hash, entity.result)
+    @asynccontextmanager
+    async def transaction(self):
+        """
+        Context manager for database transactions across all repositories.
         
-        return await self.get_by_id((entity.chat_id, entity.time_period, entity.message_content_hash)) or entity
-    
-    async def delete(self, cache_key: Tuple[int, str, str]) -> bool:
-        """Delete cache entry by key."""
-        chat_id, time_period, message_hash = cache_key
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            result = await conn.execute(
-                "DELETE FROM analysis_cache WHERE chat_id = $1 AND time_period = $2 AND message_content_hash = $3",
-                chat_id, time_period, message_hash
-            )
-            return result != "DELETE 0"  # type: ignore
-    
-    async def find_all(self, limit: int = 100, offset: int = 0) -> List[AnalysisCacheEntity]:
-        """Find all cache entries with pagination."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM analysis_cache ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-                limit, offset
-            )
-            return [
-                AnalysisCacheEntity(
-                    chat_id=row['chat_id'],
-                    time_period=row['time_period'],
-                    message_content_hash=row['message_content_hash'],
-                    result=row['result'],
-                    created_at=row['created_at']
-                )
-                for row in rows
-            ]
-    
-    async def find_by_criteria(self, criteria: Dict[str, Any]) -> List[AnalysisCacheEntity]:
-        """Find cache entries by criteria."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            where_clauses = []
-            params = []
-            param_count = 0
-            
-            for key, value in criteria.items():
-                param_count += 1
-                if key == 'chat_id':
-                    where_clauses.append(f"chat_id = ${param_count}")
-                    params.append(value)
-                elif key == 'time_period':
-                    where_clauses.append(f"time_period = ${param_count}")
-                    params.append(value)
-            
-            where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-            query = f"SELECT * FROM analysis_cache WHERE {where_clause} ORDER BY created_at DESC"
-            
-            rows = await conn.fetch(query, *params)
-            return [
-                AnalysisCacheEntity(
-                    chat_id=row['chat_id'],
-                    time_period=row['time_period'],
-                    message_content_hash=row['message_content_hash'],
-                    result=row['result'],
-                    created_at=row['created_at']
-                )
-                for row in rows
-            ]
-    
-    async def invalidate_chat_cache(self, chat_id: int, time_period: Optional[str] = None) -> int:
-        """Invalidate cache entries for a chat."""
-        pool = await Database.get_pool()
-        async with pool.acquire() as conn:
-            if time_period:
-                result = await conn.execute(
-                    "DELETE FROM analysis_cache WHERE chat_id = $1 AND time_period = $2",
-                    chat_id, time_period
-                )
-            else:
-                result = await conn.execute(
-                    "DELETE FROM analysis_cache WHERE chat_id = $1",
-                    chat_id
-                )
-            # Extract number of deleted rows from result string like "DELETE 5"
-            return int(result.split()[-1]) if result.split()[-1].isdigit() else 0
-
-
-# Repository factory for easy access
-class RepositoryFactory:
-    """Factory for creating repository instances."""
-    
-    _instances: Dict[str, Any] = {}
-    
-    @classmethod
-    def get_chat_repository(cls) -> ChatRepository:
-        """Get chat repository instance."""
-        if 'chat' not in cls._instances:
-            cls._instances['chat'] = ChatRepository()
-        return cls._instances['chat']  # type: ignore
-    
-    @classmethod
-    def get_user_repository(cls) -> UserRepository:
-        """Get user repository instance."""
-        if 'user' not in cls._instances:
-            cls._instances['user'] = UserRepository()
-        return cls._instances['user']  # type: ignore
-    
-    @classmethod
-    def get_message_repository(cls) -> MessageRepository:
-        """Get message repository instance."""
-        if 'message' not in cls._instances:
-            cls._instances['message'] = MessageRepository()
-        return cls._instances['message']  # type: ignore
-    
-    @classmethod
-    def get_analysis_cache_repository(cls) -> AnalysisCacheRepository:
-        """Get analysis cache repository instance."""
-        if 'analysis_cache' not in cls._instances:
-            cls._instances['analysis_cache'] = AnalysisCacheRepository()
-        return cls._instances['analysis_cache']  # type: ignore
+        Usage:
+            async with repository.transaction() as conn:
+                # Perform multiple operations across repositories
+                await conn.execute(...)
+        """
+        async with self._connection_manager.get_connection() as conn:
+            async with conn.transaction():
+                yield conn
