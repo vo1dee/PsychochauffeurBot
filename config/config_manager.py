@@ -338,6 +338,23 @@ class ConfigManager:
                             "auto_notify": False,
                             "include_forecast": True
                         }
+                    },
+                    "leveling_system": {
+                        "enabled": True,
+                        "overrides": {
+                            "level_base_xp": 50,
+                            "level_multiplier": 2.0,
+                            "xp_rates": {
+                                "message": 1,
+                                "link": 3,
+                                "thanks": 5
+                            },
+                            "notifications_enabled": True,
+                            "rate_limiting_enabled": False,
+                            "max_xp_per_minute": 10,
+                            "perform_startup_retroactive_checks": False,
+                            "celebration_emoji": True
+                        }
                     }
                 }
             }

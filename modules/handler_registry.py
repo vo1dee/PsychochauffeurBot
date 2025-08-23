@@ -73,7 +73,7 @@ class HandlerRegistry(ServiceInterface):
         )
         from modules.handlers.utility_commands import (
             cat_command, screenshot_command, count_command, missing_command,
-            error_report_command
+            error_report_command, profile_command, leaderboard_command
         )
         from modules.handlers.speech_commands import (
             speech_command
@@ -121,6 +121,14 @@ class HandlerRegistry(ServiceInterface):
         )
         self.command_processor.register_text_command(
             "error_report", error_report_command, "Generate error report", admin_only=True
+        )
+        
+        # Register leveling system commands
+        self.command_processor.register_text_command(
+            "profile", profile_command, "Show your leveling profile and achievements"
+        )
+        self.command_processor.register_text_command(
+            "leaderboard", leaderboard_command, "Show chat leaderboard by XP"
         )
         
         # Register speech commands

@@ -40,14 +40,16 @@ class UserLevelingService(ServiceInterface):
     - Integration with the bot's message pipeline
     """
     
-    def __init__(self, config_manager=None):
+    def __init__(self, config_manager=None, database=None):
         """
         Initialize the UserLevelingService.
         
         Args:
             config_manager: Configuration manager for system settings
+            database: Database service for data persistence
         """
         self.config_manager = config_manager
+        self.database = database
         self._initialized = False
         
         # Core components
@@ -661,8 +663,6 @@ class UserLevelingService(ServiceInterface):
             message: Message containing user information
         """
         try:
-            from modules.database import Database
-            
             # Extract user information from message
             user = message.from_user
             if not user:
@@ -673,13 +673,23 @@ class UserLevelingService(ServiceInterface):
             first_name = user.first_name or ""
             last_name = user.last_name or ""
             
-            # Try to create user record (will be ignored if already exists)
-            await Database.save_user(
-                user_id=user_id,
-                username=username,
-                first_name=first_name,
-                last_name=last_name
-            )
+            # Use injected database service if available, otherwise fall back to static import
+            if self.database:
+                await self.database.save_user(
+                    user_id=user_id,
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name
+                )
+            else:
+                # Fallback to static import for backward compatibility
+                from modules.database import Database
+                await Database.save_user(
+                    user_id=user_id,
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name
+                )
             
             logger.debug(f"Ensured user {user_id} exists in users table")
             

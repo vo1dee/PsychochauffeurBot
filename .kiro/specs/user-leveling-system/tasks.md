@@ -72,7 +72,7 @@
   - Add handling for users with no achievements
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 10. Add leaderboard functionality
+- [x] 10. Add leaderboard functionality
 
   - Create /leaderboard command handler showing top users by XP/level
   - Implement leaderboard ranking and display formatting
@@ -80,7 +80,7 @@
   - Create tests for leaderboard generation and ranking
   - _Requirements: 5.1, 5.5_
 
-- [ ] 11. Implement service registry integration
+- [x] 11. Implement service registry integration
 
   - Register UserLevelingService with existing ServiceRegistry
   - Add proper dependency injection for database and config services

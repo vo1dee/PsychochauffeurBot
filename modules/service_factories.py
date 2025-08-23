@@ -146,9 +146,10 @@ class ServiceFactory:
         from modules.user_leveling_service import UserLevelingService
         
         config_manager = registry.get_service('config_manager')
+        database = registry.get_service('database')
         
         logger.debug("Creating UserLevelingService with injected dependencies")
-        return UserLevelingService(config_manager=config_manager)
+        return UserLevelingService(config_manager=config_manager, database=database)
 
 
 # Convenience functions for common service creation patterns

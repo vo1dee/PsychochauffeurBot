@@ -68,6 +68,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if hasattr(app, 'bot_data'):
             service_registry = app.bot_data.get('service_registry')
     
+    # Process message for leveling system
+    if service_registry:
+        try:
+            leveling_service = service_registry.get_service('user_leveling_service')
+            if leveling_service and leveling_service.is_enabled():
+                await leveling_service.process_message(update, context)
+        except Exception as e:
+            logger.error(f"Error processing message for leveling system: {e}", exc_info=True)
+            # Don't interrupt normal message processing
+    
     # Update chat history for context using the global manager
     try:
         if service_registry:
