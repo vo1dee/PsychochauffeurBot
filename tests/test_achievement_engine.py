@@ -459,9 +459,9 @@ class TestAchievementEngine:
         """Test detection of swear words."""
         # Note: This is a simplified test - in production you'd want more sophisticated detection
         test_cases = [
-            ("блять, это плохо", {'swear_words': 1}),
+            ("блять, це погано", {'swear_words': 1}),
             ("fuck this", {'swear_words': 1}),
-            ("обычное сообщение", {}),
+            ("звичайне повідомлення", {}),
         ]
         
         for message, expected in test_cases:
