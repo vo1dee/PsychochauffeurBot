@@ -6,6 +6,7 @@ implementing CRUD operations with transaction support and error handling.
 """
 
 import logging
+import time
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
@@ -17,6 +18,9 @@ from modules.database import Database
 from modules.leveling_models import UserStats, Achievement, UserAchievement, UserProfile
 from modules.types import UserId, ChatId
 from modules.error_decorators import database_operation
+from modules.service_error_boundary import with_error_boundary
+from modules.performance_monitor import performance_monitor
+from modules.leveling_performance_monitor import record_database_time
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +36,12 @@ class UserStatsRepository:
     def __init__(self):
         self._connection_manager = Database.get_connection_manager()
     
-    @database_operation("get_user_stats")
+    @database_operation("get_user_stats", retry_count=3)
+    @with_error_boundary("user_stats_repository", "get_user_stats", timeout=5.0)
     async def get_user_stats(self, user_id: UserId, chat_id: ChatId) -> Optional[UserStats]:
         """
         Get user statistics for a specific user in a specific chat.
+        Enhanced with retry mechanisms and performance monitoring.
         
         Args:
             user_id: The user's ID
@@ -44,17 +50,36 @@ class UserStatsRepository:
         Returns:
             UserStats object if found, None otherwise
         """
-        async with self._connection_manager.get_connection() as conn:
-            row = await conn.fetchrow("""
-                SELECT user_id, chat_id, xp, level, messages_count, links_shared, 
-                       thanks_received, last_activity, created_at, updated_at
-                FROM user_chat_stats
-                WHERE user_id = $1 AND chat_id = $2
-            """, user_id, chat_id)
-            
-            if row:
-                return UserStats.from_dict(dict(row))
-            return None
+        start_time = time.time()
+        
+        try:
+            async with self._connection_manager.get_connection() as conn:
+                row = await conn.fetchrow("""
+                    SELECT user_id, chat_id, xp, level, messages_count, links_shared, 
+                           thanks_received, last_activity, created_at, updated_at
+                    FROM user_chat_stats
+                    WHERE user_id = $1 AND chat_id = $2
+                """, user_id, chat_id)
+                
+                # Record performance metrics
+                query_time = time.time() - start_time
+                performance_monitor.record_metric(
+                    "db_query_user_stats_time", 
+                    query_time, 
+                    "seconds",
+                    {"operation": "get_user_stats"}
+                )
+                record_database_time("get_user_stats", query_time)
+                
+                if row:
+                    return UserStats.from_dict(dict(row))
+                return None
+                
+        except Exception as e:
+            # Record error metrics
+            performance_monitor.record_metric("db_query_user_stats_errors", 1)
+            logger.error(f"Database error in get_user_stats: {e}")
+            raise
     
     @database_operation("create_user_stats")
     async def create_user_stats(self, user_id: UserId, chat_id: ChatId) -> UserStats:
@@ -99,29 +124,55 @@ class UserStatsRepository:
             logger.debug(f"Created user stats for user_id={user_id}, chat_id={chat_id}")
             return user_stats
     
-    @database_operation("update_user_stats")
+    @database_operation("update_user_stats", retry_count=3, raise_exception=True)
+    @with_error_boundary("user_stats_repository", "update_user_stats", timeout=10.0)
     async def update_user_stats(self, user_stats: UserStats) -> None:
         """
-        Update existing user statistics.
+        Update existing user statistics with enhanced error handling and transaction safety.
         
         Args:
             user_stats: UserStats object with updated values
         """
         user_stats.updated_at = datetime.now(pytz.utc)
+        start_time = time.time()
         
-        async with self._connection_manager.get_connection() as conn:
-            await conn.execute("""
-                UPDATE user_chat_stats
-                SET xp = $3, level = $4, messages_count = $5, links_shared = $6,
-                    thanks_received = $7, last_activity = $8, updated_at = $9
-                WHERE user_id = $1 AND chat_id = $2
-            """,
-                user_stats.user_id, user_stats.chat_id, user_stats.xp, user_stats.level,
-                user_stats.messages_count, user_stats.links_shared, user_stats.thanks_received,
-                user_stats.last_activity, user_stats.updated_at
+        try:
+            async with self._connection_manager.get_connection() as conn:
+                async with conn.transaction():
+                    # Use atomic transaction for consistency
+                    result = await conn.execute("""
+                        UPDATE user_chat_stats
+                        SET xp = $3, level = $4, messages_count = $5, links_shared = $6,
+                            thanks_received = $7, last_activity = $8, updated_at = $9
+                        WHERE user_id = $1 AND chat_id = $2
+                    """,
+                        user_stats.user_id, user_stats.chat_id, user_stats.xp, user_stats.level,
+                        user_stats.messages_count, user_stats.links_shared, user_stats.thanks_received,
+                        user_stats.last_activity, user_stats.updated_at
+                    )
+                    
+                    # Verify the update was successful
+                    if result == "UPDATE 0":
+                        logger.warning(f"No rows updated for user_id={user_stats.user_id}, chat_id={user_stats.chat_id}")
+                        performance_monitor.record_metric("db_update_user_stats_no_rows", 1)
+            
+            # Record performance metrics
+            update_time = time.time() - start_time
+            performance_monitor.record_metric(
+                "db_update_user_stats_time", 
+                update_time, 
+                "seconds",
+                {"operation": "update_user_stats"}
             )
+            record_database_time("update_user_stats", update_time)
             
             logger.debug(f"Updated user stats for user_id={user_stats.user_id}, chat_id={user_stats.chat_id}")
+            
+        except Exception as e:
+            # Record error metrics
+            performance_monitor.record_metric("db_update_user_stats_errors", 1)
+            logger.error(f"Database error in update_user_stats: {e}")
+            raise
     
     @database_operation("get_or_create_user_stats")
     async def get_or_create_user_stats(self, user_id: UserId, chat_id: ChatId) -> UserStats:
@@ -459,25 +510,52 @@ class AchievementRepository:
             logger.error(f"Error checking achievement {achievement_id} for user {user_id}: {e}")
             return False
     
-    @database_operation("unlock_achievement")
+    @database_operation("unlock_achievement", retry_count=3)
+    @with_error_boundary("achievement_repository", "unlock_achievement", timeout=5.0)
     async def unlock_achievement(self, user_achievement: UserAchievement) -> None:
         """
-        Unlock an achievement for a user.
+        Unlock an achievement for a user with enhanced error handling.
         
         Args:
             user_achievement: UserAchievement object to save
         """
-        async with self._connection_manager.get_connection() as conn:
-            await conn.execute("""
-                INSERT INTO user_achievements (user_id, chat_id, achievement_id, unlocked_at)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (user_id, chat_id, achievement_id) DO NOTHING
-            """,
-                user_achievement.user_id, user_achievement.chat_id,
-                user_achievement.achievement_id, user_achievement.unlocked_at
+        start_time = time.time()
+        
+        try:
+            async with self._connection_manager.get_connection() as conn:
+                async with conn.transaction():
+                    result = await conn.execute("""
+                        INSERT INTO user_achievements (user_id, chat_id, achievement_id, unlocked_at)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (user_id, chat_id, achievement_id) DO NOTHING
+                    """,
+                        user_achievement.user_id, user_achievement.chat_id,
+                        user_achievement.achievement_id, user_achievement.unlocked_at
+                    )
+                    
+                    # Check if achievement was actually inserted (not a duplicate)
+                    if "INSERT 0 1" in result:
+                        performance_monitor.record_metric("achievement_unlocked", 1)
+                    else:
+                        performance_monitor.record_metric("achievement_duplicate_attempt", 1)
+            
+            # Record performance metrics
+            unlock_time = time.time() - start_time
+            performance_monitor.record_metric(
+                "db_unlock_achievement_time", 
+                unlock_time, 
+                "seconds",
+                {"achievement_id": user_achievement.achievement_id}
             )
+            record_database_time("unlock_achievement", unlock_time)
             
             logger.debug(f"Unlocked achievement {user_achievement.achievement_id} for user_id={user_achievement.user_id}, chat_id={user_achievement.chat_id}")
+            
+        except Exception as e:
+            # Record error metrics
+            performance_monitor.record_metric("db_unlock_achievement_errors", 1)
+            logger.error(f"Database error in unlock_achievement: {e}")
+            raise
     
     @database_operation("bulk_unlock_achievements")
     async def bulk_unlock_achievements(self, user_achievements: List[UserAchievement]) -> None:
