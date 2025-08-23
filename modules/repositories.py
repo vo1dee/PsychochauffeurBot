@@ -279,15 +279,19 @@ class AchievementRepository:
         Returns:
             Achievement object if found, None otherwise
         """
-        async with self._connection_manager.get_connection() as conn:
-            row = await conn.fetchrow("""
-                SELECT id, title, description, emoji, condition_type, condition_value, category, created_at
-                FROM achievements
-                WHERE id = $1
-            """, achievement_id)
-            
-            if row:
-                return Achievement.from_dict(dict(row))
+        try:
+            async with self._connection_manager.get_connection() as conn:
+                row = await conn.fetchrow("""
+                    SELECT id, title, description, emoji, condition_type, condition_value, category, created_at
+                    FROM achievements
+                    WHERE id = $1
+                """, achievement_id)
+                
+                if row:
+                    return Achievement.from_dict(dict(row))
+                return None
+        except Exception as e:
+            logger.error(f"Error getting achievement {achievement_id}: {e}")
             return None
     
     @database_operation("get_all_achievements")
@@ -298,14 +302,18 @@ class AchievementRepository:
         Returns:
             List of all Achievement objects
         """
-        async with self._connection_manager.get_connection() as conn:
-            rows = await conn.fetch("""
-                SELECT id, title, description, emoji, condition_type, condition_value, category, created_at
-                FROM achievements
-                ORDER BY category, condition_value
-            """)
-            
-            return [Achievement.from_dict(dict(row)) for row in rows]
+        try:
+            async with self._connection_manager.get_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT id, title, description, emoji, condition_type, condition_value, category, created_at
+                    FROM achievements
+                    ORDER BY category, condition_value
+                """)
+                
+                return [Achievement.from_dict(dict(row)) for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting all achievements: {e}")
+            return []
     
     @database_operation("get_achievements_by_category")
     async def get_achievements_by_category(self, category: str) -> List[Achievement]:
@@ -318,15 +326,19 @@ class AchievementRepository:
         Returns:
             List of Achievement objects in the specified category
         """
-        async with self._connection_manager.get_connection() as conn:
-            rows = await conn.fetch("""
-                SELECT id, title, description, emoji, condition_type, condition_value, category, created_at
-                FROM achievements
-                WHERE category = $1
-                ORDER BY condition_value
-            """, category)
-            
-            return [Achievement.from_dict(dict(row)) for row in rows]
+        try:
+            async with self._connection_manager.get_connection() as conn:
+                rows = await conn.fetch("""
+                    SELECT id, title, description, emoji, condition_type, condition_value, category, created_at
+                    FROM achievements
+                    WHERE category = $1
+                    ORDER BY condition_value
+                """, category)
+                
+                return [Achievement.from_dict(dict(row)) for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting achievements by category {category}: {e}")
+            return []
     
     @database_operation("save_achievement")
     async def save_achievement(self, achievement: Achievement) -> None:
@@ -412,6 +424,7 @@ class AchievementRepository:
                     title=row['title'],
                     description=row['description'],
                     emoji=row['emoji'],
+                    sticker=row['emoji'],  # Use emoji as sticker
                     condition_type=row['condition_type'],
                     condition_value=row['condition_value'],
                     category=row['category'],
@@ -434,13 +447,17 @@ class AchievementRepository:
         Returns:
             True if user has the achievement, False otherwise
         """
-        async with self._connection_manager.get_connection() as conn:
-            row = await conn.fetchrow("""
-                SELECT 1 FROM user_achievements
-                WHERE user_id = $1 AND chat_id = $2 AND achievement_id = $3
-            """, user_id, chat_id, achievement_id)
-            
-            return row is not None
+        try:
+            async with self._connection_manager.get_connection() as conn:
+                row = await conn.fetchrow("""
+                    SELECT 1 FROM user_achievements
+                    WHERE user_id = $1 AND chat_id = $2 AND achievement_id = $3
+                """, user_id, chat_id, achievement_id)
+                
+                return row is not None
+        except Exception as e:
+            logger.error(f"Error checking achievement {achievement_id} for user {user_id}: {e}")
+            return False
     
     @database_operation("unlock_achievement")
     async def unlock_achievement(self, user_achievement: UserAchievement) -> None:
@@ -498,40 +515,50 @@ class AchievementRepository:
         Returns:
             Dictionary with achievement statistics
         """
-        async with self._connection_manager.get_connection() as conn:
-            # Get total achievements available
-            total_achievements = await conn.fetchval("""
-                SELECT COUNT(*) FROM achievements
-            """)
-            
-            # Get achievements unlocked in this chat
-            unlocked_achievements = await conn.fetchval("""
-                SELECT COUNT(DISTINCT achievement_id) FROM user_achievements
-                WHERE chat_id = $1
-            """, chat_id)
-            
-            # Get users with achievements
-            users_with_achievements = await conn.fetchval("""
-                SELECT COUNT(DISTINCT user_id) FROM user_achievements
-                WHERE chat_id = $1
-            """, chat_id)
-            
-            # Get most popular achievement
-            popular_achievement = await conn.fetchrow("""
-                SELECT achievement_id, COUNT(*) as unlock_count
-                FROM user_achievements
-                WHERE chat_id = $1
-                GROUP BY achievement_id
-                ORDER BY unlock_count DESC
-                LIMIT 1
-            """, chat_id)
-            
+        try:
+            async with self._connection_manager.get_connection() as conn:
+                # Get total achievements available
+                total_achievements = await conn.fetchval("""
+                    SELECT COUNT(*) FROM achievements
+                """)
+                
+                # Get achievements unlocked in this chat
+                unlocked_achievements = await conn.fetchval("""
+                    SELECT COUNT(DISTINCT achievement_id) FROM user_achievements
+                    WHERE chat_id = $1
+                """, chat_id)
+                
+                # Get users with achievements
+                users_with_achievements = await conn.fetchval("""
+                    SELECT COUNT(DISTINCT user_id) FROM user_achievements
+                    WHERE chat_id = $1
+                """, chat_id)
+                
+                # Get most popular achievement
+                popular_achievement = await conn.fetchrow("""
+                    SELECT achievement_id, COUNT(*) as unlock_count
+                    FROM user_achievements
+                    WHERE chat_id = $1
+                    GROUP BY achievement_id
+                    ORDER BY unlock_count DESC
+                    LIMIT 1
+                """, chat_id)
+                
+                return {
+                    'total_achievements': total_achievements or 0,
+                    'unlocked_achievements': unlocked_achievements or 0,
+                    'users_with_achievements': users_with_achievements or 0,
+                    'most_popular_achievement': popular_achievement['achievement_id'] if popular_achievement else None,
+                    'most_popular_count': popular_achievement['unlock_count'] if popular_achievement else 0
+                }
+        except Exception as e:
+            logger.error(f"Error getting achievement stats for chat {chat_id}: {e}")
             return {
-                'total_achievements': total_achievements,
-                'unlocked_achievements': unlocked_achievements,
-                'users_with_achievements': users_with_achievements,
-                'most_popular_achievement': popular_achievement['achievement_id'] if popular_achievement else None,
-                'most_popular_count': popular_achievement['unlock_count'] if popular_achievement else 0
+                'total_achievements': 0,
+                'unlocked_achievements': 0,
+                'users_with_achievements': 0,
+                'most_popular_achievement': None,
+                'most_popular_count': 0
             }
     
     @asynccontextmanager

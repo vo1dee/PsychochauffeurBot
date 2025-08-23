@@ -143,6 +143,7 @@ class Achievement:
             title=data['title'],
             description=data['description'],
             emoji=data['emoji'],
+            sticker=data['emoji'],  # Use emoji as sticker since DB doesn't have separate sticker column
             condition_type=data['condition_type'],
             condition_value=data['condition_value'],
             category=data['category'],

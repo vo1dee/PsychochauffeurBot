@@ -115,3 +115,25 @@ CREATE INDEX IF NOT EXISTS idx_user_achievements_achievement ON user_achievement
 CREATE INDEX IF NOT EXISTS idx_user_achievements_unlocked ON user_achievements(unlocked_at);
 CREATE INDEX IF NOT EXISTS idx_achievements_category ON achievements(category);
 CREATE INDEX IF NOT EXISTS idx_achievements_condition ON achievements(condition_type, condition_value);
+
+-- Stickers table for storing sticker information
+CREATE TABLE IF NOT EXISTS stickers (
+    id SERIAL PRIMARY KEY,
+    sticker_id VARCHAR(255) UNIQUE NOT NULL,
+    file_unique_id VARCHAR(255) UNIQUE NOT NULL,
+    emoji VARCHAR(10),
+    set_name VARCHAR(255),
+    is_animated BOOLEAN DEFAULT FALSE,
+    is_video BOOLEAN DEFAULT FALSE,
+    width INTEGER,
+    height INTEGER,
+    file_size INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for stickers table
+CREATE INDEX IF NOT EXISTS idx_stickers_sticker_id ON stickers(sticker_id);
+CREATE INDEX IF NOT EXISTS idx_stickers_set_name ON stickers(set_name);
+CREATE INDEX IF NOT EXISTS idx_stickers_emoji ON stickers(emoji);
+CREATE INDEX IF NOT EXISTS idx_stickers_created_at ON stickers(created_at);
