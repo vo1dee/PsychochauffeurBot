@@ -26,21 +26,28 @@ async def _process_leveling_system(update: Update, context: ContextTypes.DEFAULT
         service_registry = context.bot_data.get('service_registry')
         if not service_registry:
             # Leveling system not available, skip processing
+            general_logger.info("Leveling system: service_registry not available")
             return
         
         # Get leveling service
         try:
             leveling_service = service_registry.get_service('user_leveling_service')
-        except (ValueError, KeyError):
+        except (ValueError, KeyError) as e:
             # Leveling service not registered or not available
+            general_logger.info(f"Leveling system: service not available: {e}")
             return
         
         # Check if leveling service is enabled
         if not leveling_service or not leveling_service.is_enabled():
+            general_logger.info(f"Leveling system: service disabled or None: {leveling_service}")
             return
+        
+        general_logger.info(f"Processing message for leveling: user_id={update.message.from_user.id if update.message and update.message.from_user else 'None'}")
         
         # Process message for leveling (with built-in error handling)
         await leveling_service.process_message(update, context)
+        
+        general_logger.info("Leveling system processing completed successfully")
         
     except Exception as e:
         # Log error but don't interrupt message processing
@@ -61,9 +68,6 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
         # Stream message to log file first - this handles ALL message types
         await chat_streamer.stream_message(update, context)
         general_logger.info("Message streamed to log file")
-        
-        # Process message for leveling system
-        await _process_leveling_system(update, context)
         
         # Only save to database if it's a text message, bot reply, or has image description
         if update.message:
@@ -109,6 +113,10 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
                 general_logger.info(f"Attempting to save message: {update.message.text!r}")
                 await Database.save_message(update.message)
                 general_logger.info("Message saved to database")
+                
+                # Process message for leveling system AFTER saving to database
+                # This ensures user and chat info exist before leveling processing
+                await _process_leveling_system(update, context)
             
     except Exception as e:
         # Log the error but don't interrupt the bot's operation

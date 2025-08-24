@@ -202,10 +202,10 @@ def sample_achievements():
             category='activity',
             created_at=base_time
         ),
-        'young_chatter': Achievement(
-            id='young_chatter',
-            title='🐣 Молодий базіка',
-            description='Send 100+ messages',
+        'young_fluder': Achievement(
+            id='young_fluder',
+            title='🐣 Молодий флудер',
+            description='Відправив 100+ повідомлень',
             emoji='🐣',
             sticker='🐣',
             condition_type='messages_count',
@@ -287,7 +287,7 @@ def sample_user_achievements(sample_user_stats, sample_achievements):
         UserAchievement(
             user_id=12347,  # veteran_user
             chat_id=-1001234567890,
-            achievement_id='young_chatter',
+            achievement_id='young_fluder',
             unlocked_at=base_time - timedelta(days=300)
         ),
         UserAchievement(
@@ -550,7 +550,7 @@ def achievement_test_scenarios(sample_achievements):
                 'level': 3,
                 'xp': 150
             },
-            'expected_achievements': ['novice', 'young_chatter', 'helpful', 'linker'],
+            'expected_achievements': ['novice', 'young_fluder', 'helpful', 'linker'],
             'context_data': {}
         },
         {
@@ -562,7 +562,7 @@ def achievement_test_scenarios(sample_achievements):
                 'level': 5,
                 'xp': 400
             },
-            'expected_achievements': ['novice', 'young_chatter', 'helpful', 'linker', 'level_up'],
+            'expected_achievements': ['novice', 'young_fluder', 'helpful', 'linker', 'level_up'],
             'context_data': {}
         },
         {
@@ -685,7 +685,7 @@ def integration_test_scenarios(test_users, test_chats, sample_user_stats):
             'user': 'alice',
             'starting_stats': sample_user_stats['level_up_candidate'],
             'actions': [
-                {'send_message': 'Message to reach 100 total', 'expected_achievement': 'young_chatter'},
+                {'send_message': 'Message to reach 100 total', 'expected_achievement': 'young_fluder'},
                 {'send_link': 'https://example.com', 'expected_achievement': 'linker'},
                 {'receive_thanks': 5, 'expected_achievement': 'helpful'}
             ]

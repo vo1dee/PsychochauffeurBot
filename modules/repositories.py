@@ -54,10 +54,13 @@ class UserStatsRepository:
         try:
             async with self._connection_manager.get_connection() as conn:
                 row = await conn.fetchrow("""
-                    SELECT user_id, chat_id, xp, level, messages_count, links_shared, 
-                           thanks_received, last_activity, created_at, updated_at
-                    FROM user_chat_stats
-                    WHERE user_id = $1 AND chat_id = $2
+                    SELECT ucs.user_id, ucs.chat_id, ucs.xp, ucs.level, ucs.messages_count, 
+                           ucs.links_shared, ucs.thanks_received, ucs.last_activity, 
+                           ucs.created_at, ucs.updated_at,
+                           u.username, u.first_name, u.last_name
+                    FROM user_chat_stats ucs
+                    LEFT JOIN users u ON ucs.user_id = u.user_id
+                    WHERE ucs.user_id = $1 AND ucs.chat_id = $2
                 """, user_id, chat_id)
                 
                 # Record performance metrics
@@ -71,7 +74,18 @@ class UserStatsRepository:
                 record_database_time("get_user_stats", query_time)
                 
                 if row:
-                    return UserStats.from_dict(dict(row))
+                    row_dict = dict(row)
+                    # Extract user info
+                    username = row_dict.pop('username', None)
+                    first_name = row_dict.pop('first_name', None)
+                    last_name = row_dict.pop('last_name', None)
+                    
+                    user_stats = UserStats.from_dict(row_dict)
+                    # Store user info for later use
+                    user_stats._username = username
+                    user_stats._first_name = first_name
+                    user_stats._last_name = last_name
+                    return user_stats
                 return None
                 
         except Exception as e:
@@ -200,15 +214,33 @@ class UserStatsRepository:
         """
         async with self._connection_manager.get_connection() as conn:
             rows = await conn.fetch("""
-                SELECT user_id, chat_id, xp, level, messages_count, links_shared,
-                       thanks_received, last_activity, created_at, updated_at
-                FROM user_chat_stats
-                WHERE chat_id = $1
-                ORDER BY xp DESC, level DESC, messages_count DESC
+                SELECT ucs.user_id, ucs.chat_id, ucs.xp, ucs.level, ucs.messages_count, 
+                       ucs.links_shared, ucs.thanks_received, ucs.last_activity, 
+                       ucs.created_at, ucs.updated_at,
+                       u.username, u.first_name, u.last_name
+                FROM user_chat_stats ucs
+                LEFT JOIN users u ON ucs.user_id = u.user_id
+                WHERE ucs.chat_id = $1
+                ORDER BY ucs.xp DESC, ucs.level DESC, ucs.messages_count DESC
                 LIMIT $2
             """, chat_id, limit)
             
-            return [UserStats.from_dict(dict(row)) for row in rows]
+            user_stats_list = []
+            for row in rows:
+                row_dict = dict(row)
+                # Extract user info for the UserStats object
+                username = row_dict.pop('username', None)
+                first_name = row_dict.pop('first_name', None)
+                last_name = row_dict.pop('last_name', None)
+                
+                user_stats = UserStats.from_dict(row_dict)
+                # Store user info for later use
+                user_stats._username = username
+                user_stats._first_name = first_name
+                user_stats._last_name = last_name
+                user_stats_list.append(user_stats)
+            
+            return user_stats_list
     
     async def get_user_rank(self, user_id: UserId, chat_id: ChatId) -> Optional[int]:
         """

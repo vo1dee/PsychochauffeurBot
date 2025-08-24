@@ -19,7 +19,7 @@ from modules.xp_calculator import XPCalculator
 from modules.level_manager import LevelManager
 from modules.achievement_engine import AchievementEngine
 from modules.repositories import UserStatsRepository, AchievementRepository
-from modules.leveling_models import UserStats, UserProfile, LevelUpResult
+from modules.leveling_models import UserStats, UserProfile, LevelUpResult, Achievement
 from modules.leveling_notification_service import LevelingNotificationService
 from modules.types import UserId, ChatId
 from modules.error_decorators import database_operation
@@ -641,7 +641,11 @@ class UserLevelingService(ServiceInterface):
                 
                 # For new users, perform retroactive achievement check
                 if user_stats:
-                    await self._perform_retroactive_checks_safe(user_id, chat_id)
+                    await self._perform_retroactive_checks_safe(user_id, chat_id, context)
+            else:
+                # For existing users, always perform retroactive checks on each message
+                # This ensures achievements are awarded when conditions are met
+                await self._perform_retroactive_checks_safe(user_id, chat_id, context)
             
             # Store old values for comparison
             old_level = user_stats.level
@@ -824,10 +828,15 @@ class UserLevelingService(ServiceInterface):
             required_xp = next_level_xp - current_level_xp
             progress_percentage = (progress_xp / required_xp) * 100 if required_xp > 0 else 100
             
+            # Get username from user_stats if available
+            username = getattr(user_stats, '_username', None)
+            first_name = getattr(user_stats, '_first_name', None)
+            display_name = username or first_name or f"User {user_id}"
+            
             # Create profile
             profile = UserProfile(
                 user_id=user_id,
-                username=None,  # Will be filled by command handler
+                username=display_name,
                 level=user_stats.level,
                 xp=user_stats.xp,
                 next_level_xp=next_level_xp,
@@ -891,11 +900,11 @@ class UserLevelingService(ServiceInterface):
                     achievements = [Achievement.from_dict(ach_dict) for ach_dict in achievements_data]
                 else:
                     # Cache miss - get from database
-                    user_achievements = await self.achievement_repo.get_user_achievements(
+                    user_achievements_with_details = await self.achievement_repo.get_user_achievements_with_details(
                         user_stats.user_id, 
                         chat_id
                     )
-                    achievements = [ach.achievement for ach in user_achievements]
+                    achievements = [achievement for user_achievement, achievement in user_achievements_with_details]
                     
                     # Cache the achievements
                     if achievements:
@@ -908,9 +917,14 @@ class UserLevelingService(ServiceInterface):
                 required_xp = next_level_xp - current_level_xp
                 progress_percentage = (progress_xp / required_xp) * 100 if required_xp > 0 else 100
                 
+                # Get username from user_stats if available
+                username = getattr(user_stats, '_username', None)
+                first_name = getattr(user_stats, '_first_name', None)
+                display_name = username or first_name or f"User {user_stats.user_id}"
+                
                 profile = UserProfile(
                     user_id=user_stats.user_id,
-                    username=None,  # Will be filled by command handler
+                    username=display_name,
                     level=user_stats.level,
                     xp=user_stats.xp,
                     next_level_xp=next_level_xp,
@@ -1376,10 +1390,13 @@ class UserLevelingService(ServiceInterface):
         except Exception as e:
             logger.warning(f"Notification sending failed: {e}")
     
-    async def _perform_retroactive_checks_safe(self, user_id: UserId, chat_id: ChatId) -> None:
+    async def _perform_retroactive_checks_safe(self, user_id: UserId, chat_id: ChatId, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> None:
         """Perform retroactive checks with error handling."""
         try:
             await self._perform_retroactive_checks(user_id, chat_id)
+            
+            # Also check for retroactive achievements based on current stats
+            await self.check_retroactive_achievements(user_id, chat_id, context)
         except Exception as e:
             logger.warning(f"Retroactive checks failed for user {user_id}: {e}")
 
@@ -1430,7 +1447,7 @@ class UserLevelingService(ServiceInterface):
         """Check if the leveling service is enabled."""
         return self._initialized and self._enabled
     
-    async def check_retroactive_achievements(self, user_id: UserId, chat_id: ChatId) -> List[Any]:
+    async def check_retroactive_achievements(self, user_id: UserId, chat_id: ChatId, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> List[Any]:
         """
         Check and unlock achievements based on current user stats (retroactively).
         
@@ -1440,6 +1457,7 @@ class UserLevelingService(ServiceInterface):
         Args:
             user_id: User ID to check
             chat_id: Chat ID
+            context: Bot context for sending notifications (optional)
             
         Returns:
             List of newly unlocked achievements
@@ -1453,8 +1471,8 @@ class UserLevelingService(ServiceInterface):
             if not user_stats:
                 return []
             
-            # Check for achievements based on current stats
-            new_achievements = await self.achievement_engine.check_achievements(user_id, chat_id, user_stats)
+            # Check for achievements based on current stats (retroactive)
+            new_achievements = await self.achievement_engine.check_retroactive_achievements_for_user(user_id, chat_id, user_stats)
             
             if new_achievements:
                 # Actually unlock the achievements in the database
@@ -1462,6 +1480,17 @@ class UserLevelingService(ServiceInterface):
                     await self.achievement_engine.unlock_achievements(user_id, chat_id, new_achievements)
                     logger.info(f"Retroactively unlocked {len(new_achievements)} achievements for user {user_id}")
                     self._stats['achievements_unlocked'] += len(new_achievements)
+                    
+                    # Send notifications for retroactively unlocked achievements if context is available
+                    if context and self.notification_service:
+                        try:
+                            await self.notification_service.send_achievement_notifications(
+                                context, chat_id, user_id, new_achievements
+                            )
+                            logger.debug(f"Sent retroactive achievement notifications for user {user_id}")
+                        except Exception as e:
+                            logger.warning(f"Failed to send retroactive achievement notifications: {e}")
+                            
                 except Exception as e:
                     logger.error(f"Failed to retroactively unlock achievements for user {user_id}: {e}")
                     new_achievements = []  # Clear to avoid inconsistent state

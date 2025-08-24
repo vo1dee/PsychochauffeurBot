@@ -1279,7 +1279,8 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # List of allowed commands (must match those registered in main.py)
         allowed_commands = {
             'start', 'help', 'ping', 'cat', 'error_report', 'ask', 'analyze', 'mystats',
-            'weather', 'flares', 'gm', 'remind', 'count', 'missing', 'speech'
+            'weather', 'flares', 'gm', 'remind', 'count', 'missing', 'speech',
+            'profile', 'leaderboard', 'leaderboards', 'top', 'rank'
         }
         if stats['command_stats']:
             message_parts.extend([

@@ -445,9 +445,9 @@ class TestAchievementIntegration(TestLevelingSystemIntegration):
         # Mock multiple achievements
         achievements = [
             Achievement(
-                id="young_chatter",
-                title="🐣 Молодий базіка",
-                description="Send 100+ messages",
+                id="young_fluder",
+                title="🐣 Молодий флудер",
+                description="Відправив 100+ повідомлень",
                 emoji="🐣",
                 sticker="🐣",
                 condition_type="messages_count",

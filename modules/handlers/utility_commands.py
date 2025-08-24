@@ -41,11 +41,13 @@ async def _find_user_by_username(username: str, chat_id: int, context: ContextTy
         query = """
             SELECT u.user_id, u.username, u.first_name, u.last_name 
             FROM users u
-            INNER JOIN user_stats us ON u.user_id = us.user_id
-            WHERE LOWER(u.username) = LOWER(?) AND us.chat_id = ?
+            INNER JOIN user_chat_stats us ON u.user_id = us.user_id
+            WHERE LOWER(u.username) = LOWER($1) AND us.chat_id = $2
         """
         
-        result = await Database.fetch_one(query, (username, chat_id))
+        manager = Database.get_connection_manager()
+        async with manager.get_connection() as conn:
+            result = await conn.fetchrow(query, username, chat_id)
         
         if result:
             user_id = result['user_id']
@@ -158,10 +160,17 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Achievements
         if profile.achievements:
             profile_text += f"🏆 <b>Achievements ({len(profile.achievements)}):</b>\n"
-            achievement_emojis = [ach.emoji for ach in profile.achievements[:10]]  # Show first 10
-            profile_text += " ".join(achievement_emojis)
-            if len(profile.achievements) > 10:
-                profile_text += f" +{len(profile.achievements) - 10} more"
+            # Show achievements with both emoji and title
+            for i, ach in enumerate(profile.achievements[:5]):  # Show first 5 with names
+                profile_text += f"{ach.emoji} {ach.title}\n"
+            
+            # If more than 5, show remaining as emojis only
+            if len(profile.achievements) > 5:
+                remaining_emojis = [ach.emoji for ach in profile.achievements[5:10]]
+                if remaining_emojis:
+                    profile_text += " ".join(remaining_emojis)
+                if len(profile.achievements) > 10:
+                    profile_text += f" +{len(profile.achievements) - 10} more"
         else:
             profile_text += "🏆 <b>Achievements:</b> None yet - keep chatting to unlock some!"
         
@@ -209,14 +218,18 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("📊 No leaderboard data available yet.")
             return
         
-        # Format leaderboard message
-        leaderboard_text = f"🏆 **Chat Leaderboard (Top {len(leaderboard)})**\n\n"
+        # Format leaderboard message using HTML to avoid Markdown parsing issues
+        leaderboard_text = f"🏆 <b>Chat Leaderboard (Top {len(leaderboard)})</b>\n\n"
         
         for profile in leaderboard:
             rank_emoji = "🥇" if profile.rank == 1 else "🥈" if profile.rank == 2 else "🥉" if profile.rank == 3 else f"{profile.rank}."
             username = profile.username or f"User {profile.user_id}"
             
-            leaderboard_text += f"{rank_emoji} **{username}**\n"
+            # Escape HTML characters in username
+            import html
+            username_escaped = html.escape(username)
+            
+            leaderboard_text += f"{rank_emoji} <b>{username_escaped}</b>\n"
             leaderboard_text += f"   Level {profile.level} • {profile.xp:,} XP\n"
             
             # Show top achievements for top 3
@@ -226,7 +239,7 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             
             leaderboard_text += "\n"
         
-        await update.message.reply_text(leaderboard_text, parse_mode='Markdown')
+        await update.message.reply_text(leaderboard_text, parse_mode='HTML')
         
     except Exception as e:
         logger.error(f"Error in leaderboard command: {e}", exc_info=True)

@@ -36,11 +36,12 @@ This document outlines the requirements for implementing a comprehensive levelin
 **User Story:** As a group chat member, I want to unlock achievements for reaching specific milestones so that my accomplishments are recognized and celebrated.
 
 #### Acceptance Criteria
+
 📈 Активність у чаті
 
 WHEN a user sends their first message THEN the system SHALL unlock the "👶 Новачок" achievement
 
-WHEN a user sends 100+ messages THEN the system SHALL unlock the "🐣 Молодий базіка" achievement
+WHEN a user sends 100+ messages THEN the system SHALL unlock the "🐣 Молодий флудер" achievement
 
 WHEN a user sends 500+ messages THEN the system SHALL unlock the "🗣️ Активний співрозмовник" achievement
 
@@ -171,7 +172,7 @@ WHEN checking for achievements THEN the system SHALL prevent duplicate awards fo
 3. WHEN the system encounters errors THEN it SHALL log them without crashing the bot
 4. WHEN processing messages THEN the system SHALL handle new users automatically by creating database records
 5. WHEN the system is disabled THEN existing bot functionality SHALL continue to work normally
-6. WHEN use current data in the tables, to reevbaluate /profile and achievments 
+6. WHEN use current data in the tables, to reevbaluate /profile and achievments
 
 ### Requirement 8: Performance and Scalability
 

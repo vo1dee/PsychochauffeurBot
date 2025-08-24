@@ -696,6 +696,118 @@ class AchievementEngine:
             logger.error(f"Error getting user achievements for user {user_id}: {e}")
             return []
     
+    async def check_retroactive_achievements_for_user(
+        self,
+        user_id: UserId,
+        chat_id: ChatId,
+        user_stats: UserStats
+    ) -> List[Achievement]:
+        """
+        Check achievements retroactively based on current user statistics.
+        
+        This method analyzes the user's current stats and database history
+        to determine which achievements should be unlocked based on their
+        accumulated activity.
+        
+        Args:
+            user_id: The user's ID
+            chat_id: The chat's ID  
+            user_stats: Current user statistics
+            
+        Returns:
+            List of achievements that should be unlocked retroactively
+        """
+        try:
+            # Get all achievements
+            all_achievements = await self.get_all_achievements()
+            
+            # Get user's current achievements
+            user_achievements = await self.repository.get_user_achievements(user_id, chat_id)
+            unlocked_achievement_ids = {ua.achievement_id for ua in user_achievements}
+            
+            # Check each achievement against current stats
+            new_achievements = []
+            
+            for achievement in all_achievements:
+                # Skip if already unlocked
+                if achievement.id in unlocked_achievement_ids:
+                    continue
+                
+                # Check if condition is met based on current stats
+                if self._check_retroactive_condition(achievement, user_stats):
+                    new_achievements.append(achievement)
+            
+            return new_achievements
+            
+        except Exception as e:
+            logger.error(f"Error checking retroactive achievements for user {user_id}: {e}")
+            return []
+    
+    def _check_retroactive_condition(self, achievement: Achievement, user_stats: UserStats) -> bool:
+        """
+        Check if an achievement condition is met based on current user stats.
+        
+        This method evaluates achievement conditions against accumulated statistics
+        rather than real-time message context.
+        
+        Args:
+            achievement: The achievement to check
+            user_stats: Current user statistics
+            
+        Returns:
+            True if the achievement condition is met, False otherwise
+        """
+        try:
+            condition_type = achievement.condition_type
+            condition_value = achievement.condition_value
+            
+            # Map condition types to user stats fields
+            stat_mappings = {
+                'messages_count': user_stats.messages_count,
+                'level': user_stats.level,
+                'links_shared': user_stats.links_shared,
+                'thanks_received': user_stats.thanks_received,
+                'photos_shared': getattr(user_stats, 'photos_shared', 0),
+                'videos_uploaded': getattr(user_stats, 'videos_uploaded', 0),
+                'stickers_sent': getattr(user_stats, 'stickers_sent', 0),
+                'replies_made': getattr(user_stats, 'replies_made', 0),
+                'polls_created': getattr(user_stats, 'polls_created', 0),
+                'emojis_sent': getattr(user_stats, 'emojis_sent', 0),
+                'reactions_received': getattr(user_stats, 'reactions_received', 0),
+                'mentions_made': getattr(user_stats, 'mentions_made', 0),
+                'laugh_messages': getattr(user_stats, 'laugh_messages', 0),
+                'swear_words': getattr(user_stats, 'swear_words', 0),
+                'twitter_links': getattr(user_stats, 'twitter_links', 0),
+                'steam_links': getattr(user_stats, 'steam_links', 0),
+                'memes_shared': getattr(user_stats, 'memes_shared', 0),
+                'music_shared': getattr(user_stats, 'music_shared', 0),
+                'consecutive_messages': getattr(user_stats, 'consecutive_messages', 0),
+            }
+            
+            # Get the current value for this condition type
+            current_value = stat_mappings.get(condition_type, 0)
+            
+            # Check if condition is met
+            if isinstance(current_value, (int, float)):
+                return current_value >= condition_value
+            
+            # Handle special conditions that require additional logic
+            if condition_type in ['daily_messages', 'consecutive_days', 'days_active']:
+                # These would require additional database queries to calculate
+                # For now, return False to avoid false positives
+                return False
+            
+            if condition_type in ['first_morning_message', 'last_night_message', 'longest_message', 'shortest_message']:
+                # These require message history analysis
+                # For now, return False to avoid false positives  
+                return False
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking retroactive condition for achievement {achievement.id}: {e}")
+            return False
+    
     async def get_achievements_by_category(self, category: str) -> List[Achievement]:
         """
         Get achievements by category.

@@ -56,7 +56,7 @@ class TestProfileCommand:
         """Create a sample user profile."""
         achievements = [
             Achievement("newcomer", "Newcomer", "First message", "👶", "", "messages_count", 1, "activity"),
-            Achievement("chatterbox", "Chatterbox", "100 messages", "💬", "", "messages_count", 100, "activity")
+            Achievement("young_fluder", "🐣 Молодий флудер", "Відправив 100+ повідомлень", "🐣", "🐣", "messages_count", 100, "activity")
         ]
         
         return UserProfile(

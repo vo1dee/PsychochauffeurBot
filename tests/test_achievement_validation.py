@@ -35,10 +35,10 @@ class TestAchievementValidation:
         assert first_message.check_condition(user_stats)
         
         # Test 100 messages achievement
-        chatterbox = Achievement(
-            id="chatterbox",
-            title="🐣 Молодий базіка",
-            description="Send 100+ messages",
+        young_fluder = Achievement(
+            id="young_fluder",
+            title="🐣 Молодий флудер",
+            description="Відправив 100+ повідомлень",
             emoji="🐣",
             sticker="🐣",
             condition_type="messages_count",
@@ -47,13 +47,13 @@ class TestAchievementValidation:
         )
         
         user_stats.messages_count = 99
-        assert not chatterbox.check_condition(user_stats)
+        assert not young_fluder.check_condition(user_stats)
         
         user_stats.messages_count = 100
-        assert chatterbox.check_condition(user_stats)
+        assert young_fluder.check_condition(user_stats)
         
         user_stats.messages_count = 150
-        assert chatterbox.check_condition(user_stats)
+        assert young_fluder.check_condition(user_stats)
     
     def test_link_sharing_achievements(self):
         """Test link sharing achievements."""
@@ -285,7 +285,7 @@ class TestAchievementValidation:
         
         # Check for basic activity achievements
         assert "novice" in achievement_ids
-        assert "young_chatter" in achievement_ids
+        assert "young_fluder" in achievement_ids
         
         # Print available achievement IDs for debugging
         print(f"Available achievement IDs: {sorted(achievement_ids)}")

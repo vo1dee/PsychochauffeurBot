@@ -38,7 +38,7 @@ class TestAchievementDefinitions:
         achievement_ids = {ach.id for ach in achievements}
         
         expected_achievements = {
-            'novice', 'young_chatter', 'active_talker', 'chat_voice',
+            'novice', 'young_fluder', 'active_talker', 'chat_voice',
             'scribe', 'psycho_chauffeur', 'elder', 'chat_lord', 'chat_legend',
             'daily_marathon', 'no_weekends', 'chat_veteran', 'early_bird', 'night_owl'
         }
@@ -51,9 +51,9 @@ class TestAchievementDefinitions:
         assert novice.condition_type == 'messages_count'
         assert novice.emoji == '👶'
         
-        young_chatter = next(ach for ach in achievements if ach.id == 'young_chatter')
-        assert young_chatter.condition_value == 100
-        assert young_chatter.condition_type == 'messages_count'
+        young_fluder = next(ach for ach in achievements if ach.id == 'young_fluder')
+        assert young_fluder.condition_value == 100
+        assert young_fluder.condition_type == 'messages_count'
     
     def test_media_achievements_structure(self):
         """Test media achievements have correct structure."""
