@@ -49,6 +49,9 @@ class LevelingNotificationService:
             "🏆", "🥇", "🎖️", "🏅", "⭐", "🌟", "✨", "💫", "🎯", "🎪"
         ]
         
+        # Achievement celebration sticker ID
+        self._achievement_sticker_id = "CAACAgQAAxkBAAE6CU1oqlkvIPJ2twABux4tCCopfLJGK1wAAmMZAAIlcFBRy6g_pM2r8zw2BA"
+        
         # Level milestone emojis
         self._level_milestone_emojis = {
             5: "🆙",
@@ -110,7 +113,7 @@ class LevelingNotificationService:
         context: ContextTypes.DEFAULT_TYPE
     ) -> bool:
         """
-        Send an achievement unlock celebration message.
+        Send an achievement unlock celebration message with sticker.
         
         Args:
             achievement: Unlocked achievement
@@ -125,6 +128,10 @@ class LevelingNotificationService:
             return False
         
         try:
+            # Send achievement sticker first
+            await self._send_achievement_sticker(original_message)
+            
+            # Then send the text message
             message_text = self._format_achievement_message(achievement, user)
             
             await original_message.reply_text(
@@ -148,7 +155,7 @@ class LevelingNotificationService:
         context: ContextTypes.DEFAULT_TYPE
     ) -> bool:
         """
-        Send a notification for multiple achievements unlocked at once.
+        Send a notification for multiple achievements unlocked at once with sticker.
         
         Args:
             achievements: List of unlocked achievements
@@ -168,6 +175,10 @@ class LevelingNotificationService:
                     achievements[0], user, original_message, context
                 )
             
+            # Send achievement sticker first for multiple achievements
+            await self._send_achievement_sticker(original_message)
+            
+            # Then send the text message
             message_text = self._format_multiple_achievements_message(achievements, user)
             
             await original_message.reply_text(
@@ -406,6 +417,26 @@ class LevelingNotificationService:
             True if notifications are enabled
         """
         return self._enabled
+    
+    async def _send_achievement_sticker(self, original_message: Message) -> bool:
+        """
+        Send an achievement celebration sticker.
+        
+        Args:
+            original_message: Original message to reply to
+            
+        Returns:
+            True if sticker was sent successfully, False otherwise
+        """
+        try:
+            await original_message.reply_sticker(
+                sticker=self._achievement_sticker_id,
+                disable_notification=False
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to send achievement sticker: {e}")
+            return False
     
     def update_config(self, config: Dict[str, Any]) -> None:
         """

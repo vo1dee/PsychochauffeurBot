@@ -450,6 +450,49 @@ class TestMessageHandlerIntegration:
             await _process_leveling_system(update, context)
         except Exception:
             pytest.fail("Should handle missing service gracefully")
+    
+    @pytest.mark.asyncio
+    async def test_new_message_handler_does_not_call_leveling(self):
+        """Test that the new message handler does NOT call leveling to avoid duplication."""
+        from modules.handlers.message_handlers import handle_message
+        
+        # Mock update and context
+        update = Mock(spec=Update)
+        update.message = Mock()
+        update.message.text = "Hello world!"
+        update.message.from_user = Mock()
+        update.message.from_user.id = 12345
+        update.message.from_user.username = "testuser"
+        update.message.from_user.is_bot = False
+        update.effective_chat = Mock()
+        update.effective_chat.id = -67890
+        update.effective_chat.type = "group"
+        
+        # Mock service registry and leveling service
+        leveling_service = Mock()
+        leveling_service.is_enabled.return_value = True
+        leveling_service.process_message = AsyncMock()
+        
+        service_registry = Mock()
+        service_registry.get_service.return_value = leveling_service
+        
+        context = Mock()
+        context.bot_data = {'service_registry': service_registry}
+        context.application = Mock()
+        context.application.bot_data = {'service_registry': service_registry}
+        
+        # Mock all the dependencies that handle_message needs
+        with patch('modules.handlers.message_handlers.update_message_history'), \
+             patch('modules.handlers.message_handlers.should_restrict_user', return_value=False), \
+             patch('modules.handlers.message_handlers.process_message_content', return_value=("Hello world!", [])), \
+             patch('modules.handlers.message_handlers.needs_gpt_response', return_value=(False, None)), \
+             patch('modules.handlers.message_handlers.handle_random_gpt_response'):
+            
+            # Call the new message handler
+            await handle_message(update, context)
+        
+        # Verify leveling service was NOT called (to avoid duplication)
+        leveling_service.process_message.assert_not_called()
 
 
 class TestServiceRegistryIntegration:

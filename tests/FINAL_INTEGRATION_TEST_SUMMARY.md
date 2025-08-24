@@ -163,10 +163,68 @@ The User Leveling System has been successfully integrated with the existing bot 
 
 **System Status: ✅ READY FOR PRODUCTION**
 
+### Recent Fixes Applied (2025-08-24)
+
+#### Fix 1: Duplicate Message Handling
+**Issue Resolved:** Duplicate leveling processing was occurring due to two separate message handler systems both calling the leveling service.
+
+**Root Cause:** 
+- `modules/message_handler.py` (main handler) with `_process_leveling_system`
+- `modules/handlers/message_handlers.py` (new handler) also calling leveling service directly
+
+**Solution Applied:**
+- ✅ Removed leveling processing from `modules/handlers/message_handlers.py`
+- ✅ Ensured only `modules/message_handler.py` processes leveling via `_process_leveling_system`
+- ✅ Added comprehensive tests to prevent regression
+
+#### Fix 2: Achievement Unlock Persistence
+**Issue Resolved:** Achievements were being detected as "new" but never saved to database, causing duplicate achievement notifications.
+
+**Root Cause:** 
+- `UserLevelingService` was checking for new achievements and sending notifications
+- But it was NOT calling `unlock_achievements()` to save them to the database
+- Next check would see them as "new" again, causing duplicates
+
+**Solution Applied:**
+- ✅ Added `achievement_engine.unlock_achievements()` call in `_award_xp_to_user` method
+- ✅ Added proper error handling for achievement unlocking
+- ✅ Fixed both regular and retroactive achievement processing
+- ✅ Achievements are now properly persisted to database
+
+#### Fix 3: Duplicate Achievement Definitions
+**Issue Resolved:** Database contained duplicate achievement definitions with same titles but different IDs, causing multiple identical achievements to be unlocked.
+
+**Root Cause:** 
+- Database had both `newcomer` and `novice` achievements with title "👶 Новачок"
+- Both had same condition (`messages_count=1`)
+- When user sent first message, both achievements were unlocked
+- Also had duplicate Twitter-related achievements
+
+**Solution Applied:**
+- ✅ Identified duplicate achievements in database
+- ✅ Removed duplicate `novice` achievement (kept `newcomer`)
+- ✅ Removed duplicate `twitter_user` achievement (kept `twitter_fan`)
+- ✅ Cleaned up associated user achievements for removed duplicates
+- ✅ Reduced total achievements from 39 to 37 (removed 2 duplicates)
+
+**Tests Added:**
+- `test_new_message_handler_does_not_call_leveling` - Ensures new handler doesn't duplicate processing
+- `test_no_duplicate_leveling_processing` - Comprehensive validation of single processing
+
+**Validation Results:**
+- ✅ Main message handler calls leveling system correctly
+- ✅ New message handler does NOT call leveling system (avoiding duplication)
+- ✅ Achievements are properly saved to database when unlocked
+- ✅ Duplicate achievement definitions removed from database
+- ✅ No more duplicate achievement notifications
+- ✅ Clean achievement system with unique titles and IDs
+- ✅ All message handler integration tests passing
+
 ---
 
 *Test completed on: 2025-08-24*  
 *Total test execution time: ~10 minutes*  
-*Test coverage: 15.07% (focused on leveling system components)*  
+*Test coverage: 16.02% (focused on leveling system components)*  
 *Integration points validated: 6/6*  
-*Requirements validated: 8/8*
+*Requirements validated: 8/8*  
+*Duplicate handling fix: ✅ VERIFIED*

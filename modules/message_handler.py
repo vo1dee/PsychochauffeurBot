@@ -62,7 +62,7 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
         await chat_streamer.stream_message(update, context)
         general_logger.info("Message streamed to log file")
         
-        # Process message for leveling system (before other processing)
+        # Process message for leveling system
         await _process_leveling_system(update, context)
         
         # Only save to database if it's a text message, bot reply, or has image description

@@ -224,6 +224,55 @@ class TestLevelingSystemValidation:
         # Verify leveling service was called
         leveling_service.process_message.assert_called_once_with(update, context)
     
+    @pytest.mark.asyncio
+    async def test_no_duplicate_leveling_processing(self):
+        """Test that leveling processing only happens once per message."""
+        from modules.message_handler import _process_leveling_system
+        from modules.handlers.message_handlers import handle_message
+        
+        # Mock leveling service
+        leveling_service = Mock()
+        leveling_service.is_enabled.return_value = True
+        leveling_service.process_message = AsyncMock()
+        
+        service_registry = Mock()
+        service_registry.get_service.return_value = leveling_service
+        
+        # Mock update and context
+        update = Mock()
+        update.message = Mock()
+        update.message.text = "Test message"
+        update.message.from_user = Mock()
+        update.message.from_user.id = 123
+        update.message.from_user.is_bot = False
+        update.effective_chat = Mock()
+        update.effective_chat.id = 456
+        update.effective_chat.type = "group"
+        
+        context = Mock()
+        context.bot_data = {'service_registry': service_registry}
+        context.application = Mock()
+        context.application.bot_data = {'service_registry': service_registry}
+        
+        # Test 1: Main handler should call leveling
+        await _process_leveling_system(update, context)
+        assert leveling_service.process_message.call_count == 1
+        
+        # Reset mock
+        leveling_service.process_message.reset_mock()
+        
+        # Test 2: New handler should NOT call leveling
+        with patch('modules.handlers.message_handlers.update_message_history'), \
+             patch('modules.handlers.message_handlers.should_restrict_user', return_value=False), \
+             patch('modules.handlers.message_handlers.process_message_content', return_value=("Test message", [])), \
+             patch('modules.handlers.message_handlers.needs_gpt_response', return_value=(False, None)), \
+             patch('modules.handlers.message_handlers.handle_random_gpt_response'):
+            
+            await handle_message(update, context)
+        
+        # Should not have called leveling service
+        assert leveling_service.process_message.call_count == 0
+    
     def test_all_required_modules_can_be_imported(self):
         """Test that all required modules can be imported without errors."""
         # Test core service

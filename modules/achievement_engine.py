@@ -57,9 +57,9 @@ class AchievementDefinitions:
         """Get activity-based achievements."""
         return [
             Achievement(
-                id="novice",
+                id="newcomer",
                 title="👶 Новачок",
-                description="Надіслав своє перше повідомлення",
+                description="Відправив своє перше повідомлення",
                 emoji="👶",
                 sticker="👶",
                 condition_type="messages_count",
@@ -67,9 +67,9 @@ class AchievementDefinitions:
                 category="activity"
             ),
             Achievement(
-                id="young_chatter",
-                title="🐣 Молодий базіка",
-                description="Надіслав 100+ повідомлень",
+                id="young_fluder",
+                title="🐣 Молодий флудер",
+                description="Відправив 100+ повідомлень",
                 emoji="🐣",
                 sticker="🐣",
                 condition_type="messages_count",
@@ -89,7 +89,7 @@ class AchievementDefinitions:
             Achievement(
                 id="chat_voice",
                 title="💬 Голос чату",
-                description="Надіслав 1,000+ повідомлень",
+                description="Відправив 1,000+ повідомлень",
                 emoji="💬",
                 sticker="💬",
                 condition_type="messages_count",
@@ -99,7 +99,7 @@ class AchievementDefinitions:
             Achievement(
                 id="scribe",
                 title="🪶 Писар",
-                description="Надіслав 5,000+ повідомлень",
+                description="Відправив 5,000+ повідомлень",
                 emoji="🪶",
                 sticker="🪶",
                 condition_type="messages_count",
@@ -107,9 +107,9 @@ class AchievementDefinitions:
                 category="activity"
             ),
             Achievement(
-                id="psycho_chauffeur",
-                title="📜 Психошофьор",
-                description="Надіслав 10,000+ повідомлень",
+                id="psychochauffeur",
+                title="🚗 Психошофьор",
+                description="Відправив 10,000+ повідомлень",
                 emoji="📜",
                 sticker="📜",
                 condition_type="messages_count",
@@ -119,7 +119,7 @@ class AchievementDefinitions:
             Achievement(
                 id="elder",
                 title="🏛️ Старійшина",
-                description="Надіслав 20,000+ повідомлень",
+                description="Відправив 20,000+ повідомлень",
                 emoji="🏛️",
                 sticker="🏛️",
                 condition_type="messages_count",
@@ -129,7 +129,7 @@ class AchievementDefinitions:
             Achievement(
                 id="chat_lord",
                 title="👑 Володар чату",
-                description="Надіслав 50,000+ повідомлень",
+                description="Відправив 50,000+ повідомлень",
                 emoji="👑",
                 sticker="👑",
                 condition_type="messages_count",
@@ -139,7 +139,7 @@ class AchievementDefinitions:
             Achievement(
                 id="chat_legend",
                 title="🌌 Легенда чату",
-                description="Надіслав 100,000+ повідомлень",
+                description="Відправив 100,000+ повідомлень",
                 emoji="🌌",
                 sticker="🌌",
                 condition_type="messages_count",

@@ -576,13 +576,21 @@ class UserLevelingService(ServiceInterface):
         # Calculate XP for this message
         sender_xp, thanked_users_xp = self.xp_calculator.calculate_total_message_xp(message)
         
-        # Process XP for message sender
-        if sender_xp > 0:
-            await self._award_xp_to_user(user_id, chat_id, sender_xp, message, context)
+        # Consolidate XP awards to avoid duplicate processing for the same user
+        user_xp_totals = {}
         
-        # Process XP for thanked users
+        # Add sender XP
+        if sender_xp > 0:
+            user_xp_totals[user_id] = user_xp_totals.get(user_id, 0) + sender_xp
+        
+        # Add thanked users XP
         for thanked_user_id, xp_amount in thanked_users_xp.items():
-            await self._award_xp_to_user(thanked_user_id, chat_id, xp_amount, message, context, is_thanks=True)
+            user_xp_totals[thanked_user_id] = user_xp_totals.get(thanked_user_id, 0) + xp_amount
+        
+        # Process XP for each user only once
+        for user_id_to_award, total_xp in user_xp_totals.items():
+            is_thanks = user_id_to_award != user_id  # True if this user was thanked, False if sender
+            await self._award_xp_to_user(user_id_to_award, chat_id, total_xp, message, context, is_thanks=is_thanks)
     
     @with_error_boundary("user_leveling_service", "award_xp_to_user", timeout=5.0)
     async def _award_xp_to_user(
@@ -669,13 +677,24 @@ class UserLevelingService(ServiceInterface):
             await self._invalidate_user_cache(user_id, chat_id)
             
             # Check for new achievements with error handling
-            new_achievements = await self._check_achievements_safe(user_stats)
+            new_achievements = await self._check_achievements_safe(user_id, chat_id, user_stats)
             if new_achievements:
-                self._stats['achievements_unlocked'] += len(new_achievements)
-                logger.info(f"User {user_id} unlocked {len(new_achievements)} achievements")
+                # Actually unlock the achievements in the database
+                try:
+                    if self.achievement_engine:
+                        await self.achievement_engine.unlock_achievements(user_id, chat_id, new_achievements)
+                        logger.info(f"User {user_id} unlocked {len(new_achievements)} achievements")
+                    else:
+                        logger.warning("Achievement engine not available, cannot unlock achievements")
+                        new_achievements = []  # Clear to avoid sending notifications for unsaved achievements
+                except Exception as e:
+                    logger.error(f"Failed to unlock achievements for user {user_id}: {e}")
+                    new_achievements = []  # Clear to avoid sending notifications for unsaved achievements
                 
-                # Record achievement metrics
-                performance_monitor.record_metric("leveling_achievements_unlocked", len(new_achievements))
+                if new_achievements:
+                    self._stats['achievements_unlocked'] += len(new_achievements)
+                    # Record achievement metrics
+                    performance_monitor.record_metric("leveling_achievements_unlocked", len(new_achievements))
             
             # Send notifications with error boundary
             await self._send_notifications_safe(level_up_result, new_achievements, message, context)
@@ -777,8 +796,8 @@ class UserLevelingService(ServiceInterface):
             # Recalculate level based on current XP (retroactive)
             await self.recalculate_user_level(user_id, chat_id)
             
-            # Check for any missing achievements (retroactive)
-            await self.check_retroactive_achievements(user_id, chat_id)
+            # Note: Achievement checking is handled during message processing
+            # to avoid duplicate notifications when viewing profile
             
             # Get updated user stats after retroactive checks (with caching)
             user_stats = await self._get_user_stats_cached(user_id, chat_id)
@@ -790,9 +809,9 @@ class UserLevelingService(ServiceInterface):
             if achievements_data:
                 achievements = [Achievement.from_dict(ach_dict) for ach_dict in achievements_data]
             else:
-                # Cache miss - get from database
-                user_achievements = await self.achievement_repo.get_user_achievements(user_id, chat_id)
-                achievements = [ach.achievement for ach in user_achievements]
+                # Cache miss - get from database with full details
+                user_achievements_with_details = await self.achievement_repo.get_user_achievements_with_details(user_id, chat_id)
+                achievements = [achievement for _, achievement in user_achievements_with_details]
                 
                 # Cache the achievements
                 if achievements:
@@ -1320,13 +1339,13 @@ class UserLevelingService(ServiceInterface):
         except Exception as e:
             logger.warning(f"Failed to invalidate cache: {e}")
     
-    async def _check_achievements_safe(self, user_stats: UserStats) -> List[Any]:
+    async def _check_achievements_safe(self, user_id: UserId, chat_id: ChatId, user_stats: UserStats) -> List[Any]:
         """Check achievements with error handling."""
         if not self.achievement_engine:
             return []
         
         try:
-            return await self.achievement_engine.check_achievements(user_stats)
+            return await self.achievement_engine.check_achievements(user_id, chat_id, user_stats)
         except Exception as e:
             logger.warning(f"Achievement check failed: {e}")
             return []
@@ -1425,11 +1444,17 @@ class UserLevelingService(ServiceInterface):
                 return []
             
             # Check for achievements based on current stats
-            new_achievements = await self.achievement_engine.check_achievements(user_stats)
+            new_achievements = await self.achievement_engine.check_achievements(user_id, chat_id, user_stats)
             
             if new_achievements:
-                logger.info(f"Retroactively unlocked {len(new_achievements)} achievements for user {user_id}")
-                self._stats['achievements_unlocked'] += len(new_achievements)
+                # Actually unlock the achievements in the database
+                try:
+                    await self.achievement_engine.unlock_achievements(user_id, chat_id, new_achievements)
+                    logger.info(f"Retroactively unlocked {len(new_achievements)} achievements for user {user_id}")
+                    self._stats['achievements_unlocked'] += len(new_achievements)
+                except Exception as e:
+                    logger.error(f"Failed to retroactively unlock achievements for user {user_id}: {e}")
+                    new_achievements = []  # Clear to avoid inconsistent state
             
             return new_achievements
             
@@ -1495,10 +1520,10 @@ class UserLevelingService(ServiceInterface):
             # Recalculate level based on current XP
             await self.recalculate_user_level(user_id, chat_id)
             
-            # Check for missing achievements based on current stats
-            await self.check_retroactive_achievements(user_id, chat_id)
+            # Note: Achievement checking is handled separately in the main flow
+            # to avoid duplicate checks and notifications
             
-            logger.debug(f"Completed retroactive checks for user {user_id} in chat {chat_id}")
+            logger.debug(f"Completed retroactive level checks for user {user_id} in chat {chat_id}")
             
         except Exception as e:
             logger.error(f"Error performing retroactive checks for user {user_id}: {e}", exc_info=True)

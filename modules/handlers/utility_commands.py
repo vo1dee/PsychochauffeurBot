@@ -141,30 +141,30 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
             return
         
-        # Format profile message
-        profile_text = f"📊 **Profile for {target_username}**\n\n"
-        profile_text += f"🏆 **Level:** {profile.level}\n"
-        profile_text += f"⭐ **XP:** {profile.xp:,}\n"
-        profile_text += f"📈 **Progress:** {profile.progress_percentage:.1f}% to Level {profile.level + 1}\n"
-        profile_text += f"🎯 **Next Level:** {profile.next_level_xp:,} XP\n\n"
+        # Format profile message using HTML parse mode to avoid Markdown issues
+        profile_text = f"📊 <b>Profile for {target_username}</b>\n\n"
+        profile_text += f"🏆 <b>Level:</b> {profile.level}\n"
+        profile_text += f"⭐ <b>XP:</b> {profile.xp:,}\n"
+        profile_text += f"📈 <b>Progress:</b> {profile.progress_percentage:.1f}% to Level {profile.level + 1}\n"
+        profile_text += f"🎯 <b>Next Level:</b> {profile.next_level_xp:,} XP\n\n"
         
         # Activity stats
-        profile_text += "📈 **Activity Stats:**\n"
+        profile_text += "📈 <b>Activity Stats:</b>\n"
         profile_text += f"💬 Messages: {profile.stats.get('messages_count', 0):,}\n"
         profile_text += f"🔗 Links shared: {profile.stats.get('links_shared', 0):,}\n"
         profile_text += f"🙏 Thanks received: {profile.stats.get('thanks_received', 0):,}\n\n"
         
         # Achievements
         if profile.achievements:
-            profile_text += f"🏆 **Achievements ({len(profile.achievements)}):**\n"
+            profile_text += f"🏆 <b>Achievements ({len(profile.achievements)}):</b>\n"
             achievement_emojis = [ach.emoji for ach in profile.achievements[:10]]  # Show first 10
             profile_text += " ".join(achievement_emojis)
             if len(profile.achievements) > 10:
                 profile_text += f" +{len(profile.achievements) - 10} more"
         else:
-            profile_text += "🏆 **Achievements:** None yet - keep chatting to unlock some!"
+            profile_text += "🏆 <b>Achievements:</b> None yet - keep chatting to unlock some!"
         
-        await update.message.reply_text(profile_text, parse_mode='Markdown')
+        await update.message.reply_text(profile_text, parse_mode='HTML')
         
     except Exception as e:
         logger.error(f"Error in profile command: {e}", exc_info=True)
