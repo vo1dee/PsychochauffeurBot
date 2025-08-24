@@ -162,7 +162,11 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             profile_text += f"🏆 <b>Achievements ({len(profile.achievements)}):</b>\n"
             # Show achievements with both emoji and title
             for i, ach in enumerate(profile.achievements[:5]):  # Show first 5 with names
-                profile_text += f"{ach.emoji} {ach.title}\n"
+                # Check if title already starts with emoji to avoid duplication
+                if ach.title.startswith(ach.emoji):
+                    profile_text += f"{ach.title}\n"
+                else:
+                    profile_text += f"{ach.emoji} {ach.title}\n"
             
             # If more than 5, show remaining as emojis only
             if len(profile.achievements) > 5:
