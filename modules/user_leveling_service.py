@@ -677,7 +677,7 @@ class UserLevelingService(ServiceInterface):
             await self._invalidate_user_cache(user_id, chat_id)
             
             # Check for new achievements with error handling
-            new_achievements = await self._check_achievements_safe(user_id, chat_id, user_stats)
+            new_achievements = await self._check_achievements_safe(user_id, chat_id, user_stats, message)
             if new_achievements:
                 # Actually unlock the achievements in the database
                 try:
@@ -1339,13 +1339,23 @@ class UserLevelingService(ServiceInterface):
         except Exception as e:
             logger.warning(f"Failed to invalidate cache: {e}")
     
-    async def _check_achievements_safe(self, user_id: UserId, chat_id: ChatId, user_stats: UserStats) -> List[Any]:
-        """Check achievements with error handling."""
+    async def _check_achievements_safe(self, user_id: UserId, chat_id: ChatId, user_stats: UserStats, message: Optional[Any] = None) -> List[Any]:
+        """Check achievements with error handling and message context."""
         if not self.achievement_engine:
             return []
         
         try:
-            return await self.achievement_engine.check_achievements(user_id, chat_id, user_stats)
+            # Analyze message content for context data if message is provided
+            context_data = {}
+            if message and self.xp_calculator:
+                try:
+                    context_data = self.xp_calculator.analyze_message_content(message)
+                    logger.debug(f"Message context data: {context_data}")
+                except Exception as e:
+                    logger.warning(f"Failed to analyze message content: {e}")
+                    context_data = {}
+            
+            return await self.achievement_engine.check_achievements(user_id, chat_id, user_stats, context_data)
         except Exception as e:
             logger.warning(f"Achievement check failed: {e}")
             return []

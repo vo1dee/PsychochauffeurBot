@@ -366,3 +366,96 @@ class XPCalculator:
             'thanked_users': self.detect_thanks(message),
             'mentioned_usernames': self.thank_you_detector.get_mentioned_usernames(message.text or '')
         }
+    
+    def analyze_message_content(self, message: Message) -> Dict[str, int]:
+        """
+        Analyze message content and return counts of various elements for achievement conditions.
+        
+        Args:
+            message: Telegram message to analyze
+            
+        Returns:
+            Dictionary with counts of various message elements
+        """
+        import re
+        from datetime import datetime
+        
+        context_data = {
+            'photos_shared': 0,
+            'twitter_links': 0,
+            'videos_uploaded': 0,
+            'stickers_sent': 0,
+            'voice_messages': 0,
+            'documents_shared': 0,
+            'polls_created': 0,
+            'reactions_given': 0,
+            'hashtags_used': 0,
+            'mentions_made': 0,
+            'emojis_used': 0,
+            'long_messages': 0,
+            'night_owl_messages': 0,
+            'weekend_messages': 0
+        }
+        
+        # Check for photos
+        if message.photo:
+            context_data['photos_shared'] = 1
+        
+        # Check for videos
+        if message.video or message.video_note:
+            context_data['videos_uploaded'] = 1
+        
+        # Check for stickers
+        if message.sticker:
+            context_data['stickers_sent'] = 1
+        
+        # Check for voice messages
+        if message.voice:
+            context_data['voice_messages'] = 1
+        
+        # Check for documents
+        if message.document:
+            context_data['documents_shared'] = 1
+        
+        # Check for polls
+        if message.poll:
+            context_data['polls_created'] = 1
+        
+        # Analyze text content if present
+        text = message.text or message.caption or ''
+        if text:
+            # Check for Twitter links
+            twitter_pattern = r'(?:https?://)?(?:www\.)?(?:twitter\.com|x\.com)/\w+'
+            if re.search(twitter_pattern, text, re.IGNORECASE):
+                context_data['twitter_links'] = 1
+            
+            # Check for hashtags
+            hashtag_count = len(re.findall(r'#\w+', text))
+            context_data['hashtags_used'] = hashtag_count
+            
+            # Check for mentions
+            mention_count = len(re.findall(r'@\w+', text))
+            context_data['mentions_made'] = mention_count
+            
+            # Check for emojis (basic emoji detection)
+            emoji_pattern = r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\U00002600-\U000027BF\U0001F900-\U0001F9FF]'
+            emoji_count = len(re.findall(emoji_pattern, text))
+            context_data['emojis_used'] = emoji_count
+            
+            # Check for long messages (>100 characters)
+            if len(text) > 100:
+                context_data['long_messages'] = 1
+        
+        # Check for night owl messages (22:00 - 06:00)
+        if message.date:
+            hour = message.date.hour
+            if hour >= 22 or hour <= 6:
+                context_data['night_owl_messages'] = 1
+        
+        # Check for weekend messages
+        if message.date:
+            weekday = message.date.weekday()  # 0=Monday, 6=Sunday
+            if weekday >= 5:  # Saturday=5, Sunday=6
+                context_data['weekend_messages'] = 1
+        
+        return context_data

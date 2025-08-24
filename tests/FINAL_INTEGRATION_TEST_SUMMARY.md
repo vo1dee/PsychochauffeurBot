@@ -207,6 +207,38 @@ The User Leveling System has been successfully integrated with the existing bot 
 - ✅ Cleaned up associated user achievements for removed duplicates
 - ✅ Reduced total achievements from 39 to 37 (removed 2 duplicates)
 
+#### Fix 4: Context-Dependent Achievement Conditions (PRODUCTION FIX)
+**Issue Resolved:** Many achievement conditions weren't working in production because they required message context data (photos, Twitter links, videos, etc.) that wasn't being provided.
+
+**Root Cause:** 
+- Previous fix was reverted - `UserLevelingService` wasn't using `XPCalculator` to analyze message content
+- Achievement engine was calling `check_condition()` without context data
+- All context-dependent achievements (photos, videos, Twitter links, etc.) always returned `False`
+- Only basic achievements (messages, XP, level) were working
+
+**Solution Applied:**
+- ✅ Re-added `analyze_message_content()` method to `XPCalculator` class
+- ✅ Modified `_check_achievements_safe()` to analyze message content using XP calculator
+- ✅ Updated calls to pass message context to achievement checking
+- ✅ All 14 context-dependent achievement types now work:
+  - `photos_shared`, `twitter_links`, `videos_uploaded`, `stickers_sent`
+  - `voice_messages`, `documents_shared`, `polls_created`, `reactions_given`
+  - `hashtags_used`, `mentions_made`, `emojis_used`, `long_messages`
+  - `night_owl_messages`, `weekend_messages`
+
+#### Fix 5: Profile Command User Lookup (PRODUCTION FIX)
+**Issue Resolved:** Profile command couldn't find users who existed in the database but had no leveling data in the current chat.
+
+**Root Cause:**
+- `_find_user_by_username()` only searched the `users` table
+- Didn't verify if user had leveling data in the current chat
+- Users without leveling data in that chat would be found but then show "no leveling data"
+
+**Solution Applied:**
+- ✅ Updated query to JOIN `users` with `user_stats` table
+- ✅ Added chat_id filter to ensure user has leveling data in current chat
+- ✅ Now correctly returns "not found" for users without leveling data in that chat
+
 **Tests Added:**
 - `test_new_message_handler_does_not_call_leveling` - Ensures new handler doesn't duplicate processing
 - `test_no_duplicate_leveling_processing` - Comprehensive validation of single processing
@@ -218,6 +250,9 @@ The User Leveling System has been successfully integrated with the existing bot 
 - ✅ Duplicate achievement definitions removed from database
 - ✅ No more duplicate achievement notifications
 - ✅ Clean achievement system with unique titles and IDs
+- ✅ Context-dependent achievements now work correctly in production
+- ✅ Message content analysis provides proper context data for achievements
+- ✅ Profile command correctly finds users with leveling data only
 - ✅ All message handler integration tests passing
 
 ---

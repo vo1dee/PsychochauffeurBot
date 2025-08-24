@@ -37,14 +37,15 @@ async def _find_user_by_username(username: str, chat_id: int, context: ContextTy
         # Try to get user from database by username
         from modules.database import Database
         
-        # Query users table for username
+        # Query users table for username and check if they have leveling data in this chat
         query = """
-            SELECT user_id, username, first_name, last_name 
-            FROM users 
-            WHERE LOWER(username) = LOWER(?)
+            SELECT u.user_id, u.username, u.first_name, u.last_name 
+            FROM users u
+            INNER JOIN user_stats us ON u.user_id = us.user_id
+            WHERE LOWER(u.username) = LOWER(?) AND us.chat_id = ?
         """
         
-        result = await Database.fetch_one(query, (username,))
+        result = await Database.fetch_one(query, (username, chat_id))
         
         if result:
             user_id = result['user_id']
