@@ -17,7 +17,7 @@ import pytz
 from modules.database import Database
 from modules.leveling_models import UserStats, Achievement, UserAchievement, UserProfile
 from modules.types import UserId, ChatId
-from modules.error_decorators import database_operation
+# from modules.error_decorators import database_operation  # Not available
 from modules.service_error_boundary import with_error_boundary
 from modules.performance_monitor import performance_monitor
 from modules.leveling_performance_monitor import record_database_time
@@ -36,7 +36,6 @@ class UserStatsRepository:
     def __init__(self):
         self._connection_manager = Database.get_connection_manager()
     
-    @database_operation("get_user_stats", retry_count=3)
     @with_error_boundary("user_stats_repository", "get_user_stats", timeout=5.0)
     async def get_user_stats(self, user_id: UserId, chat_id: ChatId) -> Optional[UserStats]:
         """
@@ -81,7 +80,6 @@ class UserStatsRepository:
             logger.error(f"Database error in get_user_stats: {e}")
             raise
     
-    @database_operation("create_user_stats")
     async def create_user_stats(self, user_id: UserId, chat_id: ChatId) -> UserStats:
         """
         Create new user statistics record.
@@ -124,7 +122,6 @@ class UserStatsRepository:
             logger.debug(f"Created user stats for user_id={user_id}, chat_id={chat_id}")
             return user_stats
     
-    @database_operation("update_user_stats", retry_count=3, raise_exception=True)
     @with_error_boundary("user_stats_repository", "update_user_stats", timeout=10.0)
     async def update_user_stats(self, user_stats: UserStats) -> None:
         """
@@ -174,7 +171,6 @@ class UserStatsRepository:
             logger.error(f"Database error in update_user_stats: {e}")
             raise
     
-    @database_operation("get_or_create_user_stats")
     async def get_or_create_user_stats(self, user_id: UserId, chat_id: ChatId) -> UserStats:
         """
         Get user statistics or create if not exists.
@@ -191,7 +187,6 @@ class UserStatsRepository:
             user_stats = await self.create_user_stats(user_id, chat_id)
         return user_stats
     
-    @database_operation("get_leaderboard")
     async def get_leaderboard(self, chat_id: ChatId, limit: int = 10) -> List[UserStats]:
         """
         Get leaderboard for a chat ordered by XP.
@@ -215,7 +210,6 @@ class UserStatsRepository:
             
             return [UserStats.from_dict(dict(row)) for row in rows]
     
-    @database_operation("get_user_rank")
     async def get_user_rank(self, user_id: UserId, chat_id: ChatId) -> Optional[int]:
         """
         Get user's rank in the chat leaderboard.
@@ -240,7 +234,6 @@ class UserStatsRepository:
             
             return row['rank'] if row else None
     
-    @database_operation("get_active_users")
     async def get_active_users(self, chat_id: ChatId, days: int = 7) -> List[UserStats]:
         """
         Get users active within the specified number of days.
@@ -265,7 +258,6 @@ class UserStatsRepository:
             
             return [UserStats.from_dict(dict(row)) for row in rows]
     
-    @database_operation("bulk_update_user_stats")
     async def bulk_update_user_stats(self, user_stats_list: List[UserStats]) -> None:
         """
         Update multiple user statistics in a single transaction.
@@ -319,7 +311,6 @@ class AchievementRepository:
     def __init__(self):
         self._connection_manager = Database.get_connection_manager()
     
-    @database_operation("get_achievement")
     async def get_achievement(self, achievement_id: str) -> Optional[Achievement]:
         """
         Get achievement definition by ID.
@@ -345,7 +336,6 @@ class AchievementRepository:
             logger.error(f"Error getting achievement {achievement_id}: {e}")
             return None
     
-    @database_operation("get_all_achievements")
     async def get_all_achievements(self) -> List[Achievement]:
         """
         Get all achievement definitions.
@@ -366,7 +356,6 @@ class AchievementRepository:
             logger.error(f"Error getting all achievements: {e}")
             return []
     
-    @database_operation("get_achievements_by_category")
     async def get_achievements_by_category(self, category: str) -> List[Achievement]:
         """
         Get achievements by category.
@@ -391,7 +380,6 @@ class AchievementRepository:
             logger.error(f"Error getting achievements by category {category}: {e}")
             return []
     
-    @database_operation("save_achievement")
     async def save_achievement(self, achievement: Achievement) -> None:
         """
         Save or update achievement definition.
@@ -418,7 +406,6 @@ class AchievementRepository:
             
             logger.debug(f"Saved achievement: {achievement.id}")
     
-    @database_operation("get_user_achievements")
     async def get_user_achievements(self, user_id: UserId, chat_id: ChatId) -> List[UserAchievement]:
         """
         Get all achievements unlocked by a user in a specific chat.
@@ -440,7 +427,6 @@ class AchievementRepository:
             
             return [UserAchievement.from_dict(dict(row)) for row in rows]
     
-    @database_operation("get_user_achievements_with_details")
     async def get_user_achievements_with_details(self, user_id: UserId, chat_id: ChatId) -> List[Tuple[UserAchievement, Achievement]]:
         """
         Get user achievements with full achievement details.
@@ -485,7 +471,6 @@ class AchievementRepository:
             
             return result
     
-    @database_operation("has_achievement")
     async def has_achievement(self, user_id: UserId, chat_id: ChatId, achievement_id: str) -> bool:
         """
         Check if user has unlocked a specific achievement.
@@ -510,7 +495,6 @@ class AchievementRepository:
             logger.error(f"Error checking achievement {achievement_id} for user {user_id}: {e}")
             return False
     
-    @database_operation("unlock_achievement", retry_count=3)
     @with_error_boundary("achievement_repository", "unlock_achievement", timeout=5.0)
     async def unlock_achievement(self, user_achievement: UserAchievement) -> None:
         """
@@ -557,7 +541,6 @@ class AchievementRepository:
             logger.error(f"Database error in unlock_achievement: {e}")
             raise
     
-    @database_operation("bulk_unlock_achievements")
     async def bulk_unlock_achievements(self, user_achievements: List[UserAchievement]) -> None:
         """
         Unlock multiple achievements in a single transaction.
@@ -582,7 +565,6 @@ class AchievementRepository:
                 
                 logger.debug(f"Bulk unlocked {len(user_achievements)} achievements")
     
-    @database_operation("get_achievement_stats")
     async def get_achievement_stats(self, chat_id: ChatId) -> Dict[str, int]:
         """
         Get achievement statistics for a chat.
@@ -667,7 +649,6 @@ class LevelingRepository:
         self.achievements = AchievementRepository()
         self._connection_manager = Database.get_connection_manager()
     
-    @database_operation("update_user_xp_atomic")
     async def update_user_xp_atomic(
         self,
         user_id: UserId,
@@ -735,7 +716,6 @@ class LevelingRepository:
                 logger.debug(f"Atomically updated user {user_id} in chat {chat_id}: +{xp_gain} XP, level {new_level}, {len(new_achievements)} new achievements")
                 return user_stats
     
-    @database_operation("get_user_profile")
     async def get_user_profile(self, user_id: UserId, chat_id: ChatId, username: Optional[str] = None) -> Optional[UserProfile]:
         """
         Get complete user profile with stats, achievements, and rank.

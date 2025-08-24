@@ -491,6 +491,41 @@ class Database:
             manager._connection_stats['queries_executed'] += 1
 
     @classmethod
+    @database_operation("save_user")
+    async def save_user(cls, user_id: int, username: str = None, first_name: str = "", last_name: str = "") -> None:
+        """Save or update user information with individual parameters."""
+        manager = cls.get_connection_manager()
+        cache_key = f"user:{user_id}"
+        
+        # Check cache first
+        cached_user = manager._cache_manager.get(cache_key)
+        if (cached_user and 
+            cached_user.get('username') == username and
+            cached_user.get('first_name') == first_name):
+            manager._connection_stats['cache_hits'] += 1
+            return
+        
+        manager._connection_stats['cache_misses'] += 1
+        async with manager.get_connection() as conn:
+            await conn.execute("""
+                INSERT INTO users (user_id, first_name, last_name, username, is_bot)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (user_id) DO UPDATE
+                SET first_name = $2, last_name = $3, username = $4
+            """, user_id, first_name, last_name, username, False)
+            
+            # Cache the user info
+            manager._cache_manager.set(cache_key, {
+                'id': user_id,
+                'first_name': first_name,
+                'last_name': last_name,
+                'username': username,
+                'is_bot': False
+            }, ttl=3600)  # Cache for 1 hour
+            
+            manager._connection_stats['queries_executed'] += 1
+
+    @classmethod
     @database_operation("save_message")
     async def save_message(
         cls,
