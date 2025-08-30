@@ -49,6 +49,9 @@ async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         speech_config['overrides'] = {}
         # Save the updated config immediately
         config = await config_manager.get_config(chat_id, chat_type)
+        # Ensure config_modules exists
+        if 'config_modules' not in config:
+            config['config_modules'] = {}
         config['config_modules']['speechmatics'] = speech_config
         await config_manager.save_config(config, chat_id, chat_type)
     
