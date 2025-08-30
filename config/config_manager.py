@@ -338,6 +338,13 @@ class ConfigManager:
                             "auto_notify": False,
                             "include_forecast": True
                         }
+                    },
+                    "speechmatics": {
+                        "enabled": True,
+                        "overrides": {
+                            "allow_all_users": False,
+                            "enabled": False
+                        }
                     }
                 }
             }
