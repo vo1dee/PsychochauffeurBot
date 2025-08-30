@@ -822,7 +822,10 @@ class ConfigManager:
         else:
             # Update chat-specific module override
             chat_config = await self.get_config(chat_id, chat_type)
-            if module_name not in chat_config.get("config_modules", {}):
+            # Ensure config_modules exists
+            if "config_modules" not in chat_config:
+                chat_config["config_modules"] = {}
+            if module_name not in chat_config["config_modules"]:
                 chat_config["config_modules"][module_name] = {"enabled": True, "overrides": {}}
             # Ensure 'overrides' exists for the module
             if "overrides" not in chat_config["config_modules"][module_name]:
