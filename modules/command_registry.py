@@ -276,9 +276,10 @@ class CommandRegistry(ServiceInterface):
     async def register_utility_commands(self) -> None:
         """Register utility commands."""
         from modules.handlers.utility_commands import (
-            cat_command, screenshot_command, count_command, 
+            cat_command, screenshot_command, count_command,
             missing_command, error_report_command
         )
+        from modules.handlers.admin_commands import mute_command, unmute_command
         from modules.weather import WeatherCommandHandler
         from modules.geomagnetic import GeomagneticCommandHandler
         from modules.reminders.reminders import ReminderManager
@@ -366,7 +367,31 @@ class CommandRegistry(ServiceInterface):
             usage="/error_report",
             examples=["/error_report"]
         ))
-        
+
+        # Mute command
+        self.register_command(CommandInfo(
+            name="mute",
+            description="Mute a user for a specified time in minutes",
+            category=CommandCategory.ADMIN,
+            handler_func=mute_command,
+            admin_only=True,
+            group_only=True,
+            usage="/mute <@username or user_id> <minutes> or reply to message with /mute <minutes>",
+            examples=["/mute @username 30", "/mute 123456789 30", "/mute 60 (when replying to a message)"]
+        ))
+
+        # Unmute command
+        self.register_command(CommandInfo(
+            name="unmute",
+            description="Unmute a user",
+            category=CommandCategory.ADMIN,
+            handler_func=unmute_command,
+            admin_only=True,
+            group_only=True,
+            usage="/unmute <@username or user_id> or reply to message with /unmute",
+            examples=["/unmute @username", "/unmute 123456789", "/unmute (when replying to a message)"]
+        ))
+
         logger.info("Registered utility commands")
     
     async def register_speech_commands(self) -> None:
