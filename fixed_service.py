@@ -19,6 +19,26 @@ from fastapi import BackgroundTasks
 import logging.handlers
 from contextlib import asynccontextmanager
 
+# Import Instagram configuration
+try:
+    from modules.const import InstagramConfig
+except ImportError:
+    # Fallback configuration if import fails
+    class InstagramConfig:
+        MAX_RETRIES = 6
+        RETRY_DELAY_BASE = 2
+        RETRY_BACKOFF_MULTIPLIER = 2.0
+        MAX_RETRY_DELAY = 30
+        RETRY_ERROR_PATTERNS = [
+            'extraction', 'unavailable', 'private', 'login required', 'cookie',
+            'network', 'timeout', 'connection', '403', '429', '502', '503', '504'
+        ]
+        USER_AGENTS = [
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Instagram 123.0.0.21.114 (iPhone12,1; iOS 14_2; en_US; en-US; scale=2.00; 828x1792; 239485664) AppleWebKit/420+'
+        ]
+
 # Enhanced logging
 import logging.handlers
 
@@ -522,101 +542,166 @@ async def download_video(request: DownloadRequest,
     
     # Instagram detection
     is_instagram = any(x in request.url for x in ["instagram.com/p/", "instagram.com/reel/", "instagram.com/tv/"])
-    
+
     if is_instagram:
         logger.info(f"📸 Instagram download attempt: {request.url}")
-        
+
         cookies_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
-        
-        ydl_opts = {
-            'format': request.format or 'bestvideo+bestaudio/best',
-            'outtmpl': output_template,
-            'restrictfilenames': True,
-            'retries': 5,
-            'fragment_retries': 5,
-            'socket_timeout': 60,
-            'concurrent_fragment_downloads': 2,
-            'max_downloads': 2,
-            'http_chunk_size': 10485760,
-            'quiet': False,
-            'no_warnings': False,
-            'verbose': True,
-            'progress_hooks': [
-                lambda d: logger.info(f"[Instagram] Download progress: {d.get('_percent_str', 'N/A')} - {d.get('filename', 'N/A')}") 
-                if d['status'] == 'downloading' 
-                else logger.info(f"[Instagram] Download status: {d['status']}")
-            ],
-            'ignoreerrors': False,
-            'geo_bypass': True,
-            'nocheckcertificate': True,
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': '*/*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Range': 'bytes=0-',
-                'Cache-Control': 'no-cache',
-            },
-        }
-        
-        # Use cookies if available
-        if os.path.exists(cookies_path):
-            ydl_opts['cookiefile'] = cookies_path
-            logger.info(f"Using Instagram cookies from {cookies_path}")
-        else:
-            logger.warning("No cookies.txt found for Instagram. Some videos may require login.")
-        
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(request.url, download=True)
-                
-                if not info:
-                    raise Exception("Failed to extract Instagram video information")
-                
-                time.sleep(2)
-                downloaded_file = find_downloaded_file(download_id)
-                
-                if not downloaded_file:
-                    raise Exception("Downloaded file not found for Instagram video")
-                
-                video_info = get_video_info(downloaded_file)
-                logger.info(f"Instagram download successful: {os.path.basename(downloaded_file)} - {video_info['width']}x{video_info['height']}")
-                
-                return {
-                    "success": True,
-                    "file_path": os.path.basename(downloaded_file),
-                    "download_url": f"/files/{os.path.basename(downloaded_file)}",
-                    "title": info.get('title', 'Instagram Video') if info else 'Instagram Video',
-                    "url": request.url,
-                    "description": info.get('description', '') if info else '',
-                    "tags": info.get('tags', []) if info else [],
-                    "duration": info.get('duration') if info else None,
-                    "uploader": info.get('uploader') if info else None,
-                    "file_size_bytes": os.path.getsize(downloaded_file),
-                    "file_size_mb": round(os.path.getsize(downloaded_file) / (1024 * 1024), 2),
-                    "video_info": video_info,
-                    "quality": f"{video_info['width']}x{video_info['height']}" if video_info['width'] > 0 else "Audio only"
+
+        # Define Instagram-specific retry strategies using configuration
+        instagram_strategies = [
+            {
+                'name': 'Mobile browser (primary)',
+                'user_agent': InstagramConfig.USER_AGENTS[0],
+                'headers': {
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
                 }
-                
-        except yt_dlp.utils.DownloadError as e:
-            error_msg = str(e)
-            logger.error(f"[Instagram] yt-dlp download error: {error_msg}")
-            cleanup_files(download_id)
-            return {
-                "success": False,
-                "error": f"Instagram download failed: {error_msg}",
-                "error_type": "download_error"
+            },
+            {
+                'name': 'Desktop browser (fallback)',
+                'user_agent': InstagramConfig.USER_AGENTS[1],
+                'headers': {
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Range': 'bytes=0-',
+                    'Cache-Control': 'no-cache',
+                }
+            },
+            {
+                'name': 'Instagram app simulation',
+                'user_agent': InstagramConfig.USER_AGENTS[2],
+                'headers': {
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'X-IG-App-ID': '936619743392459',
+                    'X-IG-WWW-Claim': '0',
+                    'Connection': 'keep-alive',
+                }
             }
-        except Exception as e:
-            logger.error(f"[Instagram] Download failed with exception: {str(e)}")
-            cleanup_files(download_id)
-            return {
-                "success": False,
-                "error": str(e),
-                "error_type": "general_error"
+        ]
+
+        # Try each strategy
+        for strategy_idx, strategy in enumerate(instagram_strategies):
+            logger.info(f"📋 Trying Instagram strategy {strategy_idx + 1}/{len(instagram_strategies)}: {strategy['name']}")
+
+            ydl_opts = {
+                'format': request.format or 'bestvideo+bestaudio/best',
+                'outtmpl': output_template,
+                'restrictfilenames': True,
+                'retries': 3,  # Reduced per-strategy retries since we have multiple strategies
+                'fragment_retries': 3,
+                'socket_timeout': 60,
+                'concurrent_fragment_downloads': 2,
+                'max_downloads': 2,
+                'http_chunk_size': 10485760,
+                'quiet': False,
+                'no_warnings': False,
+                'verbose': True,
+                'progress_hooks': [
+                    lambda d: logger.info(f"[Instagram] Download progress: {d.get('_percent_str', 'N/A')} - {d.get('filename', 'N/A')}")
+                    if d['status'] == 'downloading'
+                    else logger.info(f"[Instagram] Download status: {d['status']}")
+                ],
+                'ignoreerrors': False,
+                'geo_bypass': True,
+                'nocheckcertificate': True,
+                'http_headers': {
+                    'User-Agent': strategy['user_agent'],
+                    **strategy['headers']
+                },
+                'extractor_args': {
+                    'instagram': {
+                        'api_hostname': 'i.instagram.com',
+                        'api_version': 'v1'
+                    }
+                }
             }
+
+            # Use cookies if available
+            if os.path.exists(cookies_path):
+                ydl_opts['cookiefile'] = cookies_path
+                logger.info(f"Using Instagram cookies from {cookies_path}")
+            else:
+                logger.warning("No cookies.txt found for Instagram. Some videos may require login.")
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(request.url, download=True)
+
+                    if not info:
+                        logger.warning(f"Strategy '{strategy['name']}' failed to extract info, trying next strategy")
+                        cleanup_files(download_id)
+                        continue
+
+                    time.sleep(2)
+                    downloaded_file = find_downloaded_file(download_id)
+
+                    if not downloaded_file:
+                        logger.warning(f"Strategy '{strategy['name']}' failed to find downloaded file, trying next strategy")
+                        cleanup_files(download_id)
+                        continue
+
+                    video_info = get_video_info(downloaded_file)
+                    logger.info(f"Instagram download successful with strategy '{strategy['name']}': {os.path.basename(downloaded_file)} - {video_info['width']}x{video_info['height']}")
+
+                    return {
+                        "success": True,
+                        "file_path": os.path.basename(downloaded_file),
+                        "download_url": f"/files/{os.path.basename(downloaded_file)}",
+                        "title": info.get('title', 'Instagram Video') if info else 'Instagram Video',
+                        "url": request.url,
+                        "description": info.get('description', '') if info else '',
+                        "tags": info.get('tags', []) if info else [],
+                        "duration": info.get('duration') if info else None,
+                        "uploader": info.get('uploader') if info else None,
+                        "file_size_bytes": os.path.getsize(downloaded_file),
+                        "file_size_mb": round(os.path.getsize(downloaded_file) / (1024 * 1024), 2),
+                        "video_info": video_info,
+                        "quality": f"{video_info['width']}x{video_info['height']}" if video_info['width'] > 0 else "Audio only",
+                        "strategy_used": strategy['name']
+                    }
+
+            except yt_dlp.utils.DownloadError as e:
+                error_msg = str(e)
+                logger.warning(f"[Instagram] Strategy '{strategy['name']}' failed: {error_msg}")
+
+                # Check if this is a recoverable error that should try next strategy
+                if any(keyword in error_msg.lower() for keyword in InstagramConfig.RETRY_ERROR_PATTERNS):
+                    logger.info(f"Recoverable error detected, trying next strategy")
+                    cleanup_files(download_id)
+                    continue
+                else:
+                    # Non-recoverable error, fail immediately
+                    logger.error(f"Non-recoverable error: {error_msg}")
+                    cleanup_files(download_id)
+                    return {
+                        "success": False,
+                        "error": f"Instagram download failed: {error_msg}",
+                        "error_type": "download_error"
+                    }
+
+            except Exception as e:
+                logger.warning(f"[Instagram] Strategy '{strategy['name']}' exception: {str(e)}")
+                cleanup_files(download_id)
+                # Continue to next strategy for any exception
+                continue
+
+        # All strategies failed
+        logger.error(f"❌ All Instagram strategies failed for: {request.url}")
+        return {
+            "success": False,
+            "error": "All Instagram download strategies failed",
+            "error_type": "all_strategies_failed"
+        }
     
     # For other platforms, use simplified approach
     try:
