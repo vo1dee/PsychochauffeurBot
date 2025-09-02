@@ -530,8 +530,8 @@ def download_youtube_video(request: DownloadRequest, download_id: str, output_te
             if "500" in last_error_msg or "internal server" in last_error_msg:
                 error_suggestions.append("Service may be experiencing issues - try again later")
 
-        # Ensure instagram_strategies is defined
-        if not instagram_strategies:
+        # Ensure variables are defined for error reporting
+        if 'instagram_strategies' not in locals():
             instagram_strategies = []
 
         if not error_suggestions:
@@ -592,6 +592,7 @@ async def download_video(request: DownloadRequest,
         error_msg = ""
         instagram_strategies = []
 
+        # Define Instagram-specific retry strategies using configuration
         # Define Instagram-specific retry strategies using configuration
         # These strategies simulate clicking "X" to close login popup
         instagram_strategies = [
