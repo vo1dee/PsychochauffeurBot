@@ -540,8 +540,13 @@ async def download_video(request: DownloadRequest,
         # If YouTube handler fails, fall through to regular handler
         logger.warning("YouTube handler failed, trying regular handler")
     
-    # Instagram detection
-    is_instagram = any(x in request.url for x in ["instagram.com/p/", "instagram.com/reel/", "instagram.com/tv/"])
+    # Instagram detection - expanded patterns
+    is_instagram = any(x in request.url for x in [
+        "instagram.com/p/", "instagram.com/reel/", "instagram.com/tv/",
+        "instagram.com/stories/", "instagram.com/reels/", "instagram.com/explore/",
+        "www.instagram.com/p/", "www.instagram.com/reel/", "www.instagram.com/tv/",
+        "www.instagram.com/stories/", "www.instagram.com/reels/"
+    ])
 
     if is_instagram:
         logger.info(f"📸 Instagram download attempt: {request.url}")
@@ -549,9 +554,35 @@ async def download_video(request: DownloadRequest,
         cookies_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
 
         # Define Instagram-specific retry strategies using configuration
+        # These strategies simulate clicking "X" to close login popup
         instagram_strategies = [
             {
-                'name': 'Mobile browser (primary)',
+                'name': 'Instagram Mobile API (bypass popup)',
+                'user_agent': InstagramConfig.USER_AGENTS[2],
+                'headers': {
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'X-IG-App-ID': '936619743392459',
+                    'X-IG-WWW-Claim': '0',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-Instagram-AJAX': '1',
+                    'X-CSRFToken': 'missing',
+                    'Connection': 'keep-alive',
+                    'Sec-Fetch-Dest': 'empty',
+                    'Sec-Fetch-Mode': 'cors',
+                    'Sec-Fetch-Site': 'same-origin',
+                    'X-IG-App-Startup-Country': 'US',
+                },
+                'extractor_args': {
+                    'instagram': {
+                        'api_hostname': 'i.instagram.com',
+                        'api_version': 'v1'
+                    }
+                }
+            },
+            {
+                'name': 'Embed Endpoint (popup bypass)',
                 'user_agent': InstagramConfig.USER_AGENTS[0],
                 'headers': {
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -560,10 +591,21 @@ async def download_video(request: DownloadRequest,
                     'DNT': '1',
                     'Connection': 'keep-alive',
                     'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'cross-site',
+                    'Cache-Control': 'max-age=0',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                'extractor_args': {
+                    'instagram': {
+                        'api_hostname': 'www.instagram.com',
+                        'api_version': 'v1'
+                    }
                 }
             },
             {
-                'name': 'Desktop browser (fallback)',
+                'name': 'Direct Media API (no popup)',
                 'user_agent': InstagramConfig.USER_AGENTS[1],
                 'headers': {
                     'Accept': '*/*',
@@ -573,18 +615,62 @@ async def download_video(request: DownloadRequest,
                     'Connection': 'keep-alive',
                     'Range': 'bytes=0-',
                     'Cache-Control': 'no-cache',
+                    'Referer': 'https://www.instagram.com/',
+                    'Sec-Fetch-Dest': 'empty',
+                    'Sec-Fetch-Mode': 'cors',
+                    'Sec-Fetch-Site': 'same-origin',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-Instagram-AJAX': '1',
+                },
+                'extractor_args': {
+                    'instagram': {
+                        'api_hostname': 'www.instagram.com',
+                        'api_version': 'v1'
+                    }
                 }
             },
             {
-                'name': 'Instagram app simulation',
-                'user_agent': InstagramConfig.USER_AGENTS[2],
+                'name': 'Legacy Mobile (popup resistant)',
+                'user_agent': InstagramConfig.USER_AGENTS[3],
                 'headers': {
-                    'Accept': '*/*',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9',
                     'Accept-Encoding': 'gzip, deflate, br',
-                    'X-IG-App-ID': '936619743392459',
-                    'X-IG-WWW-Claim': '0',
+                    'DNT': '1',
                     'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-Instagram-AJAX': '1',
+                },
+                'extractor_args': {
+                    'instagram': {
+                        'api_hostname': 'i.instagram.com',
+                        'api_version': 'v1'
+                    }
+                }
+            },
+            {
+                'name': 'Anonymous Browser (stealth mode)',
+                'user_agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'headers': {
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'Cache-Control': 'max-age=0',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                'extractor_args': {
+                    'instagram': {
+                        'api_hostname': 'www.instagram.com',
+                        'api_version': 'v1'
+                    }
                 }
             }
         ]
@@ -593,16 +679,55 @@ async def download_video(request: DownloadRequest,
         for strategy_idx, strategy in enumerate(instagram_strategies):
             logger.info(f"📋 Trying Instagram strategy {strategy_idx + 1}/{len(instagram_strategies)}: {strategy['name']}")
 
+            # For the first strategy, try to pre-dismiss any login popup
+            if strategy_idx == 0:
+                try:
+                    logger.info("🔄 Attempting to pre-dismiss login popup...")
+                    # Make a quick request to potentially trigger and dismiss the popup
+                    pre_opts = {
+                        'format': 'best[height<=240]',  # Very low quality to be quick
+                        'outtmpl': '/tmp/pre_dismiss_%(id)s.%(ext)s',
+                        'quiet': True,
+                        'no_warnings': True,
+                        'socket_timeout': 10,
+                        'retries': 0,
+                        'http_headers': strategy['headers'],
+                        'extractor_args': strategy['extractor_args']
+                    }
+
+                    if os.path.exists(cookies_path):
+                        pre_opts['cookiefile'] = cookies_path
+
+                    with yt_dlp.YoutubeDL(pre_opts) as pre_ydl:
+                        try:
+                            pre_ydl.extract_info(request.url, download=False)
+                        except:
+                            pass  # Expected to fail, just trying to trigger popup dismissal
+
+                    # Clean up any pre-download files
+                    import glob
+                    for f in glob.glob('/tmp/pre_dismiss_*'):
+                        try:
+                            os.remove(f)
+                        except:
+                            pass
+
+                    logger.info("✅ Pre-dismiss attempt completed")
+                    time.sleep(0.5)  # Brief pause before main download
+
+                except Exception as e:
+                    logger.warning(f"⚠️ Pre-dismiss attempt failed: {str(e)}")
+
             ydl_opts = {
                 'format': request.format or 'bestvideo+bestaudio/best',
                 'outtmpl': output_template,
                 'restrictfilenames': True,
-                'retries': 3,  # Reduced per-strategy retries since we have multiple strategies
-                'fragment_retries': 3,
-                'socket_timeout': 60,
-                'concurrent_fragment_downloads': 2,
-                'max_downloads': 2,
-                'http_chunk_size': 10485760,
+                'retries': 2,  # Reduced per-strategy retries since we have multiple strategies
+                'fragment_retries': 2,
+                'socket_timeout': 45,
+                'concurrent_fragment_downloads': 1,  # Reduced to avoid rate limiting
+                'max_downloads': 1,
+                'http_chunk_size': 5242880,  # Smaller chunks for better compatibility
                 'quiet': False,
                 'no_warnings': False,
                 'verbose': True,
@@ -614,16 +739,18 @@ async def download_video(request: DownloadRequest,
                 'ignoreerrors': False,
                 'geo_bypass': True,
                 'nocheckcertificate': True,
+                'sleep_interval': 1,  # Add small delay between requests
+                'max_sleep_interval': 3,
                 'http_headers': {
                     'User-Agent': strategy['user_agent'],
                     **strategy['headers']
                 },
-                'extractor_args': {
+                **strategy.get('extractor_args', {
                     'instagram': {
                         'api_hostname': 'i.instagram.com',
                         'api_version': 'v1'
                     }
-                }
+                })
             }
 
             # Use cookies if available
@@ -674,19 +801,38 @@ async def download_video(request: DownloadRequest,
                 error_msg = str(e)
                 logger.warning(f"[Instagram] Strategy '{strategy['name']}' failed: {error_msg}")
 
+                # Enhanced error detection for Instagram-specific issues
+                instagram_error_patterns = [
+                    # Login/popup related errors
+                    'login', 'sign in', 'authentication', 'popup', 'modal',
+                    'challenge', 'verification', 'captcha', 'bot detection',
+                    # Content access errors
+                    'private', 'unavailable', 'not found', 'removed',
+                    # Network/rate limiting
+                    'rate limit', 'too many requests', 'blocked', 'forbidden',
+                    # API specific errors
+                    'api', 'endpoint', 'invalid response', 'parsing',
+                    # Generic retry patterns
+                    'extraction', 'unavailable', 'network', 'timeout', 'connection',
+                    '403', '429', '502', '503', '504'
+                ]
+
                 # Check if this is a recoverable error that should try next strategy
-                if any(keyword in error_msg.lower() for keyword in InstagramConfig.RETRY_ERROR_PATTERNS):
-                    logger.info(f"Recoverable error detected, trying next strategy")
+                if any(keyword in error_msg.lower() for keyword in instagram_error_patterns):
+                    logger.info(f"Recoverable Instagram error detected, trying next strategy: {error_msg[:100]}...")
                     cleanup_files(download_id)
+                    # Add a small delay before trying next strategy
+                    time.sleep(1)
                     continue
                 else:
                     # Non-recoverable error, fail immediately
-                    logger.error(f"Non-recoverable error: {error_msg}")
+                    logger.error(f"Non-recoverable Instagram error: {error_msg}")
                     cleanup_files(download_id)
                     return {
                         "success": False,
                         "error": f"Instagram download failed: {error_msg}",
-                        "error_type": "download_error"
+                        "error_type": "download_error",
+                        "strategy_used": strategy['name']
                     }
 
             except Exception as e:
@@ -695,12 +841,68 @@ async def download_video(request: DownloadRequest,
                 # Continue to next strategy for any exception
                 continue
 
-        # All strategies failed
-        logger.error(f"❌ All Instagram strategies failed for: {request.url}")
+        # All strategies failed - try embed endpoint as last resort
+        logger.warning("🔄 All primary strategies failed, trying embed endpoint...")
+        try:
+            embed_url = request.url.replace('instagram.com/p/', 'instagram.com/p/').replace('instagram.com/reel/', 'instagram.com/reel/')
+            if 'instagram.com' in embed_url:
+                embed_opts = {
+                    'format': request.format or 'bestvideo+bestaudio/best',
+                    'outtmpl': output_template,
+                    'quiet': False,
+                    'no_warnings': False,
+                    'socket_timeout': 30,
+                    'retries': 1,
+                    'http_headers': {
+                        'User-Agent': 'Mozilla/5.0 (compatible; embed)',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Referer': 'https://www.instagram.com/embed/',
+                    }
+                }
+
+                with yt_dlp.YoutubeDL(embed_opts) as embed_ydl:
+                    embed_info = embed_ydl.extract_info(embed_url, download=True)
+
+                    if embed_info:
+                        time.sleep(1)
+                        downloaded_file = find_downloaded_file(download_id)
+
+                        if downloaded_file:
+                            video_info = get_video_info(downloaded_file)
+                            logger.info(f"✅ Instagram embed download successful: {os.path.basename(downloaded_file)}")
+
+                            return {
+                                "success": True,
+                                "file_path": os.path.basename(downloaded_file),
+                                "download_url": f"/files/{os.path.basename(downloaded_file)}",
+                                "title": embed_info.get('title', 'Instagram Video'),
+                                "url": request.url,
+                                "description": embed_info.get('description', ''),
+                                "tags": embed_info.get('tags', []),
+                                "duration": embed_info.get('duration'),
+                                "uploader": embed_info.get('uploader'),
+                                "file_size_bytes": os.path.getsize(downloaded_file),
+                                "file_size_mb": round(os.path.getsize(downloaded_file) / (1024 * 1024), 2),
+                                "video_info": video_info,
+                                "quality": f"{video_info['width']}x{video_info['height']}" if video_info['width'] > 0 else "Audio only",
+                                "strategy_used": "embed_endpoint"
+                            }
+
+        except Exception as embed_error:
+            logger.warning(f"⚠️ Embed endpoint also failed: {str(embed_error)}")
+
+        # All strategies including embed failed
+        logger.error(f"❌ All Instagram strategies including embed failed for: {request.url}")
+        logger.error("This is likely due to Instagram's anti-bot measures requiring authentication")
+        logger.error("Consider obtaining valid Instagram cookies for better success rates")
+
         return {
             "success": False,
-            "error": "All Instagram download strategies failed",
-            "error_type": "all_strategies_failed"
+            "error": "All Instagram download strategies failed including embed endpoint. Instagram may require authentication or has updated their anti-bot measures.",
+            "error_type": "all_strategies_failed",
+            "suggestion": "Try obtaining valid Instagram cookies or use a different download method",
+            "strategies_attempted": len(instagram_strategies) + 1  # +1 for embed attempt
         }
     
     # For other platforms, use simplified approach

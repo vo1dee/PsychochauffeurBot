@@ -67,15 +67,30 @@ class InstagramConfig:
 
     # Instagram-specific error patterns that should trigger retries
     RETRY_ERROR_PATTERNS = [
-        'extraction', 'unavailable', 'private', 'login required', 'cookie',
-        'network', 'timeout', 'connection', '403', '429', '502', '503', '504'
+        # Login/authentication related
+        'login', 'sign in', 'authentication', 'popup', 'modal', 'challenge',
+        'verification', 'captcha', 'bot detection', 'suspicious activity',
+        # Content access errors
+        'private', 'unavailable', 'not found', 'removed', 'deleted',
+        # Network/rate limiting
+        'rate limit', 'too many requests', 'blocked', 'forbidden', 'access denied',
+        # API specific errors
+        'api', 'endpoint', 'invalid response', 'parsing', 'json',
+        # Generic retry patterns
+        'extraction', 'unavailable', 'network', 'timeout', 'connection',
+        '403', '429', '502', '503', '504', 'temporary', 'retry'
     ]
 
     # User agents for different Instagram download strategies
     USER_AGENTS = [
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+        # Mobile Safari (most compatible with Instagram)
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        # Desktop Chrome (good fallback)
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Instagram 123.0.0.21.114 (iPhone12,1; iOS 14_2; en_US; en-US; scale=2.00; 828x1792; 239485664) AppleWebKit/420+'
+        # Instagram App (official API simulation)
+        'Instagram 289.0.0.14.57 (iPhone14,2; iOS 17_0; en_US; en-US; scale=2.00; 1170x2532; 472451681) AppleWebKit/420+',
+        # Android Chrome (additional fallback)
+        'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
     ]
 
 class Weather:
