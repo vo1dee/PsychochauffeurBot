@@ -12,6 +12,8 @@ from modules.video_downloader import VideoDownloader
 async def test_instagram_download(url):
     """Test Instagram video download functionality"""
     print(f"🔄 Testing Instagram download for: {url}")
+    print(f"   Service URL: {os.getenv('YTDL_SERVICE_URL', 'https://ytdl.vo1dee.com')}")
+    print(f"   API Key present: {bool(os.getenv('YTDL_SERVICE_API_KEY'))}")
 
     # Initialize downloader
     downloader = VideoDownloader()
