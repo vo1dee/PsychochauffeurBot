@@ -79,13 +79,10 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                         break
 
                 if not target_member:
-                    # Try to get user by username directly (may not work for non-admins)
-                    try:
-                        user_obj = await context.bot.get_chat_member(chat.id, f"@{username}")
-                        if user_obj.user.username and user_obj.user.username.lower() == username.lower():
-                            target_member = user_obj
-                    except:
-                        pass
+                    # Note: Cannot reliably get user by username with get_chat_member
+                    # as it requires user ID (int), not username string
+                    await update.message.reply_text(f"❌ User @{username} not found in this chat.")
+                    return
 
                 if target_member:
                     target_user_id = target_member.user.id
@@ -158,7 +155,6 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Apply mute
     permissions = ChatPermissions(
         can_send_messages=False,
-        can_send_media_messages=False,
         can_send_polls=False,
         can_send_other_messages=False,
         can_add_web_page_previews=False,
@@ -185,7 +181,10 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             f"Mute expires: {mute_until_formatted}"
         )
 
-        general_logger.info(f"User {target_user_id} muted by {user.id} for {mute_minutes} minutes in chat {chat.id}")
+        if user is not None:
+            general_logger.info(f"User {target_user_id} muted by {user.id} for {mute_minutes} minutes in chat {chat.id}")
+        else:
+            general_logger.info(f"User {target_user_id} muted for {mute_minutes} minutes in chat {chat.id}")
 
     except TelegramError as e:
         error_logger.error(f"Failed to mute user {target_user_id}: {e}")
@@ -214,6 +213,10 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     # Check if user is admin
+    if user is None:
+        await update.message.reply_text("❌ Unable to identify user.")
+        return
+
     try:
         chat_member = await context.bot.get_chat_member(chat.id, user.id)
         if chat_member.status not in ['administrator', 'creator']:
@@ -254,13 +257,10 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         break
 
                 if not target_member:
-                    # Try to get user by username directly
-                    try:
-                        user_obj = await context.bot.get_chat_member(chat.id, f"@{username}")
-                        if user_obj.user.username and user_obj.user.username.lower() == username.lower():
-                            target_member = user_obj
-                    except:
-                        pass
+                    # Note: Cannot reliably get user by username with get_chat_member
+                    # as it requires user ID (int), not username string
+                    await update.message.reply_text(f"❌ User @{username} not found in this chat.")
+                    return
 
                 if target_member:
                     target_user_id = target_member.user.id
@@ -298,7 +298,6 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Remove restrictions (unmute)
     permissions = ChatPermissions(
         can_send_messages=True,
-        can_send_media_messages=True,
         can_send_polls=True,
         can_send_other_messages=True,
         can_add_web_page_previews=True,
@@ -322,7 +321,10 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         await update.message.reply_text(f"✅ {target_name} has been unmuted.")
 
-        general_logger.info(f"User {target_user_id} unmuted by {user.id} in chat {chat.id}")
+        if user is not None:
+            general_logger.info(f"User {target_user_id} unmuted by {user.id} in chat {chat.id}")
+        else:
+            general_logger.info(f"User {target_user_id} unmuted in chat {chat.id}")
 
     except TelegramError as e:
         error_logger.error(f"Failed to unmute user {target_user_id}: {e}")
