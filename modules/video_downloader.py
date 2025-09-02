@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
-from modules.const import VideoPlatforms
+from modules.const import VideoPlatforms, InstagramConfig
 from modules.utils import extract_urls
 from modules.logger import (
     TelegramErrorHandler,
@@ -206,31 +206,50 @@ class VideoDownloader:
             return False
 
     async def _download_from_service(self, url: str, format: str = "bestvideo[height<=1080][ext=mp4]+bestaudio/best[height<=1080][ext=mp4]/best[ext=mp4]") -> Tuple[Optional[str], Optional[str]]:
-        """Download video using the local service."""
+        """Download video using the local service with enhanced retry logic."""
         if not self.service_url or not self.api_key:
             error_logger.warning("Skipping service download: no service URL or API key configured.")
             return None, None
 
         headers = {"X-API-Key": self.api_key}
-        payload = {"url": url, "format": format}
         download_url = urljoin(self.service_url, "download")
 
         error_logger.info(f"🔄 Attempting service download for: {url}")
         error_logger.info(f"   Service URL: {download_url}")
         error_logger.info(f"   Format: {format}")
 
+        # Detect Instagram URLs for enhanced retry logic
+        is_instagram = "instagram.com" in url.lower()
+        max_attempts = InstagramConfig.MAX_RETRIES if is_instagram else self.max_retries
+
         try:
             async with aiohttp.ClientSession() as session:
-                for attempt in range(self.max_retries):
-                    error_logger.info(f"   Attempt {attempt + 1}/{self.max_retries}")
+                for attempt in range(max_attempts):
+                    error_logger.info(f"   Attempt {attempt + 1}/{max_attempts}")
+
+                    # Use different payload for Instagram on retries
+                    if is_instagram and attempt > 0:
+                        # Try different format strings for Instagram retries
+                        retry_formats = [
+                            format,  # Original format
+                            "best[ext=mp4]/best",  # Simpler format
+                            "bestvideo+bestaudio/best",  # More explicit
+                            "best[ext=mp4][height<=720]/best[ext=mp4]/best"  # Lower quality fallback
+                        ]
+                        current_format = retry_formats[min(attempt - 1, len(retry_formats) - 1)]
+                        payload = {"url": url, "format": current_format}
+                        error_logger.info(f"   Using retry format: {current_format}")
+                    else:
+                        payload = {"url": url, "format": format}
+
                     try:
                         async with session.post(download_url, json=payload, headers=headers, timeout=120, ssl=False) as response:
                             error_logger.info(f"   Response status: {response.status}")
-                            
+
                             if response.status == 200:
                                 data = await response.json()
                                 error_logger.info(f"   Service response: success={data.get('success')}, status={data.get('status')}")
-                                
+
                                 if data.get("success"):
                                     if data.get("status") == "processing":
                                         error_logger.info(f"   Background processing started, download_id: {data.get('download_id')}")
@@ -241,38 +260,74 @@ class VideoDownloader:
                                 else:
                                     error_message = data.get('error', 'Unknown error')
                                     error_logger.error(f"   Service reported failure: {error_message}")
+
+                                    # For Instagram, continue retrying on certain errors
+                                    if is_instagram and any(keyword in error_message.lower() for keyword in InstagramConfig.RETRY_ERROR_PATTERNS):
+                                        error_logger.info(f"   Instagram-specific error detected, will retry: {error_message}")
+                                        if attempt < max_attempts - 1:
+                                            await asyncio.sleep(self._calculate_retry_delay(attempt, is_instagram))
+                                            continue
                                     return None, None
                             elif response.status in [502, 503, 504]:
-                                error_logger.warning(f"   Service unavailable (HTTP {response.status}). Retrying in {self.retry_delay * (attempt + 1)}s...")
-                                await asyncio.sleep(self.retry_delay * (attempt + 1))
+                                error_logger.warning(f"   Service unavailable (HTTP {response.status}). Retrying in {self._calculate_retry_delay(attempt, is_instagram)}s...")
+                                await asyncio.sleep(self._calculate_retry_delay(attempt, is_instagram))
                             elif response.status == 403:
                                 error_logger.error(f"   Authentication failed (HTTP 403) - check API key")
                                 return None, None
+                            elif response.status == 429:  # Rate limiting
+                                retry_delay = self._calculate_retry_delay(attempt, is_instagram) * 2
+                                error_logger.warning(f"   Rate limited (HTTP 429). Retrying in {retry_delay}s...")
+                                await asyncio.sleep(retry_delay)
                             else:
                                 response_text = await response.text()
                                 error_logger.error(f"   Service download failed with status {response.status}")
                                 error_logger.error(f"   Response: {response_text[:200]}...")
+
+                                # For Instagram, retry on certain HTTP errors
+                                if is_instagram and response.status in [400, 404, 500]:
+                                    if attempt < max_attempts - 1:
+                                        await asyncio.sleep(self._calculate_retry_delay(attempt, is_instagram))
+                                        continue
                                 return None, None
                     except aiohttp.ClientConnectorError as e:
                         error_logger.error(f"   Connection error on attempt {attempt + 1}: {e}")
-                        if attempt < self.max_retries - 1:
-                            error_logger.info(f"   Retrying in {self.retry_delay * (attempt + 1)}s...")
-                            await asyncio.sleep(self.retry_delay * (attempt + 1))
+                        if attempt < max_attempts - 1:
+                            retry_delay = self._calculate_retry_delay(attempt, is_instagram)
+                            error_logger.info(f"   Retrying in {retry_delay}s...")
+                            await asyncio.sleep(retry_delay)
                     except asyncio.TimeoutError:
                         error_logger.error(f"   Timeout on attempt {attempt + 1} (120s limit)")
-                        if attempt < self.max_retries - 1:
-                            error_logger.info(f"   Retrying in {self.retry_delay * (attempt + 1)}s...")
-                            await asyncio.sleep(self.retry_delay * (attempt + 1))
+                        if attempt < max_attempts - 1:
+                            retry_delay = self._calculate_retry_delay(attempt, is_instagram)
+                            error_logger.info(f"   Retrying in {retry_delay}s...")
+                            await asyncio.sleep(retry_delay)
                     except Exception as e:
                         error_logger.error(f"   Unexpected error on attempt {attempt + 1}: {e}")
-                        if attempt < self.max_retries - 1:
-                            await asyncio.sleep(self.retry_delay * (attempt + 1))
+                        if attempt < max_attempts - 1:
+                            await asyncio.sleep(self._calculate_retry_delay(attempt, is_instagram))
         except Exception as e:
             error_logger.error(f"❌ Service session creation failed: {e}")
             return None, None
-        
+
         error_logger.error(f"❌ All service download attempts failed for: {url}")
         return None, None
+
+    def _calculate_retry_delay(self, attempt: int, is_instagram: bool = False) -> float:
+        """Calculate retry delay with exponential backoff, longer for Instagram."""
+        if is_instagram:
+            base_delay = InstagramConfig.RETRY_DELAY_BASE
+            multiplier = InstagramConfig.RETRY_BACKOFF_MULTIPLIER
+            max_delay = InstagramConfig.MAX_RETRY_DELAY
+        else:
+            base_delay = self.retry_delay
+            multiplier = 2.0  # Default backoff multiplier
+            max_delay = 30.0  # Default max delay
+
+        # Exponential backoff: base_delay * (multiplier ^ attempt)
+        delay = base_delay * (multiplier ** attempt)
+
+        # Cap maximum delay
+        return min(delay, max_delay)
 
     async def _poll_service_for_completion(self, session: aiohttp.ClientSession, download_id: str, headers: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
         """Poll the service for download completion."""
