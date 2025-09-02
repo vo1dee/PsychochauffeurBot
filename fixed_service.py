@@ -510,13 +510,41 @@ def download_youtube_video(request: DownloadRequest, download_id: str, output_te
             logger.error(f"❌ YouTube strategy '{strategy['name']}' error: {str(e)}")
             cleanup_files(download_id)
     
-    # All strategies failed
-    logger.error(f"❌ All YouTube strategies failed for: {request.url}")
-    return {
-        "success": False,
-        "error": "All YouTube strategies failed",
-        "error_type": "youtube_extraction_failed"
-    }
+        # All strategies failed
+        logger.error(f"❌ All Instagram strategies failed for: {request.url}")
+        logger.error("This is likely due to Instagram's anti-bot measures requiring authentication")
+        logger.error("Common issues: CSRF token missing, rate limiting, login requirements, or service outages")
+
+        # Provide specific guidance based on error patterns
+        error_suggestions = []
+        if "ddinstagram.com" in request.url:
+            error_suggestions.append("Try using direct Instagram URLs instead of ddinstagram.com")
+
+        # Check for common error patterns in the last error message
+        last_error_msg = str(error_msg).lower() if error_msg else ""
+        if last_error_msg:
+            if "csrf" in last_error_msg or "login" in last_error_msg:
+                error_suggestions.append("Instagram requires authentication - consider using valid cookies")
+            if "rate" in last_error_msg:
+                error_suggestions.append("Rate limited - wait a few minutes before retrying")
+            if "500" in last_error_msg or "internal server" in last_error_msg:
+                error_suggestions.append("Service may be experiencing issues - try again later")
+
+        # Ensure instagram_strategies is defined
+        if not instagram_strategies:
+            instagram_strategies = []
+
+        if not error_suggestions:
+            error_suggestions.append("Try obtaining valid Instagram cookies or use a different download method")
+
+        return {
+            "success": False,
+            "error": "All Instagram download strategies failed. Instagram may require authentication or has updated their anti-bot measures.",
+            "error_type": "all_strategies_failed",
+            "suggestions": error_suggestions,
+            "strategies_attempted": len(instagram_strategies) + 1,  # +1 for embed attempt
+            "last_error": last_error_msg[:200] if last_error_msg else "Unknown error"
+        }
 
 @app.post("/download")
 async def download_video(request: DownloadRequest,
@@ -540,18 +568,29 @@ async def download_video(request: DownloadRequest,
         # If YouTube handler fails, fall through to regular handler
         logger.warning("YouTube handler failed, trying regular handler")
     
-    # Instagram detection - expanded patterns
+    # Instagram detection - expanded patterns including ddinstagram redirects
     is_instagram = any(x in request.url for x in [
         "instagram.com/p/", "instagram.com/reel/", "instagram.com/tv/",
         "instagram.com/stories/", "instagram.com/reels/", "instagram.com/explore/",
         "www.instagram.com/p/", "www.instagram.com/reel/", "www.instagram.com/tv/",
-        "www.instagram.com/stories/", "www.instagram.com/reels/"
+        "www.instagram.com/stories/", "www.instagram.com/reels/",
+        "ddinstagram.com/reel/", "ddinstagram.com/p/", "ddinstagram.com/tv/"
     ])
+
+    # Convert ddinstagram.com URLs to direct Instagram URLs for better compatibility
+    if "ddinstagram.com" in request.url:
+        original_url = request.url
+        request.url = request.url.replace("ddinstagram.com", "www.instagram.com")
+        logger.info(f"🔄 Converted ddinstagram URL to direct Instagram: {original_url} -> {request.url}")
 
     if is_instagram:
         logger.info(f"📸 Instagram download attempt: {request.url}")
 
         cookies_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+
+        # Initialize variables for error handling
+        error_msg = ""
+        instagram_strategies = []
 
         # Define Instagram-specific retry strategies using configuration
         # These strategies simulate clicking "X" to close login popup
@@ -665,6 +704,33 @@ async def download_video(request: DownloadRequest,
                     'Sec-Fetch-User': '?1',
                     'Cache-Control': 'max-age=0',
                     'X-Requested-With': 'XMLHttpRequest',
+                },
+                'extractor_args': {
+                    'instagram': {
+                        'api_hostname': 'www.instagram.com',
+                        'api_version': 'v1'
+                    }
+                }
+            },
+            {
+                'name': 'Instagram GraphQL API (advanced)',
+                'user_agent': InstagramConfig.USER_AGENTS[2],
+                'headers': {
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'X-IG-App-ID': '936619743392459',
+                    'X-IG-WWW-Claim': '0',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-Instagram-AJAX': '1',
+                    'X-CSRFToken': 'missing',
+                    'X-IG-WWW-Claim': 'hmac.AR0PlJC1Fi2YV2NJjIg6hcCgcYcX_OYJ9X9Q9Vj2QgE1',
+                    'Connection': 'keep-alive',
+                    'Sec-Fetch-Dest': 'empty',
+                    'Sec-Fetch-Mode': 'cors',
+                    'Sec-Fetch-Site': 'same-origin',
+                    'X-ASBD-ID': '198387',
+                    'X-FB-Friendly-Name': 'PolarisPostActionLoadPostQueryQuery',
                 },
                 'extractor_args': {
                     'instagram': {
@@ -804,17 +870,24 @@ async def download_video(request: DownloadRequest,
                 # Enhanced error detection for Instagram-specific issues
                 instagram_error_patterns = [
                     # Login/popup related errors
-                    'login', 'sign in', 'authentication', 'popup', 'modal',
-                    'challenge', 'verification', 'captcha', 'bot detection',
+                    'login', 'sign in', 'authentication', 'popup', 'modal', 'challenge',
+                    'verification', 'captcha', 'bot detection', 'suspicious activity',
+                    'csrf token', 'no csrf token', 'locked behind login',
                     # Content access errors
-                    'private', 'unavailable', 'not found', 'removed',
+                    'private', 'unavailable', 'not found', 'removed', 'deleted',
+                    'content is not available', 'requested content is not available',
                     # Network/rate limiting
-                    'rate limit', 'too many requests', 'blocked', 'forbidden',
+                    'rate limit', 'too many requests', 'blocked', 'forbidden', 'access denied',
+                    'rate-limit reached', 'rate limit reached',
                     # API specific errors
-                    'api', 'endpoint', 'invalid response', 'parsing',
+                    'api', 'endpoint', 'invalid response', 'parsing', 'json',
+                    'unable to extract shared data', 'unable to extract additional data',
+                    'general metadata extraction failed', 'main webpage is locked',
+                    # Service errors
+                    'internal server error', '500', '502', '503', '504',
                     # Generic retry patterns
                     'extraction', 'unavailable', 'network', 'timeout', 'connection',
-                    '403', '429', '502', '503', '504'
+                    '403', '429', 'temporary', 'retry', 'please report this issue'
                 ]
 
                 # Check if this is a recoverable error that should try next strategy
