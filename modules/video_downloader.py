@@ -321,7 +321,7 @@ class VideoDownloader:
         else:
             base_delay = self.retry_delay
             multiplier = 2.0  # Default backoff multiplier
-            max_delay = 30.0  # Default max delay
+            max_delay = 30  # Default max delay
 
         # Exponential backoff: base_delay * (multiplier ^ attempt)
         delay = base_delay * (multiplier ** attempt)
