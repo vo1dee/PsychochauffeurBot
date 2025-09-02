@@ -66,8 +66,8 @@ class VideoDownloader:
         
         self.yt_dlp_path = self._get_yt_dlp_path()
         
-        # Service configuration - use environment variables
-        self.service_url = os.getenv('YTDL_SERVICE_URL')
+        # Service configuration - use environment variables with fallback
+        self.service_url = os.getenv('YTDL_SERVICE_URL', 'https://ytdl.vo1dee.com')
         self.api_key = os.getenv('YTDL_SERVICE_API_KEY')
         self.max_retries = int(os.getenv('YTDL_MAX_RETRIES', '3'))
         self.retry_delay = int(os.getenv('YTDL_RETRY_DELAY', '1'))
