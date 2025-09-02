@@ -412,7 +412,11 @@ class VideoDownloader:
                 # For YouTube, try multiple strategies
                 if is_youtube:
                     return await self._download_youtube_with_strategies(url, is_youtube_shorts, is_youtube_clips)
-                
+
+                # For Instagram, try multiple strategies
+                if is_instagram:
+                    return await self._download_instagram_with_strategies(url)
+
                 # For other platforms, use direct download
                 config = self.platform_configs.get(platform)
                 return await self._download_generic(url, platform, config)
@@ -489,6 +493,137 @@ class VideoDownloader:
         
         error_logger.error(f"❌ All YouTube strategies failed for {url}")
         return None, None
+
+    async def _download_instagram_with_strategies(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Download Instagram video using multiple fallback strategies."""
+        error_logger.info(f"📸 Starting Instagram download with multiple strategies for: {url}")
+
+        # Define Instagram-specific strategies
+        strategies = [
+            {
+                'name': 'Instagram Mobile API',
+                'user_agent': InstagramConfig.USER_AGENTS[2],
+                'format': 'bestvideo+bestaudio/best',
+                'args': [
+                    '--user-agent', InstagramConfig.USER_AGENTS[2],
+                    '--add-header', f'X-IG-App-ID:936619743392459',
+                    '--add-header', 'X-IG-WWW-Claim:0',
+                    '--add-header', 'X-Requested-With:XMLHttpRequest',
+                    '--extractor-args', 'instagram:api_hostname=i.instagram.com;api_version=v1'
+                ]
+            },
+            {
+                'name': 'Instagram Web (embed)',
+                'user_agent': InstagramConfig.USER_AGENTS[0],
+                'format': 'bestvideo+bestaudio/best',
+                'args': [
+                    '--user-agent', InstagramConfig.USER_AGENTS[0],
+                    '--add-header', 'X-Requested-With:XMLHttpRequest',
+                    '--extractor-args', 'instagram:api_hostname=www.instagram.com;api_version=v1'
+                ]
+            },
+            {
+                'name': 'Instagram Desktop',
+                'user_agent': InstagramConfig.USER_AGENTS[1],
+                'format': 'bestvideo+bestaudio/best',
+                'args': [
+                    '--user-agent', InstagramConfig.USER_AGENTS[1],
+                    '--add-header', 'Referer:https://www.instagram.com/',
+                    '--extractor-args', 'instagram:api_hostname=www.instagram.com;api_version=v1'
+                ]
+            },
+            {
+                'name': 'Instagram Android',
+                'user_agent': InstagramConfig.USER_AGENTS[3],
+                'format': 'bestvideo+bestaudio/best',
+                'args': [
+                    '--user-agent', InstagramConfig.USER_AGENTS[3],
+                    '--extractor-args', 'instagram:api_hostname=i.instagram.com;api_version=v1'
+                ]
+            }
+        ]
+
+        # Try each strategy
+        for i, strategy in enumerate(strategies, 1):
+            error_logger.info(f"📋 Trying Instagram strategy {i}/{len(strategies)}: {strategy['name']}")
+
+            try:
+                result = await self._try_instagram_strategy(url, strategy)
+                if result and result[0]:
+                    error_logger.info(f"✅ Instagram strategy '{strategy['name']}' succeeded!")
+                    return result
+                else:
+                    error_logger.warning(f"❌ Instagram strategy '{strategy['name']}' failed")
+            except Exception as e:
+                error_logger.error(f"❌ Instagram strategy '{strategy['name']}' error: {e}")
+
+        error_logger.error(f"❌ All Instagram strategies failed for {url}")
+        return None, None
+
+    async def _try_instagram_strategy(self, url: str, strategy: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+        """Try a single Instagram download strategy."""
+        unique_filename = f"instagram_{uuid.uuid4().hex[:8]}.mp4"
+        output_path = os.path.join(self.download_path, unique_filename)
+
+        # Build command
+        cmd = [
+            self.yt_dlp_path, url,
+            '-o', output_path,
+            '--merge-output-format', 'mp4',
+            '--no-check-certificate',
+            '--geo-bypass',
+            '--ignore-errors',
+            '--no-playlist',
+            '--socket-timeout', '30',
+            '--retries', '2',
+            '--fragment-retries', '2',
+            '-f', strategy['format']
+        ] + strategy['args']
+
+        error_logger.info(f"   Executing Instagram strategy: {strategy['name']}")
+
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
+
+            if process.returncode == 0 and os.path.exists(output_path):
+                file_size = os.path.getsize(output_path)
+                error_logger.info(f"   ✅ Downloaded {file_size} bytes")
+
+                # Get title
+                title = await self._get_video_title(url)
+                return output_path, title
+            else:
+                stderr_text = stderr.decode()
+                error_logger.warning(f"   ❌ Process failed (code {process.returncode})")
+                error_logger.warning(f"   Error: {stderr_text[:200]}...")
+                return None, None
+
+        except asyncio.TimeoutError:
+            error_logger.warning(f"   ⏰ Strategy timed out after 60 seconds")
+            return None, None
+        except Exception as e:
+            error_logger.error(f"   ❌ Strategy execution error: {e}")
+            return None, None
+        finally:
+            # Clean up any partial files
+            if os.path.exists(output_path):
+                try:
+                    # Only remove if download failed
+                    success = (process is not None and
+                              hasattr(process, 'returncode') and
+                              process.returncode == 0 and
+                              os.path.getsize(output_path) > 0)
+                    if not success:
+                        os.remove(output_path)
+                except:
+                    pass
 
     async def _try_youtube_strategy(self, url: str, strategy: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Try a single YouTube download strategy."""
