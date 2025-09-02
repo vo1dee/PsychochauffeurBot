@@ -70,15 +70,22 @@ class InstagramConfig:
         # Login/authentication related
         'login', 'sign in', 'authentication', 'popup', 'modal', 'challenge',
         'verification', 'captcha', 'bot detection', 'suspicious activity',
+        'csrf token', 'no csrf token', 'locked behind login',
         # Content access errors
         'private', 'unavailable', 'not found', 'removed', 'deleted',
+        'content is not available', 'requested content is not available',
         # Network/rate limiting
         'rate limit', 'too many requests', 'blocked', 'forbidden', 'access denied',
+        'rate-limit reached', 'rate limit reached',
         # API specific errors
         'api', 'endpoint', 'invalid response', 'parsing', 'json',
+        'unable to extract shared data', 'unable to extract additional data',
+        'general metadata extraction failed',
+        # Service errors
+        'internal server error', '500', '502', '503', '504',
         # Generic retry patterns
         'extraction', 'unavailable', 'network', 'timeout', 'connection',
-        '403', '429', '502', '503', '504', 'temporary', 'retry'
+        '403', '429', 'temporary', 'retry', 'please report this issue'
     ]
 
     # User agents for different Instagram download strategies
