@@ -347,6 +347,12 @@ class TelegramErrorHandler(logging.Handler):
                     )
                 return # Success
             except Exception as e:
+                error_msg = str(e).lower()
+                if "chat not found" in error_msg or "chat_id" in error_msg:
+                    print(f"ERROR: Telegram error channel not accessible. Disabling error notifications.", file=sys.stderr)
+                    # Disable this handler to prevent further attempts
+                    self._bot_instance = None
+                    return
                 print(f"ERROR: Attempt {attempt + 1} failed to send error to Telegram: {e}", file=sys.stderr)
                 if attempt == max_retries - 1:
                     # Last attempt failed, try sending plain text

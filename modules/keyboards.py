@@ -244,7 +244,7 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
                         await query.message.edit_text("✅ Download complete!")
                 else:
                     if hasattr(query.message, 'edit_text'):
-                        await query.message.edit_text("❌ Instagram video download failed. Check the link and try again.")
+                        await query.message.edit_text(f"❌ Instagram video download failed.\n\n{original_link}")
                 return
             except Exception as e:
                 error_logger.error(f"Error in Instagram service download: {str(e)}")
