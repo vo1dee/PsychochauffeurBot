@@ -134,7 +134,6 @@ class BotApplication(ServiceInterface):
                 from modules.logger import init_telegram_error_handler
                 try:
                     await init_telegram_error_handler(self.bot, Config.ERROR_CHANNEL_ID)
-                    logger.info("Telegram error handler initialized successfully")
                 except Exception as e:
                     logger.error(f"Failed to initialize Telegram error handler: {e}")
 
