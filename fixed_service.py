@@ -521,14 +521,8 @@ def download_youtube_video(request: DownloadRequest, download_id: str, output_te
             error_suggestions.append("Try using direct Instagram URLs instead of instagramez.com")
 
         # Check for common error patterns in the last error message
-        last_error_msg = str(error_msg).lower() if error_msg else ""
-        if last_error_msg:
-            if "csrf" in last_error_msg or "login" in last_error_msg:
-                error_suggestions.append("Instagram requires authentication - consider using valid cookies")
-            if "rate" in last_error_msg:
-                error_suggestions.append("Rate limited - wait a few minutes before retrying")
-            if "500" in last_error_msg or "internal server" in last_error_msg:
-                error_suggestions.append("Service may be experiencing issues - try again later")
+        # Note: error_msg is not available in this scope, so skipping error pattern analysis
+        # This could be enhanced by capturing the last exception message if needed
 
         # Ensure variables are defined for error reporting
         if 'instagram_strategies' not in locals():
@@ -543,7 +537,7 @@ def download_youtube_video(request: DownloadRequest, download_id: str, output_te
             "error_type": "all_strategies_failed",
             "suggestions": error_suggestions,
             "strategies_attempted": len(instagram_strategies) + 1,  # +1 for embed attempt
-            "last_error": last_error_msg[:200] if last_error_msg else "Unknown error"
+            "last_error": "Unknown error"
         }
 
 @app.post("/download")
