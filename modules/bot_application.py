@@ -133,7 +133,16 @@ class BotApplication(ServiceInterface):
             if Config.ERROR_CHANNEL_ID and self.bot:
                 from modules.logger import init_telegram_error_handler
                 try:
-                    await init_telegram_error_handler(self.bot, Config.ERROR_CHANNEL_ID)
+                    # Check if we can access the error channel before initializing
+                    channel_id = Config.ERROR_CHANNEL_ID.split(':')[0] if ':' in Config.ERROR_CHANNEL_ID else Config.ERROR_CHANNEL_ID
+                    try:
+                        await self.bot.get_chat(chat_id=channel_id)
+                        await init_telegram_error_handler(self.bot, Config.ERROR_CHANNEL_ID)
+                        logger.info("Telegram error handler initialized successfully")
+                    except Exception as channel_error:
+                        logger.warning(f"Cannot access error channel {channel_id}: {channel_error}. Disabling error notifications.")
+                        # Clear the ERROR_CHANNEL_ID to prevent further attempts
+                        Config.ERROR_CHANNEL_ID = ""
                 except Exception as e:
                     logger.error(f"Failed to initialize Telegram error handler: {e}")
 
