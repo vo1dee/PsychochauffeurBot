@@ -342,8 +342,7 @@ class ConfigManager:
                     "speechmatics": {
                         "enabled": True,
                         "overrides": {
-                            "allow_all_users": False,
-                            "enabled": False
+                            "allow_all_users": False
                         }
                     }
                 }

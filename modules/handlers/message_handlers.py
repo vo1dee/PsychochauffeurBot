@@ -436,6 +436,6 @@ async def send_speech_recognition_button(update: Update, context: ContextTypes.D
     ])
     
     await message.reply_text(
-        "Press the button to recognize speech in this voice or video message.\n\n⚠️ If the bot was recently restarted, old buttons will not work. Please send a new message if you see an error.",
+        "🎤 Tap to recognize speech",
         reply_markup=keyboard
     )
