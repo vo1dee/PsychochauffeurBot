@@ -9,7 +9,7 @@ async def count_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """
     if not update.effective_chat:
         if update.message:
-            await update.message.reply_text("❌ Помилка: не вдалося визначити чат.")
+            await update.message.reply_text("❌ Помилка сталася. Це повідомлено розробнику.")
         return
     chat_id = update.effective_chat.id
     args = context.args if hasattr(context, 'args') else []
@@ -85,7 +85,7 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if not update.effective_chat:
         if update.message:
-            await update.message.reply_text("❌ Помилка: не вдалося визначити чат.")
+            await update.message.reply_text("❌ Помилка сталася. Це повідомлено розробнику.")
         return
     chat_id = update.effective_chat.id
     args = context.args if hasattr(context, 'args') else []

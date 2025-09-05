@@ -106,7 +106,7 @@ class TextCommandHandler(BaseCommandHandler):
         """Handle the text command."""
         if not await self.can_execute(update, context):
             if update.message:
-                await update.message.reply_text("❌ You don't have permission to use this command.")
+                await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
             return
         
         await self.handler_func(update, context)

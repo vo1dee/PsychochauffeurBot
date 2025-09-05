@@ -285,7 +285,13 @@ async def construct_and_send_message(
                 parse_mode=ParseMode.MARKDOWN_V2
             )
     except Exception as e:
-        error_logger.error(f"Failed to send message: {str(e)}", exc_info=True)
+        error_logger.error(f"Failed to send message: {str(e)}", extra={
+            'chat_id': update.effective_chat.id if update.effective_chat else 'N/A',
+            'username': update.effective_user.username if update.effective_user else 'N/A',
+            'chat_title': update.effective_chat.title if update.effective_chat else 'N/A'
+        }, exc_info=True)
+        if update.message:
+            await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
         raise
 
 
@@ -326,7 +332,13 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_sticker(sticker=Stickers.LOCATION)
         general_logger.info(f"Sent location sticker in response to location message")
     except Exception as e:
-        error_logger.error(f"Failed to send location sticker: {e}")
+        error_logger.error(f"Failed to send location sticker: {e}", extra={
+            'chat_id': update.effective_chat.id if update.effective_chat else 'N/A',
+            'username': update.effective_user.username if update.effective_user else 'N/A',
+            'chat_title': update.effective_chat.title if update.effective_chat else 'N/A'
+        })
+        if update.message:
+            await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
         await update.message.reply_text("📍 Location received!")
 
 
