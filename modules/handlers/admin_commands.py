@@ -37,6 +37,9 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     # Check if user is admin
+    if user is None:
+        await update.message.reply_text("❌ Unable to identify user.")
+        return
     try:
         chat_member = await context.bot.get_chat_member(chat.id, user.id)
         if chat_member.status not in ['administrator', 'creator']:
@@ -183,8 +186,6 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         if user is not None:
             general_logger.info(f"User {target_user_id} muted by {user.id} for {mute_minutes} minutes in chat {chat.id}")
-        else:
-            general_logger.info(f"User {target_user_id} muted for {mute_minutes} minutes in chat {chat.id}")
 
     except TelegramError as e:
         error_logger.error(f"Failed to mute user {target_user_id}: {e}")
@@ -323,8 +324,6 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         if user is not None:
             general_logger.info(f"User {target_user_id} unmuted by {user.id} in chat {chat.id}")
-        else:
-            general_logger.info(f"User {target_user_id} unmuted in chat {chat.id}")
 
     except TelegramError as e:
         error_logger.error(f"Failed to unmute user {target_user_id}: {e}")
