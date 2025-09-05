@@ -128,7 +128,16 @@ class BotApplication(ServiceInterface):
         try:
             # Start specialized services in dependency order
             await self._start_specialized_services()
-            
+
+            # Initialize Telegram error handler for error notifications
+            if Config.ERROR_CHANNEL_ID and self.bot:
+                from modules.logger import init_telegram_error_handler
+                try:
+                    await init_telegram_error_handler(self.bot, Config.ERROR_CHANNEL_ID)
+                    logger.info("Telegram error handler initialized successfully")
+                except Exception as e:
+                    logger.error(f"Failed to initialize Telegram error handler: {e}")
+
             # Send startup notification with service status
             await self._send_startup_notification()
             
