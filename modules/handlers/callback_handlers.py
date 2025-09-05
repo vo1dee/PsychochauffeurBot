@@ -100,9 +100,14 @@ async def speechrec_callback(update: Update, context: CallbackContext[Any, Any, 
         if update.effective_chat is None:
             logger.error("No effective chat found in update")
             return
+        logger.error(f"Speech recognition failed: {e}", extra={
+            'chat_id': update.effective_chat.id if update.effective_chat else 'N/A',
+            'username': update.effective_user.username if update.effective_user else 'N/A',
+            'chat_title': update.effective_chat.title if update.effective_chat else 'N/A'
+        })
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=f"❌ Speech recognition failed: {e}"
+            text="❌ Error occurred. This has been reported to the developer."
         )
 
 

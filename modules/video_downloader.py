@@ -791,10 +791,15 @@ class VideoDownloader:
                 f"🚨 Sticker Error\n"
                 f"Error: {str(e)}\n"
                 f"User ID: {user_id}\n"
-                f"Username: @{username}"
+                f"Username: @{username}",
+                extra={
+                    'chat_id': update.effective_chat.id if update.effective_chat else 'N/A',
+                    'username': update.effective_user.username if update.effective_user else 'N/A',
+                    'chat_title': update.effective_chat.title if update.effective_chat else 'N/A'
+                }
             )
             if update.message:
-                await update.message.reply_text("❌ An error occurred.")
+                await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
 
     async def handle_video_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle video link with improved error handling and resource cleanup."""

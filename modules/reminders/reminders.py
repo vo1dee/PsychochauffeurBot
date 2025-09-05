@@ -350,7 +350,7 @@ class ReminderManager:
                 else:
                     general_logger.error("JobQueue is not available. Cannot schedule reminder.")
                     if getattr(update, 'message', None) is not None and update.message is not None:
-                        await update.message.reply_text("❌ Reminder scheduling is not available. Please contact the administrator.")
+                        await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
                     return
 
                 # Ensure the displayed time is in the KYIV_TZ timezone
@@ -609,7 +609,7 @@ class ReminderManager:
             else:
                 general_logger.error("JobQueue is not available. Cannot schedule reminder.")
                 if getattr(update, 'message', None) is not None and update.message is not None:
-                    await update.message.reply_text("❌ Reminder scheduling is not available. Please contact the administrator.")
+                    await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
                 return
 
             # Ensure the displayed time is in the KYIV_TZ timezone
