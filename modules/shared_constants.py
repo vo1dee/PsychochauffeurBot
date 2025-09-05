@@ -171,7 +171,7 @@ class URLPatterns:
     DOMAIN_REPLACEMENTS = {
         "twitter.com": "fxtwitter.com",
         "x.com": "fixupx.com",
-        "instagram.com": "ddinstagram.com",
+        "instagram.com": "instagramez.com",
         "aliexpress.com": "aliexpress.com"  # Keep as is for tracking
     }
     

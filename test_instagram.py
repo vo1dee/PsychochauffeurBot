@@ -15,8 +15,8 @@ async def test_instagram_download(url):
     print(f"   Service URL: {os.getenv('YTDL_SERVICE_URL', 'https://ytdl.vo1dee.com')}")
     print(f"   API Key present: {bool(os.getenv('YTDL_SERVICE_API_KEY'))}")
 
-    # Initialize downloader
-    downloader = VideoDownloader()
+    # Initialize downloader with mock URL extractor
+    downloader = VideoDownloader(extract_urls_func=extract_urls_mock)
 
     try:
         # Attempt download
@@ -45,6 +45,12 @@ async def test_instagram_download(url):
         print(f"❌ Download error: {str(e)}")
         return False
 
+def extract_urls_mock(text):
+    """Mock function to extract URLs from text"""
+    import re
+    url_pattern = r'https?://(?:[-\w.])+(?:[:\d]+)?(?:/(?:[\w/_.])*(?:\?(?:[\w&=%.])*)?(?:#(?:\w*))?)?'
+    return re.findall(url_pattern, text)
+
 def main():
     if len(sys.argv) != 2:
         print("Usage: python test_instagram.py <instagram_url>")
@@ -54,7 +60,7 @@ def main():
     url = sys.argv[1]
 
     # Validate URL
-    if 'instagram.com' not in url:
+    if 'instagram.com' not in url and 'instagramez.com' not in url:
         print("❌ Please provide a valid Instagram URL")
         sys.exit(1)
 

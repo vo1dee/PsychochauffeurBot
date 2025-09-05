@@ -517,8 +517,8 @@ def download_youtube_video(request: DownloadRequest, download_id: str, output_te
 
         # Provide specific guidance based on error patterns
         error_suggestions = []
-        if "ddinstagram.com" in request.url:
-            error_suggestions.append("Try using direct Instagram URLs instead of ddinstagram.com")
+        if "instagramez.com" in request.url:
+            error_suggestions.append("Try using direct Instagram URLs instead of instagramez.com")
 
         # Check for common error patterns in the last error message
         last_error_msg = str(error_msg).lower() if error_msg else ""
@@ -568,20 +568,20 @@ async def download_video(request: DownloadRequest,
         # If YouTube handler fails, fall through to regular handler
         logger.warning("YouTube handler failed, trying regular handler")
     
-    # Instagram detection - expanded patterns including ddinstagram redirects
+    # Instagram detection - expanded patterns including instagramez redirects
     is_instagram = any(x in request.url for x in [
         "instagram.com/p/", "instagram.com/reel/", "instagram.com/tv/",
         "instagram.com/stories/", "instagram.com/reels/", "instagram.com/explore/",
         "www.instagram.com/p/", "www.instagram.com/reel/", "www.instagram.com/tv/",
         "www.instagram.com/stories/", "www.instagram.com/reels/",
-        "ddinstagram.com/reel/", "ddinstagram.com/p/", "ddinstagram.com/tv/"
+        "instagramez.com/reel/", "instagramez.com/p/", "instagramez.com/tv/"
     ])
 
-    # Convert ddinstagram.com URLs to direct Instagram URLs for better compatibility
-    if "ddinstagram.com" in request.url:
+    # Convert instagramez.com URLs to direct Instagram URLs for better compatibility
+    if "instagramez.com" in request.url:
         original_url = request.url
-        request.url = request.url.replace("ddinstagram.com", "www.instagram.com")
-        logger.info(f"🔄 Converted ddinstagram URL to direct Instagram: {original_url} -> {request.url}")
+        request.url = request.url.replace("instagramez.com", "www.instagram.com")
+        logger.info(f"🔄 Converted instagramez URL to direct Instagram: {original_url} -> {request.url}")
 
     if is_instagram:
         logger.info(f"📸 Instagram download attempt: {request.url}")
