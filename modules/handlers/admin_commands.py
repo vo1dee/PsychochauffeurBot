@@ -188,11 +188,19 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             general_logger.info(f"User {target_user_id} muted by {user.id} for {mute_minutes} minutes in chat {chat.id}")
 
     except TelegramError as e:
-        error_logger.error(f"Failed to mute user {target_user_id}: {e}")
-        await update.message.reply_text("❌ Failed to mute the user. The bot may not have sufficient permissions.")
+        error_logger.error(f"Failed to mute user {target_user_id}: {e}", extra={
+            'chat_id': update.effective_chat.id if update.effective_chat else 'N/A',
+            'username': update.effective_user.username if update.effective_user else 'N/A',
+            'chat_title': update.effective_chat.title if update.effective_chat else 'N/A'
+        })
+        await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
     except Exception as e:
-        error_logger.error(f"Unexpected error while muting user {target_user_id}: {e}")
-        await update.message.reply_text("❌ An unexpected error occurred.")
+        error_logger.error(f"Unexpected error while muting user {target_user_id}: {e}", extra={
+            'chat_id': update.effective_chat.id if update.effective_chat else 'N/A',
+            'username': update.effective_user.username if update.effective_user else 'N/A',
+            'chat_title': update.effective_chat.title if update.effective_chat else 'N/A'
+        })
+        await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
 
 
 async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -326,8 +334,16 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             general_logger.info(f"User {target_user_id} unmuted by {user.id} in chat {chat.id}")
 
     except TelegramError as e:
-        error_logger.error(f"Failed to unmute user {target_user_id}: {e}")
-        await update.message.reply_text("❌ Failed to unmute the user. The bot may not have sufficient permissions.")
+        error_logger.error(f"Failed to unmute user {target_user_id}: {e}", extra={
+            'chat_id': update.effective_chat.id if update.effective_chat else 'N/A',
+            'username': update.effective_user.username if update.effective_user else 'N/A',
+            'chat_title': update.effective_chat.title if update.effective_chat else 'N/A'
+        })
+        await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
     except Exception as e:
-        error_logger.error(f"Unexpected error while unmuting user {target_user_id}: {e}")
-        await update.message.reply_text("❌ An unexpected error occurred.")
+        error_logger.error(f"Unexpected error while unmuting user {target_user_id}: {e}", extra={
+            'chat_id': update.effective_chat.id if update.effective_chat else 'N/A',
+            'username': update.effective_user.username if update.effective_user else 'N/A',
+            'chat_title': update.effective_chat.title if update.effective_chat else 'N/A'
+        })
+        await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
