@@ -898,14 +898,8 @@ class VideoDownloader:
 
             video_config = await self._get_video_config(chat_id, chat_type)
 
-            # Check if video file sending is enabled
-            if not video_config.get("send_video_file", False):
-                error_logger.info(f"Video file sending is disabled for chat {chat_id}")
-                if update.message:
-                    await update.message.reply_text("✅ Video downloaded successfully (file sending disabled)")
-                return
-
             # Note: Before video is sent in _send_before_video_if_configured method
+            # Videos are always sent now
 
             file_size = os.path.getsize(filename)
             max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
@@ -1331,13 +1325,36 @@ class VideoDownloader:
 
     async def _get_video_config(self, chat_id: Optional[str] = None, chat_type: Optional[str] = None) -> Dict[str, Any]:
         """Get video configuration for the current chat."""
-        general_logger.info(f"DEBUG: _get_video_config called with config_manager: {self.config_manager}")
         if not self.config_manager:
-            general_logger.info("DEBUG: No config manager available, returning defaults")
             # Return default config if no config manager is available
             return {
-                "send_video_file": False,
-                "video_path": self.download_path
+                "video_path": self.download_path,
+                "before_video_path": ""
+            }
+
+        try:
+            if chat_id and chat_type:
+                # Get video_send module config directly
+                module_config = await self.config_manager.get_config(chat_id, chat_type, module_name="video_send")
+                if isinstance(module_config, dict) and "overrides" in module_config:
+                    return module_config["overrides"]
+                else:
+                    return {
+                        "video_path": self.download_path,
+                        "before_video_path": ""
+                    }
+            else:
+                # Get global module config
+                module_config = await self.config_manager.get_config(module_name="video_send")
+                return module_config.get("overrides", {
+                    "video_path": self.download_path,
+                    "before_video_path": ""
+                })
+        except Exception as e:
+            general_logger.error(f"Failed to get video config: {e}")
+            return {
+                "video_path": self.download_path,
+                "before_video_path": ""
             }
 
         try:
@@ -1350,17 +1367,17 @@ class VideoDownloader:
                     general_logger.info(f"DEBUG: Returning chat overrides: {result}")
                     return result
                 else:
-                    general_logger.info("DEBUG: No overrides found, returning defaults")
+                    general_logger.info("DEBUG: No overrides found, using defaults")
                     return {
-                        "send_video_file": False,
-                        "video_path": self.download_path
+                        "video_path": self.download_path,
+                        "before_video_path": ""
                     }
             else:
                 # Get global module config
                 module_config = await self.config_manager.get_config(module_name="video_send")
                 return module_config.get("overrides", {
-                    "send_video_file": False,
-                    "video_path": self.download_path
+                    "video_path": self.download_path,
+                    "before_video_path": ""
                 })
         except Exception as e:
             general_logger.error(f"Failed to get video config: {e}")
