@@ -54,10 +54,11 @@ class VideoDownloader:
         "CAACAgQAAxkBAAExX31nn7xByvIhPZHPreVkPONIn82IKgACgxcAAuYrIFHS_QFCSfHYGTYE"
     ]
 
-    def __init__(self, download_path: str = 'downloads', extract_urls_func: Optional[Callable[..., Any]] = None) -> None:
+    def __init__(self, download_path: str = 'downloads', extract_urls_func: Optional[Callable[..., Any]] = None, config_manager: Optional[Any] = None) -> None:
         self.supported_platforms = VideoPlatforms.SUPPORTED_PLATFORMS
         self.download_path = os.path.abspath(download_path)
         self.extract_urls = extract_urls_func
+        self.config_manager = config_manager
         
         # Check if extract_urls_func is callable
         if self.extract_urls is None or not callable(self.extract_urls):
@@ -372,13 +373,21 @@ class VideoDownloader:
             error_logger.error(f"File fetch failed: {e}")
         return None, None
 
-    async def download_video(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+    async def download_video(self, url: str, chat_id: Optional[str] = None, chat_type: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
         async with self.lock:
             try:
                 url = url.strip().strip('\\')
                 if self._is_story_url(url):
                     error_logger.info(f"Story URL detected and skipped: {url}")
                     return None, None
+
+                # Get video config to determine download path
+                video_config = await self._get_video_config(chat_id, chat_type)
+                current_download_path = video_config.get("video_path", self.download_path)
+                current_download_path = os.path.abspath(current_download_path)
+
+                # Ensure the download directory exists
+                os.makedirs(current_download_path, exist_ok=True)
 
                 platform = self._get_platform(url)
                 is_youtube_shorts = "youtube.com/shorts" in url.lower()
@@ -419,7 +428,7 @@ class VideoDownloader:
 
                 # For other platforms, use direct download
                 config = self.platform_configs.get(platform)
-                return await self._download_generic(url, platform, config)
+                return await self._download_generic(url, platform, config, current_download_path)
 
             except Exception as e:
                 error_logger.error(f"Download error for {url}: {e}")
@@ -809,12 +818,16 @@ class VideoDownloader:
         try:
             if not update.message or not update.message.text:
                 return
-                
+
             message_text = update.message.text.strip()
             if not self.extract_urls:
+                error_logger.error("extract_urls function is not available")
                 return
+
+            error_logger.info(f"Video handler called with message: {message_text}")
             urls = self.extract_urls(message_text)
-            
+            error_logger.info(f"Extracted URLs: {urls}")
+
             if not urls:
                 await self.send_error_sticker(update)
                 return
@@ -826,11 +839,23 @@ class VideoDownloader:
                     await update.message.reply_text("❌ Stories are not supported for download.")
                 return
 
+            # Get chat info for config BEFORE sending processing message
+            chat_id = str(update.effective_chat.id) if update.effective_chat else None
+            chat_type = "private" if update.effective_chat and update.effective_chat.type == "private" else "group"
+
+            error_logger.info(f"DEBUG: chat_id={chat_id}, chat_type={chat_type}")
+
+            # Send before video if configured BEFORE processing message
+            error_logger.info("DEBUG: About to call _send_before_video_if_configured")
+            await self._send_before_video_if_configured(update, context, chat_id, chat_type)
+            error_logger.info("DEBUG: Finished calling _send_before_video_if_configured")
+
+            # Now send processing message
             if update.message:
                 processing_msg = await update.message.reply_text("⏳ Processing your request...")
-            
+
             for url in urls:
-                filename, title = await self.download_video(url)
+                filename, title = await self.download_video(url, chat_id, chat_type)
                 if filename and os.path.exists(filename):
                     await self._send_video(update, context, filename, title, source_url=url)
                 else:
@@ -841,11 +866,50 @@ class VideoDownloader:
         finally:
             await self._cleanup(processing_msg, filename, update)
 
+    async def _send_before_video(self, chat_id: str, chat_type: str, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Send before video for the given chat."""
+        try:
+            video_config = await self._get_video_config(chat_id, chat_type)
+            before_video_path = video_config.get("before_video_path")
+
+            if before_video_path and os.path.exists(before_video_path):
+                general_logger.info(f"Sending before video for chat {chat_id}: {before_video_path}")
+                with open(before_video_path, 'rb') as before_video_file:
+                    await context.bot.send_video(
+                        chat_id=chat_id,
+                        video=before_video_file
+                    )
+                general_logger.info("Before video sent successfully")
+        except Exception as e:
+            general_logger.error(f"Failed to send before video for chat {chat_id}: {e}")
+
+    async def _send_before_video_if_configured(self, update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: Optional[str], chat_type: Optional[str]) -> None:
+        """Send before video if configured for this chat."""
+        if not chat_id or not chat_type:
+            return
+
+        await self._send_before_video(chat_id, chat_type, context)
+
     async def _send_video(self, update: Update, context: ContextTypes.DEFAULT_TYPE, filename: str, title: Optional[str], source_url: Optional[str] = None) -> None:
         try:
+            # Get video config for this chat
+            chat_id = str(update.effective_chat.id) if update.effective_chat else None
+            chat_type = "private" if update.effective_chat and update.effective_chat.type == "private" else "group"
+
+            video_config = await self._get_video_config(chat_id, chat_type)
+
+            # Check if video file sending is enabled
+            if not video_config.get("send_video_file", False):
+                error_logger.info(f"Video file sending is disabled for chat {chat_id}")
+                if update.message:
+                    await update.message.reply_text("✅ Video downloaded successfully (file sending disabled)")
+                return
+
+            # Note: Before video is sent in _send_before_video_if_configured method
+
             file_size = os.path.getsize(filename)
             max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
-            
+
             if file_size > max_size:
                 error_logger.warning(f"File too large: {file_size} bytes")
                 if update.message:
@@ -1044,16 +1108,17 @@ class VideoDownloader:
     async def _download_tiktok_ytdlp(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         """Download TikTok video using yt-dlp."""
         config = self.platform_configs[Platform.TIKTOK]
-        return await self._download_generic(url, Platform.TIKTOK, config)
+        return await self._download_generic(url, Platform.TIKTOK, config, self.download_path)
 
-    async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None) -> Tuple[Optional[str], Optional[str]]:
+    async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None, download_path: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
         """Generic video download using yt-dlp with bot detection avoidance."""
         config = special_config or self.platform_configs.get(platform)
         if not config:
             return None, None
 
+        download_path = download_path or self.download_path
         unique_filename = f"video_{uuid.uuid4()}.mp4"
-        output_template = os.path.join(self.download_path, unique_filename)
+        output_template = os.path.join(download_path, unique_filename)
         
         # Base yt-dlp arguments with bot detection avoidance
         yt_dlp_args = [
@@ -1264,28 +1329,67 @@ class VideoDownloader:
                 return True
         return False
 
-def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[..., Any]] = None) -> None:
+    async def _get_video_config(self, chat_id: Optional[str] = None, chat_type: Optional[str] = None) -> Dict[str, Any]:
+        """Get video configuration for the current chat."""
+        if not self.config_manager:
+            # Return default config if no config manager is available
+            return {
+                "send_video_file": False,
+                "video_path": self.download_path
+            }
+
+        try:
+            if chat_id and chat_type:
+                # Get video_send module config directly
+                module_config = await self.config_manager.get_config(chat_id, chat_type, module_name="video_send")
+                if isinstance(module_config, dict) and "overrides" in module_config:
+                    return module_config["overrides"]
+                else:
+                    return {
+                        "send_video_file": False,
+                        "video_path": self.download_path
+                    }
+            else:
+                # Get global module config
+                module_config = await self.config_manager.get_config(module_name="video_send")
+                return module_config.get("overrides", {
+                    "send_video_file": False,
+                    "video_path": self.download_path
+                })
+        except Exception as e:
+            general_logger.error(f"Failed to get video config: {e}")
+            return {
+                "send_video_file": False,
+                "video_path": self.download_path
+            }
+
+def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[..., Any]] = None, config_manager: Optional[Any] = None) -> None:
     """Set up video handlers with improved configuration."""
     general_logger.info("Initializing video downloader...")
     video_downloader = VideoDownloader(
         download_path='downloads',
-        extract_urls_func=extract_urls_func
+        extract_urls_func=extract_urls_func,
+        config_manager=config_manager
     )
-    
+
     application.bot_data['video_downloader'] = video_downloader
 
     # Use the supported platforms from const.py
     video_pattern = '|'.join(VideoPlatforms.SUPPORTED_PLATFORMS)
     general_logger.info(f"Setting up video handler with pattern: {video_pattern}")
-    
+
     # Add the video handler with high priority
+    def debug_video_handler(update, context):
+        general_logger.info(f"🎬 VIDEO HANDLER TRIGGERED for message: {update.message.text}")
+        return video_downloader.handle_video_link(update, context)
+
     application.add_handler(
         MessageHandler(
             filters.TEXT & filters.Regex(video_pattern),
-            video_downloader.handle_video_link,
+            debug_video_handler,
             block=True  # Block other handlers to ensure video processing takes priority
         ),
         group=1  # Higher priority group
     )
-    
+
     general_logger.info("Video handler setup complete")
