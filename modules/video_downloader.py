@@ -9,7 +9,7 @@ import uuid
 import shutil
 import subprocess
 from urllib.parse import urljoin, urlparse
-from typing import Optional, Tuple, List, Dict, Any, Callable, TypedDict
+from typing import Optional, Tuple, List, Dict, Any, Callable, TypedDict, cast
 from asyncio import Lock
 from dataclasses import dataclass
 from enum import Enum
@@ -1337,7 +1337,7 @@ class VideoDownloader:
                 # Get video_send module config directly
                 module_config = await self.config_manager.get_config(chat_id, chat_type, module_name="video_send")
                 if isinstance(module_config, dict) and "overrides" in module_config:
-                    return module_config["overrides"]
+                    return cast(Dict[str, Any], module_config["overrides"])
                 else:
                     return {
                         "video_path": self.download_path,
@@ -1346,44 +1346,15 @@ class VideoDownloader:
             else:
                 # Get global module config
                 module_config = await self.config_manager.get_config(module_name="video_send")
-                return module_config.get("overrides", {
+                return cast(Dict[str, Any], module_config.get("overrides", {
                     "video_path": self.download_path,
                     "before_video_path": ""
-                })
+                }))
         except Exception as e:
             general_logger.error(f"Failed to get video config: {e}")
             return {
                 "video_path": self.download_path,
                 "before_video_path": ""
-            }
-
-        try:
-            if chat_id and chat_type:
-                # Get video_send module config directly
-                module_config = await self.config_manager.get_config(chat_id, chat_type, module_name="video_send")
-                general_logger.info(f"DEBUG: Retrieved module config for chat {chat_id}: {module_config}")
-                if isinstance(module_config, dict) and "overrides" in module_config:
-                    result = module_config["overrides"]
-                    general_logger.info(f"DEBUG: Returning chat overrides: {result}")
-                    return result
-                else:
-                    general_logger.info("DEBUG: No overrides found, using defaults")
-                    return {
-                        "video_path": self.download_path,
-                        "before_video_path": ""
-                    }
-            else:
-                # Get global module config
-                module_config = await self.config_manager.get_config(module_name="video_send")
-                return module_config.get("overrides", {
-                    "video_path": self.download_path,
-                    "before_video_path": ""
-                })
-        except Exception as e:
-            general_logger.error(f"Failed to get video config: {e}")
-            return {
-                "send_video_file": False,
-                "video_path": self.download_path
             }
 
 def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[..., Any]] = None, config_manager: Optional[Any] = None) -> None:
@@ -1402,8 +1373,9 @@ def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[
     general_logger.info(f"Setting up video handler with pattern: {video_pattern}")
 
     # Add the video handler with high priority
-    def debug_video_handler(update, context):
-        general_logger.info(f"🎬 VIDEO HANDLER TRIGGERED for message: {update.message.text}")
+    def debug_video_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Any:
+        message_text = update.message.text if update.message else "No message"
+        general_logger.info(f"🎬 VIDEO HANDLER TRIGGERED for message: {message_text}")
         return video_downloader.handle_video_link(update, context)
 
     application.add_handler(
