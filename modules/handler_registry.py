@@ -239,10 +239,7 @@ class HandlerRegistry(ServiceInterface):
         if self.service_registry:
             try:
                 config_manager = self.service_registry.get_service('config_manager')
-                logger.info(f"DEBUG: Retrieved config_manager for video handlers: {config_manager}")
             except Exception as e:
                 logger.warning(f"Config manager not available for video handlers: {e}")
-        else:
-            logger.warning("DEBUG: Service registry is None")
 
         setup_video_handlers(application, extract_urls_func=extract_urls, config_manager=config_manager)

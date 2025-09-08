@@ -7,7 +7,6 @@
     "video_send": {
       "enabled": true,
       "overrides": {
-        "send_video_file": true,
         "video_path": "downloads",
         "before_video_path": ""
       }

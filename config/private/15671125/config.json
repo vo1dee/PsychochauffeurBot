@@ -1,0 +1,133 @@
+{
+    "chat_metadata": {
+        "chat_id": "global",
+        "chat_type": "global",
+        "chat_name": "Global Configuration",
+        "created_at": "2025-05-11 21:43:51.327421",
+        "last_updated": "2025-05-11 22:08:09.235029",
+        "custom_config_enabled": true 
+    },
+    "config_modules": {
+        "gpt": {
+            "enabled": true,
+            "context_messages_count": 3,
+            "overrides": {
+                "command": {
+                    "max_tokens": 1500,
+                    "temperature": 0.6,
+                    "presence_penalty": 0.0,
+                    "frequency_penalty": 0.0,
+                    "model": "gpt-4.1-mini",
+                    "system_prompt": "Reply with a single word  \"custom command test\"."
+                },
+                "mention": {
+                    "max_tokens": 1200,
+                    "temperature": 0.5,
+                    "presence_penalty": 0.0,
+                    "frequency_penalty": 0.0,
+                    "model": "gpt-4.1-mini",
+                    "system_prompt": "You are a helpful assistant who responds to mentions in group chats. Keep your responses concise and relevant to the conversation."
+                },
+                "random": {
+                    "max_tokens": 800,
+                    "temperature": 0.7,
+                    "presence_penalty": 0.1,
+                    "frequency_penalty": 0.1,
+                    "model": "gpt-4.1-mini",
+                    "system_prompt": "You are a friendly assistant who occasionally joins conversations in group chats. Keep your responses casual and engaging."
+                },
+                "weather": {
+                    "max_tokens": 400,
+                    "temperature": 0.2,
+                    "presence_penalty": 0.0,
+                    "frequency_penalty": 0.0,
+                    "model": "gpt-4.1-mini",
+                    "system_prompt": "You are a weather information assistant. Provide concise weather updates and forecasts."
+                },
+                "analyze": {
+                    "max_tokens": 1200,
+                    "temperature": 0.4,
+                    "presence_penalty": 0.1,
+                    "frequency_penalty": 0.1,
+                    "model": "gpt-4.1-mini",
+                    "system_prompt": "You are an analytical assistant. Analyze the given information and provide insights."
+                },
+                "image_analysis": {
+                    "max_tokens": 250,
+                    "temperature": 0.2,
+                    "presence_penalty": 0.0,
+                    "frequency_penalty": 0.0,
+                    "model": "gpt-4.1-mini",
+                    "system_prompt": "Analyze the image and provide a brief description of its contents."
+                },
+                "summary": {
+                    "max_tokens": 800,
+                    "temperature": 0.3,
+                    "presence_penalty": 0.1,
+                    "frequency_penalty": 0.1,
+                    "model": "gpt-4.1-mini",
+                    "system_prompt": "Provide a concise summary of the given text."
+                }
+            }
+        },
+        "chat_behavior": {
+            "enabled": true,
+            "overrides": {
+                "restrictions_enabled": false,
+                "max_message_length": 2048,
+                "rate_limit": {
+                    "messages_per_minute": 20,
+                    "burst_limit": 5
+                },
+                "allowed_commands": [
+                    "help",
+                    "weather",
+                    "cat",
+                    "gpt",
+                    "analyze",
+                    "flares",
+                    "gm",
+                    "remind"
+                ],
+                "ban_words": [],
+                "ban_symbols": [],
+                "random_response_settings": {
+                    "enabled": true,
+                    "min_words": 5,
+                    "message_threshold": 50,
+                    "probability": 0.02
+                }
+            }
+        },
+        "safety": {
+            "enabled": true,
+            "overrides": {
+                "content_filter_level": "medium",
+                "profanity_filter_enabled": false,
+                "sensitive_content_warning_enabled": false,
+                "restricted_domains": [],
+                "allowed_file_types": [
+                    "image/jpeg",
+                    "image/png",
+                    "image/gif",
+                    "video/mp4",
+                    "video/quicktime"
+                ]
+            }
+        },
+        "speechmatics": {
+            "enabled": true,
+            "overrides": {
+                "allow_all_users": false,
+                "enabled": false
+            }
+        },
+        "video_send": {
+            "enabled": true,
+            "overrides": {
+                "video_path": "downloads",
+                "before_video_path": "/home/vo1dee/PsychochauffeurBot/Creatre_a_animated_202509082005_xvfol.mp4"
+            }
+        }
+    }
+}
