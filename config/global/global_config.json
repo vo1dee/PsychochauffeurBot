@@ -1,14 +1,23 @@
 {
-  "modules": {
+  "config_modules": {
     "gpt": {
-      "enabled": true
+      "enabled": true,
+      "overrides": {}
+    },
+    "video_send": {
+      "enabled": true,
+      "overrides": {
+        "send_video_file": true,
+        "video_path": "downloads",
+        "before_video_path": ""
+      }
     }
   },
   "_metadata": {
-    "version": "1.0.0",
-    "updated_at": "2025-09-05T12:37:32.664778",
-    "checksum": "99a7493149a1299696cf05843bc7a0a7",
-    "source": "api_update",
+    "version": "1.1.0",
+    "updated_at": "2025-09-08T20:45:00.000000",
+    "checksum": "updated_with_before_video_support",
+    "source": "manual_update",
     "created_at": "2025-09-05T12:37:32.664778"
   }
 }
