@@ -31,10 +31,10 @@ class VideoHandlerService(ServiceInterface):
         self._initialized = False
         logger.info("Video Handler Service shutdown")
     
-    async def setup_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
+    async def setup_handlers(self, application: Application[Any, Any, Any, Any, Any, Any], config_manager: Any = None) -> None:
         """Setup video handlers with the Telegram application."""
         if not self._initialized:
             await self.initialize()
-        
-        setup_video_handlers(application, extract_urls_func=extract_urls)
+
+        setup_video_handlers(application, extract_urls_func=extract_urls, config_manager=config_manager)
         logger.info("Video handlers setup completed")

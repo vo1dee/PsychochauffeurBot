@@ -339,12 +339,20 @@ class ConfigManager:
                             "include_forecast": True
                         }
                     },
-                    "speechmatics": {
-                        "enabled": True,
-                        "overrides": {
-                            "allow_all_users": False
-                        }
-                    }
+                     "speechmatics": {
+                         "enabled": True,
+                         "overrides": {
+                             "allow_all_users": False
+                         }
+                     },
+                     "video_send": {
+                         "enabled": True,
+                         "overrides": {
+                             "send_video_file": False,
+                             "video_path": "downloads",
+                             "before_video_path": None
+                         }
+                     }
                 }
             }
 
@@ -441,7 +449,9 @@ class ConfigManager:
             return self._module_cache[module_name]
 
         global_config = await self._load_global_config()
-        module_config = global_config.get("config_modules", {}).get(module_name, {})
+        # Handle both old format (modules) and new format (config_modules)
+        modules = global_config.get("config_modules") or global_config.get("modules", {})
+        module_config = modules.get(module_name, {})
         self._module_cache[module_name] = module_config
         result: Dict[str, Any] = module_config
         return result
@@ -519,8 +529,8 @@ class ConfigManager:
 
     def _add_missing_recursive(self, target: Dict[str, Any], template_source: Dict[str, Any]) -> bool:
         """
-        Recursively adds missing keys from template_source to target dictionary.
-        Existing keys in target are preserved.
+        Recursively adds missing keys from template_source to target dictionary
+        and updates existing values that differ from the template.
         Returns True if any changes were made to the target dictionary.
         """
         modified = False
@@ -532,7 +542,12 @@ class ConfigManager:
             elif isinstance(target[key], dict) and isinstance(value, dict):
                 if self._add_missing_recursive(target[key], value):
                     modified = True
-            # If key exists and is not a dict, or if value is not a dict, do nothing (preserve existing)
+            elif target[key] != value:
+                # Update existing value if it differs from template
+                target[key] = value
+                modified = True
+                logger.info(f"Updated existing key '{key}' from '{target[key]}' to '{value}'")
+            # If key exists and matches template value, do nothing
         return modified
 
     async def create_new_chat_config(
@@ -689,15 +704,23 @@ class ConfigManager:
                         "show_alerts": True
                     }
                 },
-                "flares": {
-                    "enabled": chat_type == "private",  # Enable by default for private chats
-                    "overrides": {
-                        "check_interval_minutes": 15,
-                        "notification_threshold": "M5",
-                        "auto_notify": False,
-                        "include_forecast": True
-                    }
-                }
+                 "flares": {
+                     "enabled": chat_type == "private",  # Enable by default for private chats
+                     "overrides": {
+                         "check_interval_minutes": 15,
+                         "notification_threshold": "M5",
+                         "auto_notify": False,
+                         "include_forecast": True
+                     }
+                 },
+                 "video_send": {
+                     "enabled": True,
+                     "overrides": {
+                         "send_video_file": False,
+                         "video_path": "downloads",
+                         "before_video_path": None
+                     }
+                 }
             }
         }
 
@@ -1036,8 +1059,17 @@ class ConfigManager:
         try:
             # Get the current global template
             template = await self._load_global_config()
-            if not template or "config_modules" not in template:
+            if not template:
                 logger.error("Invalid global template format")
+                return results
+
+            # Handle both old format (modules) and new format (config_modules)
+            if "config_modules" in template:
+                template_modules = template["config_modules"]
+            elif "modules" in template:
+                template_modules = template["modules"]
+            else:
+                logger.error("No modules found in global template")
                 return results
 
             # Process private chats
@@ -1062,7 +1094,7 @@ class ConfigManager:
                                     logger.info(f"[UpdateConfig][private {chat_id}] Initial chat_config: {json.dumps(chat_config, indent=2)}")
 
                                     # Iterate through template modules
-                                    for module_name, template_module_data in template["config_modules"].items():
+                                    for module_name, template_module_data in template_modules.items():
                                         logger.info(f"[UpdateConfig][private {chat_id}] Processing module: {module_name}")
                                         logger.info(f"[UpdateConfig][private {chat_id}] Template data for {module_name}: {json.dumps(template_module_data, indent=2)}")
 
@@ -1140,7 +1172,7 @@ class ConfigManager:
                                     logger.info(f"[UpdateConfig][group {chat_id}] Initial chat_config: {json.dumps(chat_config, indent=2)}")
 
                                     # Iterate through template modules
-                                    for module_name, template_module_data in template["config_modules"].items():
+                                    for module_name, template_module_data in template_modules.items():
                                         logger.info(f"[UpdateConfig][group {chat_id}] Processing module: {module_name}")
                                         logger.info(f"[UpdateConfig][group {chat_id}] Template data for {module_name}: {json.dumps(template_module_data, indent=2)}")
 
