@@ -1331,7 +1331,9 @@ class VideoDownloader:
 
     async def _get_video_config(self, chat_id: Optional[str] = None, chat_type: Optional[str] = None) -> Dict[str, Any]:
         """Get video configuration for the current chat."""
+        general_logger.info(f"DEBUG: _get_video_config called with config_manager: {self.config_manager}")
         if not self.config_manager:
+            general_logger.info("DEBUG: No config manager available, returning defaults")
             # Return default config if no config manager is available
             return {
                 "send_video_file": False,
@@ -1342,9 +1344,13 @@ class VideoDownloader:
             if chat_id and chat_type:
                 # Get video_send module config directly
                 module_config = await self.config_manager.get_config(chat_id, chat_type, module_name="video_send")
+                general_logger.info(f"DEBUG: Retrieved module config for chat {chat_id}: {module_config}")
                 if isinstance(module_config, dict) and "overrides" in module_config:
-                    return module_config["overrides"]
+                    result = module_config["overrides"]
+                    general_logger.info(f"DEBUG: Returning chat overrides: {result}")
+                    return result
                 else:
+                    general_logger.info("DEBUG: No overrides found, returning defaults")
                     return {
                         "send_video_file": False,
                         "video_path": self.download_path

@@ -233,4 +233,16 @@ class HandlerRegistry(ServiceInterface):
         """Register video download handlers."""
         from modules.video_downloader import setup_video_handlers
         from modules.url_processor import extract_urls
-        setup_video_handlers(application, extract_urls_func=extract_urls)
+
+        # Get config manager from service registry
+        config_manager = None
+        if self.service_registry:
+            try:
+                config_manager = self.service_registry.get_service('config_manager')
+                logger.info(f"DEBUG: Retrieved config_manager for video handlers: {config_manager}")
+            except Exception as e:
+                logger.warning(f"Config manager not available for video handlers: {e}")
+        else:
+            logger.warning("DEBUG: Service registry is None")
+
+        setup_video_handlers(application, extract_urls_func=extract_urls, config_manager=config_manager)
