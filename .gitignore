@@ -112,6 +112,8 @@ data/*
 prompts.py
 
 # Chat specific configurations
+config/private/
+config/group/
 config/private_chats/
 config/group_chats/
 config/chat_config/
