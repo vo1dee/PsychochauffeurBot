@@ -507,10 +507,60 @@ class VideoDownloader:
         """Download Instagram video using multiple fallback strategies."""
         error_logger.info(f"📸 Starting Instagram download with multiple strategies for: {url}")
 
+        # Check for cookies file
+        cookies_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cookies.txt")
+        has_cookies = os.path.exists(cookies_path)
+        if has_cookies:
+            error_logger.info(f"🍪 Using Instagram cookies from {cookies_path}")
+        else:
+            error_logger.warning("⚠️ No cookies.txt found for Instagram. Some videos may require login.")
+
         # Define Instagram-specific strategies
         strategies = [
             {
-                'name': 'Instagram Mobile API',
+                'name': 'Instagram Mobile API with Cookies',
+                'user_agent': InstagramConfig.USER_AGENTS[2],
+                'format': 'bestvideo+bestaudio/best',
+                'args': [
+                    '--user-agent', InstagramConfig.USER_AGENTS[2],
+                    '--add-header', f'X-IG-App-ID:936619743392459',
+                    '--add-header', 'X-IG-WWW-Claim:0',
+                    '--add-header', 'X-Requested-With:XMLHttpRequest',
+                    '--extractor-args', 'instagram:api_hostname=i.instagram.com;api_version=v1'
+                ] + (['--cookies', cookies_path] if has_cookies else [])
+            },
+            {
+                'name': 'Instagram Web (embed) with Cookies',
+                'user_agent': InstagramConfig.USER_AGENTS[0],
+                'format': 'bestvideo+bestaudio/best',
+                'args': [
+                    '--user-agent', InstagramConfig.USER_AGENTS[0],
+                    '--add-header', 'X-Requested-With:XMLHttpRequest',
+                    '--extractor-args', 'instagram:api_hostname=www.instagram.com;api_version=v1'
+                ] + (['--cookies', cookies_path] if has_cookies else [])
+            },
+            {
+                'name': 'Instagram Desktop with Cookies',
+                'user_agent': InstagramConfig.USER_AGENTS[1],
+                'format': 'bestvideo+bestaudio/best',
+                'args': [
+                    '--user-agent', InstagramConfig.USER_AGENTS[1],
+                    '--add-header', 'Referer:https://www.instagram.com/',
+                    '--extractor-args', 'instagram:api_hostname=www.instagram.com;api_version=v1'
+                ] + (['--cookies', cookies_path] if has_cookies else [])
+            },
+            {
+                'name': 'Instagram Android with Cookies',
+                'user_agent': InstagramConfig.USER_AGENTS[3],
+                'format': 'bestvideo+bestaudio/best',
+                'args': [
+                    '--user-agent', InstagramConfig.USER_AGENTS[3],
+                    '--extractor-args', 'instagram:api_hostname=i.instagram.com;api_version=v1'
+                ] + (['--cookies', cookies_path] if has_cookies else [])
+            },
+            # Fallback strategies without cookies
+            {
+                'name': 'Instagram Mobile API (no cookies)',
                 'user_agent': InstagramConfig.USER_AGENTS[2],
                 'format': 'bestvideo+bestaudio/best',
                 'args': [
@@ -522,32 +572,13 @@ class VideoDownloader:
                 ]
             },
             {
-                'name': 'Instagram Web (embed)',
+                'name': 'Instagram Web (embed, no cookies)',
                 'user_agent': InstagramConfig.USER_AGENTS[0],
                 'format': 'bestvideo+bestaudio/best',
                 'args': [
                     '--user-agent', InstagramConfig.USER_AGENTS[0],
                     '--add-header', 'X-Requested-With:XMLHttpRequest',
                     '--extractor-args', 'instagram:api_hostname=www.instagram.com;api_version=v1'
-                ]
-            },
-            {
-                'name': 'Instagram Desktop',
-                'user_agent': InstagramConfig.USER_AGENTS[1],
-                'format': 'bestvideo+bestaudio/best',
-                'args': [
-                    '--user-agent', InstagramConfig.USER_AGENTS[1],
-                    '--add-header', 'Referer:https://www.instagram.com/',
-                    '--extractor-args', 'instagram:api_hostname=www.instagram.com;api_version=v1'
-                ]
-            },
-            {
-                'name': 'Instagram Android',
-                'user_agent': InstagramConfig.USER_AGENTS[3],
-                'format': 'bestvideo+bestaudio/best',
-                'args': [
-                    '--user-agent', InstagramConfig.USER_AGENTS[3],
-                    '--extractor-args', 'instagram:api_hostname=i.instagram.com;api_version=v1'
                 ]
             }
         ]

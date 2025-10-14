@@ -1,0 +1,23 @@
+# Instagram Cookies for yt-dlp
+# This file should contain your Instagram session cookies
+# To obtain these cookies:
+#
+# 1. Install a browser cookie exporter extension (e.g., "Get cookies.txt" for Chrome/Firefox)
+# 2. Log into Instagram in your browser
+# 3. Visit an Instagram post/reel that you want to download
+# 4. Use the extension to export cookies for instagram.com
+# 5. Save the exported cookies to this file (cookies.txt)
+# 6. Make sure the file is in the root directory of the bot
+#
+# The cookies should include:
+# - sessionid
+# - csrftoken
+# - ds_user_id
+# - ig_did
+#
+# Example format (Netscape cookie format):
+# .instagram.com	TRUE	/	FALSE	1735689600	sessionid	ABC123...your_session_id
+# .instagram.com	TRUE	/	FALSE	1735689600	csrftoken	DEF456...your_csrf_token
+#
+# If you don't have cookies, some Instagram videos may not download.
+# The bot will try without cookies as a fallback.

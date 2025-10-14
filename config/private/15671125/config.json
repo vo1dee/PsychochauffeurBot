@@ -5,7 +5,7 @@
         "chat_name": "Global Configuration",
         "created_at": "2025-05-11 21:43:51.327421",
         "last_updated": "2025-05-11 22:08:09.235029",
-        "custom_config_enabled": true 
+        "custom_config_enabled": true
     },
     "config_modules": {
         "gpt": {
@@ -126,7 +126,7 @@
             "enabled": true,
             "overrides": {
                 "video_path": "downloads",
-                "before_video_path": "/home/vo1dee/PsychochauffeurBot/Creatre_a_animated_202509082005_xvfol.mp4"
+                "before_video_path": ""
             }
         }
     }
