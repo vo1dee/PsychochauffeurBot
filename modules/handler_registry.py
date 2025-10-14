@@ -78,6 +78,9 @@ class HandlerRegistry(ServiceInterface):
         from modules.handlers.speech_commands import (
             speech_command
         )
+        from modules.handlers.random_commands import (
+            random_command
+        )
         from modules.handlers.message_handlers import (
             handle_message, handle_photo_analysis, handle_sticker,
             handle_location, handle_voice_or_video_note
@@ -126,6 +129,11 @@ class HandlerRegistry(ServiceInterface):
         # Register speech commands
         self.command_processor.register_text_command(
             "speech", speech_command, "Toggle speech recognition", admin_only=True
+        )
+
+        # Register random response commands
+        self.command_processor.register_text_command(
+            "random", random_command, "Toggle random responses", admin_only=True
         )
         
         # Register weather and geomagnetic commands using service registry

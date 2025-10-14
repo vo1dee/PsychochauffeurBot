@@ -368,7 +368,14 @@ class ReminderManager:
             what = args[1].lower()
             if what == 'all':
                 chat_rems = [r for r in self.reminders if r.chat_id == chat_id]
-                for r in chat_rems: self.delete_reminder(r)
+                for r in chat_rems:
+                    self.delete_reminder(r)
+                    # Remove any scheduled jobs for this reminder
+                    if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
+                        job_queue = cast('JobQueue[Any]', context.job_queue)
+                        delete_jobs = job_queue.get_jobs_by_name(f"reminder_{getattr(r, 'reminder_id', '?')}")
+                        for job in delete_jobs:
+                            job.schedule_removal()
                 if getattr(update, 'message', None) is not None and update.message is not None:
                     await update.message.reply_text("Deleted all reminders.")
             else:
@@ -377,6 +384,12 @@ class ReminderManager:
                     rem_candidate: Optional[Reminder] = next((r for r in self.reminders if r.reminder_id == rid and r.chat_id == chat_id), None)
                     if rem_candidate is not None:
                         self.delete_reminder(rem_candidate)
+                        # Remove any scheduled jobs for this reminder
+                        if getattr(context, 'job_queue', None) is not None and context.job_queue is not None:
+                            job_queue = cast('JobQueue[Any]', context.job_queue)
+                            delete_jobs = job_queue.get_jobs_by_name(f"reminder_{rid}")
+                            for job in delete_jobs:
+                                job.schedule_removal()
                         if getattr(update, 'message', None) is not None and update.message is not None:
                             await update.message.reply_text(f"Deleted reminder {rid}")
                     else:
