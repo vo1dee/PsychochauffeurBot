@@ -454,7 +454,6 @@ class TestServiceConfigurationIntegration:
         with patch('config.config_manager.ConfigManager') as mock_config_manager, \
              patch('modules.database.Database'), \
              patch('modules.bot_application.BotApplication'), \
-             patch('modules.reminders.reminders.ReminderManager') as mock_reminder, \
              patch('modules.safety.safety_manager') as mock_safety, \
              patch('modules.utils.MessageCounter') as mock_counter:
             

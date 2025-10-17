@@ -377,17 +377,6 @@ def sample_database_records() -> Dict[str, List[Dict[str, Any]]]:
                 "timestamp": datetime.now(timezone.utc) + timedelta(minutes=1)
             }
         ],
-        "reminders": [
-            {
-                "id": 1,
-                "user_id": 12345,
-                "chat_id": 12345,
-                "task": "Test reminder",
-                "next_execution": datetime.now(timezone.utc) + timedelta(hours=1),
-                "frequency": "once",
-                "created_at": datetime.now(timezone.utc)
-            }
-        ],
         "errors": [
             {
                 "id": 1,

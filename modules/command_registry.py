@@ -282,7 +282,6 @@ class CommandRegistry(ServiceInterface):
         from modules.handlers.admin_commands import mute_command, unmute_command
         from modules.weather import WeatherCommandHandler
         from modules.geomagnetic import GeomagneticCommandHandler
-        from modules.reminders.reminders import ReminderManager
         
         # Cat command
         self.register_command(CommandInfo(
@@ -346,16 +345,6 @@ class CommandRegistry(ServiceInterface):
             examples=["/gm"]
         ))
         
-        # Reminder command (class-based handler)
-        reminder_manager = ReminderManager()
-        self.register_command(CommandInfo(
-            name="remind",
-            description="Set a reminder",
-            category=CommandCategory.UTILITY,
-            handler_func=reminder_manager.remind,
-            usage="/remind <time> <message>",
-            examples=["/remind 10m Take a break", "/remind tomorrow 9am Meeting"]
-        ))
         
         # Error report command
         self.register_command(CommandInfo(

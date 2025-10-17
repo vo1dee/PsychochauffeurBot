@@ -280,7 +280,6 @@ class ConfigManager:
                                 "analyze",
                                 "flares",
                                 "gm",
-                                "remind"
                             ],
                             "ban_words": [],
                             "ban_symbols": [],
@@ -308,16 +307,6 @@ class ConfigManager:
                                 "video/mp4",
                                 "video/quicktime"
                             ]
-                        }
-                    },
-                    "reminders": {
-                        "enabled": True,
-                        "overrides": {
-                            "max_reminders_per_user": 5,
-                            "max_reminder_duration_days": 30,
-                            "reminder_notification_interval_minutes": 60,
-                            "allow_recurring_reminders": True,
-                            "max_recurring_reminders": 3
                         }
                     },
                     "weather": {
@@ -654,7 +643,6 @@ class ConfigManager:
                             "analyze",
                             "flares",
                             "gm",
-                            "remind"
                         ],
                         "ban_words": [],
                         "ban_symbols": [],
@@ -682,16 +670,6 @@ class ConfigManager:
                             "video/mp4",
                             "video/quicktime"
                         ]
-                    }
-                },
-                "reminders": {
-                    "enabled": chat_type == "private",  # Enable by default for private chats
-                    "overrides": {
-                        "max_reminders_per_user": 5,
-                        "max_reminder_duration_days": 30,
-                        "reminder_notification_interval_minutes": 60,
-                        "allow_recurring_reminders": True,
-                        "max_recurring_reminders": 3
                     }
                 },
                 "weather": {
