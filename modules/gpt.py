@@ -22,6 +22,7 @@ from openai import AsyncOpenAI
 # Local module imports
 from .database import Database
 from .chat_streamer import chat_streamer
+from .shared_constants import GPTConstants
 from modules.const import (
     Config
 )
@@ -43,19 +44,18 @@ from modules.chat_analysis import (
 # Initialize ConfigManager
 config_manager = ConfigManager()
 
-# Constants
-MAX_IMAGE_SIZE = (1024, 1024)
-IMAGE_COMPRESSION_QUALITY = 80
-GPT_MODEL_TEXT = "openai/gpt-4o-mini"
-GPT_MODEL_VISION = "openai/gpt-4o-mini"
-GPT_MODEL_IMAGE = "openai/gpt-4o-mini"
-KYIV_TZ = pytz.timezone('Europe/Kiev')
-DEFAULT_MAX_TOKENS = 666
-SUMMARY_MAX_TOKENS = 1024
-MAX_RETRIES = 3
-CONTEXT_MESSAGES_COUNT = 3  # Number of previous messages to include as context
-MAX_TELEGRAM_MESSAGE_LENGTH = 4096
-MAX_SYSTEM_PROMPT_LENGTH = 1000
+# Constants - now imported from shared_constants
+MAX_IMAGE_SIZE = GPTConstants.MAX_IMAGE_SIZE
+IMAGE_COMPRESSION_QUALITY = GPTConstants.IMAGE_COMPRESSION_QUALITY
+GPT_MODEL_TEXT = GPTConstants.GPT_MODEL_TEXT
+GPT_MODEL_VISION = GPTConstants.GPT_MODEL_VISION
+GPT_MODEL_IMAGE = GPTConstants.GPT_MODEL_IMAGE
+KYIV_TZ = pytz.timezone(GPTConstants.KYIV_TZ)
+DEFAULT_MAX_TOKENS = GPTConstants.DEFAULT_MAX_TOKENS
+SUMMARY_MAX_TOKENS = GPTConstants.SUMMARY_MAX_TOKENS
+CONTEXT_MESSAGES_COUNT = GPTConstants.CONTEXT_MESSAGES_COUNT
+MAX_TELEGRAM_MESSAGE_LENGTH = GPTConstants.MAX_TELEGRAM_MESSAGE_LENGTH
+MAX_SYSTEM_PROMPT_LENGTH = GPTConstants.MAX_SYSTEM_PROMPT_LENGTH
 
 # Default prompts for fallback
 DEFAULT_PROMPTS = {

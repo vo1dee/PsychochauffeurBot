@@ -409,19 +409,30 @@ class Environment:
         PRODUCTION: "ERROR"
     }
 
-# Module names for configuration
-class ModuleNames:
-    """Module name constants for configuration."""
-    
-    AI_PROCESSING = "ai_processing"
-    VIDEO_DOWNLOADER = "video_downloader"
-    WEATHER = "weather"
-    SPEECH_RECOGNITION = "speechmatics"
-    CHAT_BEHAVIOR = "chat_behavior"
-    USER_MANAGEMENT = "user_management"
-    LOGGING = "logging"
-    PERFORMANCE = "performance"
-    UI_MESSAGES = "ui_messages"
+# GPT-specific constants
+class GPTConstants:
+    """GPT module specific constants."""
+
+    # Model constants
+    GPT_MODEL_TEXT = "openai/gpt-4o-mini"
+    GPT_MODEL_VISION = "openai/gpt-4o-mini"
+    GPT_MODEL_IMAGE = "openai/gpt-4o-mini"
+
+    # Token limits
+    DEFAULT_MAX_TOKENS = 666  # Specific to GPT responses
+    SUMMARY_MAX_TOKENS = 1024
+    MAX_SYSTEM_PROMPT_LENGTH = 1000
+
+    # Context and message handling
+    CONTEXT_MESSAGES_COUNT = 3
+    MAX_TELEGRAM_MESSAGE_LENGTH = 4096
+
+    # Image processing
+    MAX_IMAGE_SIZE = (1024, 1024)
+    IMAGE_COMPRESSION_QUALITY = 80
+
+    # Timezone for Kyiv
+    KYIV_TZ = "Europe/Kiev"
 
 # Export commonly used constants
 __all__ = [
@@ -429,5 +440,5 @@ __all__ = [
     'ConfigKeys', 'DEFAULT_CONFIG', 'Commands', 'StickerIds', 'URLPatterns',
     'WeatherConstants', 'AIModels', 'FileTypes', 'SecurityConstants',
     'PerformanceConstants', 'RegexPatterns', 'ErrorMessages', 'SuccessMessages',
-    'FeatureFlags', 'Environment', 'ModuleNames'
+    'FeatureFlags', 'Environment', 'ModuleNames', 'GPTConstants'
 ]
