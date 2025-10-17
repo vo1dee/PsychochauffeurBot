@@ -1047,21 +1047,10 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     if update.message:
                         await update.message.reply_text(error_message)
                     return
-                    
-                    "• YYYY-MM-DD (2024-01-15)\n"
-                    "• DD-MM-YYYY (15-01-2024)\n"
-                    "• DD/MM/YYYY (15/01/2024)\n\n"
-                    "💡 **Приклади:**\n"
-                    "• /analyze last 50 messages\n"
-                    "• /analyze date 15-01-2024\n"
-                    "• /analyze period 01-01-2024 31-01-2024"
-                )
                 general_logger.warning(f"Unknown command type from user {username}: {command_type}")
                 if update.message:
                     await update.message.reply_text(error_message)
                 return
-                
-        # Check if messages were found
         if not messages:
             no_messages_text = f"📊 Немає повідомлень для аналізу за {date_str}."
             general_logger.info(f"No messages found for analysis in chat {chat_id} for period: {date_str}")
@@ -1227,9 +1216,10 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         update: Telegram update object
         context: Telegram callback context
     """
-    chat_id = update.effective_chat.id if update.effective_chat else "unknown"
+    chat_id = str(update.effective_chat.id) if update.effective_chat else "unknown"
     user_id = update.effective_user.id if update.effective_user else "unknown"
     username = update.effective_user.username if update.effective_user and update.effective_user.username else f"ID:{user_id}"
+    chat_type = update.effective_chat.type if update.effective_chat else "unknown"
     
     try:
         # Debug logging
@@ -1262,9 +1252,10 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"Повідомлень за останній тиждень: {stats['messages_last_week']}",
         ]
         
-        if stats['most_active_hour'] is not None:
-            message_parts.append(f"Найактивніша година: {stats['most_active_hour']}:00")
-            
+        # Get allowed commands from chat_behavior config
+        chat_behavior_config = await config_manager.get_config(chat_id, chat_type, module_name="chat_behavior")
+        allowed_commands = chat_behavior_config.get("overrides", {}).get("allowed_commands", [])
+        
         # List of allowed commands (must match those registered in main.py)
         if stats['command_stats']:
             message_parts.extend([
