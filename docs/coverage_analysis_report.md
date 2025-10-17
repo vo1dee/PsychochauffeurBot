@@ -18,7 +18,6 @@ The test coverage improvement initiative has successfully exceeded the target of
 - `modules/event_system.py`: 98% (185 statements, 4 missing)
 - `modules/factories.py`: 97% (139 statements, 4 missing)
 - `modules/memory_optimizer.py`: 97% (234 statements, 7 missing)
-- `modules/reminder_parser.py`: 92% (160 statements, 13 missing)
 - `modules/repositories.py`: 78% → **Improved significantly**
 - `modules/security_validator.py`: 97% (386 statements, 10 missing)
 - `modules/service_registry.py`: 91% (170 statements, 16 missing)
@@ -40,7 +39,6 @@ The test coverage improvement initiative has successfully exceeded the target of
 - `modules/logger.py`: 52% (400 statements, 194 missing)
 - `modules/message_processor.py`: 54% (46 statements, 21 missing)
 - `modules/performance_monitor.py`: 64% (444 statements, 158 missing)
-- `modules/reminder_models.py`: 69% (186 statements, 57 missing)
 - `modules/url_processor.py`: 57% (93 statements, 40 missing)
 - `modules/utils.py`: 51% (257 statements, 125 missing)
 - `modules/video_downloader.py`: 61% (494 statements, 194 missing)
@@ -56,7 +54,6 @@ The test coverage improvement initiative has successfully exceeded the target of
 - `modules/keyboard_translator.py`: 45% (20 statements, 11 missing)
 - `modules/keyboards.py`: 21% (178 statements, 141 missing)
 - `modules/message_handler.py`: 25% (60 statements, 45 missing)
-- `modules/reminders/reminders.py`: 31% (531 statements, 369 missing)
 - `modules/safety.py`: 21% (85 statements, 67 missing)
 - `modules/speechmatics.py`: 17% (96 statements, 80 missing)
 - `modules/structured_logging.py`: 0% (166 statements, 166 missing)

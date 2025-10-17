@@ -55,10 +55,6 @@ A versatile Telegram bot that downloads videos and images from social media plat
   - Keyboard layout translation
   - URL processing and shortening
   - Message history tracking
-- **Reminders**:
-  - `/remind` command
-  - Flexible time parsing
-  - Persistent storage
 - **Other Commands**:
   - `/cat` - Random cat pictures
   - `/errors` - Error analytics (admin)
@@ -285,7 +281,6 @@ pytest --cov=modules tests/
 - Platform-specific restrictions
 - URL shortener: 30 calls/minute
 - Image analysis: specific file types only
-- Requires persistent storage for reminders
 - External API dependencies
 
 ## 🤝 Contributing

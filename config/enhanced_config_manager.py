@@ -338,13 +338,6 @@ class EnhancedConfigManager(ServiceInterface):
                         "forecast_days": 3
                     }
                 },
-                "reminders": {
-                    "enabled": True,
-                    "settings": {
-                        "max_per_user": 5,
-                        "max_duration_days": 30
-                    }
-                }
             }
         }
         

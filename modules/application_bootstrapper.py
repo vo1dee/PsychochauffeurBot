@@ -277,16 +277,6 @@ class ApplicationBootstrapper:
         except ImportError as e:
             logger.warning(f"GeomagneticCommandHandler not available, skipping registration: {e}")
         
-        # Register reminder manager (no dependencies for now)
-        try:
-            service_registry.register_factory(
-                'reminder_manager',
-                type(None),  # Placeholder type
-                ServiceFactory.create_reminder_manager,
-                scope=ServiceScope.SINGLETON
-            )
-        except ImportError:
-            logger.warning("ReminderManager not available, skipping registration")
         
         # Register service error boundary for centralized error handling
         try:

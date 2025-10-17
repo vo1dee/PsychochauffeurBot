@@ -45,7 +45,6 @@ project_management/temp/*
 
 # Data files
 *.json
-reminders.json
 
 # Allow specific config files to be tracked
 !config/global/global_config.json

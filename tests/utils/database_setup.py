@@ -128,19 +128,6 @@ class TestDatabaseManager:
             )
             """,
             """
-            CREATE TABLE IF NOT EXISTS test_reminders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                chat_id INTEGER,
-                task TEXT,
-                next_execution TIMESTAMP,
-                frequency TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (chat_id) REFERENCES test_chats (id),
-                FOREIGN KEY (user_id) REFERENCES test_users (id)
-            )
-            """,
-            """
             CREATE TABLE IF NOT EXISTS test_errors (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 error_type TEXT,
@@ -305,23 +292,6 @@ class TestDataSeeder:
         await self.db_manager.insert_test_data('test_messages', messages)
         return messages
     
-    async def seed_reminders(self, user_id: int, chat_id: int, count: int = 3) -> List[Dict[str, Any]]:
-        """Seed test reminders."""
-        from datetime import datetime, timedelta
-        
-        reminders = []
-        for i in range(count):
-            reminder = {
-                'user_id': user_id,
-                'chat_id': chat_id,
-                'task': f'Test reminder {i + 1}',
-                'next_execution': datetime.now() + timedelta(hours=i + 1),
-                'frequency': 'once' if i == 0 else 'daily'
-            }
-            reminders.append(reminder)
-        
-        await self.db_manager.insert_test_data('test_reminders', reminders)
-        return reminders
     
     async def seed_errors(self, count: int = 5) -> List[Dict[str, Any]]:
         """Seed test error records."""
@@ -360,11 +330,6 @@ class DatabaseTestCase:
         """Tear down the test case."""
         await self.db_manager.teardown()
     
-    async def clear_all_tables(self) -> None:
-        """Clear all test tables."""
-        tables = ['test_messages', 'test_reminders', 'test_errors', 'test_chats', 'test_users']
-        for table in tables:
-            await self.db_manager.clear_table(table)
 
 
 # Pytest fixtures for database testing
@@ -393,8 +358,6 @@ async def seeded_db() -> tuple[TestDatabaseManager, dict[str, list[dict[str, Any
     # Seed messages for the first chat
     await seeder.seed_messages(chats[0]['id'], [u['id'] for u in users], 5)
     
-    # Seed reminders for the first user and chat
-    await seeder.seed_reminders(users[0]['id'], chats[0]['id'], 2)
     
     # Seed some error records
     await seeder.seed_errors(3)

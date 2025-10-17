@@ -154,13 +154,6 @@ class HandlerRegistry(ServiceInterface):
             except Exception as e:
                 logger.warning(f"Geomagnetic handler not available: {e}")
             
-            try:
-                reminder_manager = self.service_registry.get_service('reminder_manager')
-                self.command_processor.register_text_command(
-                    "remind", reminder_manager.remind, "Set a reminder"
-                )
-            except Exception as e:
-                logger.warning(f"Reminder manager not available: {e}")
         else:
             logger.warning("Service registry not available, skipping service-based command registration")
         

@@ -1048,17 +1048,6 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         await update.message.reply_text(error_message)
                     return
                     
-            else:
-                # Unknown command type
-                error_message = (
-                    "❌ Невідома команда. Доступні варіанти:\n\n"
-                    "📊 **Основні команди:**\n"
-                    "• /analyze - аналіз сьогоднішніх повідомлень\n"
-                    "• /analyze last <число> messages - останні N повідомлень\n"
-                    "• /analyze last <число> days - повідомлення за останні N днів\n"
-                    "• /analyze date <дата> - повідомлення за конкретну дату\n"
-                    "• /analyze period <дата1> <дата2> - повідомлення за період\n\n"
-                    "📅 **Формати дат:**\n"
                     "• YYYY-MM-DD (2024-01-15)\n"
                     "• DD-MM-YYYY (15-01-2024)\n"
                     "• DD/MM/YYYY (15/01/2024)\n\n"
@@ -1277,10 +1266,6 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             message_parts.append(f"Найактивніша година: {stats['most_active_hour']}:00")
             
         # List of allowed commands (must match those registered in main.py)
-        allowed_commands = {
-            'start', 'help', 'ping', 'cat', 'error_report', 'ask', 'analyze', 'mystats',
-            'weather', 'flares', 'gm', 'remind', 'count', 'missing', 'speech'
-        }
         if stats['command_stats']:
             message_parts.extend([
                 "",
