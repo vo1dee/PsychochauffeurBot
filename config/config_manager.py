@@ -502,8 +502,24 @@ class ConfigManager:
             except FileNotFoundError:
                 logger.error(f"Chat config not found: {chat_id}")
                 return {}
-            except json.JSONDecodeError:
-                logger.error(f"Invalid JSON in chat config: {chat_id}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in chat config: {chat_id} - {e}")
+                # Create backup of corrupted file
+                backup_path = config_path.with_suffix('.json.corrupted')
+                try:
+                    import shutil
+                    shutil.copy2(config_path, backup_path)
+                    logger.info(f"Backed up corrupted config to: {backup_path}")
+                except Exception as backup_error:
+                    logger.warning(f"Could not backup corrupted config: {backup_error}")
+                
+                # Delete corrupted file so it gets recreated
+                try:
+                    config_path.unlink()
+                    logger.info(f"Deleted corrupted config file: {config_path}")
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete corrupted config: {delete_error}")
+                
                 return {}
 
     def _deep_merge(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
