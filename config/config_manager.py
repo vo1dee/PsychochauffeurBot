@@ -251,7 +251,7 @@ class ConfigManager:
                                 "frequency_penalty": 0.0,
                                 "model": "gpt-4.1-mini",
                                 "system_prompt": "You are an image analysis assistant. Provide detailed descriptions and analysis of images. Describe the main elements in 2-3 concise sentences. Focus on objects, people, settings, actions, and context. Do not speculate beyond what is clearly visible. Keep descriptions factual and objective.",
-                                "enabled": True
+                                "enabled": False  # Disabled by default
                             },
                             "summary": {
                                 "max_tokens": 800,
@@ -284,7 +284,7 @@ class ConfigManager:
                             "ban_words": [],
                             "ban_symbols": [],
                             "random_response_settings": {
-                                "enabled": True,
+                                "enabled": False,  # Disabled by default
                                 "min_words": 5,
                                 "message_threshold": 50,
                                 "probability": 0.02,
@@ -383,11 +383,17 @@ class ConfigManager:
         chat_config = await self._load_chat_config(chat_id, chat_type)
         if not chat_config:
             logger.warning(f"Config not found for {chat_type} chat {chat_id}, creating new one!")
-            chat_config = await self.create_new_chat_config(
-                chat_id=chat_id,
-                chat_type=chat_type,
-                chat_name=chat_name or f"{chat_type}_{chat_id}"
-            )
+            try:
+                chat_config = await self.create_new_chat_config(
+                    chat_id=chat_id,
+                    chat_type=chat_type,
+                    chat_name=chat_name or f"{chat_type}_{chat_id}"
+                )
+                logger.info(f"Successfully created new config for chat {chat_id}")
+            except Exception as e:
+                logger.error(f"Failed to create new config for chat {chat_id}: {e}")
+                # Return empty dict to prevent further errors
+                return {}
 
         # Always ensure chat_metadata exists
         if "chat_metadata" not in chat_config:
@@ -566,8 +572,8 @@ class ConfigManager:
         await self.ensure_dirs()
         await self.ensure_chat_dir(chat_id, chat_type)
         
-        # Get main config
-        main_config = await self._load_main_config()
+        # Get global config as template
+        global_config = await self._load_global_config()
         
         # Create chat config with metadata
         chat_config = {
@@ -630,7 +636,7 @@ class ConfigManager:
                                 "frequency_penalty": 0.0,
                                 "model": "gpt-4.1-mini",
                                 "system_prompt": "You are an image analysis assistant. Provide detailed descriptions and analysis of images. Describe the main elements in 2-3 concise sentences. Focus on objects, people, settings, actions, and context. Do not speculate beyond what is clearly visible. Keep descriptions factual and objective.",
-                                "enabled": True
+                                "enabled": False  # Disabled by default
                             },
                             "summary": {
                                 "max_tokens": 800,
