@@ -1288,13 +1288,25 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def handle_photo_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Automatically analyzes any photo sent to the chat.
+    Automatically analyzes any photo sent to the chat if enabled in configuration.
     Logs the description to the database and text logs silently.
     """
-    if not update.message:
+    if not update.message or not update.effective_chat:
         return
 
     try:
+        # Get chat configuration
+        chat_id = str(update.effective_chat.id)
+        chat_type = update.effective_chat.type
+        chat_config = await config_manager.get_config(chat_id, chat_type)
+        
+        # Check if image analysis is enabled for this chat
+        # Default to False if image_analysis config is missing or not explicitly enabled
+        image_analysis_config = chat_config.get("config_modules", {}).get("gpt", {}).get("overrides", {}).get("image_analysis", {})
+        if not image_analysis_config or not image_analysis_config.get("enabled", False):
+            general_logger.info(f"Image analysis is disabled for chat {chat_id} (missing or not enabled in config), skipping photo analysis")
+            return
+
         # Get the highest resolution photo
         photo = update.message.photo[-1]
         
@@ -1302,7 +1314,7 @@ async def handle_photo_analysis(update: Update, context: ContextTypes.DEFAULT_TY
         photo_file = await photo.get_file()
         image_bytes = await photo_file.download_as_bytearray()
 
-        general_logger.info(f"Automatically analyzing photo in chat {update.effective_chat.id if update.effective_chat else 'unknown'}")
+        general_logger.info(f"Automatically analyzing photo in chat {chat_id}")
 
         # Analyze the image (this also logs to the .txt file)
         description = await analyze_image(bytes(image_bytes), update, context)
@@ -1310,7 +1322,7 @@ async def handle_photo_analysis(update: Update, context: ContextTypes.DEFAULT_TY
         # Save the description to the database, linked to the original message
         await Database.save_image_analysis_as_message(update.message, description)
         
-        general_logger.info(f"Successfully saved image analysis for chat {update.effective_chat.id if update.effective_chat else 'unknown'}")
+        general_logger.info(f"Successfully saved image analysis for chat {chat_id}")
 
     except Exception as e:
         # Log the error, but do not notify the user to keep it silent
