@@ -6,19 +6,30 @@ import asyncio
 import aiohttp
 import csv
 import subprocess
+import uuid
 from datetime import datetime, time as dt_time, timedelta, date
 from typing import Optional, Any, List, Dict, Tuple
 import logging
 
-from telegram import Update
-from telegram.ext import CallbackContext
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
+from telegram.constants import ChatAction
 # Avoid running code at module import time
+from telegram.ext import CallbackContext
 from modules.logger import error_logger, LOG_DIR, general_logger
 from modules.const import (
     Weather, Config, DATA_DIR, DOWNLOADS_DIR
 )
 from config.config_manager import ConfigManager
+
 # Constants
+PLAYWRIGHT_AVAILABLE = True
+try:
+    from playwright.async_api import async_playwright
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    error_logger.warning("Playwright not available. Install with 'pip install playwright && playwright install' for screenshot functionality.")
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')   
 CITY_DATA_FILE = os.path.join(DATA_DIR, 'user_locations.csv')
@@ -583,6 +594,75 @@ class ScreenshotManager:
         kyiv_time = datetime.now(self.timezone)
         date_str = kyiv_time.strftime('%Y-%m-%d')
         return os.path.join(Config.SCREENSHOT_DIR, f'flares_{date_str}_kyiv.png')
+    
+    async def capture_meteoagent_widget(self) -> Optional[str]:
+        """
+        Capture the MeteoAgent widget as an image using Playwright.
+        
+        Returns:
+            Optional[str]: Path to the captured image, or None if failed
+        """
+        if not PLAYWRIGHT_AVAILABLE:
+            error_logger.error("Playwright is not available. Install it with 'pip install playwright && playwright install'")
+            return None
+            
+        # Ensure screenshot directory exists
+        if not await self.ensure_screenshot_directory():
+            error_logger.error("Failed to ensure screenshot directory exists")
+            return None
+            
+        # Generate a unique filename
+        filename = f"meteoagent_widget_{uuid.uuid4().hex}.png"
+        screenshot_path = os.path.join(Config.SCREENSHOT_DIR, filename)
+        
+        try:
+            async with async_playwright() as p:
+                # Launch browser in headless mode
+                browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+                context = await browser.new_context(
+                    viewport={'width': 1200, 'height': 1000},
+                    device_scale_factor=2.0,  # For better quality
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                )
+                
+                # Create a new page
+                page = await context.new_page()
+                
+                # Set a longer timeout for the page load
+                page.set_default_timeout(60000)  # 60 seconds
+                
+                try:
+                    # Navigate to the widget URL
+                    await page.goto('https://api.meteoagent.com/widgets/v1/kindex', wait_until='networkidle')
+                    
+                    # Wait for the widget to load (use a more general selector if needed)
+                    try:
+                        await page.wait_for_selector('body', state='visible', timeout=10000)
+                    except Exception as e:
+                        error_logger.warning(f"Page content not fully loaded: {e}")
+                    
+                    # Take a screenshot of the whole page (or adjust selector as needed)
+                    await page.screenshot(path=screenshot_path, full_page=True, type='png')
+                    
+                except Exception as e:
+                    error_logger.error(f"Error during page interaction: {e}")
+                    return None
+                finally:
+                    # Always close the browser
+                    await context.close()
+                    await browser.close()
+                
+                # Verify the screenshot was created
+                if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
+                    general_logger.info(f"Successfully captured MeteoAgent widget to {screenshot_path}")
+                    return screenshot_path
+                
+                error_logger.error(f"Failed to capture MeteoAgent widget: empty or missing file at {screenshot_path}")
+                return None
+                    
+        except Exception as e:
+            error_logger.error(f"Error in capture_meteoagent_widget: {str(e)}", exc_info=True)
+            return None
 
     def validate_screenshot_freshness(self, screenshot_path: str) -> bool:
         """
@@ -1121,110 +1201,90 @@ class ScreenshotManager:
 # Command handlers
 async def screenshot_command(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """
-    Handle /flares command for solar flares screenshot.
+    Handle /flares command to display solar flares and geomagnetic activity.
     
     Args:
         update: Telegram update
         context: Callback context
     """
+    if not update.effective_chat or not update.message:
+        return
+        
     status_msg = None
     try:
+        # Show typing action
+        await context.bot.send_chat_action(
+            chat_id=update.effective_chat.id,
+            action=ChatAction.TYPING
+        )
+        
+        # Get current time in Kyiv timezone
+        kyiv_tz = pytz.timezone('Europe/Kyiv')
+        current_time = datetime.now(kyiv_tz)
+        
+        # Send initial status message
+        status_msg = await update.message.reply_text("🔄 Завантажую дані про сонячну активність...")
+        
+        # Initialize screenshot manager
         manager = ScreenshotManager()
         
-        # Check if wkhtmltoimage tool is available
-        if not manager._check_wkhtmltoimage_availability():
-            error_msg = (
-                "Інструмент для створення знімків недоступний.\n"
-                "Зверніться до адміністратора для встановлення wkhtmltoimage."
-            )
-            if update.message:
-                await update.message.reply_text(error_msg)
-            return
-        
-        # Get status information for better progress indicators
-        status_info = manager.get_screenshot_status_info()
-        
-        # Show initial status message with diagnostic info
-        initial_status = "🔍 Перевіряю наявність актуального знімку..."
-        if not status_info['tool_available']:
-            initial_status += "\n⚠️ Інструмент wkhtmltoimage недоступний"
-        elif not status_info['directory_exists']:
-            initial_status += "\n📁 Створюю директорію для знімків..."
-        elif status_info['has_screenshot'] and status_info['is_fresh']:
-            initial_status += "\n✅ Знайдено актуальний знімок"
-        elif status_info['has_screenshot']:
-            initial_status += f"\n🕐 Знайдено застарілий знімок (вік: {status_info['age_hours']:.1f} год)"
-        
-        if update.message:
-            status_msg = await update.message.reply_text(initial_status)
-        
-        # Try to get current screenshot (fresh or generate new)
-        screenshot_path = await manager.get_current_screenshot()
-        
-        # Update status based on what's happening
+        # Capture the MeteoAgent widget
         if status_msg:
-            if not status_info['has_screenshot'] or not status_info['is_fresh']:
-                progress_msg = (
-                    "🔄 Генерую новий знімок сонячних спалахів...\n"
-                    "⏳ Це може зайняти до 15-30 секунд\n"
-                    "📊 Завантажую дані з api.meteoagent.com..."
-                )
-                await status_msg.edit_text(progress_msg)
-            else:
-                await status_msg.edit_text("✅ Використовую актуальний знімок...")
-
-        if screenshot_path and os.path.exists(screenshot_path):
-            # Get file modification time
-            mod_time = datetime.fromtimestamp(os.path.getmtime(screenshot_path))
-            mod_time = mod_time.astimezone(pytz.timezone('Europe/Kyiv'))
-            
-            # Calculate next update time
-            kyiv_now = datetime.now(pytz.timezone('Europe/Kyiv'))
-            hours_since_update = (kyiv_now - mod_time).total_seconds() / 3600
-            hours_until_next = max(0, manager.FRESHNESS_THRESHOLD_HOURS - hours_since_update)
-            next_screenshot = kyiv_now + timedelta(hours=hours_until_next)
-            
-            # Determine freshness status
-            freshness_status = "актуальний" if hours_since_update < manager.FRESHNESS_THRESHOLD_HOURS else "застарілий"
-            
-            caption = (
-                f"🌞 Прогноз сонячних спалахів і магнітних бурь\n\n"
-                f"📅 Час знімку: {mod_time.strftime('%H:%M %d.%m.%Y')}\n"
-                f"📊 Статус: {freshness_status}\n"
-                f"🔄 Наступне оновлення: {next_screenshot.strftime('%H:%M %d.%m.%Y')}\n\n"
-                f"🔗 Джерело: api.meteoagent.com"
-            )
-            
-            # Delete status message before sending photo
-            if status_msg:
-                await status_msg.delete()
-                status_msg = None
-            
+            await status_msg.edit_text("📸 Роблю знімок віджета MeteoAgent...")
+        
+        # Show upload photo action
+        await context.bot.send_chat_action(
+            chat_id=update.effective_chat.id,
+            action=ChatAction.UPLOAD_PHOTO
+        )
+        
+        # Try to capture the widget
+        screenshot_path = await manager.capture_meteoagent_widget()
+        
+        if not screenshot_path or not os.path.exists(screenshot_path):
+            raise Exception("Не вдалося зробити знімок віджета")
+        
+        # Format the caption
+        caption = (
+            f"🌞 *Прогноз сонячних спалахів та магнітних бурь*\n\n"
+            f"🕒 *Час оновлення:* {current_time.strftime('%H:%M %d.%m.%Y')}\n"
+            "🔗 *Джерело:* [MeteoAgent](https://meteoagent.com/solar-flares-storms)"
+        )
+        
+        try:
             # Send the screenshot
             with open(screenshot_path, 'rb') as photo:
-                if update.effective_chat:
-                    await context.bot.send_photo(
-                        chat_id=update.effective_chat.id,
-                        photo=photo,
-                        caption=caption
-                    )
-                    
-            if update.effective_chat:
-                general_logger.info(f"Successfully sent flares screenshot to chat {update.effective_chat.id}")
-            
-        else:
-            # Screenshot generation failed, provide fallback
-            fallback_msg = manager.get_fallback_message()
-            
-            if status_msg:
-                await status_msg.edit_text(fallback_msg)
-            elif update.message:
-                await update.message.reply_text(fallback_msg)
-                
-            error_logger.error("Failed to generate or retrieve screenshot for flares command")
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=photo,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+        except Exception as e:
+            error_logger.error(f"Failed to send photo: {e}")
+            raise Exception("Не вдалося надіслати зображення")
+        
+        # Send a button for more details
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "📱 Відкрити повний прогноз",
+                    url="https://meteoagent.com/solar-flares-storms"
+                )
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "ℹ️ Для отримання детальнішої інформації натисніть кнопку нижче:",
+            reply_markup=reply_markup,
+            disable_web_page_preview=True
+        )
+        
+        general_logger.info(f"Successfully sent solar activity update to chat {update.effective_chat.id}")
             
     except Exception as e:
-        error_logger.error(f"Error in screenshot command: {e}")
+        error_logger.error(f"Error in flares command: {e}", exc_info=True)
         
         # Clean up status message
         if status_msg:
@@ -1235,12 +1295,26 @@ async def screenshot_command(update: Update, context: CallbackContext[Any, Any, 
         
         # Send error message to user
         error_msg = (
-            "Під час обробки вашого запиту сталася помилка.\n"
-            "Спробуйте пізніше або зверніться до адміністратора."
+            "❌ Не вдалося завантажити дані про сонячну активність.\n"
+            "Спробуйте пізніше або перейдіть за посиланням для перегляду: https://meteoagent.com/solar-flares-storms\n\n"
+            "_Якщо помилка повторюється, будь ласка, повідомте про це адміністратора._"
         )
         
-        if update.message:
-            await update.message.reply_text(error_msg)
+        await update.message.reply_text(error_msg, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+    finally:
+        # Clean up status message
+        if status_msg:
+            try:
+                await status_msg.delete()
+            except:
+                pass
+        
+        # Clean up screenshot file if it exists
+        if 'screenshot_path' in locals() and screenshot_path and os.path.exists(screenshot_path):
+            try:
+                os.remove(screenshot_path)
+            except Exception as e:
+                error_logger.warning(f"Failed to delete screenshot file {screenshot_path}: {e}")
 
 
 # Initialization and main functions
