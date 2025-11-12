@@ -46,7 +46,7 @@ class LinkModification:
         "twitter.com": "fxtwitter.com",
         "x.com": "fixupx.com",
         "aliexpress.com": "aliexpress.com",
-        "instagram.com": "instagramez.com"
+        "instagram.com": "kkinstagram.com"
     }
 
 class VideoPlatforms:
