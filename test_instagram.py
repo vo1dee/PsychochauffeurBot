@@ -60,7 +60,7 @@ def main():
     url = sys.argv[1]
 
     # Validate URL
-    if 'instagram.com' not in url and 'instagramez.com' not in url:
+    if 'instagram.com' not in url and 'kkinstagram.com' not in url:
         print("❌ Please provide a valid Instagram URL")
         sys.exit(1)
 
