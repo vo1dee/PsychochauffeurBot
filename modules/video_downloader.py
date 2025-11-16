@@ -85,13 +85,22 @@ class VideoDownloader:
         # Platform-specific download configurations
         self.platform_configs = {
             Platform.TIKTOK: DownloadConfig(
-                format="best[ext=mp4][vcodec~='^avc1']/best[ext=mp4][vcodec*=avc1]/best[ext=mp4]/best",  # Aggressive H.264 first
+                # Prioritize best video + best audio combination, fallback to best single file
+                format="bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
                 max_retries=3,
                 headers={
                     "User-Agent": "TikTok/26.2.0 (iPhone; iOS 14.4.2; Scale/3.00)",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                     "Accept-Language": "en-US,en;q=0.5"
-                }
+                },
+                extra_args=[
+                    "--merge-output-format", "mp4",  # Ensure MP4 output
+                    "--audio-quality", "0",  # Best audio quality
+                    "--audio-multistreams",  # Allow multiple audio streams
+                    "--video-multistreams",  # Allow multiple video streams
+                    "--prefer-ffmpeg",  # Prefer ffmpeg for merging
+                    "--ffmpeg-location", "auto"  # Auto-detect ffmpeg
+                ]
             ),
             Platform.OTHER: DownloadConfig(
                 format="best[ext=mp4][vcodec~='^avc1'][height<=1080]/best[ext=mp4][vcodec*=avc1][height<=1080]/22[height<=720]/18[height<=360]/best[ext=mp4][height<=1080]/best[ext=mp4]/best",  # H.264 + YouTube specific formats
