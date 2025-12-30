@@ -14,9 +14,6 @@ tests/
 │   ├── test_service.py          # Service layer tests
 │   └── test_error_handler.py    # Error handling tests
 ├── modules/               # Individual module tests
-│   ├── test_reminders.py       # Reminder system tests
-│   ├── test_reminder_parsing.py  # Reminder parsing tests
-│   ├── test_reminder_models.py   # Reminder data models
 │   ├── test_gm.py              # Geomagnetic API tests
 │   ├── test_url_utils.py       # URL utility tests
 │   └── test_video_downloader.py # Video download tests

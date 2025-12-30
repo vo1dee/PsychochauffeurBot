@@ -7,6 +7,7 @@ the entire bot lifecycle and manages all components.
 
 import asyncio
 import logging
+import os
 import signal
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -244,7 +245,43 @@ class BotApplication(ServiceInterface):
     async def _create_telegram_application(self) -> None:
         """Create Telegram application with enhanced configuration."""
         try:
-            self.telegram_app = ApplicationBuilder().token(Config.TELEGRAM_BOT_TOKEN).build()
+            from modules.shared_constants import DEFAULT_TIMEOUT
+            
+            # Configure timeouts for better network reliability
+            # Increase timeouts to handle slow or unstable connections
+            read_timeout = float(os.getenv('TELEGRAM_READ_TIMEOUT', DEFAULT_TIMEOUT * 2))  # 60 seconds default
+            write_timeout = float(os.getenv('TELEGRAM_WRITE_TIMEOUT', DEFAULT_TIMEOUT * 2))  # 60 seconds default
+            pool_size = int(os.getenv('TELEGRAM_POOL_SIZE', '20'))  # Default connection pool size
+            
+            logger.info(f"Creating Telegram application with timeouts: read={read_timeout}s, write={write_timeout}s, pool_size={pool_size}")
+            
+            # Build application with configured timeouts
+            builder = ApplicationBuilder().token(Config.TELEGRAM_BOT_TOKEN)
+            
+            # Set timeouts - these are the standard ApplicationBuilder methods
+            builder = builder.read_timeout(read_timeout)
+            builder = builder.write_timeout(write_timeout)
+            builder = builder.connection_pool_size(pool_size)
+            
+            # Configure connect timeout via custom HTTPXRequest if available
+            # This helps with initial connection establishment
+            try:
+                from telegram.request import HTTPXRequest
+                
+                connect_timeout = float(os.getenv('TELEGRAM_CONNECT_TIMEOUT', DEFAULT_TIMEOUT))  # 30 seconds default
+                
+                # Create custom request with increased connection pool size
+                # The timeout parameters are set via builder methods above
+                custom_request = HTTPXRequest(connection_pool_size=pool_size)
+                
+                # Use the request parameter to set custom request configuration
+                builder = builder.request(custom_request)
+                logger.info(f"Configured custom HTTPXRequest with connection_pool_size={pool_size}, connect_timeout handled by httpx defaults")
+            except (ImportError, AttributeError, TypeError) as e:
+                # HTTPXRequest might not accept these parameters or request() might not be available
+                logger.warning(f"Could not configure custom HTTPXRequest ({e}), using default request settings with increased timeouts")
+            
+            self.telegram_app = builder.build()
             self.bot = self.telegram_app.bot
             logger.info("Telegram application created successfully")
         except Exception as e:
