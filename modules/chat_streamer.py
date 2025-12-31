@@ -93,9 +93,32 @@ class ChatStreamer:
             
             # Ensure all handlers flush their output
             for handler in self._chat_logger.handlers:
-                handler.flush()
+                try:
+                    handler.flush()
+                except (BrokenPipeError, OSError) as e:
+                    # Handle broken pipe errors gracefully (e.g., log rotation, closed files)
+                    # Errno 32 is EPIPE (Broken pipe) - common during log rotation
+                    # Don't log this as it's often expected and not critical
+                    if hasattr(e, 'errno') and e.errno == 32:
+                        # Broken pipe - silently ignore
+                        pass
+                    else:
+                        # Other OSError - log at debug level
+                        logging.debug(f"Handler flush OSError (non-critical): {e}")
+                except Exception as e:
+                    # Log other handler errors but don't crash
+                    logging.debug(f"Handler flush error (non-critical): {e}")
             
+        except (BrokenPipeError, OSError) as e:
+            # Handle broken pipe errors gracefully - don't spam error logs
+            if hasattr(e, 'errno') and e.errno == 32:
+                # Broken pipe - silently ignore
+                pass
+            else:
+                # Other OSError - log at debug level
+                logging.debug(f"Error streaming message (non-critical): {e}")
         except Exception as e:
+            # Log other errors
             logging.error(f"Error streaming message: {e}")
     
     async def close(self) -> None:

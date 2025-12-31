@@ -1399,6 +1399,11 @@ class VideoDownloader:
 
 def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[..., Any]] = None, config_manager: Optional[Any] = None) -> None:
     """Set up video handlers with improved configuration."""
+    # Check if handler is already registered to prevent duplicates
+    if hasattr(application, '_video_handler_set'):
+        general_logger.warning("Video handler already registered, skipping duplicate registration")
+        return
+    
     general_logger.info("Initializing video downloader...")
     video_downloader = VideoDownloader(
         download_path='downloads',
@@ -1426,5 +1431,8 @@ def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[
         ),
         group=1  # Higher priority group
     )
+    
+    # Mark as registered to prevent duplicates
+    application._video_handler_set = True
 
     general_logger.info("Video handler setup complete")

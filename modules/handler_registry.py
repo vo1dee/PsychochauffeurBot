@@ -44,8 +44,10 @@ class HandlerRegistry(ServiceInterface):
     async def register_all_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
         """Register all handlers with the Telegram application."""
         if self._registered:
-            logger.warning("Handlers already registered")
+            logger.warning("Handlers already registered - skipping duplicate registration")
             return
+        
+        logger.info("Starting handler registration process...")
         
         # Register message handlers first (group 0)
         await self._register_message_handlers(application)
@@ -60,7 +62,13 @@ class HandlerRegistry(ServiceInterface):
         await self._register_video_handlers(application)
         
         self._registered = True
-        logger.info("All handlers registered with Telegram application")
+        
+        # Log handler count for diagnostics
+        try:
+            handler_count = len(application.handlers[0]) if application.handlers else 0
+            logger.info(f"All handlers registered with Telegram application (total handlers in group 0: {handler_count})")
+        except (AttributeError, KeyError, IndexError):
+            logger.info("All handlers registered with Telegram application")
     
     async def _register_all_commands(self) -> None:
         """Register all command handlers with the command processor."""
