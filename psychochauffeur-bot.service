@@ -1,0 +1,31 @@
+[Unit]
+Description=PsychoChauffeur Telegram Bot
+After=network.target postgresql.service docker.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/psychochauffeurbot
+Environment="PATH=/root/psychochauffeurbot/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/root/psychochauffeurbot/venv/bin/python3 /root/psychochauffeurbot/main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=psychochauffeur-bot
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65536
+
+# Environment variables from .env file
+EnvironmentFile=/root/psychochauffeurbot/.env
+
+[Install]
+WantedBy=multi-user.target

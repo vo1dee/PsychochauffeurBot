@@ -103,6 +103,13 @@ def setup_message_handlers(application: Application[Any, Any, Any, Any, Any, Any
     Set up message handlers for the bot.
     This function should be called during bot initialization.
     """
+    # Check if handler is already registered to prevent duplicates
+    if hasattr(application, '_message_logging_handler_set'):
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("Message logging handler already registered, skipping duplicate registration")
+        return
+    
     # Add a handler to log all messages and save them to the database.
     # It's in group -1 to ensure it runs before all other handlers.
     # block=False allows the update to be processed by other handlers.
@@ -111,5 +118,8 @@ def setup_message_handlers(application: Application[Any, Any, Any, Any, Any, Any
         handle_message_logging,
         block=False
     ), group=-1)
+    
+    # Mark as registered to prevent duplicates
+    application._message_logging_handler_set = True
 
 # Duplicate function removed - see above for the actual implementation
