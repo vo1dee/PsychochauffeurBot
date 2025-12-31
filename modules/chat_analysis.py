@@ -82,16 +82,43 @@ async def get_messages_for_chat_last_n_days(chat_id: int, days: int) -> List[Tup
     Returns:
         List of tuples containing (timestamp, sender_name, text)
     """
+    logger = logging.getLogger(__name__)
+    
     # Get current time in local timezone
     end_time = datetime.now(KYIV_TZ)
     start_time = end_time - timedelta(days=days)
     
     # Convert to UTC for database query
-    start_time_utc = start_time.astimezone(pytz.UTC).replace(tzinfo=None)
-    end_time_utc = end_time.astimezone(pytz.UTC).replace(tzinfo=None)
+    start_time_utc = start_time.astimezone(pytz.UTC)
+    end_time_utc = end_time.astimezone(pytz.UTC)
+    
+    # For PostgreSQL TIMESTAMP WITH TIME ZONE, we can pass timezone-aware datetimes
+    # PostgreSQL will handle the conversion correctly
+    logger.info(f"Querying messages for chat {chat_id} from last {days} days")
+    logger.info(f"Time range (Kyiv): {start_time} to {end_time}")
+    logger.info(f"Time range (UTC): {start_time_utc} to {end_time_utc}")
     
     pool = await Database.get_pool()
     async with pool.acquire() as conn:
+        # First check total messages in DB for debugging
+        total_count = await conn.fetchval("""
+            SELECT COUNT(*) FROM messages WHERE chat_id = $1
+        """, chat_id)
+        logger.info(f"Total messages in DB for chat {chat_id}: {total_count}")
+        
+        # Check date range of messages in the database
+        date_range = await conn.fetchrow("""
+            SELECT 
+                MIN(timestamp) as min_date, 
+                MAX(timestamp) as max_date,
+                COUNT(*) as total_count
+            FROM messages 
+            WHERE chat_id = $1
+        """, chat_id)
+        if date_range:
+            logger.info(f"Date range of messages in DB: {date_range['min_date']} to {date_range['max_date']} ({date_range['total_count']} total messages)")
+        
+        # Query with timezone-aware datetimes - PostgreSQL will handle conversion
         rows = await conn.fetch("""
             SELECT m.timestamp, u.username, m.text
             FROM messages m
@@ -102,15 +129,25 @@ async def get_messages_for_chat_last_n_days(chat_id: int, days: int) -> List[Tup
             ORDER BY m.timestamp ASC
         """, chat_id, start_time_utc, end_time_utc)
         
+        logger.info(f"Query returned {len(rows)} messages")
+        
         # Convert timestamps back to local timezone for display
-        return [
-            (
-                row['timestamp'].replace(tzinfo=pytz.UTC).astimezone(KYIV_TZ),
+        result = []
+        for row in rows:
+            timestamp = row['timestamp']
+            # Handle timezone-aware or naive timestamps from database
+            if timestamp.tzinfo is None:
+                # If naive, assume UTC
+                timestamp = pytz.UTC.localize(timestamp)
+            # Convert to local timezone
+            local_timestamp = timestamp.astimezone(KYIV_TZ)
+            result.append((
+                local_timestamp,
                 row['username'] or 'Unknown',
-                row['text']
-            )
-            for row in rows
-        ]
+                row['text'] or ''
+            ))
+        
+        return result
 
 async def get_messages_for_chat_date_period(
     chat_id: int,
