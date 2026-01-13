@@ -286,7 +286,7 @@ class EnhancedAnalyzeCommand:
                 "user_id": user_id,
                 "chat_id": chat_id,
                 "username": username,
-                "args": context.args,
+                "command_args": context.args,
                 "message_count": len(messages) if 'messages' in locals() and messages else 0
             }
             

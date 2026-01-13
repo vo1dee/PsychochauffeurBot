@@ -258,10 +258,10 @@ async def get_messages_for_chat_single_date(chat_id: int, target_date: Union[dat
                 AND timestamp >= $2
                 AND timestamp < $3
             """
-            logger.info(f"Executing count query:\n{count_query}\nWith params: chat_id={chat_id}, start_utc={start_naive}, end_utc={end_naive}")
-            
-            # Execute with naive datetime objects
-            count = await conn.fetchval(count_query, chat_id, start_naive, end_naive)
+            logger.info(f"Executing count query:\n{count_query}\nWith params: chat_id={chat_id}, start_utc={start_utc}, end_utc={end_utc}")
+
+            # Execute with timezone-aware datetime objects
+            count = await conn.fetchval(count_query, chat_id, start_utc, end_utc)
             
             logger.info(f"Found {count} messages in the date range")
             
@@ -335,16 +335,13 @@ async def get_messages_for_chat_single_date(chat_id: int, target_date: Union[dat
                 AND m.timestamp < $3
                 ORDER BY m.timestamp ASC
             """
-            logger.info(f"Executing query with params: chat_id={chat_id}, start_utc={start_naive}, end_utc={end_naive}")
+            logger.info(f"Executing query with params: chat_id={chat_id}, start_utc={start_utc}, end_utc={end_utc}")
             logger.info(f"Query: {query}")
-            
-            # Execute the query with naive datetime objects
-            rows = await conn.fetch(query, chat_id, start_naive, end_naive)
-            
+
             # Log the EXPLAIN ANALYZE output for debugging
             try:
                 explain = await conn.fetch("""
-                    EXPLAIN ANALYZE 
+                    EXPLAIN ANALYZE
                     SELECT m.timestamp, u.username, m.text
                     FROM messages m
                     LEFT JOIN users u ON m.user_id = u.user_id
@@ -358,8 +355,8 @@ async def get_messages_for_chat_single_date(chat_id: int, target_date: Union[dat
                     logger.info(f"  {row['QUERY PLAN']}")
             except Exception as e:
                 logger.warning(f"Failed to get query plan: {e}")
-            
-            # Fetch the messages
+
+            # Execute the query with timezone-aware datetime objects
             rows = await conn.fetch(query, chat_id, start_utc, end_utc)
             
             # Log the raw results

@@ -1047,6 +1047,17 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     if update.message:
                         await update.message.reply_text(error_message)
                     return
+            else:
+                # Unknown command type
+                error_message = (
+                    "❌ Невідомий тип команди аналізу.\n\n"
+                    "Підтримувані команди:\n"
+                    "• /analyze - аналіз сьогоднішніх повідомлень\n"
+                    "• /analyze last <число> messages - аналіз останніх N повідомлень\n"
+                    "• /analyze last <число> days - аналіз останніх N днів\n"
+                    "• /analyze date <дата> - аналіз конкретної дати\n"
+                    "• /analyze period <дата1> <дата2> - аналіз періоду"
+                )
                 general_logger.warning(f"Unknown command type from user {username}: {command_type}")
                 if update.message:
                     await update.message.reply_text(error_message)
@@ -1165,10 +1176,10 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "chat_id": chat_id,
             "user_id": user_id,
             "username": username,
-            "args": context.args if context.args else None,
+            "command_args": context.args if context.args else None,
             "execution_time": execution_time
         }
-        
+
         error_logger.error(
             f"Unexpected error in analyze command: {e}",
             extra=error_context,

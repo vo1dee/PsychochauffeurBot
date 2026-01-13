@@ -86,20 +86,37 @@ class VideoDownloader:
         self.platform_configs = {
             Platform.TIKTOK: DownloadConfig(
                 # Prioritize best video + best audio combination, fallback to best single file
-                format="bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                format="best[height<=1080][ext=mp4]/best",
                 max_retries=3,
                 headers={
-                    "User-Agent": "TikTok/26.2.0 (iPhone; iOS 14.4.2; Scale/3.00)",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.5"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "DNT": "1",
+                    "Connection": "keep-alive",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
+                    "Cache-Control": "max-age=0"
                 },
                 extra_args=[
                     "--merge-output-format", "mp4",  # Ensure MP4 output
-                    "--audio-quality", "0",  # Best audio quality
-                    "--audio-multistreams",  # Allow multiple audio streams
-                    "--video-multistreams",  # Allow multiple video streams
-                    "--prefer-ffmpeg",  # Prefer ffmpeg for merging
-                    "--ffmpeg-location", "auto"  # Auto-detect ffmpeg
+                    "--extractor-args", "TikTok:api_hostname=vm.tiktok.com",
+                    "--add-header", "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                    "--add-header", "Accept-Language:en-US,en;q=0.9",
+                    "--add-header", "Accept-Encoding:gzip, deflate, br",
+                    "--add-header", "DNT:1",
+                    "--add-header", "Connection:keep-alive",
+                    "--add-header", "Upgrade-Insecure-Requests:1",
+                    "--add-header", "Sec-Fetch-Dest:document",
+                    "--add-header", "Sec-Fetch-Mode:navigate",
+                    "--add-header", "Sec-Fetch-Site:none",
+                    "--add-header", "Sec-Fetch-User:?1",
+                    "--add-header", "Cache-Control:max-age=0"
                 ]
             ),
             Platform.OTHER: DownloadConfig(
@@ -1318,7 +1335,7 @@ class VideoDownloader:
 
         # For non-YouTube URLs, use the standard approach
         try:
-            error_logger.info(f"Starting yt-dlp download with args: {' '.join(yt_dlp_args[:5])}...")  # Log first 5 args only
+            error_logger.info(f"Starting yt-dlp download with args: {' '.join(yt_dlp_args)}")  # Log full command
             process = await asyncio.create_subprocess_exec(
                 *yt_dlp_args, 
                 stdout=asyncio.subprocess.PIPE, 
