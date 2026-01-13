@@ -665,6 +665,7 @@ async def init_telegram_error_handler(bot: Bot, error_channel_id: Optional[str] 
             bot_token=bot.token, # Get token from bot instance
             channel_id=error_channel_id
         )
+        telegram_handler.setLevel(logging.ERROR)  # Only send ERROR and above
         await telegram_handler.start()
 
         # Add the handler to the root logger to catch all errors

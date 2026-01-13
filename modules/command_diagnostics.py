@@ -108,7 +108,7 @@ class CommandDiagnosticsWrapper:
             "chat_id": update.effective_chat.id if update.effective_chat else 0,
             "username": update.effective_user.username if update.effective_user else "unknown",
             "chat_type": update.effective_chat.type if update.effective_chat else "unknown",
-            "args": context.args if context.args else [],
+            "command_args": context.args if context.args else [],
             "message_text": update.message.text if update.message else None,
             "execution_time": metrics.duration_seconds if hasattr(metrics, 'duration_seconds') else None
         }
