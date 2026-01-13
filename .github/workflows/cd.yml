@@ -92,39 +92,35 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: deployment-package
-    
-    - name: Set up SSH
-      uses: webfactory/ssh-agent@v0.8.0
-      with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-    - name: Add Host Key
+    - name: Install cloudflared
       run: |
-        mkdir -p ~/.ssh
-        ssh-keyscan ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+        wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+        sudo dpkg -i cloudflared-linux-amd64.deb
 
-    - name: Deploy to VM
+    - name: Restart bot via Cloudflare Tunnel
       env:
-        VM_USER: ${{ secrets.VM_USER }}
-        VM_HOST: ${{ secrets.VM_HOST }}
+        CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+        CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
       run: |
-        ssh -o StrictHostKeyChecking=no $VM_USER@$VM_HOST "sudo /home/ubuntu/psychochauffeurbot/scripts/deploy_existing.sh"
+        ssh \
+          -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=/dev/null \
+          -o ProxyCommand="cloudflared access ssh --hostname %h" \
+          deploy@psychochauffeur.internal.vo1dee.com \
+          "sudo systemctl restart psychochauffeur-bot"
 
     - name: Verify Deployment
       env:
-        VM_USER: ${{ secrets.VM_USER }}
-        VM_HOST: ${{ secrets.VM_HOST }}
+        CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+        CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
       run: |
-        sleep 5
-        ssh $VM_USER@$VM_HOST "bash -s" << EOF
-          if systemctl is-active --quiet chauffeur-bot.service; then
-            echo "Bot service is running successfully"
-            exit 0
-          else
-            echo "Bot service is not running!"
-            exit 1
-          fi
-        EOF
+        ssh \
+          -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=/dev/null \
+          -o ProxyCommand="cloudflared access ssh --hostname %h" \
+          deploy@psychochauffeur.internal.vo1dee.com \
+          "sleep 5 && if systemctl is-active --quiet psychochauffeur-bot; then echo 'Bot service is running successfully'; exit 0; else echo 'Bot service is not running!'; exit 1; fi"
   
 
 
