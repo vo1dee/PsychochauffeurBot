@@ -1,20 +1,37 @@
-- name: Restart Bot Service
-  env:
-    CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-    CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-  run: |
-    # Install cloudflared if not already installed
-    wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-    sudo dpkg -i cloudflared-linux-amd64.deb
-    
-    # Test the service token
-    echo "Testing Cloudflare Access authentication..."
-    
-    # SSH with proper environment variables
-    ssh \
-      -o StrictHostKeyChecking=no \
-      -o UserKnownHostsFile=/dev/null \
-      -o ProxyCommand="cloudflared access ssh --hostname %h" \
-      deploy@psychochauffeur.internal.vo1dee.com \
-      "sudo systemctl restart psychochauffeur-bot"
-  shell: bash
+- name: Install cloudflared
+      run: |
+        wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+        sudo dpkg -i cloudflared-linux-amd64.deb
+        cloudflared --version
+
+    - name: Debug Cloudflare Access
+      env:
+        CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+        CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      run: |
+        echo "Checking if credentials are set..."
+        if [ -z "$CF_ACCESS_CLIENT_ID" ]; then
+          echo "ERROR: CF_ACCESS_CLIENT_ID is not set!"
+          exit 1
+        fi
+        if [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
+          echo "ERROR: CF_ACCESS_CLIENT_SECRET is not set!"
+          exit 1
+        fi
+        echo "Credentials are set (length check):"
+        echo "Client ID length: ${#CF_ACCESS_CLIENT_ID}"
+        echo "Client Secret length: ${#CF_ACCESS_CLIENT_SECRET}"
+
+    - name: Restart bot via Cloudflare Tunnel
+      env:
+        CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+        CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      run: |
+        echo "Attempting SSH connection through Cloudflare Access..."
+        ssh \
+          -v \
+          -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=/dev/null \
+          -o ProxyCommand="cloudflared access ssh --hostname %h" \
+          deploy@psychochauffeur.internal.vo1dee.com \
+          "sudo systemctl restart psychochauffeur-bot"
