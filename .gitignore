@@ -80,6 +80,7 @@ Desktop.ini
 # Local development scripts
 *.sh
 start_bot.sh
+!restart_bot.sh
 
 # Testing
 # test/

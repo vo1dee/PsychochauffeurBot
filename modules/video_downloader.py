@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
-from modules.const import VideoPlatforms, InstagramConfig
+from modules.const import VideoPlatforms, InstagramConfig, MUSIC_DIR
 from modules.utils import extract_urls
 from modules.logger import (
     TelegramErrorHandler,
@@ -691,6 +691,132 @@ class VideoDownloader:
                 except:
                     pass
 
+    async def download_youtube_music(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Download audio from YouTube Music as MP3."""
+        error_logger.info(f"🎵 Starting YouTube Music download for: {url}")
+
+        # Ensure music directory exists
+        os.makedirs(MUSIC_DIR, exist_ok=True)
+
+        unique_filename = f"music_{uuid.uuid4().hex[:8]}.mp3"
+        output_path = os.path.join(MUSIC_DIR, unique_filename)
+
+        # Build yt-dlp command for audio extraction
+        cmd = [
+            self.yt_dlp_path, url,
+            '-f', 'bestaudio',
+            '-x',  # Extract audio
+            '--audio-format', 'mp3',
+            '-o', output_path,
+            '--no-check-certificate',
+            '--geo-bypass',
+            '--ignore-errors',
+            '--no-playlist',
+            '--socket-timeout', '30',
+            '--retries', '3',
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        ]
+
+        error_logger.info(f"   Command: {' '.join(cmd[:10])}... (truncated)")
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
+
+            # yt-dlp may append .mp3 extension, check both paths
+            if not os.path.exists(output_path):
+                # Check if file exists without double extension
+                base_path = output_path.replace('.mp3', '')
+                if os.path.exists(base_path + '.mp3'):
+                    output_path = base_path + '.mp3'
+
+            if process.returncode == 0 and os.path.exists(output_path):
+                file_size = os.path.getsize(output_path)
+                error_logger.info(f"   ✅ Downloaded {file_size} bytes to {output_path}")
+
+                # Get title
+                title = await self._get_video_title(url)
+                return output_path, title
+            else:
+                stderr_text = stderr.decode()
+                error_logger.warning(f"   ❌ Process failed (code {process.returncode})")
+                error_logger.warning(f"   Error: {stderr_text[:300]}...")
+                return None, None
+
+        except asyncio.TimeoutError:
+            error_logger.warning(f"   ⏰ Download timed out after 120 seconds")
+            return None, None
+        except Exception as e:
+            error_logger.error(f"   ❌ Download error: {e}")
+            return None, None
+
+    async def _send_audio(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+                          filename: str, title: Optional[str], source_url: Optional[str] = None) -> None:
+        """Send downloaded audio file to chat."""
+        try:
+            file_size = os.path.getsize(filename)
+            max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
+
+            if file_size > max_size:
+                error_logger.warning(f"Audio file too large: {file_size} bytes")
+                if update.message:
+                    await update.message.reply_text("❌ Audio file too large to send.")
+                return
+
+            # Escape all special characters for Markdown V2
+            special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+            escaped_title = title or "Audio"
+            for char in special_chars:
+                escaped_title = escaped_title.replace(char, f'\\{char}')
+
+            # Get username and escape it
+            username = "Unknown"
+            if update.effective_user:
+                username = update.effective_user.username or update.effective_user.first_name or "Unknown"
+            escaped_username = username
+            for char in special_chars:
+                escaped_username = escaped_username.replace(char, f'\\{char}')
+
+            caption = f"🎵 {escaped_title}\n\n👤 Від: @{escaped_username}"
+
+            if source_url:
+                escaped_url = source_url
+                for char in special_chars:
+                    escaped_url = escaped_url.replace(char, f'\\{char}')
+                caption += f"\n\n🔗 [Посилання]({escaped_url})"
+
+            with open(filename, 'rb') as audio_file:
+                if update.message and update.message.reply_to_message:
+                    await update.message.reply_to_message.reply_audio(
+                        audio=audio_file,
+                        caption=caption,
+                        parse_mode='MarkdownV2'
+                    )
+                else:
+                    if update.effective_chat:
+                        await context.bot.send_audio(
+                            chat_id=update.effective_chat.id,
+                            audio=audio_file,
+                            caption=caption,
+                            parse_mode='MarkdownV2'
+                        )
+
+            # Delete the original message after successful send
+            try:
+                if update.message:
+                    await update.message.delete()
+            except Exception as e:
+                error_logger.error(f"Failed to delete original message: {str(e)}")
+
+        except Exception as e:
+            error_logger.error(f"Audio sending error: {str(e)}")
+            await self.send_error_sticker(update)
+
     async def _try_youtube_strategy(self, url: str, strategy: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Try a single YouTube download strategy."""
         unique_filename = f"yt_{uuid.uuid4().hex[:8]}.mp4"
@@ -912,11 +1038,23 @@ class VideoDownloader:
                 processing_msg = await update.message.reply_text("⏳ Processing your request...")
 
             for url in urls:
-                filename, title = await self.download_video(url, chat_id, chat_type)
-                if filename and os.path.exists(filename):
-                    await self._send_video(update, context, filename, title, source_url=url)
+                # Check if this is a YouTube Music URL
+                is_youtube_music = 'music.youtube.com' in url.lower()
+
+                if is_youtube_music:
+                    # Handle YouTube Music - download as MP3
+                    filename, title = await self.download_youtube_music(url)
+                    if filename and os.path.exists(filename):
+                        await self._send_audio(update, context, filename, title, source_url=url)
+                    else:
+                        await self._handle_download_error(update, url)
                 else:
-                    await self._handle_download_error(update, url)
+                    # Handle regular video platforms
+                    filename, title = await self.download_video(url, chat_id, chat_type)
+                    if filename and os.path.exists(filename):
+                        await self._send_video(update, context, filename, title, source_url=url)
+                    else:
+                        await self._handle_download_error(update, url)
 
         except Exception as e:
             await self._handle_processing_error(update, e, message_text)
