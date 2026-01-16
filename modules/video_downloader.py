@@ -849,12 +849,15 @@ class VideoDownloader:
 
     async def _handle_inline_cat(self, query: Any, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle inline cat photo request."""
+        error_logger.info("🐱 Fetching cat photo for inline...")
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get('https://api.thecatapi.com/v1/images/search') as response:
+                async with session.get('https://api.thecatapi.com/v1/images/search', timeout=5) as response:
+                    error_logger.info(f"🐱 Cat API response: {response.status}")
                     if response.status == 200:
                         data = await response.json()
                         cat_image_url = data[0]['url']
+                        error_logger.info(f"🐱 Cat image URL: {cat_image_url}")
 
                         from telegram import InlineQueryResultPhoto
                         results = [
@@ -866,11 +869,12 @@ class VideoDownloader:
                             )
                         ]
                         await query.answer(results, cache_time=0)  # No cache for random cats
-                        error_logger.info("✅ Inline cat photo sent")
+                        error_logger.info("✅ Inline cat photo answered")
                     else:
+                        error_logger.warning(f"🐱 Cat API returned {response.status}")
                         await query.answer([], cache_time=5)
         except Exception as e:
-            error_logger.error(f"Inline cat error: {e}")
+            error_logger.error(f"🐱 Inline cat error: {e}")
             await query.answer([], cache_time=5)
 
     async def _handle_inline_youtube_music(self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
@@ -909,7 +913,7 @@ class VideoDownloader:
                         InlineQueryResultCachedAudio(
                             id=f'audio_{uuid.uuid4().hex[:8]}',
                             audio_file_id=message.audio.file_id,
-                            caption=f"🎵 {title}"
+                            caption=f"🎵 {title}\n\n🔗 {url}"
                         )
                     ]
                     await query.answer(results, cache_time=300)
@@ -960,7 +964,7 @@ class VideoDownloader:
                             id=f'video_{uuid.uuid4().hex[:8]}',
                             video_file_id=message.video.file_id,
                             title=title or "TikTok Video",
-                            caption=f"🎬 {title or 'TikTok'}"
+                            caption=f"🎬 {title or 'TikTok'}\n\n🔗 {url}"
                         )
                     ]
                     await query.answer(results, cache_time=300)
