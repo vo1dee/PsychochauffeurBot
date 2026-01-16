@@ -889,16 +889,22 @@ class VideoDownloader:
                     await self._send_inline_error(query, "Audio file too large")
                     return
 
-                # Send file to user to get file_id
+                # Send file to user privately to get file_id (will be deleted immediately)
                 with open(filename, 'rb') as audio_file:
                     message = await context.bot.send_audio(
                         chat_id=query.from_user.id,
                         audio=audio_file,
                         title=title or "Audio",
-                        caption=f"🎵 {title}\n\n🔗 {url}"
+                        disable_notification=True
                     )
 
                 if message and message.audio:
+                    # Delete the temporary message from private chat
+                    try:
+                        await message.delete()
+                    except Exception as e:
+                        error_logger.warning(f"Could not delete temp message: {e}")
+
                     results = [
                         InlineQueryResultCachedAudio(
                             id=f'audio_{uuid.uuid4().hex[:8]}',
@@ -907,7 +913,7 @@ class VideoDownloader:
                         )
                     ]
                     await query.answer(results, cache_time=300)
-                    error_logger.info(f"✅ Inline audio sent: {title}")
+                    error_logger.info(f"✅ Inline audio ready: {title}")
                 else:
                     await self._send_inline_error(query, "Failed to upload audio")
             else:
@@ -933,15 +939,21 @@ class VideoDownloader:
                     await self._send_inline_error(query, "Video file too large")
                     return
 
-                # Send video to user to get file_id
+                # Send video to user privately to get file_id (will be deleted immediately)
                 with open(filename, 'rb') as video_file:
                     message = await context.bot.send_video(
                         chat_id=query.from_user.id,
                         video=video_file,
-                        caption=f"🎬 {title or 'TikTok'}\n\n🔗 {url}"
+                        disable_notification=True
                     )
 
                 if message and message.video:
+                    # Delete the temporary message from private chat
+                    try:
+                        await message.delete()
+                    except Exception as e:
+                        error_logger.warning(f"Could not delete temp message: {e}")
+
                     from telegram import InlineQueryResultCachedVideo
                     results = [
                         InlineQueryResultCachedVideo(
@@ -952,11 +964,11 @@ class VideoDownloader:
                         )
                     ]
                     await query.answer(results, cache_time=300)
-                    error_logger.info(f"✅ Inline TikTok video sent: {title}")
+                    error_logger.info(f"✅ Inline TikTok video ready: {title}")
                 else:
                     await self._send_inline_error(query, "Failed to upload video")
 
-                # Cleanup
+                # Cleanup local file
                 try:
                     os.remove(filename)
                 except:
