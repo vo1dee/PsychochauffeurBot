@@ -13,8 +13,8 @@ from typing import Optional, Tuple, List, Dict, Any, Callable, TypedDict, cast
 from asyncio import Lock
 from dataclasses import dataclass
 from enum import Enum
-from telegram import Update
-from telegram.ext import ContextTypes, MessageHandler, filters
+from telegram import Update, InlineQueryResultCachedAudio, InlineQueryResultArticle, InputTextMessageContent
+from telegram.ext import ContextTypes, MessageHandler, filters, InlineQueryHandler
 from modules.const import VideoPlatforms, InstagramConfig, MUSIC_DIR
 from modules.utils import extract_urls
 from modules.logger import (
@@ -819,6 +819,109 @@ class VideoDownloader:
             error_logger.error(f"Audio sending error: {str(e)}")
             await self.send_error_sticker(update)
 
+    async def handle_inline_music_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle inline queries for YouTube Music links."""
+        query = update.inline_query
+        if not query:
+            return
+
+        query_text = query.query.strip()
+        error_logger.info(f"🎵 Inline query received: {query_text}")
+
+        # Check if query contains a music.youtube.com link
+        if 'music.youtube.com' not in query_text.lower():
+            # Show hint for non-music URLs
+            results = [
+                InlineQueryResultArticle(
+                    id='hint',
+                    title='🎵 YouTube Music Downloader',
+                    description='Paste a music.youtube.com link to download as MP3',
+                    input_message_content=InputTextMessageContent(
+                        message_text='Send me a music.youtube.com link to download as MP3!'
+                    )
+                )
+            ]
+            await query.answer(results, cache_time=10)
+            return
+
+        # Extract URL from query
+        urls = extract_urls(query_text)
+        music_url = None
+        for url in urls:
+            if 'music.youtube.com' in url.lower():
+                music_url = url
+                break
+
+        if not music_url:
+            await query.answer([], cache_time=10)
+            return
+
+        # Show "processing" result while downloading
+        processing_results = [
+            InlineQueryResultArticle(
+                id='processing',
+                title='⏳ Downloading...',
+                description=f'Processing: {music_url[:50]}...',
+                input_message_content=InputTextMessageContent(
+                    message_text=f'⏳ Downloading audio from:\n{music_url}'
+                )
+            )
+        ]
+
+        try:
+            # Download the track
+            filename, title = await self.download_youtube_music(music_url)
+
+            if filename and os.path.exists(filename):
+                # Upload the file to Telegram to get a file_id
+                file_size = os.path.getsize(filename)
+
+                if file_size > 50 * 1024 * 1024:  # 50MB limit
+                    error_logger.warning(f"Inline: Audio file too large: {file_size}")
+                    await query.answer(processing_results, cache_time=5)
+                    return
+
+                # Send file to get file_id (we send to the user's saved messages temporarily)
+                with open(filename, 'rb') as audio_file:
+                    # Upload via sending to the bot's chat with the user
+                    message = await context.bot.send_audio(
+                        chat_id=query.from_user.id,
+                        audio=audio_file,
+                        title=title or "Audio",
+                        caption=f"🎵 {title}\n\n🔗 {music_url}"
+                    )
+
+                if message and message.audio:
+                    # Now we have the file_id, return cached audio result
+                    results = [
+                        InlineQueryResultCachedAudio(
+                            id=f'audio_{uuid.uuid4().hex[:8]}',
+                            audio_file_id=message.audio.file_id,
+                            caption=f"🎵 {title}"
+                        )
+                    ]
+                    await query.answer(results, cache_time=300)
+                    error_logger.info(f"✅ Inline query answered with audio: {title}")
+                else:
+                    await query.answer(processing_results, cache_time=5)
+            else:
+                # Download failed
+                error_results = [
+                    InlineQueryResultArticle(
+                        id='error',
+                        title='❌ Download Failed',
+                        description='Could not download the audio. Try again later.',
+                        input_message_content=InputTextMessageContent(
+                            message_text=f'❌ Failed to download audio from:\n{music_url}'
+                        )
+                    )
+                ]
+                await query.answer(error_results, cache_time=10)
+
+        except Exception as e:
+            error_logger.error(f"Inline query error: {e}")
+            await query.answer(processing_results, cache_time=5)
+
     async def _try_youtube_strategy(self, url: str, strategy: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Try a single YouTube download strategy."""
         unique_filename = f"yt_{uuid.uuid4().hex[:8]}.mp4"
@@ -1588,7 +1691,13 @@ def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[
         ),
         group=1  # Higher priority group
     )
-    
+
+    # Add inline query handler for YouTube Music
+    application.add_handler(
+        InlineQueryHandler(video_downloader.handle_inline_music_query)
+    )
+    general_logger.info("Inline query handler for YouTube Music registered")
+
     # Mark as registered to prevent duplicates
     application._video_handler_set = True
 
