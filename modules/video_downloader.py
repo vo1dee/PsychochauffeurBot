@@ -698,16 +698,21 @@ class VideoDownloader:
         # Ensure music directory exists
         os.makedirs(MUSIC_DIR, exist_ok=True)
 
-        unique_filename = f"music_{uuid.uuid4().hex[:8]}.mp3"
-        output_path = os.path.join(MUSIC_DIR, unique_filename)
+        # Use yt-dlp output template for proper Artist - Title naming
+        # %(artist)s falls back to %(uploader)s if not available
+        output_template = os.path.join(MUSIC_DIR, '%(artist,uploader)s - %(title)s.%(ext)s')
 
-        # Build yt-dlp command for audio extraction
+        # Build yt-dlp command for audio extraction with metadata
         cmd = [
             self.yt_dlp_path, url,
             '-f', 'bestaudio',
             '-x',  # Extract audio
             '--audio-format', 'mp3',
-            '-o', output_path,
+            '--audio-quality', '0',  # Best quality
+            '-o', output_template,
+            '--embed-metadata',  # Preserve/embed metadata tags
+            '--embed-thumbnail',  # Embed album art
+            '--add-metadata',  # Add metadata to file
             '--no-check-certificate',
             '--geo-bypass',
             '--ignore-errors',
@@ -715,9 +720,10 @@ class VideoDownloader:
             '--socket-timeout', '30',
             '--retries', '3',
             '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            '--print', 'after_move:filepath',  # Print final filepath after processing
         ]
 
-        error_logger.info(f"   Command: {' '.join(cmd[:10])}... (truncated)")
+        error_logger.info(f"   Command: {' '.join(cmd[:12])}... (truncated)")
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -728,19 +734,15 @@ class VideoDownloader:
 
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
 
-            # yt-dlp may append .mp3 extension, check both paths
-            if not os.path.exists(output_path):
-                # Check if file exists without double extension
-                base_path = output_path.replace('.mp3', '')
-                if os.path.exists(base_path + '.mp3'):
-                    output_path = base_path + '.mp3'
+            # Get the actual output filepath from yt-dlp's --print output
+            output_path = stdout.decode().strip().split('\n')[-1] if stdout else None
 
-            if process.returncode == 0 and os.path.exists(output_path):
+            if process.returncode == 0 and output_path and os.path.exists(output_path):
                 file_size = os.path.getsize(output_path)
                 error_logger.info(f"   ✅ Downloaded {file_size} bytes to {output_path}")
 
-                # Get title
-                title = await self._get_video_title(url)
+                # Extract title from filename (Artist - Title.mp3 -> Artist - Title)
+                title = os.path.splitext(os.path.basename(output_path))[0]
                 return output_path, title
             else:
                 stderr_text = stderr.decode()
