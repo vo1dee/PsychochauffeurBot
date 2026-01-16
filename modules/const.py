@@ -14,6 +14,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
 DOWNLOADS_DIR = os.path.join(PROJECT_ROOT, 'downloads')
+MUSIC_DIR = os.path.join(DATA_DIR, 'music')
 
 # Define timezone constant
 KYIV_TZ = pytz.timezone('Europe/Kyiv')
@@ -55,7 +56,8 @@ class VideoPlatforms:
         'tiktok.com', 'vm.tiktok.com', 'youtube.com/shorts',
         'youtu.be/shorts',
         'vimeo.com', 'reddit.com', 'twitch.tv', 'youtube.com/clip',
-        'pinterest.com', 'pin.it'
+        'pinterest.com', 'pin.it',
+        'music.youtube.com'
     ]
 
 class InstagramConfig:
