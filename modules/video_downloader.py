@@ -825,60 +825,27 @@ class VideoDownloader:
         if not query:
             return
 
-        query_text = query.query.strip().lower()
-        error_logger.info(f"🔍 Inline query received: {query_text}")
+        query_text = query.query.strip()
+        error_logger.info(f"🔍 Inline query received: '{query_text}'")
 
-        # Handle "cat" query
-        if query_text in ['cat', 'кіт', 'кот', 'котик']:
-            await self._handle_inline_cat(query, context)
+        # Check for supported URLs first
+        urls = extract_urls(query_text)
+
+        if urls:
+            url = urls[0]
+            # Route to appropriate handler based on URL
+            if 'music.youtube.com' in url.lower():
+                await self._handle_inline_youtube_music(query, context, url)
+            elif 'tiktok.com' in url.lower():
+                await self._handle_inline_tiktok(query, context, url)
+            else:
+                # Unsupported URL - still show cat button
+                await self._show_cat_with_hint(query, f"Unsupported link. Try music.youtube.com or tiktok.com")
             return
 
-        # Check for supported URLs
-        urls = extract_urls(update.inline_query.query)
-
-        if not urls:
-            # Show help/hints
-            results = [
-                InlineQueryResultArticle(
-                    id='hint_cat',
-                    title='🐱 Random Cat Photo',
-                    description='Type "cat" to get a random cat photo',
-                    input_message_content=InputTextMessageContent(message_text='🐱 Meow!')
-                ),
-                InlineQueryResultArticle(
-                    id='hint_music',
-                    title='🎵 YouTube Music',
-                    description='Paste a music.youtube.com link',
-                    input_message_content=InputTextMessageContent(message_text='Paste a music.youtube.com link!')
-                ),
-                InlineQueryResultArticle(
-                    id='hint_tiktok',
-                    title='🎬 TikTok Video',
-                    description='Paste a tiktok.com link',
-                    input_message_content=InputTextMessageContent(message_text='Paste a tiktok.com link!')
-                )
-            ]
-            await query.answer(results, cache_time=60)
-            return
-
-        url = urls[0]
-
-        # Route to appropriate handler
-        if 'music.youtube.com' in url.lower():
-            await self._handle_inline_youtube_music(query, context, url)
-        elif 'tiktok.com' in url.lower():
-            await self._handle_inline_tiktok(query, context, url)
-        else:
-            # Unsupported URL
-            results = [
-                InlineQueryResultArticle(
-                    id='unsupported',
-                    title='❌ Unsupported Link',
-                    description='Only music.youtube.com and tiktok.com are supported',
-                    input_message_content=InputTextMessageContent(message_text=url)
-                )
-            ]
-            await query.answer(results, cache_time=30)
+        # No URL - show cat photo button (works for empty query, "cat", etc.)
+        # This makes cat available immediately when user types @bot
+        await self._handle_inline_cat(query, context)
 
     async def _handle_inline_cat(self, query: Any, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle inline cat photo request."""
@@ -1012,6 +979,37 @@ class VideoDownloader:
             )
         ]
         await query.answer(results, cache_time=10)
+
+    async def _show_cat_with_hint(self, query: Any, hint: str) -> None:
+        """Show cat photo with a hint message."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get('https://api.thecatapi.com/v1/images/search') as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        cat_image_url = data[0]['url']
+
+                        from telegram import InlineQueryResultPhoto
+                        results = [
+                            InlineQueryResultPhoto(
+                                id=f'cat_{uuid.uuid4().hex[:8]}',
+                                photo_url=cat_image_url,
+                                thumbnail_url=cat_image_url,
+                                caption='🐱 Meow!'
+                            ),
+                            InlineQueryResultArticle(
+                                id='hint',
+                                title='💡 Hint',
+                                description=hint,
+                                input_message_content=InputTextMessageContent(message_text=hint)
+                            )
+                        ]
+                        await query.answer(results, cache_time=0)
+                    else:
+                        await query.answer([], cache_time=5)
+        except Exception as e:
+            error_logger.error(f"Inline cat with hint error: {e}")
+            await query.answer([], cache_time=5)
 
     async def _try_youtube_strategy(self, url: str, strategy: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Try a single YouTube download strategy."""
