@@ -819,80 +819,119 @@ class VideoDownloader:
             error_logger.error(f"Audio sending error: {str(e)}")
             await self.send_error_sticker(update)
 
-    async def handle_inline_music_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle inline queries for YouTube Music links."""
+    async def handle_inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle inline queries for YouTube Music, TikTok, and cat photos."""
         query = update.inline_query
         if not query:
             return
 
-        query_text = query.query.strip()
-        error_logger.info(f"🎵 Inline query received: {query_text}")
+        query_text = query.query.strip().lower()
+        error_logger.info(f"🔍 Inline query received: {query_text}")
 
-        # Check if query contains a music.youtube.com link
-        if 'music.youtube.com' not in query_text.lower():
-            # Show hint for non-music URLs
+        # Handle "cat" query
+        if query_text in ['cat', 'кіт', 'кот', 'котик']:
+            await self._handle_inline_cat(query, context)
+            return
+
+        # Check for supported URLs
+        urls = extract_urls(update.inline_query.query)
+
+        if not urls:
+            # Show help/hints
             results = [
                 InlineQueryResultArticle(
-                    id='hint',
-                    title='🎵 YouTube Music Downloader',
-                    description='Paste a music.youtube.com link to download as MP3',
-                    input_message_content=InputTextMessageContent(
-                        message_text='Send me a music.youtube.com link to download as MP3!'
-                    )
+                    id='hint_cat',
+                    title='🐱 Random Cat Photo',
+                    description='Type "cat" to get a random cat photo',
+                    input_message_content=InputTextMessageContent(message_text='🐱 Meow!')
+                ),
+                InlineQueryResultArticle(
+                    id='hint_music',
+                    title='🎵 YouTube Music',
+                    description='Paste a music.youtube.com link',
+                    input_message_content=InputTextMessageContent(message_text='Paste a music.youtube.com link!')
+                ),
+                InlineQueryResultArticle(
+                    id='hint_tiktok',
+                    title='🎬 TikTok Video',
+                    description='Paste a tiktok.com link',
+                    input_message_content=InputTextMessageContent(message_text='Paste a tiktok.com link!')
                 )
             ]
-            await query.answer(results, cache_time=10)
+            await query.answer(results, cache_time=60)
             return
 
-        # Extract URL from query
-        urls = extract_urls(query_text)
-        music_url = None
-        for url in urls:
-            if 'music.youtube.com' in url.lower():
-                music_url = url
-                break
+        url = urls[0]
 
-        if not music_url:
-            await query.answer([], cache_time=10)
-            return
-
-        # Show "processing" result while downloading
-        processing_results = [
-            InlineQueryResultArticle(
-                id='processing',
-                title='⏳ Downloading...',
-                description=f'Processing: {music_url[:50]}...',
-                input_message_content=InputTextMessageContent(
-                    message_text=f'⏳ Downloading audio from:\n{music_url}'
+        # Route to appropriate handler
+        if 'music.youtube.com' in url.lower():
+            await self._handle_inline_youtube_music(query, context, url)
+        elif 'tiktok.com' in url.lower():
+            await self._handle_inline_tiktok(query, context, url)
+        else:
+            # Unsupported URL
+            results = [
+                InlineQueryResultArticle(
+                    id='unsupported',
+                    title='❌ Unsupported Link',
+                    description='Only music.youtube.com and tiktok.com are supported',
+                    input_message_content=InputTextMessageContent(message_text=url)
                 )
-            )
-        ]
+            ]
+            await query.answer(results, cache_time=30)
+
+    async def _handle_inline_cat(self, query: Any, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle inline cat photo request."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get('https://api.thecatapi.com/v1/images/search') as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        cat_image_url = data[0]['url']
+
+                        from telegram import InlineQueryResultPhoto
+                        results = [
+                            InlineQueryResultPhoto(
+                                id=f'cat_{uuid.uuid4().hex[:8]}',
+                                photo_url=cat_image_url,
+                                thumbnail_url=cat_image_url,
+                                caption='🐱 Meow!'
+                            )
+                        ]
+                        await query.answer(results, cache_time=0)  # No cache for random cats
+                        error_logger.info("✅ Inline cat photo sent")
+                    else:
+                        await query.answer([], cache_time=5)
+        except Exception as e:
+            error_logger.error(f"Inline cat error: {e}")
+            await query.answer([], cache_time=5)
+
+    async def _handle_inline_youtube_music(self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
+        """Handle inline YouTube Music download."""
+        error_logger.info(f"🎵 Inline YouTube Music: {url}")
 
         try:
             # Download the track
-            filename, title = await self.download_youtube_music(music_url)
+            filename, title = await self.download_youtube_music(url)
 
             if filename and os.path.exists(filename):
-                # Upload the file to Telegram to get a file_id
                 file_size = os.path.getsize(filename)
 
-                if file_size > 50 * 1024 * 1024:  # 50MB limit
+                if file_size > 50 * 1024 * 1024:
                     error_logger.warning(f"Inline: Audio file too large: {file_size}")
-                    await query.answer(processing_results, cache_time=5)
+                    await self._send_inline_error(query, "Audio file too large")
                     return
 
-                # Send file to get file_id (we send to the user's saved messages temporarily)
+                # Send file to user to get file_id
                 with open(filename, 'rb') as audio_file:
-                    # Upload via sending to the bot's chat with the user
                     message = await context.bot.send_audio(
                         chat_id=query.from_user.id,
                         audio=audio_file,
                         title=title or "Audio",
-                        caption=f"🎵 {title}\n\n🔗 {music_url}"
+                        caption=f"🎵 {title}\n\n🔗 {url}"
                     )
 
                 if message and message.audio:
-                    # Now we have the file_id, return cached audio result
                     results = [
                         InlineQueryResultCachedAudio(
                             id=f'audio_{uuid.uuid4().hex[:8]}',
@@ -901,26 +940,78 @@ class VideoDownloader:
                         )
                     ]
                     await query.answer(results, cache_time=300)
-                    error_logger.info(f"✅ Inline query answered with audio: {title}")
+                    error_logger.info(f"✅ Inline audio sent: {title}")
                 else:
-                    await query.answer(processing_results, cache_time=5)
+                    await self._send_inline_error(query, "Failed to upload audio")
             else:
-                # Download failed
-                error_results = [
-                    InlineQueryResultArticle(
-                        id='error',
-                        title='❌ Download Failed',
-                        description='Could not download the audio. Try again later.',
-                        input_message_content=InputTextMessageContent(
-                            message_text=f'❌ Failed to download audio from:\n{music_url}'
-                        )
-                    )
-                ]
-                await query.answer(error_results, cache_time=10)
+                await self._send_inline_error(query, "Download failed")
 
         except Exception as e:
-            error_logger.error(f"Inline query error: {e}")
-            await query.answer(processing_results, cache_time=5)
+            error_logger.error(f"Inline YouTube Music error: {e}")
+            await self._send_inline_error(query, str(e))
+
+    async def _handle_inline_tiktok(self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
+        """Handle inline TikTok video download."""
+        error_logger.info(f"🎬 Inline TikTok: {url}")
+
+        try:
+            # Download the video
+            filename, title = await self._download_tiktok_ytdlp(url)
+
+            if filename and os.path.exists(filename):
+                file_size = os.path.getsize(filename)
+
+                if file_size > 50 * 1024 * 1024:
+                    error_logger.warning(f"Inline: Video file too large: {file_size}")
+                    await self._send_inline_error(query, "Video file too large")
+                    return
+
+                # Send video to user to get file_id
+                with open(filename, 'rb') as video_file:
+                    message = await context.bot.send_video(
+                        chat_id=query.from_user.id,
+                        video=video_file,
+                        caption=f"🎬 {title or 'TikTok'}\n\n🔗 {url}"
+                    )
+
+                if message and message.video:
+                    from telegram import InlineQueryResultCachedVideo
+                    results = [
+                        InlineQueryResultCachedVideo(
+                            id=f'video_{uuid.uuid4().hex[:8]}',
+                            video_file_id=message.video.file_id,
+                            title=title or "TikTok Video",
+                            caption=f"🎬 {title or 'TikTok'}"
+                        )
+                    ]
+                    await query.answer(results, cache_time=300)
+                    error_logger.info(f"✅ Inline TikTok video sent: {title}")
+                else:
+                    await self._send_inline_error(query, "Failed to upload video")
+
+                # Cleanup
+                try:
+                    os.remove(filename)
+                except:
+                    pass
+            else:
+                await self._send_inline_error(query, "Download failed")
+
+        except Exception as e:
+            error_logger.error(f"Inline TikTok error: {e}")
+            await self._send_inline_error(query, str(e))
+
+    async def _send_inline_error(self, query: Any, error_msg: str) -> None:
+        """Send error result for inline query."""
+        results = [
+            InlineQueryResultArticle(
+                id='error',
+                title='❌ Error',
+                description=error_msg[:100],
+                input_message_content=InputTextMessageContent(message_text=f'❌ {error_msg}')
+            )
+        ]
+        await query.answer(results, cache_time=10)
 
     async def _try_youtube_strategy(self, url: str, strategy: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Try a single YouTube download strategy."""
@@ -1692,11 +1783,11 @@ def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[
         group=1  # Higher priority group
     )
 
-    # Add inline query handler for YouTube Music
+    # Add inline query handler for YouTube Music, TikTok, and cat photos
     application.add_handler(
-        InlineQueryHandler(video_downloader.handle_inline_music_query)
+        InlineQueryHandler(video_downloader.handle_inline_query)
     )
-    general_logger.info("Inline query handler for YouTube Music registered")
+    general_logger.info("Inline query handler registered (music, tiktok, cat)")
 
     # Mark as registered to prevent duplicates
     application._video_handler_set = True
