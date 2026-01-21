@@ -826,7 +826,7 @@ class VideoDownloader:
             return
 
         query_text = query.query.strip()
-        error_logger.info(f"🔍 Inline query received: '{query_text}'")
+        error_logger.info(f"🔍 Inline query received: '{query_text}' from user {query.from_user.id}")
 
         # Check for supported URLs first
         urls = extract_urls(query_text)
