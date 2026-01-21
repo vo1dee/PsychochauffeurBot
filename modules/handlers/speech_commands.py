@@ -70,11 +70,16 @@ async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     
     enabled = args[0] == "on"
-    
-    # Update config
+
+    # Enable custom config for this chat so that chat-specific settings are respected
+    # Without this, the global config is always used and chat-specific settings are ignored
+    await config_manager.enable_custom_config(chat_id, chat_type)
+
+    # Update config - use "enabled" not "overrides.enabled" because update_module_setting
+    # already starts inside the overrides object
     await config_manager.update_module_setting(
         module_name="speechmatics",
-        setting_path="overrides.enabled",
+        setting_path="enabled",
         value=enabled,
         chat_id=chat_id,
         chat_type=chat_type

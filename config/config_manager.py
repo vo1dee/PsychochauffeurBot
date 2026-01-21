@@ -720,6 +720,12 @@ class ConfigManager:
                          "video_path": "downloads",
                          "before_video_path": None
                      }
+                 },
+                 "speechmatics": {
+                     "enabled": False,
+                     "overrides": {
+                         "allow_all_users": False
+                     }
                  }
             }
         }
