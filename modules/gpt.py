@@ -81,7 +81,11 @@ DEFAULT_PROMPTS = {
 }
 
 # Configure timeouts and retries for API clients
-TIMEOUT_CONFIG = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=5.0)
+TIMEOUT_CONFIG = httpx.Timeout(connect=15.0, read=60.0, write=30.0, pool=10.0)
+
+# Retry configuration for transient errors
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 2.0  # seconds
 
 # OpenRouter specific settings (from first implementation)
 USE_OPENROUTER = bool(Config.OPENROUTER_BASE_URL)  # Only use if defined
@@ -119,10 +123,24 @@ class OpenAIAsyncClient:
                 }
                 payload.update(kwargs)
                 url = f"{self.outer.outer.base_url}/chat/completions"
-                response = await self.outer.outer._client.post(url, headers=self.outer.outer.headers, json=payload)
-                response.raise_for_status()
-                result = response.json()
-                return dict(result) if isinstance(result, dict) else {}
+
+                last_exception = None
+                for attempt in range(MAX_RETRIES):
+                    try:
+                        response = await self.outer.outer._client.post(url, headers=self.outer.outer.headers, json=payload)
+                        response.raise_for_status()
+                        result = response.json()
+                        return dict(result) if isinstance(result, dict) else {}
+                    except (httpx.ConnectTimeout, httpx.ConnectError, httpx.PoolTimeout) as e:
+                        last_exception = e
+                        if attempt < MAX_RETRIES - 1:
+                            wait_time = RETRY_BACKOFF_BASE * (2 ** attempt)
+                            general_logger.warning(f"API connection failed (attempt {attempt + 1}/{MAX_RETRIES}): {type(e).__name__}. Retrying in {wait_time}s...")
+                            await asyncio.sleep(wait_time)
+                        else:
+                            general_logger.error(f"API connection failed after {MAX_RETRIES} attempts: {type(e).__name__}")
+                            raise
+                raise last_exception  # type: ignore
 
         @property
         def completions(self) -> 'OpenAIAsyncClient.Chat.Completions':
