@@ -83,11 +83,17 @@ class HandlerRegistry(ServiceInterface):
             cat_command, screenshot_command, count_command, missing_command,
             error_report_command
         )
+        from modules.handlers.admin_commands import (
+            mute_command, unmute_command
+        )
         from modules.handlers.speech_commands import (
             speech_command
         )
         from modules.handlers.random_commands import (
             random_command
+        )
+        from modules.handlers.reaction_commands import (
+            reaction_command
         )
         from modules.handlers.message_handlers import (
             handle_message, handle_photo_analysis, handle_sticker,
@@ -133,7 +139,15 @@ class HandlerRegistry(ServiceInterface):
         self.command_processor.register_text_command(
             "error_report", error_report_command, "Generate error report", admin_only=True
         )
-        
+
+        # Register admin commands
+        self.command_processor.register_text_command(
+            "mute", mute_command, "Mute a user for specified time", admin_only=True, group_only=True
+        )
+        self.command_processor.register_text_command(
+            "unmute", unmute_command, "Unmute a user", admin_only=True, group_only=True
+        )
+
         # Register speech commands
         self.command_processor.register_text_command(
             "speech", speech_command, "Toggle speech recognition", admin_only=True
@@ -142,6 +156,11 @@ class HandlerRegistry(ServiceInterface):
         # Register random response commands
         self.command_processor.register_text_command(
             "random", random_command, "Toggle random responses", admin_only=True
+        )
+
+        # Register reaction commands
+        self.command_processor.register_text_command(
+            "reaction", reaction_command, "Toggle emoji reactions", admin_only=True
         )
         
         # Register weather and geomagnetic commands using service registry

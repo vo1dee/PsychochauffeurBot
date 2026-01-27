@@ -48,6 +48,10 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
                         error_logger.error(f"Failed to send AliExpress sticker: {e}")
             # --- End AliExpress sticker logic ---
 
+            # --- Reaction to shooshpanchik's messages ---
+            await _maybe_react_to_shooshpanchik(update, context)
+            # --- End reaction logic ---
+
             # --- URL shortening logic ---
             if update.message.text:
                 urls = extract_urls(update.message.text)
@@ -123,3 +127,56 @@ def setup_message_handlers(application: Application[Any, Any, Any, Any, Any, Any
     application._message_logging_handler_set = True
 
 # Duplicate function removed - see above for the actual implementation
+
+
+REACTION_TARGET_USERNAME = "shooshpanchik"
+
+
+async def _maybe_react_to_shooshpanchik(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """React with 👀 eyes emoji to messages from @shooshpanchik if reactions are enabled."""
+    if not update.message or not update.message.from_user:
+        return
+
+    username = update.message.from_user.username
+    if not username or username.lower() != REACTION_TARGET_USERNAME:
+        return
+
+    if not update.effective_chat:
+        return
+
+    chat_id = str(update.effective_chat.id)
+    chat_type = update.effective_chat.type
+
+    # Check if reactions are enabled for this chat
+    service_registry = None
+    if hasattr(context, 'application') and context.application and hasattr(context.application, 'bot_data'):
+        app: Any = context.application
+        if hasattr(app, 'bot_data'):
+            service_registry = app.bot_data.get('service_registry')
+
+    if not service_registry:
+        return
+
+    try:
+        config_manager = service_registry.get_service('config_manager')
+        config = await config_manager.get_config(chat_id, chat_type)
+        reactions_config = config.get("config_modules", {}).get("reactions", {})
+        if not reactions_config.get("enabled", True):
+            return
+    except Exception as e:
+        general_logger.warning(f"Could not check reaction config: {e}")
+        # Default to enabled if config fails
+        pass
+
+    try:
+        import json
+        await context.bot._post(
+            "setMessageReaction",
+            data={
+                "chat_id": update.effective_chat.id,
+                "message_id": update.message.message_id,
+                "reaction": json.dumps([{"type": "emoji", "emoji": "👀"}]),
+            },
+        )
+    except Exception as e:
+        general_logger.debug(f"Failed to set reaction: {e}")

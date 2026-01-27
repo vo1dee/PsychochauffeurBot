@@ -18,6 +18,58 @@ from modules.logger import general_logger, error_logger
 logger = logging.getLogger(__name__)
 
 
+async def resolve_user_by_username(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    username: str,
+    chat_id: int
+) -> Optional[int]:
+    """
+    Resolve a username to a user_id using multiple methods.
+
+    Tries in order:
+    1. Message entities (text_mention with user object)
+    2. Chat administrators list
+
+    Args:
+        update: Telegram update object
+        context: Bot context
+        username: Username to resolve (without @ prefix)
+        chat_id: Chat ID to search in
+
+    Returns:
+        User ID if found, None otherwise
+    """
+    username_lower = username.lower()
+
+    # Method 1: Check message entities for text_mention
+    if update.message and update.message.entities:
+        for entity in update.message.entities:
+            if entity.type == "text_mention" and entity.user:
+                # text_mention contains user object directly
+                if entity.user.username and entity.user.username.lower() == username_lower:
+                    return entity.user.id
+            elif entity.type == "mention":
+                # Regular @mention - extract the username from message text
+                if update.message.text:
+                    mention_text = update.message.text[entity.offset:entity.offset + entity.length]
+                    if mention_text.lower() == f"@{username_lower}":
+                        # Unfortunately, regular mentions don't include user_id
+                        # We need to try other methods
+                        pass
+
+    # Method 2: Check chat administrators
+    try:
+        admins = await context.bot.get_chat_administrators(chat_id)
+        for admin in admins:
+            if admin.user.username and admin.user.username.lower() == username_lower:
+                return admin.user.id
+    except TelegramError as e:
+        logger.warning(f"Failed to get chat administrators: {e}")
+
+    return None
+
+
 async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle the /mute command to mute a user for a specified time in minutes.
@@ -70,32 +122,14 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if first_arg.startswith('@'):
             # Handle @username mention
             username = first_arg[1:]  # Remove @ symbol
-            try:
-                # Get all chat members to find user by username
-                # Note: This might not work for large groups due to Telegram API limitations
-                chat_members = await context.bot.get_chat_administrators(chat.id)
-                target_member = None
+            target_user_id = await resolve_user_by_username(update, context, username, chat.id)
 
-                for member in chat_members:
-                    if member.user.username and member.user.username.lower() == username.lower():
-                        target_member = member
-                        break
-
-                if not target_member:
-                    # Note: Cannot reliably get user by username with get_chat_member
-                    # as it requires user ID (int), not username string
-                    await update.message.reply_text(f"❌ User @{username} not found in this chat.")
-                    return
-
-                if target_member:
-                    target_user_id = target_member.user.id
-                else:
-                    await update.message.reply_text(f"❌ User @{username} not found in this chat or not accessible.")
-                    return
-
-            except TelegramError as e:
-                error_logger.error(f"Failed to find user by username @{username}: {e}")
-                await update.message.reply_text(f"❌ Could not find user @{username}. Try using user ID instead.")
+            if not target_user_id:
+                await update.message.reply_text(
+                    f"❌ User @{username} not found.\n"
+                    f"💡 Try replying to the user's message with /mute <minutes> "
+                    f"or use their numeric user ID."
+                )
                 return
         else:
             # Try to parse as user ID
@@ -255,31 +289,14 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if first_arg.startswith('@'):
             # Handle @username mention
             username = first_arg[1:]  # Remove @ symbol
-            try:
-                # Get all chat members to find user by username
-                chat_members = await context.bot.get_chat_administrators(chat.id)
-                target_member = None
+            target_user_id = await resolve_user_by_username(update, context, username, chat.id)
 
-                for member in chat_members:
-                    if member.user.username and member.user.username.lower() == username.lower():
-                        target_member = member
-                        break
-
-                if not target_member:
-                    # Note: Cannot reliably get user by username with get_chat_member
-                    # as it requires user ID (int), not username string
-                    await update.message.reply_text(f"❌ User @{username} not found in this chat.")
-                    return
-
-                if target_member:
-                    target_user_id = target_member.user.id
-                else:
-                    await update.message.reply_text(f"❌ User @{username} not found in this chat or not accessible.")
-                    return
-
-            except TelegramError as e:
-                error_logger.error(f"Failed to find user by username @{username}: {e}")
-                await update.message.reply_text(f"❌ Could not find user @{username}. Try using user ID instead.")
+            if not target_user_id:
+                await update.message.reply_text(
+                    f"❌ User @{username} not found.\n"
+                    f"💡 Try replying to the user's message with /unmute "
+                    f"or use their numeric user ID."
+                )
                 return
         else:
             # Try to parse as user ID
