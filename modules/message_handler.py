@@ -131,14 +131,33 @@ def setup_message_handlers(application: Application[Any, Any, Any, Any, Any, Any
 
 REACTION_TARGET_USERNAME = "shooshpanchik"
 
+REACTION_TRIGGER_KEYWORDS = [
+    "психошофьор", "психошофьори", "болгарська пригода",
+    "крайслер", "болгарія", "psychochauffeur", "чирслер"
+]
+
 
 async def _maybe_react_to_shooshpanchik(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """React with 👀 eyes emoji to messages from @shooshpanchik if reactions are enabled."""
-    if not update.message or not update.message.from_user:
+    """React with 👀 eyes emoji to messages from @shooshpanchik or containing trigger keywords."""
+    if not update.message:
         return
 
-    username = update.message.from_user.username
-    if not username or username.lower() != REACTION_TARGET_USERNAME:
+    # Check username match
+    from_user = update.message.from_user
+    username_match = (
+        from_user is not None
+        and from_user.username is not None
+        and from_user.username.lower() == REACTION_TARGET_USERNAME
+    )
+
+    # Check keyword match in message text
+    keyword_match = False
+    text = update.message.text or update.message.caption or ""
+    if text:
+        text_lower = text.lower()
+        keyword_match = any(kw in text_lower for kw in REACTION_TRIGGER_KEYWORDS)
+
+    if not username_match and not keyword_match:
         return
 
     if not update.effective_chat:
@@ -165,8 +184,6 @@ async def _maybe_react_to_shooshpanchik(update: Update, context: ContextTypes.DE
             return
     except Exception as e:
         general_logger.warning(f"Could not check reaction config: {e}")
-        # Default to enabled if config fails
-        pass
 
     try:
         import json
