@@ -49,7 +49,7 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
             # --- End AliExpress sticker logic ---
 
             # --- Reaction to shooshpanchik's messages ---
-            await _maybe_react_to_shooshpanchik(update, context)
+            await _maybe_react_to_message(update, context)
             # --- End reaction logic ---
 
             # --- URL shortening logic ---
@@ -129,44 +129,15 @@ def setup_message_handlers(application: Application[Any, Any, Any, Any, Any, Any
 # Duplicate function removed - see above for the actual implementation
 
 
-REACTION_TARGET_USERNAME = "shooshpanchik"
-
-REACTION_TRIGGER_KEYWORDS = [
-    "психошофьор", "психошофьори", "болгарська пригода",
-    "крайслер", "болгарія", "psychochauffeur", "чирслер"
-]
-
-
-async def _maybe_react_to_shooshpanchik(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """React with 👀 eyes emoji to messages from @shooshpanchik or containing trigger keywords."""
-    if not update.message:
-        return
-
-    # Check username match
-    from_user = update.message.from_user
-    username_match = (
-        from_user is not None
-        and from_user.username is not None
-        and from_user.username.lower() == REACTION_TARGET_USERNAME
-    )
-
-    # Check keyword match in message text
-    keyword_match = False
-    text = update.message.text or update.message.caption or ""
-    if text:
-        text_lower = text.lower()
-        keyword_match = any(kw in text_lower for kw in REACTION_TRIGGER_KEYWORDS)
-
-    if not username_match and not keyword_match:
-        return
-
-    if not update.effective_chat:
+async def _maybe_react_to_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """React with emoji to messages matching configured usernames or keywords."""
+    if not update.message or not update.effective_chat:
         return
 
     chat_id = str(update.effective_chat.id)
     chat_type = update.effective_chat.type
 
-    # Check if reactions are enabled for this chat
+    # Get reactions config from chat config
     service_registry = None
     if hasattr(context, 'application') and context.application and hasattr(context.application, 'bot_data'):
         app: Any = context.application
@@ -180,10 +151,37 @@ async def _maybe_react_to_shooshpanchik(update: Update, context: ContextTypes.DE
         config_manager = service_registry.get_service('config_manager')
         config = await config_manager.get_config(chat_id, chat_type)
         reactions_config = config.get("config_modules", {}).get("reactions", {})
-        if not reactions_config.get("enabled", True):
-            return
     except Exception as e:
         general_logger.warning(f"Could not check reaction config: {e}")
+        return
+
+    overrides = reactions_config.get("overrides", {})
+
+    # Check enabled: overrides.enabled takes precedence over top-level enabled
+    enabled = overrides.get("enabled", reactions_config.get("enabled", False))
+    if not enabled:
+        return
+    target_usernames = [u.lower() for u in overrides.get("target_usernames", [])]
+    trigger_keywords = [k.lower() for k in overrides.get("trigger_keywords", [])]
+    emoji = overrides.get("emoji", "👀")
+
+    # Check username match
+    from_user = update.message.from_user
+    username_match = (
+        from_user is not None
+        and from_user.username is not None
+        and from_user.username.lower() in target_usernames
+    )
+
+    # Check keyword match
+    keyword_match = False
+    text = update.message.text or update.message.caption or ""
+    if text and trigger_keywords:
+        text_lower = text.lower()
+        keyword_match = any(kw in text_lower for kw in trigger_keywords)
+
+    if not username_match and not keyword_match:
+        return
 
     try:
         import json
@@ -192,7 +190,7 @@ async def _maybe_react_to_shooshpanchik(update: Update, context: ContextTypes.DE
             data={
                 "chat_id": update.effective_chat.id,
                 "message_id": update.message.message_id,
-                "reaction": json.dumps([{"type": "emoji", "emoji": "👀"}]),
+                "reaction": json.dumps([{"type": "emoji", "emoji": emoji}]),
             },
         )
     except Exception as e:
