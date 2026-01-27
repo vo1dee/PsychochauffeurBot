@@ -1500,15 +1500,80 @@ class VideoDownloader:
     def _get_platform(self, url: str) -> Platform:
         url = url.lower()
         # Use more precise URL matching to avoid substring attacks
-        if url.startswith(('https://tiktok.com/', 'https://www.tiktok.com/', 'https://vm.tiktok.com/', 'https://m.tiktok.com/')):
+        # Include all TikTok URL variants: www, vm (short links), m (mobile), vt (video short links)
+        if url.startswith(('https://tiktok.com/', 'https://www.tiktok.com/', 'https://vm.tiktok.com/', 'https://m.tiktok.com/', 'https://vt.tiktok.com/')):
             return Platform.TIKTOK
         else:
             return Platform.OTHER
 
     async def _download_tiktok_ytdlp(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-        """Download TikTok video using yt-dlp."""
+        """Download TikTok video using yt-dlp with tikwm fallback."""
         config = self.platform_configs[Platform.TIKTOK]
-        return await self._download_generic(url, Platform.TIKTOK, config, self.download_path)
+
+        # Try yt-dlp first
+        result = await self._download_generic(url, Platform.TIKTOK, config, self.download_path)
+
+        # If yt-dlp fails, try tikwm API as fallback
+        if not result or not result[0]:
+            error_logger.info(f"yt-dlp failed for TikTok, trying tikwm fallback: {url}")
+            result = await self._download_tiktok_tikwm(url)
+
+        return result
+
+    async def _download_tiktok_tikwm(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Download TikTok video using tikwm.com API as fallback."""
+        try:
+            api_url = f"https://www.tikwm.com/api/?url={url}"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    if response.status != 200:
+                        error_logger.error(f"tikwm API returned status {response.status}")
+                        return None, None
+
+                    data = await response.json()
+
+                    if data.get("code") != 0:
+                        error_logger.error(f"tikwm API error: {data.get('msg', 'Unknown error')}")
+                        return None, None
+
+                    video_data = data.get("data", {})
+                    video_url = video_data.get("play")  # No watermark URL
+                    title = video_data.get("title", "TikTok Video")
+
+                    if not video_url:
+                        error_logger.error("tikwm API returned no video URL")
+                        return None, None
+
+                    # Download the video file
+                    unique_filename = f"video_{uuid.uuid4()}.mp4"
+                    output_path = os.path.join(self.download_path, unique_filename)
+
+                    async with session.get(video_url, timeout=aiohttp.ClientTimeout(total=120)) as video_response:
+                        if video_response.status != 200:
+                            error_logger.error(f"Failed to download video from tikwm URL: {video_response.status}")
+                            return None, None
+
+                        with open(output_path, 'wb') as f:
+                            while True:
+                                chunk = await video_response.content.read(8192)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+
+                    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                        error_logger.info(f"✅ tikwm download successful: {title}")
+                        return output_path, title
+                    else:
+                        error_logger.error("tikwm download resulted in empty file")
+                        return None, None
+
+        except asyncio.TimeoutError:
+            error_logger.error("tikwm API request timed out")
+            return None, None
+        except Exception as e:
+            error_logger.error(f"tikwm download error: {e}")
+            return None, None
 
     async def _download_generic(self, url: str, platform: Platform, special_config: Optional[DownloadConfig] = None, download_path: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
         """Generic video download using yt-dlp with bot detection avoidance."""
