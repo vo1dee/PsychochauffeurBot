@@ -510,6 +510,11 @@ class VideoDownloader:
                 'args': [
                     '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 ]
+            },
+            {
+                'name': 'HLS stream (m3u8) fallback',
+                'format': 'best[protocol=m3u8_native]/best[protocol=m3u8]',
+                'args': []
             }
         ]
         
@@ -693,70 +698,102 @@ class VideoDownloader:
                     pass
 
     async def download_youtube_music(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-        """Download audio from YouTube Music as MP3."""
+        """Download audio from YouTube Music as MP3 using multiple strategies."""
         error_logger.info(f"🎵 Starting YouTube Music download for: {url}")
 
         # Ensure music directory exists
         os.makedirs(MUSIC_DIR, exist_ok=True)
 
         # Use yt-dlp output template for proper Artist - Title naming
-        # %(artist)s falls back to %(uploader)s if not available
         output_template = os.path.join(MUSIC_DIR, '%(artist,uploader)s - %(title)s.%(ext)s')
 
-        # Build yt-dlp command for audio extraction with metadata
-        cmd = [
-            self.yt_dlp_path, url,
-            '-f', 'bestaudio',
-            '-x',  # Extract audio
-            '--audio-format', 'mp3',
-            '--audio-quality', '0',  # Best quality
-            '-o', output_template,
-            '--embed-metadata',  # Preserve/embed metadata tags
-            '--embed-thumbnail',  # Embed album art
-            '--add-metadata',  # Add metadata to file
-            '--no-check-certificate',
-            '--geo-bypass',
-            '--ignore-errors',
-            '--no-playlist',
-            '--socket-timeout', '30',
-            '--retries', '3',
-            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            '--print', 'after_move:filepath',  # Print final filepath after processing
+        # Environment with deno in PATH for JS challenge solving
+        env = os.environ.copy()
+        deno_path = os.path.expanduser('~/.deno/bin')
+        if os.path.exists(deno_path):
+            env['PATH'] = f"{deno_path}:{env.get('PATH', '')}"
+
+        # Define strategies - HLS (m3u8) formats work without PO Token
+        # while regular HTTPS formats often get 403 Forbidden
+        strategies = [
+            {
+                'name': 'HLS stream (extract audio)',
+                'format': 'best[protocol=m3u8_native]/best[protocol=m3u8]',
+                'args': []
+            },
+            {
+                'name': 'Default (bestaudio)',
+                'format': 'bestaudio/best',
+                'args': []
+            },
+            {
+                'name': 'Web Safari client',
+                'format': 'bestaudio/best',
+                'args': [
+                    '--extractor-args', 'youtube:player_client=web_safari',
+                ]
+            },
         ]
 
-        error_logger.info(f"   Command: {' '.join(cmd[:12])}... (truncated)")
+        for i, strategy in enumerate(strategies, 1):
+            error_logger.info(f"📋 Strategy {i}/{len(strategies)}: {strategy['name']}")
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            # Build yt-dlp command for audio extraction with metadata
+            cmd = [
+                self.yt_dlp_path, url,
+                '-f', strategy['format'],
+                '-x',  # Extract audio
+                '--audio-format', 'mp3',
+                '--audio-quality', '0',  # Best quality
+                '-o', output_template,
+                '--embed-metadata',  # Preserve/embed metadata tags
+                '--embed-thumbnail',  # Embed album art
+                '--add-metadata',  # Add metadata to file
+                '--no-check-certificate',
+                '--geo-bypass',
+                '--no-playlist',
+                '--socket-timeout', '30',
+                '--retries', '3',
+                '--print', 'after_move:filepath',  # Print final filepath after processing
+            ]
 
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
+            # Add strategy-specific args
+            if strategy['args']:
+                cmd.extend(strategy['args'])
 
-            # Get the actual output filepath from yt-dlp's --print output
-            output_path = stdout.decode().strip().split('\n')[-1] if stdout else None
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env
+                )
 
-            if process.returncode == 0 and output_path and os.path.exists(output_path):
-                file_size = os.path.getsize(output_path)
-                error_logger.info(f"   ✅ Downloaded {file_size} bytes to {output_path}")
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=180.0)
 
-                # Extract title from filename (Artist - Title.mp3 -> Artist - Title)
-                title = os.path.splitext(os.path.basename(output_path))[0]
-                return output_path, title
-            else:
-                stderr_text = stderr.decode()
-                error_logger.warning(f"   ❌ Process failed (code {process.returncode})")
-                error_logger.warning(f"   Error: {stderr_text[:300]}...")
-                return None, None
+                # Get the actual output filepath from yt-dlp's --print output
+                output_path = stdout.decode().strip().split('\n')[-1] if stdout else None
 
-        except asyncio.TimeoutError:
-            error_logger.warning(f"   ⏰ Download timed out after 120 seconds")
-            return None, None
-        except Exception as e:
-            error_logger.error(f"   ❌ Download error: {e}")
-            return None, None
+                if process.returncode == 0 and output_path and os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path)
+                    error_logger.info(f"   ✅ Strategy '{strategy['name']}' succeeded! Downloaded {file_size} bytes")
+
+                    # Extract title from filename (Artist - Title.mp3 -> Artist - Title)
+                    title = os.path.splitext(os.path.basename(output_path))[0]
+                    return output_path, title
+                else:
+                    stderr_text = stderr.decode()
+                    error_logger.warning(f"   ❌ Strategy '{strategy['name']}' failed (code {process.returncode})")
+                    if stderr_text:
+                        error_logger.warning(f"   Error: {stderr_text[:200]}...")
+
+            except asyncio.TimeoutError:
+                error_logger.warning(f"   ⏰ Strategy '{strategy['name']}' timed out")
+            except Exception as e:
+                error_logger.error(f"   ❌ Strategy '{strategy['name']}' error: {e}")
+
+        error_logger.error(f"❌ All YouTube Music strategies failed for {url}")
+        return None, None
 
     async def _send_audio(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                           filename: str, title: Optional[str], source_url: Optional[str] = None) -> None:
@@ -1032,7 +1069,13 @@ class VideoDownloader:
         """Try a single YouTube download strategy."""
         unique_filename = f"yt_{uuid.uuid4().hex[:8]}.mp4"
         output_path = os.path.join(self.download_path, unique_filename)
-        
+
+        # Environment with deno in PATH for JS challenge solving
+        env = os.environ.copy()
+        deno_path = os.path.expanduser('~/.deno/bin')
+        if os.path.exists(deno_path):
+            env['PATH'] = f"{deno_path}:{env.get('PATH', '')}"
+
         # Build command
         cmd = [
             self.yt_dlp_path, url,
@@ -1047,14 +1090,15 @@ class VideoDownloader:
             '--fragment-retries', '2',
             '-f', strategy['format']
         ] + strategy['args']
-        
+
         error_logger.info(f"   Command: {' '.join(cmd[:8])}... (truncated)")
-        
+
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=env
             )
             
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=90.0)
@@ -1375,7 +1419,9 @@ class VideoDownloader:
         
         # Determine platform for better error context
         platform = "unknown"
-        if "youtube.com" in url or "youtu.be" in url:
+        if "music.youtube.com" in url:
+            platform = "music.youtube.com"
+        elif "youtube.com" in url or "youtu.be" in url:
             if "shorts" in url:
                 platform = "youtube.com/shorts"
             elif "clip" in url:
