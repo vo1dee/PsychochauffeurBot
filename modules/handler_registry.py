@@ -95,6 +95,9 @@ class HandlerRegistry(ServiceInterface):
         from modules.handlers.reaction_commands import (
             reaction_command
         )
+        from modules.handlers.song_command import (
+            song_command
+        )
         from modules.handlers.message_handlers import (
             handle_message, handle_photo_analysis, handle_sticker,
             handle_location, handle_voice_or_video_note
@@ -162,7 +165,12 @@ class HandlerRegistry(ServiceInterface):
         self.command_processor.register_text_command(
             "reaction", reaction_command, "Toggle emoji reactions", admin_only=True
         )
-        
+
+        # Register song command (YouTube to MP3)
+        self.command_processor.register_text_command(
+            "song", song_command, "Download YouTube video as MP3 (reply to message with YouTube link)"
+        )
+
         # Register weather and geomagnetic commands using service registry
         if self.service_registry:
             try:

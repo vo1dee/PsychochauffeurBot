@@ -280,6 +280,7 @@ class CommandRegistry(ServiceInterface):
             missing_command, error_report_command
         )
         from modules.handlers.admin_commands import mute_command, unmute_command
+        from modules.handlers.song_command import song_command
         from modules.weather import WeatherCommandHandler
         from modules.geomagnetic import GeomagneticCommandHandler
         
@@ -344,8 +345,17 @@ class CommandRegistry(ServiceInterface):
             usage="/gm",
             examples=["/gm"]
         ))
-        
-        
+
+        # Song command (download YouTube as MP3)
+        self.register_command(CommandInfo(
+            name="song",
+            description="Download YouTube video as MP3 (reply to a message with YouTube link)",
+            category=CommandCategory.UTILITY,
+            handler_func=song_command,
+            usage="/song (as reply to message with YouTube link)",
+            examples=["/song"]
+        ))
+
         # Error report command
         self.register_command(CommandInfo(
             name="error_report",
