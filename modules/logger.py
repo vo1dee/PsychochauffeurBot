@@ -268,6 +268,42 @@ class DailyLogHandler(logging.Handler):
         super().close()
 
 
+class TransientNetworkErrorFilter(logging.Filter):
+    """
+    Filters out transient network errors from Telegram polling.
+
+    These errors (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError)
+    occur during normal operation when Telegram's servers briefly disconnect.
+    They are automatically retried by python-telegram-bot and are not actionable.
+
+    Only suppresses errors from telegram.ext loggers that match known transient patterns.
+    All other errors (download failures, bot logic, database, etc.) pass through.
+    """
+
+    # Known transient network error patterns from Telegram polling
+    TRANSIENT_PATTERNS = (
+        'httpx.RemoteProtocolError',
+        'httpx.ReadError',
+        'httpx.ConnectError',
+        'Server disconnected without sending a response',
+        'All connection attempts failed',
+        'httpcore.RemoteProtocolError',
+        'httpcore.ConnectError',
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Only apply to telegram.ext loggers (Updater, Application, etc.)
+        if not record.name.startswith('telegram.ext'):
+            return True  # Keep all non-telegram errors
+
+        message = record.getMessage()
+        for pattern in self.TRANSIENT_PATTERNS:
+            if pattern in message:
+                return False  # Suppress this transient error
+
+        return True  # Keep all other telegram.ext errors
+
+
 class TelegramErrorHandler(logging.Handler):
     """
     Sends error logs to a Telegram channel asynchronously using a queue.
@@ -666,6 +702,7 @@ async def init_telegram_error_handler(bot: Bot, error_channel_id: Optional[str] 
             channel_id=error_channel_id
         )
         telegram_handler.setLevel(logging.ERROR)  # Only send ERROR and above
+        telegram_handler.addFilter(TransientNetworkErrorFilter())
         await telegram_handler.start()
 
         # Add the handler to the root logger to catch all errors
