@@ -467,21 +467,15 @@ class TelegramErrorHandler(logging.Handler):
                     break
 
                 formatted_msg = self.format_error_message(record)
-                now = time.monotonic() # Use monotonic clock for intervals
 
-                # Basic rate limiting
-                if now - self._last_sent_time >= self.rate_limit:
-                    await self._send_message_async(formatted_msg)
-                    self._last_sent_time = now
-                    # Optionally send buffered messages here if needed
-                    # while self._buffer:
-                    #     await self._send_message_async(self._buffer.popleft())
-                    #     await asyncio.sleep(0.1) # Small delay between buffered msgs
-                else:
-                    # Buffering (optional, can be noisy)
-                    # self._buffer.append(formatted_msg)
-                    # print(f"DEBUG: Buffering Telegram error due to rate limit.", file=sys.stderr)
-                    pass # Or just drop if buffering isn't desired
+                # Rate limiting: wait until enough time has passed since last send
+                now = time.monotonic()
+                elapsed = now - self._last_sent_time
+                if elapsed < self.rate_limit:
+                    await asyncio.sleep(self.rate_limit - elapsed)
+
+                await self._send_message_async(formatted_msg)
+                self._last_sent_time = time.monotonic()
 
                 self._queue.task_done()
             except asyncio.CancelledError:
