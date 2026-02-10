@@ -268,6 +268,42 @@ class DailyLogHandler(logging.Handler):
         super().close()
 
 
+class TransientNetworkErrorFilter(logging.Filter):
+    """
+    Filters out transient network errors from Telegram polling.
+
+    These errors (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError)
+    occur during normal operation when Telegram's servers briefly disconnect.
+    They are automatically retried by python-telegram-bot and are not actionable.
+
+    Only suppresses errors from telegram.ext loggers that match known transient patterns.
+    All other errors (download failures, bot logic, database, etc.) pass through.
+    """
+
+    # Known transient network error patterns from Telegram polling
+    TRANSIENT_PATTERNS = (
+        'httpx.RemoteProtocolError',
+        'httpx.ReadError',
+        'httpx.ConnectError',
+        'Server disconnected without sending a response',
+        'All connection attempts failed',
+        'httpcore.RemoteProtocolError',
+        'httpcore.ConnectError',
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Only apply to telegram.ext loggers (Updater, Application, etc.)
+        if not record.name.startswith('telegram.ext'):
+            return True  # Keep all non-telegram errors
+
+        message = record.getMessage()
+        for pattern in self.TRANSIENT_PATTERNS:
+            if pattern in message:
+                return False  # Suppress this transient error
+
+        return True  # Keep all other telegram.ext errors
+
+
 class TelegramErrorHandler(logging.Handler):
     """
     Sends error logs to a Telegram channel asynchronously using a queue.
@@ -431,21 +467,15 @@ class TelegramErrorHandler(logging.Handler):
                     break
 
                 formatted_msg = self.format_error_message(record)
-                now = time.monotonic() # Use monotonic clock for intervals
 
-                # Basic rate limiting
-                if now - self._last_sent_time >= self.rate_limit:
-                    await self._send_message_async(formatted_msg)
-                    self._last_sent_time = now
-                    # Optionally send buffered messages here if needed
-                    # while self._buffer:
-                    #     await self._send_message_async(self._buffer.popleft())
-                    #     await asyncio.sleep(0.1) # Small delay between buffered msgs
-                else:
-                    # Buffering (optional, can be noisy)
-                    # self._buffer.append(formatted_msg)
-                    # print(f"DEBUG: Buffering Telegram error due to rate limit.", file=sys.stderr)
-                    pass # Or just drop if buffering isn't desired
+                # Rate limiting: wait until enough time has passed since last send
+                now = time.monotonic()
+                elapsed = now - self._last_sent_time
+                if elapsed < self.rate_limit:
+                    await asyncio.sleep(self.rate_limit - elapsed)
+
+                await self._send_message_async(formatted_msg)
+                self._last_sent_time = time.monotonic()
 
                 self._queue.task_done()
             except asyncio.CancelledError:
@@ -666,6 +696,7 @@ async def init_telegram_error_handler(bot: Bot, error_channel_id: Optional[str] 
             channel_id=error_channel_id
         )
         telegram_handler.setLevel(logging.ERROR)  # Only send ERROR and above
+        telegram_handler.addFilter(TransientNetworkErrorFilter())
         await telegram_handler.start()
 
         # Add the handler to the root logger to catch all errors
