@@ -303,20 +303,25 @@ async def analyze_image(
         # Encode image to base64
         base64_image = base64.b64encode(optimized_image).decode('utf-8')
         
-        # Get chat-specific configuration for system prompt
+        # Get chat-specific configuration for system prompt and model
         system_prompt = DEFAULT_PROMPTS["image_analysis"]  # Default fallback
+        model = GPT_MODEL_TEXT  # Default fallback
         if update and update.effective_chat:
             chat_id = str(update.effective_chat.id)
             chat_type = update.effective_chat.type
             try:
                 chat_config = await config_manager.get_config(chat_id, chat_type)
                 system_prompt = await get_system_prompt("image_analysis", chat_config)
+                # Get model from config
+                gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
+                response_settings = gpt_module.get("overrides", {}).get("image_analysis", {})
+                model = response_settings.get("model", GPT_MODEL_TEXT)
             except Exception as e:
                 error_logger.error(f"Failed to load chat config for image analysis: {e}")
-        
+
         # Call GPT with the image using image_analysis response type
         response = await client.chat.completions.create(
-            model=GPT_MODEL_TEXT,
+            model=model,
             messages=[
                 {
                     "role": "system", 
@@ -537,18 +542,20 @@ async def gpt_response(
         if not gpt_module:
             max_tokens = max_tokens or DEFAULT_MAX_TOKENS
             temperature = temperature or 0.7
+            model = GPT_MODEL_TEXT
             system_prompt = DEFAULT_PROMPTS.get(effective_response_type, DEFAULT_PROMPTS["command"])
         else:
             # Check if module is disabled
             if not gpt_module.get("enabled", True):  # Default to enabled if not specified
                 return None
-                
+
             response_settings = gpt_module.get("overrides", {}).get(effective_response_type, {})
-            
+
             # Use provided values or fall back to config values
             max_tokens = max_tokens or response_settings.get("max_tokens", DEFAULT_MAX_TOKENS)
             temperature = temperature or response_settings.get("temperature", 0.7)
-            
+            model = response_settings.get("model", GPT_MODEL_TEXT)
+
             # Get system prompt from config
             system_prompt = await get_system_prompt(effective_response_type, chat_config)
         
@@ -584,7 +591,7 @@ async def gpt_response(
         
         # Call GPT API
         response = await client.chat.completions.create(
-            model=GPT_MODEL_TEXT,
+            model=model,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature
@@ -774,17 +781,22 @@ async def gpt_summary_function(messages: List[str]) -> str:
         # Create the prompt for GPT
         prompt = f"Підсумуйте наступні повідомлення:\n\n{messages_text}\n\nПідсумок:"
 
-        # Get system prompt from config or use default
+        # Get system prompt and model from config or use default
         system_prompt = DEFAULT_PROMPTS["gpt_summary"]  # Default fallback
+        model = GPT_MODEL_TEXT  # Default fallback
         try:
             chat_config = await config_manager.get_config()
             system_prompt = await get_system_prompt("gpt_summary", chat_config)
+            # Get model from config
+            gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
+            response_settings = gpt_module.get("overrides", {}).get("summary", {})
+            model = response_settings.get("model", GPT_MODEL_TEXT)
         except Exception as e:
             error_logger.error(f"Failed to load config for summary: {e}")
 
         # Call the API to get the summary
         response = await client.chat.completions.create(
-            model="openai/gpt-4o-mini",
+            model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
