@@ -22,88 +22,98 @@ logger = logging.getLogger(__name__)
 class HandlerRegistry(ServiceInterface):
     """
     Central registry for all bot handlers.
-    
+
     Coordinates the registration of commands, message handlers,
     and callback handlers with the Telegram application.
     """
-    
-    def __init__(self, command_processor: CommandProcessor, service_registry: Optional[Any] = None):
+
+    def __init__(
+        self,
+        command_processor: CommandProcessor,
+        service_registry: Optional[Any] = None,
+    ):
         self.command_processor = command_processor
         self.service_registry = service_registry
         self._registered = False
-    
+
     async def initialize(self) -> None:
         """Initialize the handler registry."""
         await self._register_all_commands()
         logger.info("Handler Registry initialized")
-    
+
     async def shutdown(self) -> None:
         """Shutdown the handler registry."""
         logger.info("Handler Registry shutdown")
-    
-    async def register_all_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
+
+    async def register_all_handlers(
+        self, application: Application[Any, Any, Any, Any, Any, Any]
+    ) -> None:
         """Register all handlers with the Telegram application."""
         if self._registered:
-            logger.warning("Handlers already registered - skipping duplicate registration")
+            logger.warning(
+                "Handlers already registered - skipping duplicate registration"
+            )
             return
-        
+
         logger.info("Starting handler registration process...")
-        
+
         # Register message handlers first (group 0)
         await self._register_message_handlers(application)
-        
+
         # Register command handlers
         await self._register_command_handlers(application)
-        
+
         # Register callback handlers
         await self._register_callback_handlers(application)
-        
+
         # Register video handlers (group 1)
         await self._register_video_handlers(application)
-        
+
         self._registered = True
-        
+
         # Log handler count for diagnostics
         try:
             handler_count = len(application.handlers[0]) if application.handlers else 0
-            logger.info(f"All handlers registered with Telegram application (total handlers in group 0: {handler_count})")
+            logger.info(
+                f"All handlers registered with Telegram application (total handlers in group 0: {handler_count})"
+            )
         except (AttributeError, KeyError, IndexError):
             logger.info("All handlers registered with Telegram application")
-    
+
     async def _register_all_commands(self) -> None:
         """Register all command handlers with the command processor."""
         # Import handler functions
         from modules.handlers.basic_commands import (
-            start_command, ping_command, help_command
+            start_command,
+            ping_command,
+            help_command,
         )
         from modules.handlers.gpt_commands import (
-            ask_gpt_command, analyze_command, mystats_command
+            ask_gpt_command,
+            analyze_command,
+            mystats_command,
         )
         from modules.handlers.utility_commands import (
-            cat_command, screenshot_command, count_command, missing_command,
-            error_report_command
+            cat_command,
+            screenshot_command,
+            count_command,
+            missing_command,
+            error_report_command,
         )
-        from modules.handlers.admin_commands import (
-            mute_command, unmute_command
-        )
-        from modules.handlers.speech_commands import (
-            speech_command
-        )
-        from modules.handlers.random_commands import (
-            random_command
-        )
-        from modules.handlers.reaction_commands import (
-            reaction_command
-        )
-        from modules.handlers.song_command import (
-            song_command
-        )
+        from modules.handlers.admin_commands import mute_command, unmute_command
+        from modules.handlers.speech_commands import speech_command
+        from modules.handlers.random_commands import random_command
+        from modules.handlers.reaction_commands import reaction_command
         from modules.handlers.message_handlers import (
-            handle_message, handle_photo_analysis, handle_sticker,
-            handle_location, handle_voice_or_video_note
+            handle_message,
+            handle_photo_analysis,
+            handle_sticker,
+            handle_location,
+            handle_voice_or_video_note,
         )
+
         # Old callback handlers removed - using service-based approach
-        
+
         # Register basic commands
         self.command_processor.register_text_command(
             "start", start_command, "Start the bot and show welcome message"
@@ -114,7 +124,7 @@ class HandlerRegistry(ServiceInterface):
         self.command_processor.register_text_command(
             "ping", ping_command, "Test bot responsiveness"
         )
-        
+
         # Register GPT commands
         self.command_processor.register_text_command(
             "ask", ask_gpt_command, "Ask GPT a question"
@@ -125,7 +135,7 @@ class HandlerRegistry(ServiceInterface):
         self.command_processor.register_text_command(
             "mystats", mystats_command, "Show your usage statistics"
         )
-        
+
         # Register utility commands
         self.command_processor.register_text_command(
             "cat", cat_command, "Get a random cat photo"
@@ -140,12 +150,19 @@ class HandlerRegistry(ServiceInterface):
             "missing", missing_command, "Show missing features"
         )
         self.command_processor.register_text_command(
-            "error_report", error_report_command, "Generate error report", admin_only=True
+            "error_report",
+            error_report_command,
+            "Generate error report",
+            admin_only=True,
         )
 
         # Register admin commands
         self.command_processor.register_text_command(
-            "mute", mute_command, "Mute a user for specified time", admin_only=True, group_only=True
+            "mute",
+            mute_command,
+            "Mute a user for specified time",
+            admin_only=True,
+            group_only=True,
         )
         self.command_processor.register_text_command(
             "unmute", unmute_command, "Unmute a user", admin_only=True, group_only=True
@@ -166,106 +183,144 @@ class HandlerRegistry(ServiceInterface):
             "reaction", reaction_command, "Toggle emoji reactions", admin_only=True
         )
 
-        # Register song command (YouTube to MP3)
-        self.command_processor.register_text_command(
-            "song", song_command, "Download YouTube video as MP3 (reply to message with YouTube link)"
-        )
-
         # Register weather and geomagnetic commands using service registry
         if self.service_registry:
             try:
-                weather_handler = self.service_registry.get_service('weather_handler')
+                weather_handler = self.service_registry.get_service("weather_handler")
                 self.command_processor.register_text_command(
                     "weather", weather_handler, "Get weather information"
                 )
             except Exception as e:
                 logger.warning(f"Weather handler not available: {e}")
-            
+
             try:
-                geomagnetic_handler = self.service_registry.get_service('geomagnetic_handler')
+                geomagnetic_handler = self.service_registry.get_service(
+                    "geomagnetic_handler"
+                )
                 self.command_processor.register_text_command(
                     "gm", geomagnetic_handler, "Get geomagnetic activity"
                 )
             except Exception as e:
                 logger.warning(f"Geomagnetic handler not available: {e}")
-            
+
         else:
-            logger.warning("Service registry not available, skipping service-based command registration")
-        
+            logger.warning(
+                "Service registry not available, skipping service-based command registration"
+            )
+
         # Register message handlers
         self.command_processor.register_message_handler(
-            "text_messages", handle_message, filters.TEXT & ~filters.COMMAND,
-            "Handle text messages"
+            "text_messages",
+            handle_message,
+            filters.TEXT & ~filters.COMMAND,
+            "Handle text messages",
         )
         self.command_processor.register_message_handler(
-            "photo_messages", handle_photo_analysis, filters.PHOTO,
-            "Handle photo messages"
+            "photo_messages",
+            handle_photo_analysis,
+            filters.PHOTO,
+            "Handle photo messages",
         )
         self.command_processor.register_message_handler(
-            "sticker_messages", handle_sticker, filters.Sticker.ALL,
-            "Handle sticker messages"
+            "sticker_messages",
+            handle_sticker,
+            filters.Sticker.ALL,
+            "Handle sticker messages",
         )
         self.command_processor.register_message_handler(
-            "location_messages", handle_location, filters.LOCATION,
-            "Handle location messages"
+            "location_messages",
+            handle_location,
+            filters.LOCATION,
+            "Handle location messages",
         )
         self.command_processor.register_message_handler(
-            "voice_messages", handle_voice_or_video_note, 
+            "voice_messages",
+            handle_voice_or_video_note,
             filters.VOICE | filters.VIDEO_NOTE,
-            "Handle voice and video note messages"
+            "Handle voice and video note messages",
         )
-        
+
         # Register callback handlers using service-based approach
         if self.service_registry:
             try:
                 logger.info("Registering service-based callback handlers...")
-                
+
                 # Create a bridge function that uses the callback handler service
-                async def service_based_callback_handler(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
+                async def service_based_callback_handler(
+                    update: Update, context: CallbackContext[Any, Any, Any, Any]
+                ) -> None:
                     """Bridge function to route callbacks through the callback handler service."""
                     try:
-                        callback_handler_service = self.service_registry.get_service('callback_handler_service') if self.service_registry else None
+                        callback_handler_service = (
+                            self.service_registry.get_service(
+                                "callback_handler_service"
+                            )
+                            if self.service_registry
+                            else None
+                        )
                         if callback_handler_service:
-                            await callback_handler_service.handle_callback_query(update, context)
+                            await callback_handler_service.handle_callback_query(
+                                update, context
+                            )
                     except Exception as e:
-                        logger.error(f"Error in service-based callback handler: {e}", exc_info=True)
+                        logger.error(
+                            f"Error in service-based callback handler: {e}",
+                            exc_info=True,
+                        )
                         # Send error response
                         if update.callback_query:
                             await update.callback_query.answer()
-                            await update.callback_query.edit_message_text(f"❌ Callback processing error: {str(e)}")
-                
+                            await update.callback_query.edit_message_text(
+                                f"❌ Callback processing error: {str(e)}"
+                            )
+
                 self.command_processor.register_callback_handler(
-                    "service_based_callbacks", service_based_callback_handler, 
-                    description="Handle all callbacks through callback handler service"
+                    "service_based_callbacks",
+                    service_based_callback_handler,
+                    description="Handle all callbacks through callback handler service",
                 )
                 logger.info("Service-based callback handlers registered successfully")
-                
+
             except Exception as e:
-                logger.error(f"Failed to register service-based callback handler: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to register service-based callback handler: {e}",
+                    exc_info=True,
+                )
                 raise RuntimeError(f"Cannot register callback handlers: {e}")
         else:
-            logger.error("No service registry available - cannot register callback handlers")
+            logger.error(
+                "No service registry available - cannot register callback handlers"
+            )
             raise RuntimeError("Service registry is required for callback handling")
-    
-    async def _register_message_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
+
+    async def _register_message_handlers(
+        self, application: Application[Any, Any, Any, Any, Any, Any]
+    ) -> None:
         """Register message handlers."""
         # Setup message logging handler first
         from modules.message_handler import setup_message_handlers
+
         setup_message_handlers(application)
-    
-    async def _register_command_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
+
+    async def _register_command_handlers(
+        self, application: Application[Any, Any, Any, Any, Any, Any]
+    ) -> None:
         """Register command handlers."""
         handlers = self.command_processor.get_telegram_handlers()
         for handler in handlers:
             application.add_handler(handler)
         logger.info(f"Registered {len(handlers)} command handlers")
-    
-    async def _register_callback_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
+
+    async def _register_callback_handlers(
+        self, application: Application[Any, Any, Any, Any, Any, Any]
+    ) -> None:
         """Register callback handlers."""
         # Callback handlers are already included in command processor handlers
         pass
-    
-    async def _register_video_handlers(self, application: Application[Any, Any, Any, Any, Any, Any]) -> None:
+
+    async def _register_video_handlers(
+        self, application: Application[Any, Any, Any, Any, Any, Any]
+    ) -> None:
         """Register video download handlers."""
         from modules.video_downloader import setup_video_handlers
         from modules.url_processor import extract_urls
@@ -274,8 +329,10 @@ class HandlerRegistry(ServiceInterface):
         config_manager = None
         if self.service_registry:
             try:
-                config_manager = self.service_registry.get_service('config_manager')
+                config_manager = self.service_registry.get_service("config_manager")
             except Exception as e:
                 logger.warning(f"Config manager not available for video handlers: {e}")
 
-        setup_video_handlers(application, extract_urls_func=extract_urls, config_manager=config_manager)
+        setup_video_handlers(
+            application, extract_urls_func=extract_urls, config_manager=config_manager
+        )
