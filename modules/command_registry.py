@@ -83,6 +83,9 @@ class CommandRegistry(ServiceInterface):
         logger.info("Initializing CommandRegistry with configuration integration...")
 
         try:
+            # Register all commands
+            await self.register_all_commands()
+
             # Try to get config manager from service registry if available
             if self.service_registry:
                 try:
