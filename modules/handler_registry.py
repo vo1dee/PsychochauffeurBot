@@ -111,6 +111,7 @@ class HandlerRegistry(ServiceInterface):
             handle_location,
             handle_voice_or_video_note,
         )
+        from modules.handlers.group_handlers import handle_member_left
 
         # Old callback handlers removed - using service-based approach
 
@@ -238,6 +239,12 @@ class HandlerRegistry(ServiceInterface):
             handle_voice_or_video_note,
             filters.VOICE | filters.VIDEO_NOTE,
             "Handle voice and video note messages",
+        )
+        self.command_processor.register_message_handler(
+            "member_left_messages",
+            handle_member_left,
+            filters.StatusUpdate.LEFT_CHAT_MEMBER,
+            "Handle member left group messages",
         )
 
         # Register callback handlers using service-based approach
