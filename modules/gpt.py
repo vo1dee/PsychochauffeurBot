@@ -383,16 +383,21 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
         List[Dict[str, str]]: List of message dictionaries for context
     """
     messages: List[Dict[str, str]] = []
-    
+
+    # Response types that are purely functional commands and should not use conversation context
+    NO_CONTEXT_TYPES = {"weather", "summary", "gpt_summary", "analyze", "image_analysis"}
+    if response_type in NO_CONTEXT_TYPES:
+        return messages
+
     try:
         if not update.message or not update.message.text:
             return messages
-            
+
         # Get chat configuration
         chat_id = str(update.effective_chat.id) if update.effective_chat else "unknown"
         chat_type = update.effective_chat.type if update.effective_chat else "unknown"
         chat_config = await config_manager.get_config(chat_id, chat_type)
-        
+
         # Get context messages count from config
         # For random responses, check chat_behavior module first
         if response_type == "random":
