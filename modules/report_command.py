@@ -151,8 +151,13 @@ async def fetch_report_data(days: int) -> Dict[str, Any]:
     }
 
 
+def _html(text: str) -> str:
+    """Escape HTML special characters in dynamic text."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def format_report(data: Dict[str, Any], days: int) -> str:
-    """Format analytics data into a Markdown report string."""
+    """Format analytics data into an HTML report string."""
     now = data["now"]
     start = data["period_start"]
     start_str = start.strftime("%d.%m")
@@ -170,25 +175,25 @@ def format_report(data: Dict[str, Any], days: int) -> str:
     inactive = data["inactive_count"]
 
     lines = []
-    lines.append(f"📊 *Weekly Intelligence Report ({start_str}–{end_str})*")
+    lines.append(f"📊 <b>Weekly Intelligence Report ({start_str}–{end_str})</b>")
     lines.append("")
-    lines.append(f"📨 *Messages:* {cur_total:,} ({_pct_change(cur_total, prev_total)})")
-    lines.append(f"⌨️ *Commands:* {cur_cmds} ({_pct_change(cur_cmds, prev_cmds)})")
-    lines.append(f"💬 *Active chats:* {active_count} ({_pct_change(active_count, prev_active)})")
-    lines.append(f"🆕 *New chats:* {new_chats}")
+    lines.append(f"📨 <b>Messages:</b> {cur_total:,} ({_pct_change(cur_total, prev_total)})")
+    lines.append(f"⌨️ <b>Commands:</b> {cur_cmds} ({_pct_change(cur_cmds, prev_cmds)})")
+    lines.append(f"💬 <b>Active chats:</b> {active_count} ({_pct_change(active_count, prev_active)})")
+    lines.append(f"🆕 <b>New chats:</b> {new_chats}")
 
     # Most used feature
     if data["top_commands"]:
         top_cmd = data["top_commands"][0]
         cmd_name = top_cmd["command_name"].split("@")[0]
-        lines.append(f"🔥 *Top feature:* /{cmd_name} ({top_cmd['cnt']} uses)")
+        lines.append(f"🔥 <b>Top feature:</b> /{_html(cmd_name)} ({top_cmd['cnt']} uses)")
 
-    lines.append(f"😴 *Inactive chats:* {inactive} (no activity in 14+ days)")
+    lines.append(f"😴 <b>Inactive chats:</b> {inactive} (no activity in 14+ days)")
 
     # Peak hour
     if data["hourly"]:
         peak = max(data["hourly"], key=lambda r: r["cnt"])
-        lines.append(f"⏱ *Peak time:* {peak['hour']:02d}:00 ({peak['cnt']} msgs)")
+        lines.append(f"⏱ <b>Peak time:</b> {peak['hour']:02d}:00 ({peak['cnt']} msgs)")
 
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━")
@@ -196,17 +201,17 @@ def format_report(data: Dict[str, Any], days: int) -> str:
 
     # Top commands
     if data["top_commands"]:
-        lines.append("🏆 *Top commands:*")
+        lines.append("🏆 <b>Top commands:</b>")
         for i, cmd in enumerate(data["top_commands"][:5], 1):
             name = cmd["command_name"].split("@")[0]
-            lines.append(f" {i}. /{name} — {cmd['cnt']}")
+            lines.append(f" {i}. /{_html(name)} — {cmd['cnt']}")
         lines.append("")
 
     # Top users
     if data["top_users"]:
-        lines.append("👥 *Top users:*")
+        lines.append("👥 <b>Top users:</b>")
         for i, user in enumerate(data["top_users"][:5], 1):
-            name = f"@{user['username']}" if user["username"] else user["first_name"]
+            name = f"@{user['username']}" if user["username"] else _html(user["first_name"])
             lines.append(f" {i}. {name} — {user['cnt']:,}")
         lines.append("")
 
@@ -214,7 +219,7 @@ def format_report(data: Dict[str, Any], days: int) -> str:
     daily = data["daily"]
     if daily:
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        lines.append("📅 *Daily breakdown:*")
+        lines.append("📅 <b>Daily breakdown:</b>")
         daily_lines = []
         peak_day = max(daily, key=lambda r: r["total"])
         for row in daily:
@@ -226,7 +231,7 @@ def format_report(data: Dict[str, Any], days: int) -> str:
         # Truncate if too many days would blow the message limit
         if len(daily_lines) > 14:
             shown = daily_lines[-7:]
-            lines.append(f" _...and {len(daily_lines) - 7} earlier days_")
+            lines.append(f" <i>...and {len(daily_lines) - 7} earlier days</i>")
             lines.extend(shown)
         else:
             lines.extend(daily_lines)
@@ -234,15 +239,15 @@ def format_report(data: Dict[str, Any], days: int) -> str:
 
     # Retention
     retention = round(active_count / total_chats * 100) if total_chats > 0 else 0
-    lines.append(f"🔄 *Retention:* {retention}% ({active_count}/{total_chats} chats)")
+    lines.append(f"🔄 <b>Retention:</b> {retention}% ({active_count}/{total_chats} chats)")
 
     # Chat activity breakdown
     if active:
         total_msgs = sum(c["cnt"] for c in active)
         lines.append("")
-        lines.append("📡 *Chat activity:*")
+        lines.append("📡 <b>Chat activity:</b>")
         for chat in active[:4]:
-            title = chat["title"] or f"Private {chat['chat_id']}"
+            title = _html(chat["title"] or f"Private {chat['chat_id']}")
             pct = round(chat["cnt"] / total_msgs * 100) if total_msgs > 0 else 0
             lines.append(f" • {title} — {chat['cnt']:,} ({pct}%)")
         remaining = len(active) - 4
@@ -294,7 +299,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         progress_msg = await update.message.reply_text("⏳ Generating report...")
         data = await fetch_report_data(days)
         text = format_report(data, days)
-        await progress_msg.edit_text(text, parse_mode="Markdown")
+        await progress_msg.edit_text(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in /report command: {e}", exc_info=True)
         try:
@@ -311,7 +316,7 @@ async def weekly_report_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(
             chat_id=WEEKLY_REPORT_CHAT_ID,
             text=text,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             message_thread_id=WEEKLY_REPORT_THREAD_ID,
         )
         logger.info("Weekly report sent successfully")
