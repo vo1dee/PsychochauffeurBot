@@ -327,6 +327,7 @@ class CommandRegistry(ServiceInterface):
             count_command,
             missing_command,
             error_report_command,
+            report_command,
         )
         from modules.handlers.admin_commands import mute_command, unmute_command
         from modules.handlers.song_command import song_command, short_command
@@ -441,6 +442,18 @@ class CommandRegistry(ServiceInterface):
                 admin_only=True,
                 usage="/error_report",
                 examples=["/error_report"],
+            )
+        )
+
+        # Report command
+        self.register_command(
+            CommandInfo(
+                name="report",
+                description="Generate usage analytics report",
+                category=CommandCategory.UTILITY,
+                handler_func=report_command,
+                usage="/report [days]",
+                examples=["/report", "/report 30"],
             )
         )
 

@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 import signal
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from typing import Optional, Dict, Any, List
 from enum import Enum
 
@@ -421,7 +421,23 @@ class BotApplication(ServiceInterface):
             # Initialize and start the application properly
             await self.telegram_app.initialize()
             await self.telegram_app.start()
-            
+
+            # Schedule weekly report job (Saturday 23:00 Kyiv time)
+            try:
+                from modules.report_command import weekly_report_callback
+                if self.telegram_app.job_queue:
+                    self.telegram_app.job_queue.run_daily(
+                        callback=weekly_report_callback,
+                        time=dt_time(hour=23, minute=0, tzinfo=KYIV_TZ),
+                        days=(6,),  # Saturday (0=Sun..6=Sat in python-telegram-bot v20+)
+                        name="weekly_report",
+                    )
+                    logger.info("Weekly report job scheduled for Saturdays at 23:00 Kyiv time")
+                else:
+                    logger.warning("Job queue not available - weekly report not scheduled")
+            except Exception as e:
+                logger.error(f"Failed to schedule weekly report: {e}")
+
             # Start polling and store the task for proper cleanup
             if self.telegram_app.updater:
                 await self.telegram_app.updater.start_polling(
