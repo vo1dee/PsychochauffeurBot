@@ -6,6 +6,7 @@ for scheduled delivery every Saturday at 23:00 Kyiv time.
 """
 
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -18,8 +19,9 @@ from modules.database import Database
 
 logger = logging.getLogger(__name__)
 
-WEEKLY_REPORT_CHAT_ID = -1002597639960
-WEEKLY_REPORT_THREAD_ID = 2274
+WEEKLY_REPORT_CHAT_ID = int(os.getenv("REPORT_CHAT_ID", "0"))
+WEEKLY_REPORT_THREAD_ID = int(os.getenv("REPORT_THREAD_ID", "0"))
+REPORT_ALLOWED_USER_ID = int(os.getenv("REPORT_ALLOWED_USER_ID", "0"))
 MAX_MESSAGE_LENGTH = 4096
 
 
@@ -281,8 +283,13 @@ def format_report(data: Dict[str, Any], days: int) -> str:
 
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /report [days] command. Default 7 days."""
+    """Handle /report [days] command. Restricted to owner in the report chat."""
     if not update.message:
+        return
+
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    user_id = update.effective_user.id if update.effective_user else None
+    if chat_id != WEEKLY_REPORT_CHAT_ID or user_id != REPORT_ALLOWED_USER_ID:
         return
 
     try:
