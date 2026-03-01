@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 from modules.utils import cat_command as _cat, screenshot_command as _screenshot
 from modules.count_command import count_command as _count, missing_command as _missing
 from modules.error_analytics import error_report_command as _error_report
+from modules.report_command import report_command as _report
 
 logger = logging.getLogger(__name__)
 
@@ -39,3 +40,8 @@ async def missing_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def error_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /error_report command for error reporting."""
     await _error_report(update, context)
+
+
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /report command for usage analytics."""
+    await _report(update, context)
