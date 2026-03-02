@@ -3,7 +3,7 @@
 ## Commands
 - **Run bot**: `python main.py`
 - **Run tests**: `pytest tests/`
-- **Run specific test**: `pytest tests/test_bot.py::TestBot::test_extract_urls`
+- **Run specific test**: `pytest tests/core/test_weather_and_utils.py::TestBot::test_extract_urls`
 - **Lint code**: `flake8 .`
 - **Typecheck**: None (project doesn't use static typing tools yet)
 
