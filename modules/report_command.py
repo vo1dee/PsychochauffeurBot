@@ -158,92 +158,117 @@ def _html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _peak_time_range(hourly: List) -> str:
+    """Find the best 2-hour window from hourly data."""
+    if not hourly:
+        return "N/A"
+    hour_map = {r["hour"]: r["cnt"] for r in hourly}
+    best_start, best_total = 0, 0
+    for h in range(24):
+        total = hour_map.get(h, 0) + hour_map.get((h + 1) % 24, 0)
+        if total > best_total:
+            best_start, best_total = h, total
+    end = (best_start + 2) % 24
+    return f"{best_start:02d}:00–{end:02d}:00"
+
+
+def _build_insights(data: Dict[str, Any], days: int) -> str:
+    """Build the single-line insights paragraph."""
+    parts: List[str] = []
+
+    active_count = len(data["active_chats"])
+    total_chats = data["total_chats"]
+    retention = round(active_count / total_chats * 100) if total_chats > 0 else 0
+    parts.append(f"Retention {retention}%")
+
+    # Power users
+    if data["top_users"]:
+        names = []
+        for u in data["top_users"][:3]:
+            names.append(f"@{u['username']}" if u["username"] else _html(u["first_name"]))
+        parts.append(f"power users: {', '.join(names)}")
+
+    # Anomaly detection: find biggest daily spike/drop
+    daily = data["daily"]
+    day_names_full = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    if daily and len(daily) >= 2:
+        avg = sum(r["total"] for r in daily) / len(daily)
+        if avg > 0:
+            best = max(daily, key=lambda r: r["total"])
+            worst = min(daily, key=lambda r: r["total"])
+            best_pct = round((best["total"] - avg) / avg * 100)
+            worst_pct = round((worst["total"] - avg) / avg * 100)
+            best_dow = day_names_full[best["day"].weekday()]
+            worst_dow = day_names_full[worst["day"].weekday()]
+            if best_pct >= 20:
+                top_cmd_name = ""
+                if data["top_commands"]:
+                    top_cmd_name = f" driven by /{data['top_commands'][0]['command_name'].split('@')[0]} usage"
+                parts.append(f"big {best_dow} spike (+{best_pct}%){top_cmd_name}")
+            elif worst_pct <= -20:
+                parts.append(f"notable {worst_dow} dip ({worst_pct}%)")
+
+    # Trend sentence
+    cur_total = data["current_total"]
+    prev_total = data["prev_total"]
+    if prev_total > 0:
+        change = round((cur_total - prev_total) / prev_total * 100)
+        if change > 5:
+            parts.append("activity trending up overall")
+        elif change < -5:
+            parts.append("activity cooled vs previous period")
+        else:
+            parts.append("activity stable vs previous period")
+
+    return ". ".join(parts) + "."
+
+
 def format_report(data: Dict[str, Any], days: int) -> str:
-    """Format analytics data into an HTML report string."""
-    now = data["now"]
-    start = data["period_start"]
-    start_str = start.strftime("%d.%m")
-    end_str = now.strftime("%d.%m")
+    """Format analytics data into a concise, insight-driven HTML report."""
+    start_str = data["period_start"].strftime("%b %d")
+    end_str = data["now"].strftime("%b %d")
 
     cur_total = data["current_total"]
-    cur_cmds = data["current_commands"]
     prev_total = data["prev_total"]
+    cur_cmds = data["current_commands"]
     prev_cmds = data["prev_commands"]
     active = data["active_chats"]
     active_count = len(active)
-    prev_active = data["prev_active_count"]
     new_chats = data["new_chats"]
-    total_chats = data["total_chats"]
     inactive = data["inactive_count"]
 
-    lines = []
-    lines.append(f"📊 <b>Weekly Intelligence Report ({start_str}–{end_str})</b>")
-    lines.append("")
-    lines.append(f"📨 <b>Messages:</b> {cur_total:,} ({_pct_change(cur_total, prev_total)})")
-    lines.append(f"⌨️ <b>Commands:</b> {cur_cmds} ({_pct_change(cur_cmds, prev_cmds)})")
-    lines.append(f"💬 <b>Active chats:</b> {active_count} ({_pct_change(active_count, prev_active)})")
-    lines.append(f"🆕 <b>New chats:</b> {new_chats}")
+    lines = [
+        f"📊 <b>Weekly Intelligence Report ({start_str}–{end_str})</b>",
+        "",
+        f"📨 <b>Messages:</b> {cur_total:,} ({_pct_change(cur_total, prev_total)})",
+        f"📈 <b>Commands:</b> {cur_cmds} ({_pct_change(cur_cmds, prev_cmds)})",
+        f"👥 <b>Active chats:</b> {active_count} ({new_chats} new)",
+    ]
 
-    # Most used feature
     if data["top_commands"]:
-        top_cmd = data["top_commands"][0]
-        cmd_name = top_cmd["command_name"].split("@")[0]
-        lines.append(f"🔥 <b>Top feature:</b> /{_html(cmd_name)} ({top_cmd['cnt']} uses)")
+        cmd_name = data["top_commands"][0]["command_name"].split("@")[0]
+        lines.append(f"🔥 <b>Most used feature:</b> /{_html(cmd_name)}")
 
-    lines.append(f"😴 <b>Inactive chats:</b> {inactive} (no activity in 14+ days)")
-
-    # Peak hour
-    if data["hourly"]:
-        peak = max(data["hourly"], key=lambda r: r["cnt"])
-        lines.append(f"⏱ <b>Peak time:</b> {peak['hour']:02d}:00 ({peak['cnt']} msgs)")
-
-    lines.append("")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("")
+    lines.append(f"😴 <b>Dead chats:</b> {inactive} (no activity in 14 days)")
+    lines.append(f"⏱ <b>Peak time:</b> {_peak_time_range(data['hourly'])}")
 
     # Top commands
     if data["top_commands"]:
+        lines.append("")
         lines.append("🏆 <b>Top commands:</b>")
         for i, cmd in enumerate(data["top_commands"][:5], 1):
             name = cmd["command_name"].split("@")[0]
             lines.append(f" {i}. /{_html(name)} — {cmd['cnt']}")
-        lines.append("")
 
     # Top users
     if data["top_users"]:
-        lines.append("👥 <b>Top users:</b>")
+        lines.append("")
+        lines.append("👤 <b>Top users:</b>")
         for i, user in enumerate(data["top_users"][:5], 1):
             name = f"@{user['username']}" if user["username"] else _html(user["first_name"])
             lines.append(f" {i}. {name} — {user['cnt']:,}")
-        lines.append("")
 
-    # Daily breakdown
-    daily = data["daily"]
-    if daily:
-        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        lines.append("📅 <b>Daily breakdown:</b>")
-        daily_lines = []
-        peak_day = max(daily, key=lambda r: r["total"])
-        for row in daily:
-            d = row["day"]
-            dow = day_names[d.weekday()]
-            marker = " ←peak" if row["day"] == peak_day["day"] else ""
-            daily_lines.append(f" {dow} {d.strftime('%d.%m')}: {row['total']:,} ({row['commands']} cmd){marker}")
-
-        # Truncate if too many days would blow the message limit
-        if len(daily_lines) > 14:
-            shown = daily_lines[-7:]
-            lines.append(f" <i>...and {len(daily_lines) - 7} earlier days</i>")
-            lines.extend(shown)
-        else:
-            lines.extend(daily_lines)
-        lines.append("")
-
-    # Retention
-    retention = round(active_count / total_chats * 100) if total_chats > 0 else 0
-    lines.append(f"🔄 <b>Retention:</b> {retention}% ({active_count}/{total_chats} chats)")
-
-    # Chat activity breakdown
+    # Chat activity
     if active:
         total_msgs = sum(c["cnt"] for c in active)
         lines.append("")
@@ -258,24 +283,12 @@ def format_report(data: Dict[str, Any], days: int) -> str:
             pct = round(remaining_msgs / total_msgs * 100) if total_msgs > 0 else 0
             lines.append(f" • {remaining} other chats — {remaining_msgs:,} ({pct}%)")
 
-    # Key takeaway
+    # Insights
     lines.append("")
-    if daily and len(daily) >= 2:
-        peak_d = max(daily, key=lambda r: r["total"])
-        low_d = min(daily, key=lambda r: r["total"])
-        day_names_full = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        peak_name = day_names_full[peak_d["day"].weekday()]
-        low_name = day_names_full[low_d["day"].weekday()]
-        cmd_trend = _pct_change(cur_cmds, prev_cmds)
-        lines.append(
-            f"💡 Peak day: {peak_name} ({peak_d['total']:,} msgs), "
-            f"quietest: {low_name} ({low_d['total']:,}). "
-            f"Commands {cmd_trend} vs previous period."
-        )
+    lines.append(f"🔍 <b>Insights:</b> {_build_insights(data, days)}")
 
     report = "\n".join(lines)
 
-    # Safety truncation
     if len(report) > MAX_MESSAGE_LENGTH:
         report = report[:MAX_MESSAGE_LENGTH - 20] + "\n...(truncated)"
 
