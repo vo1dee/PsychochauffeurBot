@@ -76,8 +76,8 @@ class WeatherData:
             clothing_advice=advice or ""
         )
 
-    async def format_message(self, update: Optional[Update] = None, context: Optional[CallbackContext[Any, Any, Any, Any]] = None) -> str:
-        """Format weather data into a readable message."""
+    async def format_message_raw(self) -> str:
+        """Format weather data into a readable message without AI advice."""
         weather_emoji = await get_weather_emoji(self.weather_id)
         country_flag = country_code_to_emoji(self.country_code)
         feels_like_emoji = await get_feels_like_emoji(self.feels_like)
@@ -85,17 +85,20 @@ class WeatherData:
         from datetime import datetime, timedelta
         local_dt = datetime.utcfromtimestamp(self.local_time) + timedelta(seconds=self.timezone_offset)
         local_time_str = local_dt.strftime('%H:%M %d.%m.%Y')
-        # Get clothing advice
-        clothing_advice = await self.get_clothing_advice(update, context)
 
         return (
             f"Погода в {self.city_name}, {self.country_code} {country_flag} (місцевий час: {local_time_str}):\n"
             f"{weather_emoji} {self.description.capitalize()}\n"
             f"🌡 Температура: {round(self.temperature)}°C\n"
             f"{feels_like_emoji} Відчувається як: {round(self.feels_like)}°C\n"
-            f"{humidity_emoji} Вологість: {self.humidity}%\n"
-            f"\n👕 {clothing_advice.clothing_advice}"
+            f"{humidity_emoji} Вологість: {self.humidity}%"
         )
+
+    async def format_message(self, update: Optional[Update] = None, context: Optional[CallbackContext[Any, Any, Any, Any]] = None) -> str:
+        """Format weather data into a readable message with AI clothing advice."""
+        raw = await self.format_message_raw()
+        clothing_advice = await self.get_clothing_advice(update, context)
+        return f"{raw}\n\n👕 {clothing_advice.clothing_advice}"
 
 
 class WeatherAPI:
@@ -200,25 +203,21 @@ class WeatherCommandHandler:
         self.weather_api = WeatherAPI()
         self.config_manager = ConfigManager()
     
-    async def handle_weather_request(self, city: str, update: Optional[Update] = None, context: Optional[CallbackContext[Any, Any, Any, Any]] = None) -> str:
-        """Process weather request and return formatted message."""
-        weather_data = await self.weather_api.fetch_weather(city)
-        if weather_data:
-            return await weather_data.format_message(update, context)
-        return "Не вдалося отримати дані про погоду. "
-    
     async def __call__(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
-        """Handle /weather command."""
+        """Handle /weather command.
+
+        Sends raw weather data immediately, then edits the message
+        to append AI clothing advice once the LLM responds.
+        """
         user_id: Optional[int] = update.effective_user.id if update.effective_user else None
         chat_id: Optional[int] = update.effective_chat.id if update.effective_chat else None
-        
+
         try:
             if context.args:
                 city = " ".join(context.args)
                 if user_id is not None:
                     save_user_location(user_id, city, chat_id)
             else:
-                # get_last_used_city expects (int, Optional[int])
                 city = get_last_used_city(user_id if user_id is not None else 0, chat_id) or ""
                 if not city:
                     if update.message:
@@ -226,13 +225,33 @@ class WeatherCommandHandler:
                             "Будь ласка, вкажіть назву міста або задайте його спочатку."
                         )
                     return
-            
-            # Get weather info and pass update, context parameters
-            weather_info = await self.handle_weather_request(city, update, context)
-            
-            if update.message:
-                await update.message.reply_text(weather_info)
-                
+
+            # Fetch weather data from API
+            weather_data = await self.weather_api.fetch_weather(city)
+            if not weather_data:
+                if update.message:
+                    await update.message.reply_text("Не вдалося отримати дані про погоду.")
+                return
+
+            # Send raw weather data immediately
+            raw_message = await weather_data.format_message_raw()
+            if not update.message:
+                return
+            sent_message = await update.message.reply_text(
+                f"{raw_message}\n\n⏳ Завантаження рекомендацій..."
+            )
+
+            # Fetch AI clothing advice and edit the message
+            try:
+                clothing = await weather_data.get_clothing_advice(update, context)
+                if clothing.clothing_advice:
+                    await sent_message.edit_text(f"{raw_message}\n\n👕 {clothing.clothing_advice}")
+                else:
+                    await sent_message.edit_text(raw_message)
+            except Exception as e:
+                error_logger.error(f"Error fetching clothing advice: {e}")
+                await sent_message.edit_text(raw_message)
+
         except httpx.HTTPStatusError as e:
             error_logger.error(f"HTTP status error in weather command: {e}")
             if update.message:

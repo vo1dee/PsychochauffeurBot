@@ -199,18 +199,27 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         context = MagicMock(spec=CallbackContext)
         context.args = []  # No city provided in command
         
-        # Create WeatherCommandHandler instance with mocked handle_weather_request
+        # Create WeatherCommandHandler instance with mocked weather_api
         weather_cmd = WeatherCommandHandler()
-        weather_cmd.handle_weather_request = AsyncMock(return_value="Weather info for Kyiv")  # type: ignore
-        
+        mock_weather_data = MagicMock()
+        mock_weather_data.format_message_raw = AsyncMock(return_value="Weather info for Kyiv")
+        mock_weather_data.get_clothing_advice = AsyncMock(return_value=MagicMock(clothing_advice="Dress warm"))
+        weather_cmd.weather_api.fetch_weather = AsyncMock(return_value=mock_weather_data)  # type: ignore
+
+        # Mock sent message for edit_text
+        sent_message = MagicMock()
+        sent_message.edit_text = AsyncMock()
+        update.message.reply_text = AsyncMock(return_value=sent_message)
+
         # Run the coroutine
         asyncio.run(weather_cmd(update, context))
-        
+
         # Verify get_last_used_city was called with both user_id and chat_id (as integer)
         mock_get_city.assert_called_once_with(123, 456)
-        
-        # Verify message was sent
-        update.message.reply_text.assert_called_once_with("Weather info for Kyiv")
+
+        # Verify raw message was sent immediately, then edited with advice
+        update.message.reply_text.assert_called_once()
+        sent_message.edit_text.assert_called_once()
     
     @patch('modules.weather.save_user_location')
     def test_weather_command_with_city_arg(self, mock_save_location: Any) -> None:
@@ -227,18 +236,27 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         context = MagicMock(spec=CallbackContext)
         context.args = ["Odesa"]  # City provided in command
         
-        # Create WeatherCommandHandler instance with mocked handle_weather_request
+        # Create WeatherCommandHandler instance with mocked weather_api
         weather_cmd = WeatherCommandHandler()
-        weather_cmd.handle_weather_request = AsyncMock(return_value="Weather info for Odesa")  # type: ignore
-        
+        mock_weather_data = MagicMock()
+        mock_weather_data.format_message_raw = AsyncMock(return_value="Weather info for Odesa")
+        mock_weather_data.get_clothing_advice = AsyncMock(return_value=MagicMock(clothing_advice="Dress light"))
+        weather_cmd.weather_api.fetch_weather = AsyncMock(return_value=mock_weather_data)  # type: ignore
+
+        # Mock sent message for edit_text
+        sent_message = MagicMock()
+        sent_message.edit_text = AsyncMock()
+        update.message.reply_text = AsyncMock(return_value=sent_message)
+
         # Run the coroutine
         asyncio.run(weather_cmd(update, context))
-        
+
         # Verify save_user_location was called with user_id, city, and chat_id (as integer)
         mock_save_location.assert_called_once_with(123, "Odesa", 456)
-        
-        # Verify message was sent
-        update.message.reply_text.assert_called_once_with("Weather info for Odesa")
+
+        # Verify raw message was sent immediately, then edited with advice
+        update.message.reply_text.assert_called_once()
+        sent_message.edit_text.assert_called_once()
 
 # Additional tests for core utilities
     def test_remove_links(self) -> None:
