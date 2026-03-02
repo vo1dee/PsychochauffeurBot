@@ -10,7 +10,7 @@ tests/
 │   ├── test_config_manager.py    # ConfigManager functionality
 │   └── test_gpt_config.py        # GPT config inheritance
 ├── core/                   # Core bot functionality tests  
-│   ├── test_bot.py              # Main bot features
+│   ├── test_weather_and_utils.py # Weather commands, utils, file management
 │   ├── test_service.py          # Service layer tests
 │   └── test_error_handler.py    # Error handling tests
 ├── modules/               # Individual module tests
@@ -57,7 +57,7 @@ python tests/config/test_config_manager.py
 python tests/config/test_gpt_config.py
 
 # Core functionality
-python tests/core/test_bot.py
+python tests/core/test_weather_and_utils.py
 python tests/core/test_error_handler.py
 
 # Specific modules
