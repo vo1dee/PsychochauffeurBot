@@ -13,6 +13,7 @@ from modules.utils import cat_command as _cat, screenshot_command as _screenshot
 from modules.count_command import count_command as _count, missing_command as _missing
 from modules.error_analytics import error_report_command as _error_report
 from modules.report_command import report_command as _report
+from modules.stats_command import stats_command as _stats
 
 logger = logging.getLogger(__name__)
 
@@ -45,3 +46,8 @@ async def error_report_command(update: Update, context: ContextTypes.DEFAULT_TYP
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /report command for usage analytics."""
     await _report(update, context)
+
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /stats command for chat statistics."""
+    await _stats(update, context)
