@@ -100,6 +100,7 @@ class HandlerRegistry(ServiceInterface):
             missing_command,
             error_report_command,
             report_command,
+            stats_command,
         )
         from modules.handlers.admin_commands import mute_command, unmute_command
         from modules.handlers.speech_commands import speech_command
@@ -161,6 +162,11 @@ class HandlerRegistry(ServiceInterface):
         # Report command
         self.command_processor.register_text_command(
             "report", report_command, "Generate usage analytics report"
+        )
+
+        # Stats command
+        self.command_processor.register_text_command(
+            "stats", stats_command, "Show chat statistics"
         )
 
         # Register admin commands
