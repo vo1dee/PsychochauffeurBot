@@ -74,7 +74,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• `/stats` — статистика чату\n"
         "• `/mystats` — особиста статистика використання\n"
         "• `/count` — кількість повідомлень\n"
-        "• `/report` — аналітичний звіт\n\n"
 
         "🌤 **Погода та космос:**\n"
         "• `/weather <місто>` — поточна погода\n"
