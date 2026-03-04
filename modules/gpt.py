@@ -13,7 +13,7 @@ import hashlib
 from PIL import Image
 import httpx
 import pytz
-from telegram import Update
+from telegram import ChatAction, Update
 from telegram.ext import CallbackContext
 from typing import Any
 from telegram.ext import ContextTypes
@@ -656,6 +656,9 @@ async def ask_gpt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if not prompt:
         prompt = "Привіт! Як я можу вам допомогти?"
+
+    if update.effective_chat:
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
     await gpt_response(update, context, response_type="command", message_text_override=prompt)
 
