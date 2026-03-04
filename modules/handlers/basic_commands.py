@@ -5,7 +5,7 @@ Contains handlers for fundamental commands like start, help, and ping.
 """
 
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import ContextTypes
 
 from modules.logger import general_logger
@@ -17,44 +17,39 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """Handle the /start command."""
     if not update.message:
         return
-        
+
     welcome_text = (
         "🤖 **PsychoChauffeur Bot**\n\n"
-        
-        "📊 **Аналіз повідомлень:**\n"
-        "• `/analyze` - аналіз сьогоднішніх повідомлень\n"
-        "• `/analyze last 50 messages` - останні повідомлення\n"
-        "• `/analyze date 15-01-2024` - за конкретну дату\n"
-        "• Підтримка форматів: DD-MM-YYYY, YYYY-MM-DD, DD/MM/YYYY\n\n"
-        
-        "🌞 **Космічна погода:**\n"
-        "• `/flares` - актуальний знімок сонячних спалахів\n"
-        "• `/gm` - геомагнітна активність\n\n"
-        
-        "🎥 **Завантаження відео:**\n"
-        "• TikTok, YouTube Shorts, Twitter, Vimeo, Reddit, Twitch\n"
-        "• Просто надішліть посилання на відео\n\n"
-        
-        "🔗 **Обробка посилань:**\n"
-        "• Оптимізація посилань AliExpress\n"
-        "• Модифікація для обмежених доменів\n\n"
-        
-        "• `/unmute @username` - дозволити писати користувачу (тільки для адмінів)\n"
-        "• `/help` - детальна довідка\n\n"
-        
-        "❓ **Питання або проблеми?**\n"
-        "Зверніться до @vo1dee"
+
+        "🤖 **AI / GPT:**\n"
+        "• `/ask <питання>` — запитати GPT\n"
+        "• `/analyze` — аналіз повідомлень чату\n\n"
+
+        "📊 **Статистика:**\n"
+        "• `/stats` — статистика чату\n"
+        "• `/mystats` — особиста статистика\n"
+        "• `/count` — кількість повідомлень\n\n"
+
+        "🌤 **Погода та космос:**\n"
+        "• `/weather <місто>` — погода\n"
+        "• `/flares` — сонячні спалахи\n"
+        "• `/gm` — геомагнітна активність\n\n"
+
+        "🎥 **Медіа:**\n"
+        "• Відео: TikTok, YouTube Shorts, Twitter, Vimeo, Reddit, Twitch\n"
+        "• 🐱 `/cat` — випадкове фото кота\n\n"
+
+        "🔗 **Посилання:**\n"
+        "• Оптимізація AliExpress та обмежених доменів\n\n"
+
+        "🔧 **Адмін:**\n"
+        "• `/mute`, `/unmute`, `/speech`, `/random`, `/reaction`\n\n"
+
+        "❓ Детальна довідка: /help\n"
+        "Питання: @vo1dee"
     )
-    await update.message.reply_text(welcome_text)
-    
-    # Add a static test button for callback debugging
-    await update.message.reply_text(
-        "Test callback button:",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Test Callback", callback_data="test_callback")]
-        ])
-    )
-    
+    await update.message.reply_text(welcome_text, parse_mode='Markdown')
+
     if update.effective_user:
         general_logger.info(f"Handled /start command for user {update.effective_user.id}")
 
@@ -65,41 +60,51 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
         
     help_text = (
-        "🤖 **PsychoChauffeur Bot - Довідка**\n\n"
-        
-        "📊 **Команди аналізу повідомлень:**\n"
-        "• `/analyze` - аналіз сьогоднішніх повідомлень\n"
-        "• `/analyze last <число> messages` - останні N повідомлень\n"
-        "• `/analyze last <число> days` - повідомлення за останні N днів\n"
-        "• `/analyze date <дата>` - повідомлення за конкретну дату\n"
-        "• `/analyze period <дата1> <дата2>` - повідомлення за період\n\n"
-        
-        "📅 **Підтримувані формати дат:**\n"
-        "• `YYYY-MM-DD` (наприклад: 2024-01-15)\n"
-        "• `DD-MM-YYYY` (наприклад: 15-01-2024)\n"
-        "• `DD/MM/YYYY` (наприклад: 15/01/2024)\n\n"
-        
-        "💡 **Приклади команд аналізу:**\n"
-        "• `/analyze last 50 messages`\n"
-        "• `/analyze date 15-01-2024`\n"
-        "• `/analyze period 01-01-2024 31-01-2024`\n"
-        "• `/analyze last 7 days`\n\n"
-        
-        "🌞 **Команди космічної погоди:**\n"
-        "• `/flares` - актуальний знімок сонячних спалахів\n"
-        "• `/gm` - геомагнітна активність\n\n"
-        
+        "🤖 **PsychoChauffeur Bot — Довідка**\n\n"
+
+        "🤖 **AI / GPT:**\n"
+        "• `/ask <питання>` — запитати GPT\n"
+        "• `/analyze` — аналіз сьогоднішніх повідомлень\n"
+        "• `/analyze last <N> messages` — останні N повідомлень\n"
+        "• `/analyze last <N> days` — за останні N днів\n"
+        "• `/analyze date <дата>` — за конкретну дату (DD-MM-YYYY, YYYY-MM-DD, DD/MM/YYYY)\n"
+        "• `/analyze period <дата1> <дата2>` — за період\n\n"
+
+        "📊 **Статистика:**\n"
+        "• `/stats` — статистика чату\n"
+        "• `/mystats` — особиста статистика використання\n"
+        "• `/count` — кількість повідомлень\n"
+        "• `/report` — аналітичний звіт\n\n"
+
+        "🌤 **Погода та космос:**\n"
+        "• `/weather <місто>` — поточна погода\n"
+        "• `/flares` — знімок сонячних спалахів\n"
+        "• `/gm` — геомагнітна активність\n\n"
+
         "🎥 **Завантаження відео:**\n"
-        "• Підтримка TikTok, YouTube Shorts, Twitter, Vimeo, Reddit, Twitch\n"
-        "• Просто надішліть посилання на відео\n\n"
-        
+        "• Підтримка: TikTok, YouTube Shorts, Twitter, Vimeo, Reddit, Twitch\n"
+        "• Просто надішліть посилання\n\n"
+
+        "🐱 **Розваги:**\n"
+        "• `/cat` — випадкове фото кота\n\n"
+
+        "🔗 **Обробка посилань:**\n"
+        "• Оптимізація AliExpress\n"
+        "• Модифікація для обмежених доменів\n\n"
+
         "🔧 **Адмін команди (тільки для адміністраторів):**\n"
-        "• `/mute <@username або user_id> <хвилини>` - заборонити писати користувачу\n"
-        "• `/unmute <@username або user_id>` - дозволити писати користувачу\n"
-        "• Відповідайте на повідомлення з `/mute <хвилини>` або `/unmute`\n\n"
-        
-        "❓ **Питання або проблеми?**\n"
-        "Зверніться до @vo1dee"
+        "• `/mute <@user або id> <хвилини>` — заглушити користувача (макс. 1440 хв)\n"
+        "• `/unmute <@user або id>` — розглушити користувача\n"
+        "• `/speech on|off` — увімк./вимк. розпізнавання мовлення\n"
+        "• `/random on|off` — увімк./вимк. випадкові відповіді\n"
+        "• `/reaction on|off` — увімк./вимк. емодзі-реакції\n"
+        "• `/error_report` — звіт про помилки\n\n"
+
+        "🛠 **Інше:**\n"
+        "• `/ping` — перевірка доступності бота\n"
+        "• `/missing @user` — перевірка відсутності користувача\n\n"
+
+        "❓ Питання або проблеми? @vo1dee"
     )
     
     await update.message.reply_text(help_text, parse_mode='Markdown')
