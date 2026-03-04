@@ -13,7 +13,8 @@ import hashlib
 from PIL import Image
 import httpx
 import pytz
-from telegram import ChatAction, Update
+from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import CallbackContext
 from typing import Any
 from telegram.ext import ContextTypes
