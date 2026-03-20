@@ -639,7 +639,7 @@ async def gpt_response(
                 })
             
             if update.message:
-                await update.message.reply_text(response_text)
+                await update.message.reply_text(response_text, parse_mode="Markdown")
             return None
         
     except Exception as e:
