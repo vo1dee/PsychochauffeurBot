@@ -1,6 +1,6 @@
 import random
 import time
-from datetime import datetime, timedelta, timezone
+
 from typing import Optional
 
 from telegram import Update, ChatPermissions
@@ -71,7 +71,6 @@ async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, 
         # Set up restriction    
         restrict_duration = random.randint(*RESTRICT_DURATION_RANGE)
         until_date = int(time.time()) + restrict_duration * 60
-        until_date_formatted = (datetime.now(timezone.utc) + timedelta(minutes=restrict_duration)).strftime("%Y-%m-%d %H:%M:%S UTC")
         permissions = ChatPermissions(
             can_send_messages=False
         )
@@ -95,8 +94,7 @@ async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, 
 
         # Send notification
         await update.message.reply_text(
-            f"Вас запсихопаркували на {restrict_duration} хвилин.\n"
-            f"Ви не можете надсилати повідомлення до {until_date_formatted}."
+            f"Вас запсихопаркували на {restrict_duration} хвилин."
         )
         
         # Send sticker (always random from RESTRICTION_STICKERS, never custom config)
@@ -105,7 +103,7 @@ async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, 
         except TelegramError as sticker_error:
             error_logger.warning(f"Failed to send restriction sticker: {sticker_error}")
 
-        general_logger.info(f"Restricted user {user.id} for {restrict_duration} minutes until {until_date_formatted}")
+        general_logger.info(f"Restricted user {user.id} for {restrict_duration} minutes for {restrict_duration} min (until_date={until_date})")
 
     except TelegramError as e:
         error_logger.error(f"Telegram API error while restricting user {user.id}: {e}")
@@ -155,7 +153,6 @@ async def handle_restriction_sticker(update: Update, context: CallbackContext[An
     # Restrict user (reuse logic from restrict_user)
     restrict_duration = random.randint(*RESTRICT_DURATION_RANGE)
     until_date = int(time.time()) + restrict_duration * 60
-    until_date_formatted = (datetime.now(timezone.utc) + timedelta(minutes=restrict_duration)).strftime("%Y-%m-%d %H:%M:%S UTC")
     permissions = ChatPermissions(
         can_send_messages=False
     )
@@ -168,14 +165,13 @@ async def handle_restriction_sticker(update: Update, context: CallbackContext[An
         )
         general_logger.info(f"[handle_restriction_sticker] restrict_chat_member result: {result}")
         await message.reply_text(
-            f"Вас запсихопаркували на {restrict_duration} хвилин.\n"
-            f"Ви не можете надсилати повідомлення до {until_date_formatted}."
+            f"Вас запсихопаркували на {restrict_duration} хвилин."
         )
         try:
             await context.bot.send_sticker(chat_id=chat.id, sticker=random.choice(Stickers.RESTRICTION_STICKERS))
         except TelegramError as sticker_error:
             error_logger.warning(f"Failed to send restriction sticker: {sticker_error}")
-        general_logger.info(f"[handle_restriction_sticker] Restricted user {user.id} for {restrict_duration} minutes until {until_date_formatted}")
+        general_logger.info(f"[handle_restriction_sticker] Restricted user {user.id} for {restrict_duration} minutes for {restrict_duration} min (until_date={until_date})")
     except TelegramError as e:
         error_logger.error(f"Telegram API error while restricting user {user.id}: {e}")
         await message.reply_text("An error occurred while trying to restrict the user.")

@@ -7,7 +7,7 @@ Contains handlers for administrative commands like mute, ban, etc.
 import logging
 import re
 import time
-from datetime import datetime, timedelta, timezone
+
 from typing import Optional
 
 from telegram import Update, ChatPermissions
@@ -188,7 +188,6 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # Calculate mute end time
     mute_until = int(time.time()) + mute_minutes * 60
-    mute_until_formatted = (datetime.now(timezone.utc) + timedelta(minutes=mute_minutes)).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     # Apply mute
     permissions = ChatPermissions(
@@ -215,8 +214,7 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             target_name += f" (@{target_member.user.username})"
 
         await update.message.reply_text(
-            f"✅ {target_name} has been muted for {mute_minutes} minutes.\n"
-            f"Mute expires: {mute_until_formatted}"
+            f"✅ {target_name} has been muted for {mute_minutes} minutes."
         )
 
         if user is not None:
