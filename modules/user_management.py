@@ -17,6 +17,38 @@ RESTRICT_DURATION_RANGE = (1, 15)  # min and max minutes
 
 config_manager = ConfigManager()
 
+
+async def _unrestrict_user(context: CallbackContext[Any, Any, Any, Any]) -> None:
+    """Job callback to unrestrict a user and notify them."""
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
+    user_name = job.data.get("user_name", "User")
+
+    permissions = ChatPermissions(
+        can_send_messages=True,
+        can_send_polls=True,
+        can_send_other_messages=True,
+        can_add_web_page_previews=True,
+        can_invite_users=True,
+        can_pin_messages=False,
+        can_change_info=False,
+    )
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=chat_id,
+            user_id=user_id,
+            permissions=permissions,
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"🔓 {user_name}, вас розпсихопаркували. Можете знову писати.",
+        )
+        general_logger.info(f"Auto-unrestricted user {user_id} in chat {chat_id}")
+    except TelegramError as e:
+        error_logger.error(f"Failed to auto-unrestrict user {user_id} in chat {chat_id}: {e}")
+
+
 async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
     """
     Restricts a user's ability to send messages for a random duration, using chat_behavior config if present.
@@ -24,7 +56,7 @@ async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, 
     if not update.message:
         error_logger.error("No message found in update")
         return
-        
+
     chat = update.effective_chat
     general_logger.info(f"[restrict_user] Called for chat_id={chat.id if chat else None}, chat_type={getattr(chat, 'type', None)}")
     if not chat or chat.type != "supergroup":
@@ -68,14 +100,14 @@ async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, 
             general_logger.info(f"[restrict_user] Cannot restrict admin/owner {user.id}, returning early.")
             return
 
-        # Set up restriction    
+        # Set up restriction
         restrict_duration = random.randint(*RESTRICT_DURATION_RANGE)
         until_date = int(time.time()) + restrict_duration * 60
         permissions = ChatPermissions(
             can_send_messages=False
         )
         general_logger.info(
-            f"Attempting to restrict user {user.id} in chat {chat.id} until {until_date} with permissions: {permissions}"
+            f"Attempting to restrict user {user.id} in chat {chat.id} for {restrict_duration} min (until_date={until_date})"
         )
         try:
             await context.bot.restrict_chat_member(
@@ -88,22 +120,33 @@ async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, 
         except TelegramError as e:
             error_logger.error(f"Telegram API error while restricting user {user.id}: {e}")
             await update.message.reply_text("An error occurred while trying to restrict the user.")
+            return
         except Exception as e:
             error_logger.error(f"Unexpected error while restricting user {user.id}: {e}")
             await update.message.reply_text("An unexpected error occurred.")
+            return
+
+        # Schedule auto-unrestrict job
+        user_name = user.first_name or "User"
+        context.job_queue.run_once(
+            _unrestrict_user,
+            when=restrict_duration * 60,
+            data={"chat_id": chat.id, "user_id": user.id, "user_name": user_name},
+            name=f"unrestrict_{chat.id}_{user.id}",
+        )
 
         # Send notification
         await update.message.reply_text(
             f"Вас запсихопаркували на {restrict_duration} хвилин."
         )
-        
+
         # Send sticker (always random from RESTRICTION_STICKERS, never custom config)
         try:
             await context.bot.send_sticker(chat_id=chat.id, sticker=random.choice(Stickers.RESTRICTION_STICKERS))
         except TelegramError as sticker_error:
             error_logger.warning(f"Failed to send restriction sticker: {sticker_error}")
 
-        general_logger.info(f"Restricted user {user.id} for {restrict_duration} minutes for {restrict_duration} min (until_date={until_date})")
+        general_logger.info(f"Restricted user {user.id} for {restrict_duration} min (until_date={until_date})")
 
     except TelegramError as e:
         error_logger.error(f"Telegram API error while restricting user {user.id}: {e}")
@@ -150,7 +193,7 @@ async def handle_restriction_sticker(update: Update, context: CallbackContext[An
     except Exception as e:
         error_logger.error(f"Failed to get chat member: {e}")
         return
-    # Restrict user (reuse logic from restrict_user)
+    # Restrict user
     restrict_duration = random.randint(*RESTRICT_DURATION_RANGE)
     until_date = int(time.time()) + restrict_duration * 60
     permissions = ChatPermissions(
@@ -164,6 +207,16 @@ async def handle_restriction_sticker(update: Update, context: CallbackContext[An
             until_date=until_date
         )
         general_logger.info(f"[handle_restriction_sticker] restrict_chat_member result: {result}")
+
+        # Schedule auto-unrestrict job
+        user_name = user.first_name or "User"
+        context.job_queue.run_once(
+            _unrestrict_user,
+            when=restrict_duration * 60,
+            data={"chat_id": chat.id, "user_id": user.id, "user_name": user_name},
+            name=f"unrestrict_{chat.id}_{user.id}",
+        )
+
         await message.reply_text(
             f"Вас запсихопаркували на {restrict_duration} хвилин."
         )
@@ -171,7 +224,7 @@ async def handle_restriction_sticker(update: Update, context: CallbackContext[An
             await context.bot.send_sticker(chat_id=chat.id, sticker=random.choice(Stickers.RESTRICTION_STICKERS))
         except TelegramError as sticker_error:
             error_logger.warning(f"Failed to send restriction sticker: {sticker_error}")
-        general_logger.info(f"[handle_restriction_sticker] Restricted user {user.id} for {restrict_duration} minutes for {restrict_duration} min (until_date={until_date})")
+        general_logger.info(f"[handle_restriction_sticker] Restricted user {user.id} for {restrict_duration} min (until_date={until_date})")
     except TelegramError as e:
         error_logger.error(f"Telegram API error while restricting user {user.id}: {e}")
         await message.reply_text("An error occurred while trying to restrict the user.")
