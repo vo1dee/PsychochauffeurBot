@@ -6,7 +6,7 @@ Contains handlers for administrative commands like mute, ban, etc.
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from telegram import Update, ChatPermissions
@@ -186,8 +186,8 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     # Calculate mute end time
-    mute_until = datetime.now() + timedelta(minutes=mute_minutes)
-    mute_until_formatted = mute_until.strftime("%Y-%m-%d %H:%M:%S")
+    mute_until = datetime.now(timezone.utc) + timedelta(minutes=mute_minutes)
+    mute_until_formatted = mute_until.strftime("%Y-%m-%d %H:%M:%S UTC")
 
     # Apply mute
     permissions = ChatPermissions(
