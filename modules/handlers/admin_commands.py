@@ -15,6 +15,7 @@ from telegram.ext import ContextTypes
 from telegram.error import TelegramError
 
 from modules.logger import general_logger, error_logger
+from modules.user_management import _unrestrict_user
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,9 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     # Calculate mute end time
-    mute_until = int(time.time()) + mute_minutes * 60
+    now_ts = int(time.time())
+    mute_until = now_ts + mute_minutes * 60
+    general_logger.info(f"[mute] now={now_ts}, until={mute_until}, delta={mute_minutes * 60}s")
 
     # Apply mute
     permissions = ChatPermissions(
@@ -212,6 +215,14 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         target_name = target_member.user.first_name or "User"
         if target_member.user.username:
             target_name += f" (@{target_member.user.username})"
+
+        # Schedule auto-unrestrict job
+        context.job_queue.run_once(
+            _unrestrict_user,
+            when=mute_minutes * 60,
+            data={"chat_id": chat.id, "user_id": target_user_id, "user_name": target_name},
+            name=f"unrestrict_{chat.id}_{target_user_id}",
+        )
 
         await update.message.reply_text(
             f"✅ {target_name} has been muted for {mute_minutes} minutes."
