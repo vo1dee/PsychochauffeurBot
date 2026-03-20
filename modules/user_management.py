@@ -1,6 +1,6 @@
-import pytz
 import random
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from telegram import Update, ChatPermissions
@@ -13,7 +13,6 @@ from config.config_manager import ConfigManager
 from modules.const import Stickers
 
 # Constants
-LOCAL_TZ = pytz.timezone('Europe/Kyiv')
 RESTRICT_DURATION_RANGE = (1, 15)  # min and max minutes
 
 config_manager = ConfigManager()
@@ -71,8 +70,8 @@ async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, 
 
         # Set up restriction    
         restrict_duration = random.randint(*RESTRICT_DURATION_RANGE)
-        until_date = datetime.now(LOCAL_TZ) + timedelta(minutes=restrict_duration)
-        until_date_formatted = until_date.strftime("%Y-%m-%d %H:%M:%S")
+        until_date = int(time.time()) + restrict_duration * 60
+        until_date_formatted = (datetime.now(timezone.utc) + timedelta(minutes=restrict_duration)).strftime("%Y-%m-%d %H:%M:%S UTC")
         permissions = ChatPermissions(
             can_send_messages=False
         )
@@ -155,8 +154,8 @@ async def handle_restriction_sticker(update: Update, context: CallbackContext[An
         return
     # Restrict user (reuse logic from restrict_user)
     restrict_duration = random.randint(*RESTRICT_DURATION_RANGE)
-    until_date = datetime.utcnow() + timedelta(minutes=restrict_duration)
-    until_date_formatted = until_date.strftime("%Y-%m-%d %H:%M:%S UTC")
+    until_date = int(time.time()) + restrict_duration * 60
+    until_date_formatted = (datetime.now(timezone.utc) + timedelta(minutes=restrict_duration)).strftime("%Y-%m-%d %H:%M:%S UTC")
     permissions = ChatPermissions(
         can_send_messages=False
     )
