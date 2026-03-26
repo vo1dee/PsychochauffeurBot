@@ -133,3 +133,6 @@ downloads/
 
 # Ignore analysis results
 analysis_results/
+
+# Config backups
+config_backup_*/
