@@ -320,6 +320,7 @@
         <div class="sidebar-header">PsychoChauffeurBot</div>
         <div class="sidebar-search">
             <input type="text" id="searchInput" placeholder="Search chats..." oninput="filterChats()">
+            <button class="btn" onclick="refreshChatNames()" title="Refresh chat names from database" style="margin-top:6px;width:100%;font-size:12px;padding:4px 8px">&#x21bb; Refresh Names</button>
         </div>
         <div class="chat-list" id="chatList">
             <div class="loading">Loading...</div>
@@ -391,6 +392,21 @@
             opts.body = JSON.stringify(opts.body);
         }
         return fetch(API + path, { ...opts, headers });
+    }
+
+    async function refreshChatNames() {
+        try {
+            const res = await apiFetch('/config/refresh-chat-names', { method: 'POST' });
+            const data = await res.json();
+            if (data.updated && data.updated.length > 0) {
+                toast(`Updated ${data.updated.length} chat name(s)`, 'success');
+                await loadChats();
+            } else {
+                toast('All chat names are up to date', 'success');
+            }
+        } catch(e) {
+            toast('Failed to refresh chat names', 'error');
+        }
     }
 
     // --- Chat list ---

@@ -149,7 +149,8 @@ async def _maybe_react_to_message(update: Update, context: ContextTypes.DEFAULT_
 
     try:
         config_manager = service_registry.get_service('config_manager')
-        config = await config_manager.get_config(chat_id, chat_type)
+        chat_title = update.effective_chat.title if update.effective_chat else None
+        config = await config_manager.get_config(chat_id, chat_type, chat_name=chat_title)
         reactions_config = config.get("config_modules", {}).get("reactions", {})
     except Exception as e:
         general_logger.warning(f"Could not check reaction config: {e}")

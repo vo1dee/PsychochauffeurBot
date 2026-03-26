@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import asyncpg
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -247,6 +248,46 @@ async def backup_chat_config(
     if not success:
         raise HTTPException(status_code=500, detail="Failed to create backup")
     return {"status": "backup_created"}
+
+
+@app.post("/api/config/refresh-chat-names")
+async def refresh_chat_names(
+    _: None = Depends(verify_token),
+    cm: ConfigManager = Depends(get_config_manager),
+):
+    """Refresh chat names from the database for all configured chats."""
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        host = os.getenv("DB_HOST", "localhost")
+        port = os.getenv("DB_PORT", "5432")
+        name = os.getenv("DB_NAME", "telegram_bot")
+        user = os.getenv("DB_USER", "postgres")
+        password = os.getenv("DB_PASSWORD", "")
+        db_url = f"postgresql://{user}:{password}@{host}:{port}/{name}"
+
+    try:
+        conn = await asyncpg.connect(db_url)
+        try:
+            rows = await conn.fetch("SELECT chat_id, title FROM chats WHERE title IS NOT NULL")
+            title_map = {str(row["chat_id"]): row["title"] for row in rows}
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.error(f"Failed to query chat titles from database: {e}")
+        raise HTTPException(status_code=500, detail="Failed to query database for chat titles")
+
+    updated = []
+    chats = await list_configured_chats(cm)
+    for chat in chats:
+        db_title = title_map.get(chat.chat_id)
+        if db_title and db_title != chat.chat_name:
+            try:
+                config = await cm.get_config(chat.chat_id, chat.chat_type, chat_name=db_title)
+                updated.append({"chat_id": chat.chat_id, "chat_name": db_title})
+            except Exception as e:
+                logger.warning(f"Failed to update chat name for {chat.chat_id}: {e}")
+
+    return {"status": "ok", "updated": updated}
 
 
 @app.get("/", response_class=HTMLResponse)

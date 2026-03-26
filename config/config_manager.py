@@ -406,6 +406,14 @@ class ConfigManager:
                 "custom_config_enabled": False
             }
 
+        # Update chat_name if a real title was provided and stored name is a default placeholder
+        if chat_name:
+            stored_name = chat_config["chat_metadata"].get("chat_name", "")
+            is_default = stored_name == f"{chat_type}_{chat_id}" or not stored_name
+            if is_default or stored_name != chat_name:
+                chat_config["chat_metadata"]["chat_name"] = chat_name
+                await self.save_config(chat_config, chat_id, chat_type)
+
         # If custom config is disabled, return global config with chat metadata
         if not chat_config.get("chat_metadata", {}).get("custom_config_enabled", False):
             result = global_config.copy()
