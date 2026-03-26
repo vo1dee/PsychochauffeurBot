@@ -622,6 +622,48 @@
             outline: none;
         }
         .auth-box input:focus { border-color: var(--accent); }
+
+        /* Sidebar tabs */
+        .sidebar-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+        }
+        .sidebar-tab {
+            flex: 1;
+            padding: 8px 0;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            color: var(--text2);
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            transition: all 0.15s;
+        }
+        .sidebar-tab:hover { color: var(--text); }
+        .sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .sidebar-tab .tab-badge {
+            display: inline-block;
+            min-width: 16px;
+            padding: 0 4px;
+            margin-left: 4px;
+            font-size: 10px;
+            border-radius: 8px;
+            background: var(--border);
+            color: var(--text2);
+            line-height: 16px;
+            text-align: center;
+        }
+        .sidebar-tab.active .tab-badge { background: var(--accent); color: #fff; }
+
+        /* Archived chat item */
+        .chat-item .archived-meta {
+            font-size: 10px;
+            color: var(--text2);
+            margin-top: 2px;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -637,7 +679,11 @@
 
     <div class="sidebar">
         <div class="sidebar-header">PsychoChauffeurBot</div>
-        <div class="sidebar-search">
+        <div class="sidebar-tabs">
+            <button class="sidebar-tab active" id="tabChats" onclick="switchTab('chats')">Chats <span class="tab-badge" id="chatsBadge">0</span></button>
+            <button class="sidebar-tab" id="tabArchived" onclick="switchTab('archived')">Archived <span class="tab-badge" id="archivedBadge">0</span></button>
+        </div>
+        <div class="sidebar-search" id="sidebarSearch">
             <input type="text" id="searchInput" placeholder="Search chats..." oninput="filterChats()">
             <div class="filter-chips">
                 <button class="chip active" data-filter="all" onclick="setFilter('all',this)">All</button>
@@ -662,6 +708,8 @@
             <h2 id="headerTitle">Select a chat</h2>
             <div class="actions">
                 <button class="btn" id="refreshNamesBtn" onclick="refreshChatNames()" title="Refresh chat names from database">&#x21bb; Names</button>
+                <button class="btn" id="archiveBtn" onclick="archiveCurrentChat()" style="display:none">Archive</button>
+                <button class="btn" id="unarchiveBtn" onclick="unarchiveCurrentChat()" style="display:none">Unarchive</button>
                 <button class="btn" id="backupBtn" onclick="backupConfig()" style="display:none">Backup</button>
                 <button class="btn btn-primary" id="saveBtn" onclick="saveAll()" style="display:none">Save Changes</button>
             </div>
@@ -686,6 +734,9 @@
     let activeSort = 'name';
     let activeRequests = 0;
     let toastCount = 0;
+    let activeTab = 'chats'; // 'chats' or 'archived'
+    let archivedChats = [];
+    let viewingArchived = false; // whether the currently selected chat is from the archive
 
     // =====================================================================
     // FIELD SCHEMA — defines form controls for each module
@@ -1067,6 +1118,22 @@
     }
 
     // =====================================================================
+    // TAB SWITCHING
+    // =====================================================================
+    function switchTab(tab) {
+        activeTab = tab;
+        document.getElementById('tabChats').classList.toggle('active', tab === 'chats');
+        document.getElementById('tabArchived').classList.toggle('active', tab === 'archived');
+        document.getElementById('sidebarSearch').style.display = tab === 'chats' ? '' : 'none';
+
+        if (tab === 'chats') {
+            renderChatList();
+        } else {
+            loadArchivedChats();
+        }
+    }
+
+    // =====================================================================
     // CHAT LIST
     // =====================================================================
     async function loadChats() {
@@ -1075,9 +1142,58 @@
             const data = await res.json();
             chats = data.chats || [];
             applySortAndRender();
+            // Also fetch archive count in background
+            try {
+                const archRes = await apiFetch('/config/archived');
+                const archData = await archRes.json();
+                archivedChats = archData.chats || [];
+            } catch(e) { /* ignore */ }
+            updateBadges();
         } catch(e) {
             toast('Failed to load chats', 'error');
         }
+    }
+
+    async function loadArchivedChats() {
+        try {
+            const res = await apiFetch('/config/archived');
+            const data = await res.json();
+            archivedChats = data.chats || [];
+            renderArchivedList();
+            updateBadges();
+        } catch(e) {
+            toast('Failed to load archived chats', 'error');
+        }
+    }
+
+    function updateBadges() {
+        document.getElementById('chatsBadge').textContent = chats.length;
+        document.getElementById('archivedBadge').textContent = archivedChats.length;
+    }
+
+    function renderArchivedList() {
+        const list = document.getElementById('chatList');
+        if (archivedChats.length === 0) {
+            list.innerHTML = '<div class="loading">No archived chats</div>';
+            return;
+        }
+        let html = '';
+        for (const chat of archivedChats) {
+            const active = currentChat && currentChat.chat_id === chat.chat_id && viewingArchived ? 'active' : '';
+            const typeClass = chat.chat_type === 'private' ? 'private' : 'group';
+            const archivedAt = chat.archived_at ? new Date(chat.archived_at).toLocaleDateString() : '';
+            html += `
+                <div class="chat-item ${active}" onclick='selectArchivedChat(${JSON.stringify(chat)})'>
+                    <div class="chat-name">${escHtml(chat.chat_name || chat.chat_id)}</div>
+                    <div class="chat-meta">
+                        <span class="chat-type ${typeClass}">${chat.chat_type}</span>
+                        ${chat.chat_id}
+                    </div>
+                    ${archivedAt ? `<div class="archived-meta">Archived ${archivedAt}</div>` : ''}
+                </div>
+            `;
+        }
+        list.innerHTML = html;
     }
 
     function applySortAndRender() {
@@ -1173,6 +1289,7 @@
     // =====================================================================
     async function selectGlobal() {
         currentChat = { chat_id: 'global', chat_type: 'global', chat_name: 'Global Default' };
+        viewingArchived = false;
         pendingChanges = {};
         renderChatList();
         try {
@@ -1187,6 +1304,7 @@
 
     async function selectChat(chat) {
         currentChat = chat;
+        viewingArchived = false;
         pendingChanges = {};
         renderChatList();
         try {
@@ -1199,12 +1317,99 @@
         }
     }
 
+    async function selectArchivedChat(chat) {
+        currentChat = chat;
+        viewingArchived = true;
+        pendingChanges = {};
+        renderArchivedList();
+        // Show read-only view of archived config
+        const content = document.getElementById('mainContent');
+        const header = document.getElementById('mainHeader');
+        header.style.display = 'flex';
+        document.getElementById('headerTitle').textContent = (chat.chat_name || chat.chat_id) + ' (Archived)';
+        document.getElementById('backupBtn').style.display = 'none';
+        document.getElementById('saveBtn').style.display = 'none';
+        document.getElementById('archiveBtn').style.display = 'none';
+        document.getElementById('unarchiveBtn').style.display = '';
+
+        content.innerHTML = `
+            <div class="config-banner">
+                <span>This chat is archived. Unarchive to edit its configuration.</span>
+            </div>
+            <div style="color:var(--text2);padding:20px;text-align:center">
+                <p>Archived: ${chat.archived_at ? escHtml(new Date(chat.archived_at).toLocaleString()) : 'Unknown'}</p>
+                <p style="margin-top:8px">Chat ID: ${escHtml(chat.chat_id)}</p>
+                <p>Type: ${escHtml(chat.chat_type)}</p>
+            </div>
+        `;
+    }
+
+    // =====================================================================
+    // ARCHIVE / UNARCHIVE
+    // =====================================================================
+    async function archiveCurrentChat() {
+        if (!currentChat || currentChat.chat_type === 'global') return;
+        const ok = await confirmAction(`Archive "${currentChat.chat_name || currentChat.chat_id}"? It will be moved out of the active chats list.`);
+        if (!ok) return;
+        try {
+            const res = await apiCall(`/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/archive`, { method: 'POST' });
+            if (res.ok) {
+                toast('Chat archived', 'success');
+                currentChat = null;
+                currentConfig = null;
+                viewingArchived = false;
+                document.getElementById('mainContent').innerHTML = '<div class="empty-state"><div class="icon">&#9881;</div><div>Select a chat from the sidebar</div></div>';
+                document.getElementById('mainHeader').style.display = 'none';
+                await loadChats();
+                // Refresh archive count
+                const archRes = await apiFetch('/config/archived');
+                const archData = await archRes.json();
+                archivedChats = archData.chats || [];
+                updateBadges();
+            } else {
+                toast('Failed to archive chat', 'error');
+            }
+        } catch(e) {
+            toast('Failed to archive chat', 'error', e.message);
+        }
+    }
+
+    async function unarchiveCurrentChat() {
+        if (!currentChat || !viewingArchived) return;
+        const ok = await confirmAction(`Unarchive "${currentChat.chat_name || currentChat.chat_id}"? It will be restored to the active chats list.`);
+        if (!ok) return;
+        try {
+            const res = await apiCall(`/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/unarchive`, { method: 'POST' });
+            if (res.ok) {
+                toast('Chat unarchived', 'success');
+                currentChat = null;
+                currentConfig = null;
+                viewingArchived = false;
+                document.getElementById('mainContent').innerHTML = '<div class="empty-state"><div class="icon">&#9881;</div><div>Select a chat from the sidebar</div></div>';
+                document.getElementById('mainHeader').style.display = 'none';
+                await loadArchivedChats();
+                // Refresh active chats count
+                const chatRes = await apiFetch('/config/chats');
+                const chatData = await chatRes.json();
+                chats = chatData.chats || [];
+                updateBadges();
+            } else {
+                toast('Failed to unarchive chat', 'error');
+            }
+        } catch(e) {
+            toast('Failed to unarchive chat', 'error', e.message);
+        }
+    }
+
     function renderConfig() {
         const content = document.getElementById('mainContent');
         const header = document.getElementById('mainHeader');
         header.style.display = 'flex';
         document.getElementById('headerTitle').textContent = currentChat.chat_name || currentChat.chat_id;
-        document.getElementById('backupBtn').style.display = currentChat.chat_type !== 'global' ? '' : 'none';
+        const isNonGlobal = currentChat.chat_type !== 'global';
+        document.getElementById('backupBtn').style.display = isNonGlobal ? '' : 'none';
+        document.getElementById('archiveBtn').style.display = isNonGlobal ? '' : 'none';
+        document.getElementById('unarchiveBtn').style.display = 'none';
         document.getElementById('saveBtn').style.display = '';
 
         let html = '';
