@@ -310,8 +310,9 @@ async def analyze_image(
         if update and update.effective_chat:
             chat_id = str(update.effective_chat.id)
             chat_type = update.effective_chat.type
+            chat_title = update.effective_chat.title
             try:
-                chat_config = await config_manager.get_config(chat_id, chat_type)
+                chat_config = await config_manager.get_config(chat_id, chat_type, chat_name=chat_title)
                 system_prompt = await get_system_prompt("image_analysis", chat_config)
                 # Get model from config
                 gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
@@ -397,7 +398,8 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
         # Get chat configuration
         chat_id = str(update.effective_chat.id) if update.effective_chat else "unknown"
         chat_type = update.effective_chat.type if update.effective_chat else "unknown"
-        chat_config = await config_manager.get_config(chat_id, chat_type)
+        chat_title = update.effective_chat.title if update.effective_chat else None
+        chat_config = await config_manager.get_config(chat_id, chat_type, chat_name=chat_title)
 
         # Get context messages count from config
         # For random responses, check chat_behavior module first
@@ -536,8 +538,9 @@ async def gpt_response(
         # Get chat configuration
         chat_id = str(update.effective_chat.id) if update.effective_chat else "unknown"
         chat_type = update.effective_chat.type if update.effective_chat else "unknown"
-        chat_config = await config_manager.get_config(chat_id, chat_type)
-        
+        chat_title = update.effective_chat.title if update.effective_chat else None
+        chat_config = await config_manager.get_config(chat_id, chat_type, chat_name=chat_title)
+
         # Patch: If response_type is 'analyze', use 'summary' system prompt instead
         effective_response_type = "summary" if response_type == "analyze" else response_type
 
@@ -1348,8 +1351,9 @@ async def handle_photo_analysis(update: Update, context: ContextTypes.DEFAULT_TY
         # Get chat configuration
         chat_id = str(update.effective_chat.id)
         chat_type = update.effective_chat.type
-        chat_config = await config_manager.get_config(chat_id, chat_type)
-        
+        chat_title = update.effective_chat.title if update.effective_chat else None
+        chat_config = await config_manager.get_config(chat_id, chat_type, chat_name=chat_title)
+
         # Check if image analysis is enabled for this chat
         # Default to False if image_analysis config is missing or not explicitly enabled
         image_analysis_config = chat_config.get("config_modules", {}).get("gpt", {}).get("overrides", {}).get("image_analysis", {})
