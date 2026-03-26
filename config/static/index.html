@@ -14,6 +14,7 @@
             --text: #eee;
             --text2: #aab;
             --success: #4ecca3;
+            --warning: #f0a500;
             --border: #2a2a4a;
             --radius: 8px;
         }
@@ -60,6 +61,41 @@
             outline: none;
         }
         .sidebar-search input:focus { border-color: var(--accent); }
+
+        /* Filter chips */
+        .filter-chips {
+            display: flex;
+            gap: 4px;
+            margin-top: 6px;
+            flex-wrap: wrap;
+        }
+        .chip {
+            padding: 2px 10px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: transparent;
+            color: var(--text2);
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.15s;
+        }
+        .chip:hover { border-color: var(--accent); color: var(--text); }
+        .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+        /* Sort select */
+        .sort-select {
+            width: 100%;
+            margin-top: 6px;
+            padding: 4px 8px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg);
+            color: var(--text2);
+            font-size: 11px;
+            outline: none;
+            cursor: pointer;
+        }
+
         .chat-list {
             flex: 1;
             overflow-y: auto;
@@ -141,6 +177,9 @@
         .btn-primary { background: var(--accent); border-color: var(--accent); }
         .btn-primary:hover { background: #d63050; }
         .btn-success { background: var(--success); border-color: var(--success); color: #111; }
+        .btn-sm { padding: 3px 8px; font-size: 11px; }
+        .btn-warn { background: var(--warning); border-color: var(--warning); color: #111; }
+        .btn-warn:hover { background: #d89000; }
 
         /* Toggle */
         .toggle-wrap {
@@ -153,6 +192,7 @@
             width: 40px;
             height: 22px;
             cursor: pointer;
+            flex-shrink: 0;
         }
         .toggle input { display: none; }
         .toggle .slider {
@@ -200,11 +240,29 @@
             align-items: center;
             gap: 8px;
         }
+        .module-desc {
+            display: block;
+            font-weight: 400;
+            font-size: 11px;
+            color: var(--text2);
+            margin-top: 2px;
+        }
         .module-body {
             padding: 0 16px 16px;
             display: none;
         }
         .module-body.open { display: block; }
+
+        /* Override badge */
+        .override-badge {
+            font-size: 10px;
+            padding: 1px 8px;
+            border-radius: 10px;
+            background: var(--warning);
+            color: #111;
+            font-weight: 600;
+            white-space: nowrap;
+        }
 
         /* JSON editor */
         .json-editor {
@@ -225,20 +283,236 @@
         .json-editor:focus { border-color: var(--accent); }
         .json-editor.invalid { border-color: var(--accent); }
 
+        /* Form fields */
+        .form-view { margin-top: 4px; }
+        .form-field {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .form-field:last-child { border-bottom: none; }
+        .form-field label {
+            min-width: 160px;
+            max-width: 200px;
+            font-size: 13px;
+            color: var(--text2);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        .form-field .field-control {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+        .form-field input[type="number"],
+        .form-field input[type="text"],
+        .form-field select {
+            width: 100%;
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            outline: none;
+        }
+        .form-field input:focus,
+        .form-field select:focus { border-color: var(--accent); }
+        .form-field input[type="number"] { max-width: 140px; }
+        .form-field textarea {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            line-height: 1.4;
+            resize: vertical;
+            outline: none;
+            font-family: inherit;
+        }
+        .form-field textarea:focus { border-color: var(--accent); }
+        .field-hint {
+            font-size: 10px;
+            color: var(--text2);
+            white-space: nowrap;
+        }
+        .tooltip-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--border);
+            color: var(--text2);
+            font-size: 9px;
+            cursor: help;
+            flex-shrink: 0;
+        }
+
+        /* Diff indicator */
+        .diff-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--warning);
+            flex-shrink: 0;
+        }
+        .btn-reset {
+            padding: 2px 6px;
+            font-size: 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: transparent;
+            color: var(--text2);
+            cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .btn-reset:hover { background: var(--surface2); color: var(--text); }
+
+        /* Null checkbox */
+        .null-check {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: var(--text2);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .null-check input { width: auto; }
+
+        /* Field group (nested) */
+        .field-group {
+            border: none;
+            border-left: 2px solid var(--accent2);
+            padding: 4px 0 4px 12px;
+            margin: 4px 0;
+        }
+        .field-group legend {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+            padding: 0 4px;
+        }
+
+        /* Subgroup details (GPT contexts) */
+        .subgroup-details {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin: 4px 0;
+            background: rgba(0,0,0,0.15);
+        }
+        .subgroup-details summary {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text);
+            user-select: none;
+        }
+        .subgroup-details summary:hover { background: rgba(255,255,255,0.03); }
+        .subgroup-details[open] summary { border-bottom: 1px solid var(--border); }
+        .subgroup-details .subgroup-body { padding: 4px 12px 8px; }
+
+        /* Tag input */
+        .tag-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            padding: 4px 8px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg);
+            min-height: 32px;
+            align-items: center;
+            width: 100%;
+            cursor: text;
+        }
+        .tag-container:focus-within { border-color: var(--accent); }
+        .tag-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: var(--accent2);
+            color: var(--text);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .tag-chip .tag-remove {
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+            opacity: 0.7;
+            background: none;
+            border: none;
+            color: inherit;
+            padding: 0;
+        }
+        .tag-chip .tag-remove:hover { opacity: 1; }
+        .tag-input {
+            border: none;
+            background: transparent;
+            color: var(--text);
+            font-size: 12px;
+            outline: none;
+            min-width: 80px;
+            flex: 1;
+            padding: 2px 0;
+        }
+
+        /* Raw JSON toggle */
+        .raw-toggle {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
         /* Toast */
         .toast {
             position: fixed;
-            bottom: 20px;
             right: 20px;
-            padding: 12px 20px;
+            padding: 12px 36px 12px 16px;
             border-radius: var(--radius);
             font-size: 13px;
             z-index: 1000;
             animation: slideIn 0.3s;
-            max-width: 350px;
+            max-width: 400px;
         }
         .toast.success { background: var(--success); color: #111; }
         .toast.error { background: var(--accent); color: #fff; }
+        .toast .toast-close {
+            position: absolute;
+            top: 4px;
+            right: 8px;
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 16px;
+            cursor: pointer;
+            opacity: 0.7;
+            padding: 4px;
+        }
+        .toast .toast-close:hover { opacity: 1; }
+        .toast .toast-details {
+            font-size: 11px;
+            margin-top: 4px;
+            opacity: 0.8;
+        }
         @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } }
 
         /* Custom config banner */
@@ -273,6 +547,49 @@
             height: 100%;
             color: var(--text2);
         }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 900;
+        }
+        .loading-overlay.visible { display: flex; }
+        .spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Confirm dialog */
+        .confirm-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1500;
+        }
+        .confirm-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+        }
+        .confirm-box p { margin-bottom: 20px; font-size: 14px; line-height: 1.5; }
+        .confirm-box .confirm-actions { display: flex; gap: 8px; justify-content: center; }
 
         /* Auth overlay */
         .auth-overlay {
@@ -316,11 +633,24 @@
         </div>
     </div>
 
+    <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
+
     <div class="sidebar">
         <div class="sidebar-header">PsychoChauffeurBot</div>
         <div class="sidebar-search">
             <input type="text" id="searchInput" placeholder="Search chats..." oninput="filterChats()">
-            <button class="btn" onclick="refreshChatNames()" title="Refresh chat names from database" style="margin-top:6px;width:100%;font-size:12px;padding:4px 8px">&#x21bb; Refresh Names</button>
+            <div class="filter-chips">
+                <button class="chip active" data-filter="all" onclick="setFilter('all',this)">All</button>
+                <button class="chip" data-filter="group" onclick="setFilter('group',this)">Groups</button>
+                <button class="chip" data-filter="private" onclick="setFilter('private',this)">Private</button>
+                <button class="chip" data-filter="custom" onclick="setFilter('custom',this)">Custom</button>
+            </div>
+            <select class="sort-select" onchange="sortChats(this.value)">
+                <option value="name">Sort by name</option>
+                <option value="type">Sort by type</option>
+                <option value="updated">Sort by last updated</option>
+                <option value="custom">Custom first</option>
+            </select>
         </div>
         <div class="chat-list" id="chatList">
             <div class="loading">Loading...</div>
@@ -331,6 +661,7 @@
         <div class="main-header" id="mainHeader" style="display:none">
             <h2 id="headerTitle">Select a chat</h2>
             <div class="actions">
+                <button class="btn" id="refreshNamesBtn" onclick="refreshChatNames()" title="Refresh chat names from database">&#x21bb; Names</button>
                 <button class="btn" id="backupBtn" onclick="backupConfig()" style="display:none">Backup</button>
                 <button class="btn btn-primary" id="saveBtn" onclick="saveAll()" style="display:none">Save Changes</button>
             </div>
@@ -349,9 +680,325 @@
     let chats = [];
     let currentChat = null;
     let currentConfig = null;
+    let globalConfig = null;
     let pendingChanges = {};
+    let activeFilter = 'all';
+    let activeSort = 'name';
+    let activeRequests = 0;
+    let toastCount = 0;
 
-    // --- Auth ---
+    // =====================================================================
+    // FIELD SCHEMA — defines form controls for each module
+    // =====================================================================
+    const GPT_SUBGROUP_FIELDS = {
+        max_tokens:        { type: 'number', label: 'Max tokens', min: 50, max: 16000, step: 50 },
+        temperature:       { type: 'number', label: 'Temperature', min: 0, max: 2, step: 0.05, tooltip: 'Higher = more random, lower = more deterministic' },
+        presence_penalty:  { type: 'number', label: 'Presence penalty', min: -2, max: 2, step: 0.05, tooltip: 'Penalizes tokens already in the conversation' },
+        frequency_penalty: { type: 'number', label: 'Frequency penalty', min: -2, max: 2, step: 0.05, tooltip: 'Penalizes frequently used tokens' },
+        model:             { type: 'enum', label: 'Model', options: ['gpt-4.1-mini','gpt-4.1','gpt-4.1-nano','o4-mini','gpt-4o','gpt-4o-mini'] },
+        system_prompt:     { type: 'textarea', label: 'System prompt', rows: 5 },
+        enabled:           { type: 'boolean', label: 'Enabled' },
+    };
+
+    const FIELD_SCHEMA = {
+        gpt: {
+            _meta: { label: 'GPT', description: 'AI model parameters for different response contexts' },
+            _isGpt: true,
+            _subgroups: {
+                command:        { label: 'Command (/gpt)' },
+                mention:        { label: 'Mention responses' },
+                private:        { label: 'Private chat' },
+                random:         { label: 'Random responses' },
+                weather:        { label: 'Weather prompt' },
+                image_analysis: { label: 'Image analysis' },
+                summary:        { label: 'Summary generation' },
+            },
+            _subgroup_fields: GPT_SUBGROUP_FIELDS,
+        },
+        chat_behavior: {
+            _meta: { label: 'Chat Behavior', description: 'Message restrictions, rate limits, and random responses' },
+            restrictions_enabled:        { type: 'boolean', label: 'Restrictions enabled' },
+            max_message_length:          { type: 'number', label: 'Max message length', min: 100, max: 10000, step: 100 },
+            restriction_sticker_unique_id: { type: 'string', label: 'Restriction sticker ID' },
+            rate_limit: {
+                _type: 'group', _label: 'Rate limit',
+                messages_per_minute: { type: 'number', label: 'Messages/min', min: 1, max: 200, step: 1 },
+                burst_limit:         { type: 'number', label: 'Burst limit', min: 1, max: 50, step: 1 },
+            },
+            allowed_commands: { type: 'tags', label: 'Allowed commands', placeholder: 'Add command...' },
+            ban_words:        { type: 'tags', label: 'Ban words', placeholder: 'Add word...' },
+            ban_symbols:      { type: 'tags', label: 'Ban symbols', placeholder: 'Add symbol...' },
+            random_response_settings: {
+                _type: 'group', _label: 'Random response settings',
+                enabled:                { type: 'boolean', label: 'Enabled' },
+                min_words:              { type: 'number', label: 'Min words', min: 1, max: 50, step: 1 },
+                message_threshold:      { type: 'number', label: 'Message threshold', min: 1, max: 500, step: 1 },
+                probability:            { type: 'number', label: 'Probability', min: 0, max: 1, step: 0.005, tooltip: 'Chance of random response per message (0-1)' },
+                context_messages_count: { type: 'number', label: 'Context messages', min: 1, max: 50, step: 1 },
+            },
+        },
+        safety: {
+            _meta: { label: 'Safety', description: 'Content filtering, profanity, and file type restrictions' },
+            content_filter_level:             { type: 'enum', label: 'Content filter level', options: ['off','low','medium','high'] },
+            profanity_filter_enabled:         { type: 'boolean', label: 'Profanity filter' },
+            sensitive_content_warning_enabled: { type: 'boolean', label: 'Sensitive content warnings' },
+            restricted_domains:  { type: 'tags', label: 'Restricted domains', placeholder: 'Add domain...' },
+            allowed_file_types:  { type: 'tags', label: 'Allowed file types', placeholder: 'Add MIME type...' },
+        },
+        weather: {
+            _meta: { label: 'Weather', description: 'Weather service defaults and forecast settings' },
+            default_location:        { type: 'string', label: 'Default location', nullable: true },
+            units:                   { type: 'enum', label: 'Units', options: ['metric','imperial'] },
+            update_interval_minutes: { type: 'number', label: 'Update interval (min)', min: 5, max: 1440, step: 5 },
+            forecast_days:           { type: 'number', label: 'Forecast days', min: 1, max: 14, step: 1 },
+            show_alerts:             { type: 'boolean', label: 'Show alerts' },
+        },
+        flares: {
+            _meta: { label: 'Solar Flares', description: 'Solar flare monitoring and notification thresholds' },
+            check_interval_minutes:  { type: 'number', label: 'Check interval (min)', min: 5, max: 1440, step: 5 },
+            notification_threshold:  { type: 'enum', label: 'Notification threshold', options: ['C1','M1','M5','X1'] },
+            auto_notify:             { type: 'boolean', label: 'Auto notify' },
+            include_forecast:        { type: 'boolean', label: 'Include forecast' },
+        },
+        speechmatics: {
+            _meta: { label: 'Speechmatics', description: 'Speech-to-text transcription settings' },
+            allow_all_users: { type: 'boolean', label: 'Allow all users' },
+        },
+        video_send: {
+            _meta: { label: 'Video Send', description: 'Video file sending configuration' },
+            send_video_file:   { type: 'boolean', label: 'Send video file' },
+            video_path:        { type: 'string', label: 'Video path' },
+            before_video_path: { type: 'string', label: 'Before-video path', nullable: true },
+        },
+        reactions: {
+            _meta: { label: 'Reactions', description: 'Auto-reactions to messages matching keywords or users' },
+            enabled:           { type: 'boolean', label: 'Enabled' },
+            target_usernames:  { type: 'tags', label: 'Target usernames', placeholder: 'Add username...' },
+            trigger_keywords:  { type: 'tags', label: 'Trigger keywords', placeholder: 'Add keyword...' },
+            emoji:             { type: 'string', label: 'Reaction emoji' },
+        },
+    };
+
+    // =====================================================================
+    // UTILITIES
+    // =====================================================================
+    function escHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function setNestedValue(obj, path, value) {
+        const keys = path.split('.');
+        let cur = obj;
+        for (let i = 0; i < keys.length - 1; i++) {
+            if (!(keys[i] in cur) || typeof cur[keys[i]] !== 'object') cur[keys[i]] = {};
+            cur = cur[keys[i]];
+        }
+        cur[keys[keys.length - 1]] = value;
+    }
+
+    function getNestedValue(obj, path, def) {
+        if (!obj) return def;
+        const keys = path.split('.');
+        let cur = obj;
+        for (const k of keys) {
+            if (cur == null || typeof cur !== 'object') return def;
+            cur = cur[k];
+        }
+        return cur === undefined ? def : cur;
+    }
+
+    function deepEqual(a, b) {
+        return JSON.stringify(a) === JSON.stringify(b);
+    }
+
+    // =====================================================================
+    // DIFF COMPUTATION
+    // =====================================================================
+    function computeDiffs(chatOverrides, globalOverrides, prefix) {
+        const diffs = new Map();
+        if (!chatOverrides || !globalOverrides) return diffs;
+        const allKeys = new Set([...Object.keys(chatOverrides), ...Object.keys(globalOverrides)]);
+        for (const key of allKeys) {
+            const path = prefix ? `${prefix}.${key}` : key;
+            const cv = chatOverrides[key];
+            const gv = globalOverrides[key];
+            if (cv !== undefined && gv !== undefined && typeof cv === 'object' && !Array.isArray(cv) && typeof gv === 'object' && !Array.isArray(gv)) {
+                const sub = computeDiffs(cv, gv, path);
+                for (const [k, v] of sub) diffs.set(k, v);
+            } else if (!deepEqual(cv, gv)) {
+                diffs.set(path, { global: gv, chat: cv });
+            }
+        }
+        return diffs;
+    }
+
+    // =====================================================================
+    // FORM RENDERING
+    // =====================================================================
+    function renderToggle(path, checked, onchangeExtra) {
+        const oc = onchangeExtra || '';
+        return `<label class="toggle"><input type="checkbox" data-path="${path}" data-type="boolean" ${checked ? 'checked' : ''} ${oc}><span class="slider"></span></label>`;
+    }
+
+    function renderFieldControl(fieldDef, path, value) {
+        const t = fieldDef.type;
+        if (t === 'boolean') {
+            return renderToggle(path, !!value);
+        }
+        if (t === 'number') {
+            const v = (value != null) ? value : '';
+            let hint = '';
+            if (fieldDef.min !== undefined || fieldDef.max !== undefined) {
+                hint = `<span class="field-hint">${fieldDef.min ?? ''}..${fieldDef.max ?? ''}</span>`;
+            }
+            return `<input type="number" data-path="${path}" data-type="number" value="${escHtml(String(v))}" min="${fieldDef.min ?? ''}" max="${fieldDef.max ?? ''}" step="${fieldDef.step ?? 'any'}">${hint}`;
+        }
+        if (t === 'string') {
+            const isNull = value === null || value === undefined;
+            const v = isNull ? '' : value;
+            let html = '';
+            if (fieldDef.nullable) {
+                html += `<label class="null-check"><input type="checkbox" data-null-for="${path}" ${isNull ? 'checked' : ''} onchange="toggleNull('${path}',this.checked)">null</label>`;
+            }
+            html += `<input type="text" data-path="${path}" data-type="string" value="${escHtml(String(v))}" ${isNull && fieldDef.nullable ? 'disabled' : ''}>`;
+            return html;
+        }
+        if (t === 'textarea') {
+            const v = value || '';
+            return `<textarea data-path="${path}" data-type="textarea" rows="${fieldDef.rows || 4}">${escHtml(String(v))}</textarea>`;
+        }
+        if (t === 'enum') {
+            let html = `<select data-path="${path}" data-type="enum">`;
+            for (const opt of (fieldDef.options || [])) {
+                html += `<option value="${escHtml(opt)}" ${opt === value ? 'selected' : ''}>${escHtml(opt)}</option>`;
+            }
+            html += '</select>';
+            return html;
+        }
+        if (t === 'tags') {
+            const arr = Array.isArray(value) ? value : [];
+            let chips = arr.map(v => `<span class="tag-chip">${escHtml(String(v))}<button class="tag-remove" type="button">&times;</button></span>`).join('');
+            return `<div class="tag-container" data-path="${path}" data-type="tags">${chips}<input type="text" class="tag-input" placeholder="${escHtml(fieldDef.placeholder || 'Add...')}"></div>`;
+        }
+        return `<input type="text" data-path="${path}" data-type="string" value="${escHtml(String(value ?? ''))}">`;
+    }
+
+    function renderSingleField(fieldDef, path, value, diffMap, moduleName) {
+        const isDiff = diffMap && diffMap.has(path);
+        let html = `<div class="form-field">`;
+        html += `<label>`;
+        if (isDiff) html += `<span class="diff-dot" title="Differs from global"></span>`;
+        html += escHtml(fieldDef.label);
+        if (fieldDef.tooltip) html += ` <span class="tooltip-icon" title="${escHtml(fieldDef.tooltip)}">?</span>`;
+        html += `</label>`;
+        html += `<div class="field-control">${renderFieldControl(fieldDef, path, value)}`;
+        if (isDiff) {
+            const gv = diffMap.get(path).global;
+            const resetVal = escHtml(JSON.stringify(gv));
+            html += ` <button class="btn-reset" type="button" onclick="resetField('${moduleName}','${path}',${resetVal})" title="Reset to global default">Reset</button>`;
+        }
+        html += `</div></div>`;
+        return html;
+    }
+
+    function renderSchemaFields(schema, overrides, prefix, diffMap, moduleName) {
+        let html = '';
+        for (const [key, def] of Object.entries(schema)) {
+            if (key.startsWith('_')) continue;
+            const path = prefix ? `${prefix}.${key}` : key;
+            const value = overrides ? overrides[key] : undefined;
+
+            if (def._type === 'group') {
+                html += `<fieldset class="field-group"><legend>${escHtml(def._label)}</legend>`;
+                html += renderSchemaFields(def, value || {}, path, diffMap, moduleName);
+                html += `</fieldset>`;
+            } else if (def.type) {
+                html += renderSingleField(def, path, value, diffMap, moduleName);
+            }
+        }
+        return html;
+    }
+
+    function renderGptModule(overrides, diffMap, moduleName) {
+        const schema = FIELD_SCHEMA.gpt;
+        let html = '';
+        for (const [sgKey, sgMeta] of Object.entries(schema._subgroups)) {
+            const sgData = overrides ? overrides[sgKey] || {} : {};
+            const sgDiffCount = diffMap ? [...diffMap.keys()].filter(k => k.startsWith(sgKey + '.')).length : 0;
+            const badge = sgDiffCount > 0 ? ` <span class="override-badge">${sgDiffCount}</span>` : '';
+            html += `<details class="subgroup-details">`;
+            html += `<summary>${escHtml(sgMeta.label)}${badge}</summary>`;
+            html += `<div class="subgroup-body">`;
+            html += renderSchemaFields(schema._subgroup_fields, sgData, sgKey, diffMap, moduleName);
+            html += `</div></details>`;
+        }
+        return html;
+    }
+
+    function renderModuleForm(moduleName, overrides, diffMap) {
+        const schema = FIELD_SCHEMA[moduleName];
+        if (!schema) return null; // no schema, use raw JSON
+
+        let html = '<div class="form-view">';
+        if (schema._isGpt) {
+            html += renderGptModule(overrides, diffMap, moduleName);
+        } else {
+            html += renderSchemaFields(schema, overrides, '', diffMap, moduleName);
+        }
+        html += '</div>';
+        return html;
+    }
+
+    // =====================================================================
+    // FORM VALUE COLLECTION
+    // =====================================================================
+    function collectFormValues(moduleName) {
+        const container = document.getElementById('form-' + moduleName);
+        if (!container) return null;
+        const obj = {};
+
+        container.querySelectorAll('[data-path]').forEach(el => {
+            const path = el.dataset.path;
+            const type = el.dataset.type;
+            let value;
+
+            if (type === 'boolean') {
+                value = el.checked;
+            } else if (type === 'number') {
+                value = el.value === '' ? 0 : parseFloat(el.value);
+            } else if (type === 'enum') {
+                value = el.value;
+            } else if (type === 'string') {
+                // Check for null
+                const nullCheck = el.closest('.field-control')?.querySelector(`[data-null-for="${path}"]`);
+                if (nullCheck && nullCheck.checked) {
+                    value = null;
+                } else {
+                    value = el.value;
+                }
+            } else if (type === 'textarea') {
+                value = el.value;
+            } else if (type === 'tags') {
+                value = [];
+                el.querySelectorAll('.tag-chip').forEach(chip => {
+                    const text = chip.firstChild?.textContent?.trim();
+                    if (text) value.push(text);
+                });
+            } else {
+                value = el.value;
+            }
+
+            setNestedValue(obj, path, value);
+        });
+
+        return obj;
+    }
+
+    // =====================================================================
+    // AUTH
+    // =====================================================================
     async function checkAuth() {
         try {
             const res = await apiFetch('/config/global');
@@ -365,7 +1012,6 @@
             const ok = await checkAuth();
             if (ok) { loadChats(); return; }
         }
-        // Try without token (no auth configured)
         token = '';
         const ok = await checkAuth();
         if (ok) { loadChats(); return; }
@@ -383,7 +1029,9 @@
         if (e.key === 'Enter') authenticate();
     });
 
-    // --- API ---
+    // =====================================================================
+    // API
+    // =====================================================================
     function apiFetch(path, opts = {}) {
         const headers = opts.headers || {};
         if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -394,9 +1042,120 @@
         return fetch(API + path, { ...opts, headers });
     }
 
+    async function apiCall(path, opts = {}) {
+        activeRequests++;
+        showLoading();
+        try {
+            return await apiFetch(path, opts);
+        } finally {
+            if (--activeRequests === 0) hideLoading();
+        }
+    }
+
+    function showLoading() { document.getElementById('loadingOverlay').classList.add('visible'); }
+    function hideLoading() { document.getElementById('loadingOverlay').classList.remove('visible'); }
+
+    // =====================================================================
+    // GLOBAL CONFIG CACHE (for diff)
+    // =====================================================================
+    async function ensureGlobalConfig() {
+        if (!globalConfig) {
+            const res = await apiFetch('/config/global');
+            globalConfig = await res.json();
+        }
+        return globalConfig;
+    }
+
+    // =====================================================================
+    // CHAT LIST
+    // =====================================================================
+    async function loadChats() {
+        try {
+            const res = await apiFetch('/config/chats');
+            const data = await res.json();
+            chats = data.chats || [];
+            applySortAndRender();
+        } catch(e) {
+            toast('Failed to load chats', 'error');
+        }
+    }
+
+    function applySortAndRender() {
+        sortChatsArray();
+        renderChatList();
+    }
+
+    function sortChatsArray() {
+        chats.sort((a, b) => {
+            if (activeSort === 'name') return (a.chat_name || '').localeCompare(b.chat_name || '');
+            if (activeSort === 'type') return (a.chat_type || '').localeCompare(b.chat_type || '') || (a.chat_name || '').localeCompare(b.chat_name || '');
+            if (activeSort === 'updated') return (b.last_updated || '').localeCompare(a.last_updated || '');
+            if (activeSort === 'custom') return (b.custom_config_enabled ? 1 : 0) - (a.custom_config_enabled ? 1 : 0) || (a.chat_name || '').localeCompare(b.chat_name || '');
+            return 0;
+        });
+    }
+
+    function renderChatList() {
+        const list = document.getElementById('chatList');
+        let html = `
+            <div class="chat-item ${currentChat && currentChat.chat_id === 'global' ? 'active' : ''}"
+                 onclick="selectGlobal()" data-name="global default config" data-type="global" data-custom="false">
+                <div class="chat-name"><span class="chat-type global">Global</span> Default Config</div>
+            </div>
+        `;
+        for (const chat of chats) {
+            const active = currentChat && currentChat.chat_id === chat.chat_id ? 'active' : '';
+            const typeClass = chat.chat_type === 'private' ? 'private' : 'group';
+            html += `
+                <div class="chat-item ${active}" onclick='selectChat(${JSON.stringify(chat)})' data-name="${escHtml((chat.chat_name||'').toLowerCase())}" data-type="${chat.chat_type}" data-custom="${!!chat.custom_config_enabled}">
+                    <div class="chat-name">${escHtml(chat.chat_name || chat.chat_id)}</div>
+                    <div class="chat-meta">
+                        <span class="chat-type ${typeClass}">${chat.chat_type}</span>
+                        ${chat.chat_id}
+                        ${chat.custom_config_enabled ? ' &bull; custom' : ''}
+                    </div>
+                </div>
+            `;
+        }
+        list.innerHTML = html;
+        filterChats();
+    }
+
+    function setFilter(filter, el) {
+        activeFilter = filter;
+        document.querySelectorAll('.filter-chips .chip').forEach(c => c.classList.remove('active'));
+        el.classList.add('active');
+        filterChats();
+    }
+
+    function sortChats(criteria) {
+        activeSort = criteria;
+        applySortAndRender();
+    }
+
+    function filterChats() {
+        const q = document.getElementById('searchInput').value.toLowerCase();
+        document.querySelectorAll('.chat-item').forEach(el => {
+            const name = el.dataset.name || el.textContent.toLowerCase();
+            const type = el.dataset.type || '';
+            const custom = el.dataset.custom === 'true';
+
+            let matchFilter = true;
+            if (activeFilter === 'group') matchFilter = (type === 'group' || type === 'supergroup');
+            else if (activeFilter === 'private') matchFilter = (type === 'private');
+            else if (activeFilter === 'custom') matchFilter = custom;
+
+            const matchSearch = !q || name.includes(q);
+            el.style.display = (matchFilter && matchSearch) ? '' : 'none';
+        });
+    }
+
+    // =====================================================================
+    // REFRESH CHAT NAMES
+    // =====================================================================
     async function refreshChatNames() {
         try {
-            const res = await apiFetch('/config/refresh-chat-names', { method: 'POST' });
+            const res = await apiCall('/config/refresh-chat-names', { method: 'POST' });
             const data = await res.json();
             if (data.updated && data.updated.length > 0) {
                 toast(`Updated ${data.updated.length} chat name(s)`, 'success');
@@ -409,60 +1168,17 @@
         }
     }
 
-    // --- Chat list ---
-    async function loadChats() {
-        try {
-            const res = await apiFetch('/config/chats');
-            const data = await res.json();
-            chats = data.chats || [];
-            renderChatList();
-        } catch(e) {
-            toast('Failed to load chats', 'error');
-        }
-    }
-
-    function renderChatList() {
-        const list = document.getElementById('chatList');
-        // Add global config entry
-        let html = `
-            <div class="chat-item ${currentChat && currentChat.chat_id === 'global' ? 'active' : ''}"
-                 onclick="selectGlobal()">
-                <div class="chat-name"><span class="chat-type global">Global</span> Default Config</div>
-            </div>
-        `;
-        for (const chat of chats) {
-            const active = currentChat && currentChat.chat_id === chat.chat_id ? 'active' : '';
-            const typeClass = chat.chat_type === 'private' ? 'private' : 'group';
-            html += `
-                <div class="chat-item ${active}" onclick='selectChat(${JSON.stringify(chat)})' data-name="${(chat.chat_name||'').toLowerCase()}">
-                    <div class="chat-name">${escHtml(chat.chat_name || chat.chat_id)}</div>
-                    <div class="chat-meta">
-                        <span class="chat-type ${typeClass}">${chat.chat_type}</span>
-                        ${chat.chat_id}
-                        ${chat.custom_config_enabled ? ' &bull; custom' : ''}
-                    </div>
-                </div>
-            `;
-        }
-        list.innerHTML = html;
-    }
-
-    function filterChats() {
-        const q = document.getElementById('searchInput').value.toLowerCase();
-        document.querySelectorAll('.chat-item').forEach(el => {
-            const name = el.dataset.name || el.textContent.toLowerCase();
-            el.style.display = name.includes(q) ? '' : 'none';
-        });
-    }
-
-    // --- Config display ---
+    // =====================================================================
+    // CONFIG DISPLAY
+    // =====================================================================
     async function selectGlobal() {
         currentChat = { chat_id: 'global', chat_type: 'global', chat_name: 'Global Default' };
         pendingChanges = {};
         renderChatList();
         try {
-            const res = await apiFetch('/config/global');
+            const res = await apiCall('/config/global');
             currentConfig = await res.json();
+            globalConfig = currentConfig; // cache it
             renderConfig();
         } catch(e) {
             toast('Failed to load global config', 'error');
@@ -474,7 +1190,8 @@
         pendingChanges = {};
         renderChatList();
         try {
-            const res = await apiFetch(`/config/chat/${chat.chat_type}/${chat.chat_id}`);
+            await ensureGlobalConfig();
+            const res = await apiCall(`/config/chat/${chat.chat_type}/${chat.chat_id}`);
             currentConfig = await res.json();
             renderConfig();
         } catch(e) {
@@ -491,9 +1208,10 @@
         document.getElementById('saveBtn').style.display = '';
 
         let html = '';
+        const isGlobal = currentChat.chat_type === 'global';
 
         // Custom config toggle for non-global
-        if (currentChat.chat_type !== 'global') {
+        if (!isGlobal) {
             const enabled = currentConfig?.chat_metadata?.custom_config_enabled || false;
             html += `
                 <div class="config-banner">
@@ -512,34 +1230,232 @@
             html += '<div style="color:var(--text2);padding:20px;text-align:center">No modules configured</div>';
         }
 
+        const globalModules = globalConfig?.config_modules || globalConfig?.modules || {};
+
         for (const [name, mod] of Object.entries(modules)) {
             const enabled = mod.enabled !== undefined ? mod.enabled : true;
             const overrides = mod.overrides || {};
             const overridesJson = JSON.stringify(overrides, null, 2);
+            const schema = FIELD_SCHEMA[name];
+            const meta = schema?._meta || {};
+            const displayName = meta.label || name;
+            const desc = meta.description || '';
 
-            html += `
-                <div class="module-card" id="mod-${name}">
-                    <div class="module-header" onclick="toggleModule('${name}')">
-                        <div class="module-name">
-                            <span>${escHtml(name)}</span>
-                        </div>
-                        <div class="toggle-wrap" onclick="event.stopPropagation()">
-                            <label class="toggle">
-                                <input type="checkbox" ${enabled ? 'checked' : ''} onchange="onModuleToggle('${name}', this.checked)">
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="module-body" id="body-${name}">
-                        <textarea class="json-editor" id="editor-${name}"
-                            oninput="onEditorChange('${name}', this)"
-                            onkeydown="handleTab(event)">${escHtml(overridesJson)}</textarea>
-                    </div>
-                </div>
-            `;
+            // Compute diffs for non-global chats
+            let diffMap = null;
+            let diffCount = 0;
+            if (!isGlobal && globalModules[name]) {
+                const globalOverrides = globalModules[name].overrides || {};
+                diffMap = computeDiffs(overrides, globalOverrides, '');
+                diffCount = diffMap.size;
+            }
+
+            const diffBadge = diffCount > 0 ? ` <span class="override-badge">${diffCount} override${diffCount > 1 ? 's' : ''}</span>` : '';
+
+            html += `<div class="module-card" id="mod-${name}">`;
+            html += `<div class="module-header" onclick="toggleModule('${name}')">`;
+            html += `<div class="module-name"><div><span>${escHtml(displayName)}</span>${diffBadge}`;
+            if (desc) html += `<span class="module-desc">${escHtml(desc)}</span>`;
+            html += `</div></div>`;
+            html += `<div class="toggle-wrap" onclick="event.stopPropagation()">`;
+            html += `<label class="toggle"><input type="checkbox" ${enabled ? 'checked' : ''} onchange="onModuleToggle('${name}', this.checked)"><span class="slider"></span></label>`;
+            html += `</div></div>`;
+
+            html += `<div class="module-body" id="body-${name}">`;
+
+            // Form view (if schema exists)
+            const formHtml = renderModuleForm(name, overrides, diffMap);
+            if (formHtml) {
+                html += `<div id="form-${name}">${formHtml}</div>`;
+                html += `<div class="raw-toggle">`;
+                html += `<button class="btn btn-sm" type="button" onclick="toggleRawJson('${name}')">Raw JSON</button>`;
+                if (diffCount > 0 && !isGlobal) {
+                    html += ` <button class="btn btn-sm btn-warn" type="button" onclick="resetAllModule('${name}')">Reset all to defaults</button>`;
+                }
+                html += `</div>`;
+                html += `<div class="raw-view" id="raw-${name}" style="display:none">`;
+            } else {
+                html += `<div class="raw-view" id="raw-${name}">`;
+            }
+            html += `<textarea class="json-editor" id="editor-${name}" oninput="onEditorChange('${name}', this)" onkeydown="handleTab(event)">${escHtml(overridesJson)}</textarea>`;
+            html += `</div>`;
+
+            html += `</div></div>`;
         }
 
         content.innerHTML = html;
+        initTagInputs();
+        initFormChangeTracking();
+    }
+
+    // =====================================================================
+    // TAG INPUT BEHAVIOR
+    // =====================================================================
+    function initTagInputs() {
+        document.querySelectorAll('.tag-container').forEach(container => {
+            const input = container.querySelector('.tag-input');
+            if (!input) return;
+
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    const val = input.value.replace(',', '').trim();
+                    if (!val) return;
+                    addTag(container, val);
+                    input.value = '';
+                    fireFormChange(container);
+                } else if (e.key === 'Backspace' && input.value === '') {
+                    const chips = container.querySelectorAll('.tag-chip');
+                    if (chips.length) {
+                        chips[chips.length - 1].remove();
+                        fireFormChange(container);
+                    }
+                }
+            });
+
+            container.addEventListener('click', e => {
+                if (e.target.classList.contains('tag-remove')) {
+                    e.target.closest('.tag-chip').remove();
+                    fireFormChange(container);
+                } else if (e.target === container) {
+                    input.focus();
+                }
+            });
+        });
+    }
+
+    function addTag(container, value) {
+        const input = container.querySelector('.tag-input');
+        const chip = document.createElement('span');
+        chip.className = 'tag-chip';
+        chip.innerHTML = `${escHtml(value)}<button class="tag-remove" type="button">&times;</button>`;
+        container.insertBefore(chip, input);
+    }
+
+    // =====================================================================
+    // FORM CHANGE TRACKING
+    // =====================================================================
+    function initFormChangeTracking() {
+        document.querySelectorAll('.form-view').forEach(formView => {
+            formView.addEventListener('input', handleFormInput);
+            formView.addEventListener('change', handleFormInput);
+        });
+    }
+
+    function handleFormInput(e) {
+        const formView = e.target.closest('[id^="form-"]');
+        if (!formView) return;
+        const moduleName = formView.id.replace('form-', '');
+        markFormDirty(moduleName);
+    }
+
+    function fireFormChange(el) {
+        const formView = el.closest('[id^="form-"]');
+        if (!formView) return;
+        const moduleName = formView.id.replace('form-', '');
+        markFormDirty(moduleName);
+    }
+
+    function markFormDirty(moduleName) {
+        const values = collectFormValues(moduleName);
+        if (!values) return;
+        if (!pendingChanges[moduleName]) pendingChanges[moduleName] = {};
+        pendingChanges[moduleName]._overrides = JSON.stringify(values);
+        // Also sync to raw JSON view
+        const editor = document.getElementById('editor-' + moduleName);
+        if (editor) editor.value = JSON.stringify(values, null, 2);
+    }
+
+    // =====================================================================
+    // NULL TOGGLE
+    // =====================================================================
+    function toggleNull(path, isNull) {
+        const input = document.querySelector(`[data-path="${path}"][data-type="string"]`);
+        if (!input) return;
+        input.disabled = isNull;
+        if (isNull) input.value = '';
+        const formView = input.closest('[id^="form-"]');
+        if (formView) {
+            const moduleName = formView.id.replace('form-', '');
+            markFormDirty(moduleName);
+        }
+    }
+
+    // =====================================================================
+    // RESET FIELD / MODULE
+    // =====================================================================
+    function resetField(moduleName, path, globalValue) {
+        const el = document.querySelector(`#form-${moduleName} [data-path="${path}"]`);
+        if (!el) return;
+        const type = el.dataset.type;
+
+        if (type === 'boolean') {
+            el.checked = !!globalValue;
+        } else if (type === 'number' || type === 'string' || type === 'textarea' || type === 'enum') {
+            if (globalValue === null) {
+                el.value = '';
+                el.disabled = true;
+                const nullCheck = el.closest('.field-control')?.querySelector(`[data-null-for="${path}"]`);
+                if (nullCheck) nullCheck.checked = true;
+            } else {
+                el.value = globalValue;
+                el.disabled = false;
+                const nullCheck = el.closest('.field-control')?.querySelector(`[data-null-for="${path}"]`);
+                if (nullCheck) nullCheck.checked = false;
+            }
+        } else if (type === 'tags') {
+            // Rebuild tags
+            el.querySelectorAll('.tag-chip').forEach(c => c.remove());
+            if (Array.isArray(globalValue)) {
+                const input = el.querySelector('.tag-input');
+                globalValue.forEach(v => addTag(el, v));
+            }
+        }
+        markFormDirty(moduleName);
+    }
+
+    async function resetAllModule(moduleName) {
+        const ok = await confirmAction(`Reset all ${FIELD_SCHEMA[moduleName]?._meta?.label || moduleName} settings to global defaults?`);
+        if (!ok) return;
+
+        const globalModules = globalConfig?.config_modules || globalConfig?.modules || {};
+        const globalOverrides = globalModules[moduleName]?.overrides || {};
+
+        // Replace the form with global values by reloading config as global overrides
+        const modules = currentConfig?.config_modules || currentConfig?.modules || {};
+        if (modules[moduleName]) {
+            modules[moduleName].overrides = JSON.parse(JSON.stringify(globalOverrides));
+        }
+
+        if (!pendingChanges[moduleName]) pendingChanges[moduleName] = {};
+        pendingChanges[moduleName]._overrides = JSON.stringify(globalOverrides);
+
+        renderConfig();
+        toast(`${FIELD_SCHEMA[moduleName]?._meta?.label || moduleName} reset to defaults`, 'success');
+    }
+
+    // =====================================================================
+    // RAW JSON TOGGLE
+    // =====================================================================
+    function toggleRawJson(name) {
+        const rawView = document.getElementById('raw-' + name);
+        const formContainer = document.getElementById('form-' + name);
+        if (!rawView) return;
+
+        const isHidden = rawView.style.display === 'none';
+        if (isHidden) {
+            // Sync form -> raw
+            const values = collectFormValues(name);
+            if (values) {
+                document.getElementById('editor-' + name).value = JSON.stringify(values, null, 2);
+            }
+            rawView.style.display = '';
+            if (formContainer) formContainer.querySelector('.form-view').style.display = 'none';
+        } else {
+            // Sync raw -> form: just reload the whole config display for this module
+            rawView.style.display = 'none';
+            if (formContainer) formContainer.querySelector('.form-view').style.display = '';
+        }
     }
 
     function toggleModule(name) {
@@ -557,7 +1473,9 @@
         }
     }
 
-    // --- Changes tracking ---
+    // =====================================================================
+    // CHANGES TRACKING (raw JSON)
+    // =====================================================================
     function onModuleToggle(name, enabled) {
         if (!pendingChanges[name]) pendingChanges[name] = {};
         pendingChanges[name]._toggle = enabled;
@@ -574,90 +1492,123 @@
         }
     }
 
-    // --- Save ---
+    // =====================================================================
+    // SAVE
+    // =====================================================================
     async function saveAll() {
         const isGlobal = currentChat.chat_type === 'global';
         let errors = 0;
+        let errorDetails = [];
 
         for (const [name, changes] of Object.entries(pendingChanges)) {
-            // Toggle
             if (changes._toggle !== undefined) {
                 try {
                     const path = isGlobal
                         ? `/config/global/module/${name}`
                         : `/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/module/${name}/toggle`;
-                    await apiFetch(path, {
-                        method: 'PUT',
-                        body: { enabled: changes._toggle },
-                    });
-                } catch(e) { errors++; }
+                    const res = await apiCall(path, { method: 'PUT', body: { enabled: changes._toggle } });
+                    if (!res.ok) { errors++; errorDetails.push(`${name} toggle: ${res.status}`); }
+                } catch(e) { errors++; errorDetails.push(`${name} toggle: ${e.message}`); }
             }
 
-            // Overrides
             if (changes._overrides) {
                 try {
                     const overrides = JSON.parse(changes._overrides);
                     const path = isGlobal
                         ? `/config/global/module/${name}`
                         : `/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/module/${name}`;
-                    await apiFetch(path, {
-                        method: 'PUT',
-                        body: { overrides },
-                    });
-                } catch(e) { errors++; }
+                    const res = await apiCall(path, { method: 'PUT', body: { overrides } });
+                    if (!res.ok) { errors++; errorDetails.push(`${name}: ${res.status}`); }
+                } catch(e) { errors++; errorDetails.push(`${name}: ${e.message}`); }
             }
         }
 
         pendingChanges = {};
+        if (isGlobal) globalConfig = null; // invalidate cache
+
         if (errors) {
-            toast(`Saved with ${errors} error(s)`, 'error');
+            toast(`Saved with ${errors} error(s)`, 'error', errorDetails.join(', '));
         } else {
             toast('Configuration saved', 'success');
         }
 
-        // Reload
         if (isGlobal) selectGlobal();
         else selectChat(currentChat);
     }
 
     async function backupConfig() {
+        const ok = await confirmAction('Create a backup of this configuration?');
+        if (!ok) return;
         try {
-            await apiFetch(`/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/backup`, { method: 'POST' });
-            toast('Backup created', 'success');
+            const res = await apiCall(`/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/backup`, { method: 'POST' });
+            if (res.ok) toast('Backup created', 'success');
+            else toast('Backup failed', 'error');
         } catch(e) {
-            toast('Backup failed', 'error');
+            toast('Backup failed', 'error', e.message);
         }
     }
 
     async function toggleCustomConfig(enabled) {
+        if (!enabled) {
+            const ok = await confirmAction('Disable custom config? This chat will use global defaults.');
+            if (!ok) {
+                // Revert checkbox
+                selectChat(currentChat);
+                return;
+            }
+        }
         try {
-            await apiFetch(`/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/custom-config`, {
+            const res = await apiCall(`/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/custom-config`, {
                 method: 'POST',
                 body: { enabled },
             });
-            toast(`Custom config ${enabled ? 'enabled' : 'disabled'}`, 'success');
+            if (res.ok) toast(`Custom config ${enabled ? 'enabled' : 'disabled'}`, 'success');
             selectChat(currentChat);
         } catch(e) {
-            toast('Failed to toggle custom config', 'error');
+            toast('Failed to toggle custom config', 'error', e.message);
         }
     }
 
-    // --- Utilities ---
-    function escHtml(s) {
-        const d = document.createElement('div');
-        d.textContent = s;
-        return d.innerHTML;
+    // =====================================================================
+    // CONFIRM DIALOG
+    // =====================================================================
+    function confirmAction(message) {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.className = 'confirm-overlay';
+            overlay.innerHTML = `
+                <div class="confirm-box">
+                    <p>${escHtml(message)}</p>
+                    <div class="confirm-actions">
+                        <button class="btn" id="confirmCancel">Cancel</button>
+                        <button class="btn btn-primary" id="confirmOk">Confirm</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            overlay.querySelector('#confirmCancel').onclick = () => { overlay.remove(); resolve(false); };
+            overlay.querySelector('#confirmOk').onclick = () => { overlay.remove(); resolve(true); };
+        });
     }
 
-    function toast(msg, type = 'success') {
+    // =====================================================================
+    // TOAST
+    // =====================================================================
+    function toast(msg, type = 'success', details = '') {
         const el = document.createElement('div');
         el.className = `toast ${type}`;
-        el.textContent = msg;
+        const idx = toastCount++;
+        el.style.bottom = (20 + (idx % 5) * 55) + 'px';
+        let inner = `<span>${escHtml(msg)}</span><button class="toast-close" onclick="this.parentElement.remove()">&times;</button>`;
+        if (details) inner += `<div class="toast-details">${escHtml(details)}</div>`;
+        el.innerHTML = inner;
         document.body.appendChild(el);
-        setTimeout(() => el.remove(), 3000);
+        setTimeout(() => { el.remove(); toastCount = Math.max(0, toastCount - 1); }, 4000);
     }
 
-    // --- Init ---
+    // =====================================================================
+    // INIT
+    // =====================================================================
     init();
     </script>
 </body>
