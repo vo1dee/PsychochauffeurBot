@@ -10,7 +10,7 @@ import shutil
 import subprocess
 from urllib.parse import urljoin, urlparse
 from typing import Optional, Tuple, List, Dict, Any, Callable, TypedDict, cast
-from asyncio import Lock
+from asyncio import Semaphore
 from dataclasses import dataclass
 from enum import Enum
 from telegram import Update, InlineQueryResultCachedAudio, InlineQueryResultArticle, InputTextMessageContent
@@ -79,7 +79,7 @@ class VideoDownloader:
         
         self._init_download_path()
         self._verify_yt_dlp()
-        self.lock = Lock()
+        self._download_semaphore = Semaphore(3)  # Allow up to 3 concurrent downloads
         self.last_download: Dict[str, Any] = {}
         
         # Platform-specific download configurations
@@ -401,7 +401,7 @@ class VideoDownloader:
         return None, None
 
     async def download_video(self, url: str, chat_id: Optional[str] = None, chat_type: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
-        async with self.lock:
+        async with self._download_semaphore:
             try:
                 url = url.strip().strip('\\')
                 if self._is_story_url(url):
