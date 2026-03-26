@@ -7,8 +7,12 @@ It extracts the speech recognition logic from main.py into a dedicated, testable
 """
 
 import hashlib
+import json
 import logging
+import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import aiofiles
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 
@@ -51,6 +55,9 @@ class SpeechRecognitionService(ServiceInterface):
         """
         self.config_manager = config_manager
         self.file_id_hash_map: Dict[str, str] = {}
+        self._hash_map_timestamps: Dict[str, float] = {}
+        self._cache_file = Path(__file__).parent.parent / "data" / "file_id_hash_map.json"
+        self._cache_ttl = 7 * 24 * 3600  # 7 days
         self.error_boundary = ServiceErrorBoundary("speech_recognition_service")
         
         # Configuration integration
@@ -64,16 +71,19 @@ class SpeechRecognitionService(ServiceInterface):
     async def initialize(self) -> None:
         """Initialize the service with configuration integration."""
         self.logger.info("Initializing SpeechRecognitionService with configuration integration...")
-        
+
         try:
+            # Load persisted file_id_hash_map from disk
+            await self._load_hash_map()
+
             # Load service configuration
             await self._load_service_configuration()
-            
+
             # Setup configuration change notifications
             await self._setup_configuration_notifications()
-            
+
             self.logger.info("SpeechRecognitionService initialized successfully")
-            
+
         except Exception as e:
             self.logger.error(f"Failed to initialize SpeechRecognitionService: {e}", exc_info=True)
             raise
@@ -81,19 +91,23 @@ class SpeechRecognitionService(ServiceInterface):
     async def shutdown(self) -> None:
         """Shutdown the service and cleanup resources with proper configuration cleanup."""
         self.logger.info("Shutting down SpeechRecognitionService...")
-        
+
         try:
+            # Persist file ID hash map before clearing
+            await self._save_hash_map()
+
             # Clear configuration change callbacks
             self._config_change_callbacks.clear()
-            
+
             # Clear file ID hash map
             self.file_id_hash_map.clear()
-            
+            self._hash_map_timestamps.clear()
+
             # Clear service configuration
             self._service_config.clear()
-            
+
             self.logger.info("SpeechRecognitionService shutdown completed successfully")
-            
+
         except Exception as e:
             self.logger.error(f"Error during SpeechRecognitionService shutdown: {e}", exc_info=True)
         
@@ -210,7 +224,7 @@ class SpeechRecognitionService(ServiceInterface):
             except (SpeechmaticsLanguageNotExpected, SpeechmaticsRussianDetected):
                 # Show language selection keyboard
                 file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
-                self.file_id_hash_map[file_hash] = file_id
+                self._store_hash_entry(file_hash, file_id)
                 keyboard = get_language_keyboard(file_hash)
                 
                 if update.effective_chat:
@@ -285,7 +299,7 @@ class SpeechRecognitionService(ServiceInterface):
         except (SpeechmaticsLanguageNotExpected, SpeechmaticsRussianDetected) as e:
             general_logger.debug(f"Speechmatics identified language not expected: {e}")
             file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
-            self.file_id_hash_map[file_hash] = file_id
+            self._store_hash_entry(file_hash, file_id)
             keyboard = get_language_keyboard(file_hash)
             
             await query.edit_message_text(
@@ -437,19 +451,17 @@ class SpeechRecognitionService(ServiceInterface):
             
         # Create hash for callback data
         file_hash = hashlib.md5(file_id.encode()).hexdigest()[:16]
-        self.file_id_hash_map[file_hash] = file_id
-        
+        self._store_hash_entry(file_hash, file_id)
+        await self._save_hash_map()
+
         general_logger.debug(f"Added file_id_hash_map entry: {file_hash} -> {file_id}")
-        general_logger.debug(f"Current file_id_hash_map: {self.file_id_hash_map}")
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎤 Recognize Speech", callback_data=f"speechrec_{file_hash}")]
         ])
         
         await update.message.reply_text(
-            "Press the button to recognize speech in this voice or video message.\n\n"
-            "⚠️ If the bot was recently restarted, old buttons will not work. "
-            "Please send a new message if you see an error.",
+            "Press the button to recognize speech in this voice or video message.",
             reply_markup=keyboard
         )
     
@@ -602,6 +614,46 @@ class SpeechRecognitionService(ServiceInterface):
         except Exception as e:
             self.logger.error(f"Error applying configuration changes: {e}", exc_info=True)
     
+    async def _load_hash_map(self) -> None:
+        """Load persisted file_id_hash_map from disk."""
+        if not self._cache_file.exists():
+            return
+        try:
+            async with aiofiles.open(self._cache_file, 'r') as f:
+                data = json.loads(await f.read())
+            now = time.time()
+            loaded = 0
+            for file_hash, entry in data.items():
+                ts = entry.get("ts", 0)
+                if now - ts < self._cache_ttl:
+                    self.file_id_hash_map[file_hash] = entry["file_id"]
+                    self._hash_map_timestamps[file_hash] = ts
+                    loaded += 1
+            self.logger.info(f"Loaded {loaded} file_id_hash_map entries from disk (skipped {len(data) - loaded} expired)")
+        except Exception as e:
+            self.logger.warning(f"Failed to load file_id_hash_map from disk: {e}")
+
+    async def _save_hash_map(self) -> None:
+        """Persist file_id_hash_map to disk."""
+        try:
+            self._cache_file.parent.mkdir(parents=True, exist_ok=True)
+            now = time.time()
+            data = {}
+            for file_hash, file_id in self.file_id_hash_map.items():
+                ts = self._hash_map_timestamps.get(file_hash, now)
+                if now - ts < self._cache_ttl:
+                    data[file_hash] = {"file_id": file_id, "ts": ts}
+            async with aiofiles.open(self._cache_file, 'w') as f:
+                await f.write(json.dumps(data))
+            self.logger.info(f"Persisted {len(data)} file_id_hash_map entries to disk")
+        except Exception as e:
+            self.logger.warning(f"Failed to persist file_id_hash_map: {e}")
+
+    def _store_hash_entry(self, file_hash: str, file_id: str) -> None:
+        """Store a hash->file_id mapping with timestamp."""
+        self._store_hash_entry(file_hash, file_id)
+        self._hash_map_timestamps[file_hash] = time.time()
+
     def get_service_configuration(self) -> Dict[str, Any]:
         """Get current service configuration.
         

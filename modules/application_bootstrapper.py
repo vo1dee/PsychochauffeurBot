@@ -326,7 +326,10 @@ class ApplicationBootstrapper:
             
             # Mark as running
             self._running = True
-            
+
+            # Start config web UI in background
+            await self._start_config_web_ui()
+
             # Start the bot application
             if hasattr(self.bot_application, 'start'):
                 await self.bot_application.start()
@@ -369,6 +372,16 @@ class ApplicationBootstrapper:
         signal.signal(signal.SIGTERM, signal_handler)
         logger.info("Signal handlers configured for graceful shutdown")
     
+    async def _start_config_web_ui(self) -> None:
+        """Start the config web UI as a background task."""
+        try:
+            from config.web_config_api import start_background
+            config_manager = self.service_registry.get_service('config_manager') if self.service_registry else None
+            port = int(os.getenv('CONFIG_WEB_PORT', '8080'))
+            self._web_ui_task = await start_background(config_manager=config_manager, port=port)
+        except Exception as e:
+            logger.warning(f"Config web UI failed to start (non-critical): {e}")
+
     def _create_service_configuration(self) -> Any:
         """Create service configuration from environment variables."""
         from dataclasses import dataclass

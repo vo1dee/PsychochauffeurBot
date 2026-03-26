@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PsychoChauffeurBot Config</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --surface: #16213e;
+            --surface2: #0f3460;
+            --accent: #e94560;
+            --accent2: #533483;
+            --text: #eee;
+            --text2: #aab;
+            --success: #4ecca3;
+            --border: #2a2a4a;
+            --radius: 8px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            min-width: 280px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent);
+            letter-spacing: 0.5px;
+        }
+        .sidebar-search {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .sidebar-search input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            outline: none;
+        }
+        .sidebar-search input:focus { border-color: var(--accent); }
+        .chat-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+        .chat-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            border-left: 3px solid transparent;
+            transition: all 0.15s;
+            font-size: 13px;
+        }
+        .chat-item:hover { background: var(--surface2); }
+        .chat-item.active {
+            background: var(--surface2);
+            border-left-color: var(--accent);
+        }
+        .chat-item .chat-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .chat-item .chat-meta {
+            font-size: 11px;
+            color: var(--text2);
+            margin-top: 2px;
+        }
+        .chat-item .chat-type {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .chat-type.group { background: var(--accent2); }
+        .chat-type.private { background: var(--surface2); }
+        .chat-type.global { background: var(--accent); }
+
+        /* Main content */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .main-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--surface);
+        }
+        .main-header h2 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .main-header .actions { display: flex; gap: 8px; }
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--surface2);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.15s;
+        }
+        .btn:hover { background: var(--accent2); border-color: var(--accent2); }
+        .btn-primary { background: var(--accent); border-color: var(--accent); }
+        .btn-primary:hover { background: #d63050; }
+        .btn-success { background: var(--success); border-color: var(--success); color: #111; }
+
+        /* Toggle */
+        .toggle-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .toggle {
+            position: relative;
+            width: 40px;
+            height: 22px;
+            cursor: pointer;
+        }
+        .toggle input { display: none; }
+        .toggle .slider {
+            position: absolute;
+            inset: 0;
+            background: var(--border);
+            border-radius: 11px;
+            transition: 0.2s;
+        }
+        .toggle .slider::before {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            left: 3px;
+            top: 3px;
+            background: var(--text);
+            border-radius: 50%;
+            transition: 0.2s;
+        }
+        .toggle input:checked + .slider { background: var(--success); }
+        .toggle input:checked + .slider::before { transform: translateX(18px); }
+
+        /* Module card */
+        .module-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .module-header {
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+        }
+        .module-header:hover { background: rgba(255,255,255,0.03); }
+        .module-name {
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .module-body {
+            padding: 0 16px 16px;
+            display: none;
+        }
+        .module-body.open { display: block; }
+
+        /* JSON editor */
+        .json-editor {
+            width: 100%;
+            min-height: 200px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            resize: vertical;
+            outline: none;
+            tab-size: 2;
+        }
+        .json-editor:focus { border-color: var(--accent); }
+        .json-editor.invalid { border-color: var(--accent); }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: var(--radius);
+            font-size: 13px;
+            z-index: 1000;
+            animation: slideIn 0.3s;
+            max-width: 350px;
+        }
+        .toast.success { background: var(--success); color: #111; }
+        .toast.error { background: var(--accent); color: #fff; }
+        @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } }
+
+        /* Custom config banner */
+        .config-banner {
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            border-radius: var(--radius);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* Empty state */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text2);
+            gap: 12px;
+        }
+        .empty-state .icon { font-size: 48px; }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text2);
+        }
+
+        /* Auth overlay */
+        .auth-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        .auth-box {
+            background: var(--surface);
+            padding: 32px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            text-align: center;
+            width: 340px;
+        }
+        .auth-box h2 { margin-bottom: 20px; font-size: 18px; }
+        .auth-box input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+            margin-bottom: 16px;
+            outline: none;
+        }
+        .auth-box input:focus { border-color: var(--accent); }
+    </style>
+</head>
+<body>
+    <div class="auth-overlay" id="authOverlay" style="display:none">
+        <div class="auth-box">
+            <h2>Bot Config</h2>
+            <input type="password" id="tokenInput" placeholder="API Token" autofocus>
+            <button class="btn btn-primary" style="width:100%;padding:10px" onclick="authenticate()">Login</button>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="sidebar-header">PsychoChauffeurBot</div>
+        <div class="sidebar-search">
+            <input type="text" id="searchInput" placeholder="Search chats..." oninput="filterChats()">
+        </div>
+        <div class="chat-list" id="chatList">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="main-header" id="mainHeader" style="display:none">
+            <h2 id="headerTitle">Select a chat</h2>
+            <div class="actions">
+                <button class="btn" id="backupBtn" onclick="backupConfig()" style="display:none">Backup</button>
+                <button class="btn btn-primary" id="saveBtn" onclick="saveAll()" style="display:none">Save Changes</button>
+            </div>
+        </div>
+        <div class="main-content" id="mainContent">
+            <div class="empty-state">
+                <div class="icon">&#9881;</div>
+                <div>Select a chat from the sidebar to view its configuration</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    const API = '/api';
+    let token = localStorage.getItem('config_token') || '';
+    let chats = [];
+    let currentChat = null;
+    let currentConfig = null;
+    let pendingChanges = {};
+
+    // --- Auth ---
+    async function checkAuth() {
+        try {
+            const res = await apiFetch('/config/global');
+            if (res.ok) return true;
+        } catch(e) {}
+        return false;
+    }
+
+    async function init() {
+        if (token) {
+            const ok = await checkAuth();
+            if (ok) { loadChats(); return; }
+        }
+        // Try without token (no auth configured)
+        token = '';
+        const ok = await checkAuth();
+        if (ok) { loadChats(); return; }
+        document.getElementById('authOverlay').style.display = 'flex';
+    }
+
+    function authenticate() {
+        token = document.getElementById('tokenInput').value;
+        localStorage.setItem('config_token', token);
+        document.getElementById('authOverlay').style.display = 'none';
+        init();
+    }
+
+    document.getElementById('tokenInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter') authenticate();
+    });
+
+    // --- API ---
+    function apiFetch(path, opts = {}) {
+        const headers = opts.headers || {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        if (opts.body && typeof opts.body === 'object') {
+            headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(opts.body);
+        }
+        return fetch(API + path, { ...opts, headers });
+    }
+
+    // --- Chat list ---
+    async function loadChats() {
+        try {
+            const res = await apiFetch('/config/chats');
+            const data = await res.json();
+            chats = data.chats || [];
+            renderChatList();
+        } catch(e) {
+            toast('Failed to load chats', 'error');
+        }
+    }
+
+    function renderChatList() {
+        const list = document.getElementById('chatList');
+        // Add global config entry
+        let html = `
+            <div class="chat-item ${currentChat && currentChat.chat_id === 'global' ? 'active' : ''}"
+                 onclick="selectGlobal()">
+                <div class="chat-name"><span class="chat-type global">Global</span> Default Config</div>
+            </div>
+        `;
+        for (const chat of chats) {
+            const active = currentChat && currentChat.chat_id === chat.chat_id ? 'active' : '';
+            const typeClass = chat.chat_type === 'private' ? 'private' : 'group';
+            html += `
+                <div class="chat-item ${active}" onclick='selectChat(${JSON.stringify(chat)})' data-name="${(chat.chat_name||'').toLowerCase()}">
+                    <div class="chat-name">${escHtml(chat.chat_name || chat.chat_id)}</div>
+                    <div class="chat-meta">
+                        <span class="chat-type ${typeClass}">${chat.chat_type}</span>
+                        ${chat.chat_id}
+                        ${chat.custom_config_enabled ? ' &bull; custom' : ''}
+                    </div>
+                </div>
+            `;
+        }
+        list.innerHTML = html;
+    }
+
+    function filterChats() {
+        const q = document.getElementById('searchInput').value.toLowerCase();
+        document.querySelectorAll('.chat-item').forEach(el => {
+            const name = el.dataset.name || el.textContent.toLowerCase();
+            el.style.display = name.includes(q) ? '' : 'none';
+        });
+    }
+
+    // --- Config display ---
+    async function selectGlobal() {
+        currentChat = { chat_id: 'global', chat_type: 'global', chat_name: 'Global Default' };
+        pendingChanges = {};
+        renderChatList();
+        try {
+            const res = await apiFetch('/config/global');
+            currentConfig = await res.json();
+            renderConfig();
+        } catch(e) {
+            toast('Failed to load global config', 'error');
+        }
+    }
+
+    async function selectChat(chat) {
+        currentChat = chat;
+        pendingChanges = {};
+        renderChatList();
+        try {
+            const res = await apiFetch(`/config/chat/${chat.chat_type}/${chat.chat_id}`);
+            currentConfig = await res.json();
+            renderConfig();
+        } catch(e) {
+            toast('Failed to load config', 'error');
+        }
+    }
+
+    function renderConfig() {
+        const content = document.getElementById('mainContent');
+        const header = document.getElementById('mainHeader');
+        header.style.display = 'flex';
+        document.getElementById('headerTitle').textContent = currentChat.chat_name || currentChat.chat_id;
+        document.getElementById('backupBtn').style.display = currentChat.chat_type !== 'global' ? '' : 'none';
+        document.getElementById('saveBtn').style.display = '';
+
+        let html = '';
+
+        // Custom config toggle for non-global
+        if (currentChat.chat_type !== 'global') {
+            const enabled = currentConfig?.chat_metadata?.custom_config_enabled || false;
+            html += `
+                <div class="config-banner">
+                    <span>Custom configuration ${enabled ? 'enabled' : 'disabled'}</span>
+                    <label class="toggle">
+                        <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleCustomConfig(this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            `;
+        }
+
+        // Modules
+        const modules = currentConfig?.config_modules || currentConfig?.modules || {};
+        if (Object.keys(modules).length === 0) {
+            html += '<div style="color:var(--text2);padding:20px;text-align:center">No modules configured</div>';
+        }
+
+        for (const [name, mod] of Object.entries(modules)) {
+            const enabled = mod.enabled !== undefined ? mod.enabled : true;
+            const overrides = mod.overrides || {};
+            const overridesJson = JSON.stringify(overrides, null, 2);
+
+            html += `
+                <div class="module-card" id="mod-${name}">
+                    <div class="module-header" onclick="toggleModule('${name}')">
+                        <div class="module-name">
+                            <span>${escHtml(name)}</span>
+                        </div>
+                        <div class="toggle-wrap" onclick="event.stopPropagation()">
+                            <label class="toggle">
+                                <input type="checkbox" ${enabled ? 'checked' : ''} onchange="onModuleToggle('${name}', this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="module-body" id="body-${name}">
+                        <textarea class="json-editor" id="editor-${name}"
+                            oninput="onEditorChange('${name}', this)"
+                            onkeydown="handleTab(event)">${escHtml(overridesJson)}</textarea>
+                    </div>
+                </div>
+            `;
+        }
+
+        content.innerHTML = html;
+    }
+
+    function toggleModule(name) {
+        const body = document.getElementById('body-' + name);
+        body.classList.toggle('open');
+    }
+
+    function handleTab(e) {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const ta = e.target;
+            const start = ta.selectionStart;
+            ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(ta.selectionEnd);
+            ta.selectionStart = ta.selectionEnd = start + 2;
+        }
+    }
+
+    // --- Changes tracking ---
+    function onModuleToggle(name, enabled) {
+        if (!pendingChanges[name]) pendingChanges[name] = {};
+        pendingChanges[name]._toggle = enabled;
+    }
+
+    function onEditorChange(name, textarea) {
+        try {
+            JSON.parse(textarea.value);
+            textarea.classList.remove('invalid');
+            if (!pendingChanges[name]) pendingChanges[name] = {};
+            pendingChanges[name]._overrides = textarea.value;
+        } catch(e) {
+            textarea.classList.add('invalid');
+        }
+    }
+
+    // --- Save ---
+    async function saveAll() {
+        const isGlobal = currentChat.chat_type === 'global';
+        let errors = 0;
+
+        for (const [name, changes] of Object.entries(pendingChanges)) {
+            // Toggle
+            if (changes._toggle !== undefined) {
+                try {
+                    const path = isGlobal
+                        ? `/config/global/module/${name}`
+                        : `/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/module/${name}/toggle`;
+                    await apiFetch(path, {
+                        method: 'PUT',
+                        body: { enabled: changes._toggle },
+                    });
+                } catch(e) { errors++; }
+            }
+
+            // Overrides
+            if (changes._overrides) {
+                try {
+                    const overrides = JSON.parse(changes._overrides);
+                    const path = isGlobal
+                        ? `/config/global/module/${name}`
+                        : `/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/module/${name}`;
+                    await apiFetch(path, {
+                        method: 'PUT',
+                        body: { overrides },
+                    });
+                } catch(e) { errors++; }
+            }
+        }
+
+        pendingChanges = {};
+        if (errors) {
+            toast(`Saved with ${errors} error(s)`, 'error');
+        } else {
+            toast('Configuration saved', 'success');
+        }
+
+        // Reload
+        if (isGlobal) selectGlobal();
+        else selectChat(currentChat);
+    }
+
+    async function backupConfig() {
+        try {
+            await apiFetch(`/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/backup`, { method: 'POST' });
+            toast('Backup created', 'success');
+        } catch(e) {
+            toast('Backup failed', 'error');
+        }
+    }
+
+    async function toggleCustomConfig(enabled) {
+        try {
+            await apiFetch(`/config/chat/${currentChat.chat_type}/${currentChat.chat_id}/custom-config`, {
+                method: 'POST',
+                body: { enabled },
+            });
+            toast(`Custom config ${enabled ? 'enabled' : 'disabled'}`, 'success');
+            selectChat(currentChat);
+        } catch(e) {
+            toast('Failed to toggle custom config', 'error');
+        }
+    }
+
+    // --- Utilities ---
+    function escHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function toast(msg, type = 'success') {
+        const el = document.createElement('div');
+        el.className = `toast ${type}`;
+        el.textContent = msg;
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 3000);
+    }
+
+    // --- Init ---
+    init();
+    </script>
+</body>
+</html>
