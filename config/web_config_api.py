@@ -250,6 +250,44 @@ async def backup_chat_config(
     return {"status": "backup_created"}
 
 
+@app.post("/api/config/chat/{chat_type}/{chat_id}/archive")
+async def archive_chat(
+    chat_type: str,
+    chat_id: str,
+    _: None = Depends(verify_token),
+    cm: ConfigManager = Depends(get_config_manager),
+):
+    """Archive a chat's configuration."""
+    success = await cm.archive_chat(chat_id, chat_type)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to archive chat config")
+    return {"status": "archived", "chat_id": chat_id}
+
+
+@app.post("/api/config/chat/{chat_type}/{chat_id}/unarchive")
+async def unarchive_chat(
+    chat_type: str,
+    chat_id: str,
+    _: None = Depends(verify_token),
+    cm: ConfigManager = Depends(get_config_manager),
+):
+    """Restore a chat's configuration from archive."""
+    success = await cm.unarchive_chat(chat_id, chat_type)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to unarchive chat config")
+    return {"status": "unarchived", "chat_id": chat_id}
+
+
+@app.get("/api/config/archived")
+async def list_archived(
+    _: None = Depends(verify_token),
+    cm: ConfigManager = Depends(get_config_manager),
+):
+    """List all archived chats."""
+    archived = await cm.list_archived_chats()
+    return {"chats": archived}
+
+
 @app.post("/api/config/refresh-chat-names")
 async def refresh_chat_names(
     _: None = Depends(verify_token),

@@ -35,6 +35,7 @@ class ConfigManager:
         self.PRIVATE_CONFIG_DIR = self.base_dir / 'config' / 'private'
         self.GROUP_CONFIG_DIR = self.base_dir / 'config' / 'group'
         self.BACKUP_DIR = self.base_dir / 'config' / 'backups'
+        self.ARCHIVE_DIR = self.base_dir / 'config' / 'archive'
         self.GLOBAL_CONFIG_FILE = self.GLOBAL_CONFIG_DIR / "global_config.json"
         self._file_locks: Dict[str, asyncio.Lock] = {}
         self._module_cache: Dict[str, Dict[str, Any]] = {}
@@ -60,7 +61,7 @@ class ConfigManager:
     async def ensure_dirs(self) -> None:
         """Ensure that base directories for configuration exist."""
         missing_dirs = []
-        for d in (self.GLOBAL_CONFIG_DIR, self.PRIVATE_CONFIG_DIR, self.GROUP_CONFIG_DIR, self.BACKUP_DIR):
+        for d in (self.GLOBAL_CONFIG_DIR, self.PRIVATE_CONFIG_DIR, self.GROUP_CONFIG_DIR, self.BACKUP_DIR, self.ARCHIVE_DIR):
             try:
                 # First check if directory exists
                 if d.exists():
@@ -927,6 +928,123 @@ class ConfigManager:
             except Exception as e:
                 logger.error(f"Error creating backup: {e}")
                 return False
+
+    async def archive_chat(self, chat_id: str, chat_type: str) -> bool:
+        """Move a chat config to the archive directory."""
+        import shutil
+
+        if chat_type == "private":
+            src_dir = self.PRIVATE_CONFIG_DIR / chat_id
+        else:
+            src_dir = self.GROUP_CONFIG_DIR / chat_id
+
+        if not src_dir.exists():
+            logger.warning(f"Cannot archive: source directory not found for {chat_type}/{chat_id}")
+            return False
+
+        # Create archive subdirectory preserving type/id structure
+        archive_type_dir = self.ARCHIVE_DIR / chat_type
+        archive_type_dir.mkdir(parents=True, exist_ok=True)
+        dest_dir = archive_type_dir / chat_id
+
+        try:
+            # If already archived, remove old archive first
+            if dest_dir.exists():
+                shutil.rmtree(dest_dir)
+
+            # Add archived_at to metadata before moving
+            config_file = src_dir / "config.json"
+            if config_file.exists():
+                async with self._get_lock(str(config_file)):
+                    async with aiofiles.open(config_file, 'r', encoding='utf-8') as f:
+                        config = json.loads(await f.read())
+                    config.setdefault("chat_metadata", {})["archived_at"] = str(datetime.datetime.now())
+                    async with aiofiles.open(config_file, 'w', encoding='utf-8') as f:
+                        await f.write(json.dumps(config, indent=2, ensure_ascii=False))
+
+            shutil.move(str(src_dir), str(dest_dir))
+            logger.info(f"Archived chat config {chat_type}/{chat_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error archiving chat config {chat_type}/{chat_id}: {e}")
+            return False
+
+    async def unarchive_chat(self, chat_id: str, chat_type: str) -> bool:
+        """Restore a chat config from the archive directory."""
+        import shutil
+
+        archive_dir = self.ARCHIVE_DIR / chat_type / chat_id
+        if not archive_dir.exists():
+            logger.warning(f"Cannot unarchive: archive not found for {chat_type}/{chat_id}")
+            return False
+
+        if chat_type == "private":
+            dest_dir = self.PRIVATE_CONFIG_DIR / chat_id
+        else:
+            dest_dir = self.GROUP_CONFIG_DIR / chat_id
+
+        try:
+            if dest_dir.exists():
+                shutil.rmtree(dest_dir)
+
+            shutil.move(str(archive_dir), str(dest_dir))
+
+            # Remove archived_at from metadata
+            config_file = dest_dir / "config.json"
+            if config_file.exists():
+                async with self._get_lock(str(config_file)):
+                    async with aiofiles.open(config_file, 'r', encoding='utf-8') as f:
+                        config = json.loads(await f.read())
+                    config.get("chat_metadata", {}).pop("archived_at", None)
+                    config.setdefault("chat_metadata", {})["last_updated"] = str(datetime.datetime.now())
+                    async with aiofiles.open(config_file, 'w', encoding='utf-8') as f:
+                        await f.write(json.dumps(config, indent=2, ensure_ascii=False))
+
+            logger.info(f"Unarchived chat config {chat_type}/{chat_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error unarchiving chat config {chat_type}/{chat_id}: {e}")
+            return False
+
+    async def list_archived_chats(self) -> List[Dict[str, Any]]:
+        """List all archived chat configs."""
+        archived = []
+        if not self.ARCHIVE_DIR.exists():
+            return archived
+
+        for chat_type_dir in sorted(self.ARCHIVE_DIR.iterdir()):
+            if not chat_type_dir.is_dir():
+                continue
+            chat_type = chat_type_dir.name
+            for entry in sorted(chat_type_dir.iterdir()):
+                if not entry.is_dir():
+                    continue
+                config_file = entry / "config.json"
+                if not config_file.exists():
+                    continue
+                chat_id = entry.name
+                try:
+                    async with aiofiles.open(config_file, 'r', encoding='utf-8') as f:
+                        config = json.loads(await f.read())
+                    metadata = config.get("chat_metadata", {})
+                    archived.append({
+                        "chat_id": chat_id,
+                        "chat_type": metadata.get("chat_type", chat_type),
+                        "chat_name": metadata.get("chat_name", f"{chat_type}_{chat_id}"),
+                        "custom_config_enabled": metadata.get("custom_config_enabled", False),
+                        "last_updated": metadata.get("last_updated"),
+                        "archived_at": metadata.get("archived_at"),
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to read archived config for {chat_type}/{chat_id}: {e}")
+                    archived.append({
+                        "chat_id": chat_id,
+                        "chat_type": chat_type,
+                        "chat_name": f"{chat_type}_{chat_id}",
+                        "custom_config_enabled": False,
+                        "archived_at": None,
+                    })
+        return archived
 
     async def enable_module(self, chat_id: str, chat_type: str, module_name: str) -> bool:
         """Enable a specific module for a chat."""
