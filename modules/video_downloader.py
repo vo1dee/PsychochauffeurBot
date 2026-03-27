@@ -858,7 +858,7 @@ class VideoDownloader:
             await self.send_error_sticker(update)
 
     async def handle_inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle inline queries for YouTube Music, TikTok, and cat photos."""
+        """Handle inline queries for YouTube Music, YouTube Shorts, TikTok, and cat photos."""
         query = update.inline_query
         if not query:
             return
@@ -874,11 +874,13 @@ class VideoDownloader:
             # Route to appropriate handler based on URL
             if 'music.youtube.com' in url.lower():
                 await self._handle_inline_youtube_music(query, context, url)
+            elif 'youtube.com/shorts' in url.lower():
+                await self._handle_inline_youtube_shorts(query, context, url)
             elif 'tiktok.com' in url.lower():
                 await self._handle_inline_tiktok(query, context, url)
             else:
                 # Unsupported URL - still show cat button
-                await self._show_cat_with_hint(query, f"Unsupported link. Try music.youtube.com or tiktok.com")
+                await self._show_cat_with_hint(query, f"Unsupported link. Try music.youtube.com, youtube.com/shorts or tiktok.com")
             return
 
         # No URL - show cat photo button (works for empty query, "cat", etc.)
@@ -1020,6 +1022,71 @@ class VideoDownloader:
 
         except Exception as e:
             error_logger.error(f"Inline TikTok error: {e}")
+            await self._send_inline_error(query, str(e))
+
+    async def _handle_inline_youtube_shorts(self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
+        """Handle inline YouTube Shorts video download."""
+        error_logger.info(f"🎬 Inline YouTube Shorts: {url}")
+
+        try:
+            # Try service first, then fall back to direct strategies
+            filename, title = None, None
+            if await self._check_service_health():
+                result = await self._download_from_service(url)
+                if result and result[0]:
+                    filename, title = result
+                    error_logger.info(f"✅ Service download successful for Shorts: {url}")
+
+            if not filename:
+                filename, title = await self._download_youtube_with_strategies(url, is_shorts=True)
+
+            if filename and os.path.exists(filename):
+                file_size = os.path.getsize(filename)
+
+                if file_size > 50 * 1024 * 1024:
+                    error_logger.warning(f"Inline: Video file too large: {file_size}")
+                    await self._send_inline_error(query, "Video file too large")
+                    return
+
+                # Send video to user privately to get file_id (will be deleted immediately)
+                with open(filename, 'rb') as video_file:
+                    message = await context.bot.send_video(
+                        chat_id=query.from_user.id,
+                        video=video_file,
+                        disable_notification=True
+                    )
+
+                if message and message.video:
+                    # Delete the temporary message from private chat
+                    try:
+                        await message.delete()
+                    except Exception as e:
+                        error_logger.warning(f"Could not delete temp message: {e}")
+
+                    from telegram import InlineQueryResultCachedVideo
+                    results = [
+                        InlineQueryResultCachedVideo(
+                            id=f'video_{uuid.uuid4().hex[:8]}',
+                            video_file_id=message.video.file_id,
+                            title=title or "YouTube Shorts",
+                            caption=f"🎬 {title or 'YouTube Shorts'}\n\n🔗 {url}"
+                        )
+                    ]
+                    await query.answer(results, cache_time=300)
+                    error_logger.info(f"✅ Inline YouTube Shorts video ready: {title}")
+                else:
+                    await self._send_inline_error(query, "Failed to upload video")
+
+                # Cleanup local file
+                try:
+                    os.remove(filename)
+                except:
+                    pass
+            else:
+                await self._send_inline_error(query, "Download failed")
+
+        except Exception as e:
+            error_logger.error(f"Inline YouTube Shorts error: {e}")
             await self._send_inline_error(query, str(e))
 
     async def _send_inline_error(self, query: Any, error_msg: str) -> None:
@@ -1913,7 +1980,7 @@ def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[
     application.add_handler(
         InlineQueryHandler(video_downloader.handle_inline_query)
     )
-    general_logger.info("Inline query handler registered (music, tiktok, cat)")
+    general_logger.info("Inline query handler registered (music, youtube shorts, tiktok, cat)")
 
     # Mark as registered to prevent duplicates
     application._video_handler_set = True
