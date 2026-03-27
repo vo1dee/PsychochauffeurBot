@@ -14,6 +14,7 @@ from asyncio import Semaphore
 from dataclasses import dataclass
 from enum import Enum
 from telegram import Update, InlineQueryResultCachedAudio, InlineQueryResultArticle, InputTextMessageContent
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes, MessageHandler, filters, InlineQueryHandler
 from modules.const import VideoPlatforms, InstagramConfig, MUSIC_DIR
 from modules.utils import extract_urls
@@ -1048,21 +1049,16 @@ class VideoDownloader:
                     await self._send_inline_error(query, "Video file too large")
                     return
 
-                # Send video to user privately to get file_id (will be deleted immediately)
+                # Send video to user privately to get file_id
                 with open(filename, 'rb') as video_file:
                     message = await context.bot.send_video(
                         chat_id=query.from_user.id,
                         video=video_file,
+                        caption=f"🎬 {title or 'YouTube Shorts'}\n\n🔗 {url}",
                         disable_notification=True
                     )
 
                 if message and message.video:
-                    # Delete the temporary message from private chat
-                    try:
-                        await message.delete()
-                    except Exception as e:
-                        error_logger.warning(f"Could not delete temp message: {e}")
-
                     from telegram import InlineQueryResultCachedVideo
                     results = [
                         InlineQueryResultCachedVideo(
@@ -1072,8 +1068,17 @@ class VideoDownloader:
                             caption=f"🎬 {title or 'YouTube Shorts'}\n\n🔗 {url}"
                         )
                     ]
-                    await query.answer(results, cache_time=300)
-                    error_logger.info(f"✅ Inline YouTube Shorts video ready: {title}")
+                    try:
+                        await query.answer(results, cache_time=300)
+                        # Only delete the temp message if inline answer succeeded
+                        try:
+                            await message.delete()
+                        except Exception as e:
+                            error_logger.warning(f"Could not delete temp message: {e}")
+                        error_logger.info(f"✅ Inline YouTube Shorts video ready: {title}")
+                    except BadRequest as e:
+                        # Inline query expired - keep the video in private chat as fallback
+                        error_logger.warning(f"Inline query expired for Shorts, video kept in private chat: {e}")
                 else:
                     await self._send_inline_error(query, "Failed to upload video")
 
@@ -1099,7 +1104,10 @@ class VideoDownloader:
                 input_message_content=InputTextMessageContent(message_text=f'❌ {error_msg}')
             )
         ]
-        await query.answer(results, cache_time=10)
+        try:
+            await query.answer(results, cache_time=10)
+        except BadRequest as e:
+            error_logger.warning(f"Inline error answer failed (query expired): {e}")
 
     async def _show_cat_with_hint(self, query: Any, hint: str) -> None:
         """Show cat photo with a hint message."""
