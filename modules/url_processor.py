@@ -194,7 +194,10 @@ def modify_url(url: str) -> Optional[str]:
         
         # Special case for x.com/twitter.com
         if domain in ['x.com', 'twitter.com']:
-            modified = url.replace(domain, 'fixupx.com')
+            # Strip query parameters and fragment (tracking params like ?s=20)
+            # that break language suffix functionality (/ua, /sk, /en)
+            cleaned = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+            modified = cleaned.replace(domain, 'fixupx.com')
             general_logger.info(f"Modified x.com/twitter.com URL: {modified}")
             return modified
         
