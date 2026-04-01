@@ -74,18 +74,12 @@
       "enabled": true,
       "overrides": {
         "restrictions_enabled": false,
-        "max_message_length": 2048,
-        "rate_limit": {
-          "messages_per_minute": 20,
-          "burst_limit": 5
-        },
         "allowed_commands": [
           "help",
           "weather",
           "cat",
           "gpt",
           "analyze",
-          "flares",
           "gm"
         ],
         "ban_words": [],
@@ -103,10 +97,6 @@
     "safety": {
       "enabled": true,
       "overrides": {
-        "content_filter_level": "medium",
-        "profanity_filter_enabled": false,
-        "sensitive_content_warning_enabled": false,
-        "restricted_domains": [],
         "allowed_file_types": [
           "image/jpeg",
           "image/png",
@@ -119,20 +109,7 @@
     "weather": {
       "enabled": true,
       "overrides": {
-        "default_location": null,
-        "units": "metric",
-        "update_interval_minutes": 30,
-        "forecast_days": 3,
-        "show_alerts": true
-      }
-    },
-    "flares": {
-      "enabled": true,
-      "overrides": {
-        "check_interval_minutes": 15,
-        "notification_threshold": "M5",
-        "auto_notify": false,
-        "include_forecast": true
+        "units": "metric"
       }
     },
     "video_send": {

@@ -382,105 +382,6 @@ class EnhancedFileSystemMock:
 
 
 # ============================================================================
-# Enhanced Configuration Manager Mock
-# ============================================================================
-
-class EnhancedConfigManagerMock:
-    """Enhanced configuration manager mock with realistic behavior."""
-    
-    def __init__(self):
-        self.configs = {}
-        self.schemas = {}
-        self.validation_enabled = True
-        self.backup_enabled = True
-        self.change_history = []
-        
-    def set_validation_enabled(self, enabled: bool) -> None:
-        """Enable or disable validation."""
-        self.validation_enabled = enabled
-        
-    def set_backup_enabled(self, enabled: bool) -> None:
-        """Enable or disable backups."""
-        self.backup_enabled = enabled
-        
-    def load_config(self, config_id: str, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Load configuration."""
-        config = self.configs.get(config_id, default or {})
-        self.change_history.append({
-            "action": "load",
-            "config_id": config_id,
-            "timestamp": datetime.now(timezone.utc)
-        })
-        return config
-        
-    async def save_config(self, config_id: str, config: Dict[str, Any]) -> bool:
-        """Save configuration."""
-        if self.validation_enabled:
-            await self._validate_config(config_id, config)
-            
-        if self.backup_enabled:
-            await self._create_backup(config_id)
-            
-        self.configs[config_id] = config.copy()
-        self.change_history.append({
-            "action": "save",
-            "config_id": config_id,
-            "timestamp": datetime.now(timezone.utc)
-        })
-        return True
-        
-    async def update_config(self, config_id: str, updates: Dict[str, Any]) -> bool:
-        """Update configuration."""
-        current_config = self.configs.get(config_id, {})
-        updated_config = {**current_config, **updates}
-        return await self.save_config(config_id, updated_config)
-        
-    async def delete_config(self, config_id: str) -> bool:
-        """Delete configuration."""
-        if config_id in self.configs:
-            if self.backup_enabled:
-                await self._create_backup(config_id)
-            del self.configs[config_id]
-            self.change_history.append({
-                "action": "delete",
-                "config_id": config_id,
-                "timestamp": datetime.now(timezone.utc)
-            })
-            return True
-        return False
-        
-    def list_configs(self) -> List[str]:
-        """List all configuration IDs."""
-        return list(self.configs.keys())
-        
-    async def _validate_config(self, config_id: str, config: Dict[str, Any]) -> None:
-        """Validate configuration against schema."""
-        schema = self.schemas.get(config_id)
-        if schema:
-            # Simple validation - check required fields
-            required_fields = schema.get("required", [])
-            for field in required_fields:
-                if field not in config:
-                    raise ValueError(f"Required field '{field}' missing in config")
-                    
-    async def _create_backup(self, config_id: str) -> None:
-        """Create configuration backup."""
-        # Mock backup creation
-        pass
-        
-    def create_mock(self) -> Mock:
-        """Create a mock configuration manager."""
-        mock_config = Mock()
-        mock_config.initialize = AsyncMock()
-        mock_config.load_config = Mock(side_effect=self.load_config)
-        mock_config.save_config = AsyncMock(side_effect=self.save_config)
-        mock_config.update_config = AsyncMock(side_effect=self.update_config)
-        mock_config.delete_config = AsyncMock(side_effect=self.delete_config)
-        mock_config.list_configs = Mock(side_effect=self.list_configs)
-        return mock_config
-
-
-# ============================================================================
 # Enhanced Security Validator Mock
 # ============================================================================
 
@@ -614,9 +515,8 @@ class EnhancedMockRegistry:
         self.openai_mock = EnhancedOpenAIMock()
         self.database_mock = EnhancedDatabaseMock()
         self.filesystem_mock = EnhancedFileSystemMock()
-        self.config_mock = EnhancedConfigManagerMock()
         self.security_mock = EnhancedSecurityValidatorMock()
-        
+
     def get_openai_mock(self) -> EnhancedOpenAIMock:
         """Get OpenAI mock."""
         return self.openai_mock
@@ -629,10 +529,6 @@ class EnhancedMockRegistry:
         """Get file system mock."""
         return self.filesystem_mock
         
-    def get_config_mock(self) -> EnhancedConfigManagerMock:
-        """Get configuration manager mock."""
-        return self.config_mock
-        
     def get_security_mock(self) -> EnhancedSecurityValidatorMock:
         """Get security validator mock."""
         return self.security_mock
@@ -642,9 +538,8 @@ class EnhancedMockRegistry:
         self.openai_mock = EnhancedOpenAIMock()
         self.database_mock = EnhancedDatabaseMock()
         self.filesystem_mock = EnhancedFileSystemMock()
-        self.config_mock = EnhancedConfigManagerMock()
         self.security_mock = EnhancedSecurityValidatorMock()
-        
+
     def configure_for_testing(self, scenario: str = "default") -> None:
         """Configure mocks for specific testing scenarios."""
         if scenario == "error_prone":

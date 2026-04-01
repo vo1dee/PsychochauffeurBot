@@ -18,7 +18,7 @@ from modules.service_registry import ServiceRegistry, ServiceInterface, ServiceS
 from modules.application_models import ServiceConfiguration
 from modules.const import Config
 from modules.logger import general_logger, error_logger
-from config.config_manager import ConfigManager
+from config.config_manager import ConfigManager, set_singleton
 from modules.bot_application import BotApplication
 from modules.message_handler_service import MessageHandlerService
 from modules.speech_recognition_service import SpeechRecognitionService
@@ -100,6 +100,7 @@ class ApplicationBootstrapper:
             config_manager = service_registry.get_service('config_manager')
             if hasattr(config_manager, 'initialize'):
                 await config_manager.initialize()
+            set_singleton(config_manager)
             logger.info("ConfigManager initialized successfully")
             
             # Verify config_manager is properly registered and accessible

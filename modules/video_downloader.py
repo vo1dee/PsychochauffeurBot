@@ -1437,9 +1437,6 @@ class VideoDownloader:
 
             # Escape all special characters for Markdown V2
             special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-            escaped_title = title or "Video"
-            for char in special_chars:
-                escaped_title = escaped_title.replace(char, f'\\{char}')
 
             # Get username and escape it
             username = "Unknown"
@@ -1449,14 +1446,27 @@ class VideoDownloader:
             for char in special_chars:
                 escaped_username = escaped_username.replace(char, f'\\{char}')
 
-            caption = f"📹 {escaped_title}\n\n👤 Від: @{escaped_username}"
-            
+            caption = f"👤 Від: @{escaped_username}"
+
             if source_url:
                 # Escape special characters in URL
                 escaped_url = source_url
                 for char in special_chars:
                     escaped_url = escaped_url.replace(char, f'\\{char}')
                 caption += f"\n\n🔗 [Посилання]({escaped_url})"
+
+            if title:
+                escaped_desc = title
+                for char in special_chars:
+                    escaped_desc = escaped_desc.replace(char, f'\\{char}')
+                # Truncate if needed to stay within Telegram's 1024-char caption limit
+                # Reserve space for the blockquote syntax overhead (**> prefix, \n>, || suffix)
+                base_len = len(caption) + 4  # \n\n**> prefix
+                max_desc_len = 1024 - base_len - 2  # 2 for || suffix
+                if len(escaped_desc) > max_desc_len:
+                    escaped_desc = escaped_desc[:max_desc_len - 3] + '\\.\\.\\.'
+                lines = escaped_desc.split('\n')
+                caption += '\n\n**>' + '\n>'.join(lines) + '||'
 
             with open(filename, 'rb') as video_file:
                 # Check if the original message was a reply to another message
@@ -1465,7 +1475,7 @@ class VideoDownloader:
                     await update.message.reply_to_message.reply_video(
                         video=video_file,
                         caption=caption,
-                        parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
+                        parse_mode='MarkdownV2'
                     )
                 else:
                     # If it wasn't a reply, send the video as a new message (not as a reply)
@@ -1474,7 +1484,7 @@ class VideoDownloader:
                             chat_id=update.effective_chat.id,
                             video=video_file,
                             caption=caption,
-                            parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
+                            parse_mode='MarkdownV2'
                         )
                 
             # Delete the original message after successful video send
