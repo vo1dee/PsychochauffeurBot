@@ -1435,56 +1435,58 @@ class VideoDownloader:
                     await update.message.reply_text("❌ Video file too large to send.")
                 return
 
-            # Escape all special characters for Markdown V2
-            special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+            # Build caption with manual entities to support expandable_blockquote
+            # (HTML/MarkdownV2 parsers in older python-telegram-bot don't support it)
+            from telegram import MessageEntity
 
-            # Get username and escape it
+            def utf16_len(s: str) -> int:
+                return len(s.encode('utf-16-le')) // 2
+
             username = "Unknown"
             if update.effective_user:
                 username = update.effective_user.username or update.effective_user.first_name or "Unknown"
-            escaped_username = username
-            for char in special_chars:
-                escaped_username = escaped_username.replace(char, f'\\{char}')
 
-            caption = f"👤 Від: @{escaped_username}"
+            caption = f"👤 Від: @{username}"
+            caption_entities = []
+            offset = utf16_len(caption)
 
             if source_url:
-                # Escape special characters in URL
-                escaped_url = source_url
-                for char in special_chars:
-                    escaped_url = escaped_url.replace(char, f'\\{char}')
-                caption += f"\n\n🔗 [Посилання]({escaped_url})"
+                link_prefix = "\n\n🔗 "
+                link_label = "Посилання"
+                offset += utf16_len(link_prefix)
+                caption_entities.append(MessageEntity(
+                    type=MessageEntity.TEXT_LINK,
+                    offset=offset,
+                    length=utf16_len(link_label),
+                    url=source_url
+                ))
+                caption += link_prefix + link_label
+                offset += utf16_len(link_label)
 
             if title:
-                escaped_desc = title
-                for char in special_chars:
-                    escaped_desc = escaped_desc.replace(char, f'\\{char}')
-                # Truncate if needed to stay within Telegram's 1024-char caption limit
-                # Reserve space for the blockquote syntax overhead (**> prefix, \n>, || suffix)
-                base_len = len(caption) + 4  # \n\n**> prefix
-                max_desc_len = 1024 - base_len - 2  # 2 for || suffix
-                if len(escaped_desc) > max_desc_len:
-                    escaped_desc = escaped_desc[:max_desc_len - 3] + '\\.\\.\\.'
-                lines = escaped_desc.split('\n')
-                caption += '\n\n**>' + '\n>'.join(lines) + '||'
+                title_prefix = "\n\n"
+                # Truncate only if needed to stay within Telegram's 1024-char caption limit
+                max_title_len = 1024 - len(caption) - len(title_prefix)
+                truncated_title = title if len(title) <= max_title_len else title[:max_title_len - 3] + '...'
+                offset += utf16_len(title_prefix)
+                caption_entities.append(MessageEntity(
+                    type="expandable_blockquote",
+                    offset=offset,
+                    length=utf16_len(truncated_title)
+                ))
+                caption += title_prefix + truncated_title
 
             with open(filename, 'rb') as video_file:
+                send_kwargs = dict(caption=caption, caption_entities=caption_entities)
                 # Check if the original message was a reply to another message
                 if update.message and update.message.reply_to_message:
-                    # If it was a reply, send the video as a reply to the parent message
-                    await update.message.reply_to_message.reply_video(
-                        video=video_file,
-                        caption=caption,
-                        parse_mode='MarkdownV2'
-                    )
+                    await update.message.reply_to_message.reply_video(video=video_file, **send_kwargs)
                 else:
-                    # If it wasn't a reply, send the video as a new message (not as a reply)
                     if update.effective_chat:
                         await context.bot.send_video(
                             chat_id=update.effective_chat.id,
                             video=video_file,
-                            caption=caption,
-                            parse_mode='MarkdownV2'
+                            **send_kwargs
                         )
                 
             # Delete the original message after successful video send
@@ -1637,6 +1639,22 @@ class VideoDownloader:
         else:
             return Platform.OTHER
 
+    async def _get_tiktok_title_from_tikwm(self, url: str) -> Optional[str]:
+        """Fetch the full TikTok title from tikwm API (yt-dlp --get-title truncates it)."""
+        try:
+            api_url = f"https://www.tikwm.com/api/?url={url}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                    if response.status != 200:
+                        return None
+                    data = await response.json()
+                    if data.get("code") != 0:
+                        return None
+                    return data.get("data", {}).get("title")
+        except Exception as e:
+            error_logger.warning(f"Failed to fetch TikTok title from tikwm: {e}")
+            return None
+
     async def _download_tiktok_ytdlp(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         """Download TikTok video using yt-dlp with tikwm fallback."""
         config = self.platform_configs[Platform.TIKTOK]
@@ -1648,6 +1666,11 @@ class VideoDownloader:
         if not result or not result[0]:
             error_logger.info(f"yt-dlp failed for TikTok, trying tikwm fallback: {url}")
             result = await self._download_tiktok_tikwm(url)
+        elif result[0]:
+            # yt-dlp succeeded but its --get-title truncates TikTok titles; get full title from tikwm
+            full_title = await self._get_tiktok_title_from_tikwm(url)
+            if full_title:
+                result = (result[0], full_title)
 
         return result
 
