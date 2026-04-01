@@ -9,13 +9,11 @@ from typing import Any
 from telegram.error import TelegramError
 
 from modules.logger import general_logger, error_logger
-from config.config_manager import ConfigManager
+from config.config_manager import get_shared_config_manager
 from modules.const import Stickers
 
 # Constants
 RESTRICT_DURATION_RANGE = (1, 15)  # min and max minutes
-
-config_manager = ConfigManager()
 
 
 async def _unrestrict_user(context: CallbackContext[Any, Any, Any, Any]) -> None:
@@ -77,7 +75,7 @@ async def restrict_user(update: Update, context: CallbackContext[Any, Any, Any, 
     chat_id = str(chat.id)
     chat_type = chat.type
     try:
-        chat_config = await config_manager.get_config(chat_id, chat_type)
+        chat_config = await get_shared_config_manager().get_config(chat_id, chat_type)
         chat_behavior = chat_config.get("config_modules", {}).get("chat_behavior", {})
         overrides = chat_behavior.get("overrides", {})
         restrictions_enabled = overrides.get("restrictions_enabled", True)
@@ -172,7 +170,7 @@ async def handle_restriction_sticker(update: Update, context: CallbackContext[An
     chat_type = chat.type
     general_logger.info(f"[handle_restriction_sticker] Received sticker: file_id={message.sticker.file_id}, file_unique_id={message.sticker.file_unique_id}")
     try:
-        chat_config = await config_manager.get_config(chat_id, chat_type)
+        chat_config = await get_shared_config_manager().get_config(chat_id, chat_type)
         chat_behavior = chat_config.get("config_modules", {}).get("chat_behavior", {})
         overrides = chat_behavior.get("overrides", {})
         restriction_sticker_unique_id = overrides.get("restriction_sticker_unique_id")

@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from config.config_manager import ConfigManager
+from config.config_manager import ConfigManager, get_shared_config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +40,12 @@ class ChatInfo(BaseModel):
 
 app = FastAPI(title="PsychoChauffeurBot Config", docs_url="/api/docs")
 
+_allowed_origin = os.getenv("CONFIG_UI_ORIGIN", "http://localhost:8080")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[_allowed_origin],
+    allow_methods=["GET", "PUT", "POST", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Singleton config manager instance
@@ -70,7 +71,7 @@ async def get_config_manager() -> ConfigManager:
     if _config_manager is None:
         async with _config_manager_lock:
             if _config_manager is None:
-                _config_manager = ConfigManager()
+                _config_manager = get_shared_config_manager()
                 await _config_manager.initialize()
     return _config_manager
 
@@ -81,10 +82,7 @@ async def verify_token(request: Request) -> None:
         return
     auth = request.headers.get("Authorization", "")
     if auth != f"Bearer {API_TOKEN}":
-        # Also check query param for web UI convenience
-        token = request.query_params.get("token", "")
-        if token != API_TOKEN:
-            raise HTTPException(status_code=401, detail="Invalid or missing API token")
+        raise HTTPException(status_code=401, detail="Invalid or missing API token")
 
 
 # --- Helper functions ---

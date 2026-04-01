@@ -145,31 +145,6 @@ class ConfigManager:
                         return {}
                     
                     global_config = json.loads(content)
-                    
-                    # Handle new format with config_metadata vs old format with chat_metadata
-                    if "config_metadata" in global_config:
-                        # New format - convert to old format for compatibility
-                        converted_config = {
-                            "chat_metadata": {
-                                "chat_id": "global",
-                                "chat_type": "global", 
-                                "chat_name": "Global Configuration",
-                                "created_at": global_config["config_metadata"].get("created_at", ""),
-                                "last_updated": global_config["config_metadata"].get("last_updated", ""),
-                                "custom_config_enabled": False
-                            },
-                            "config_modules": {}
-                        }
-                        
-                        # Convert module_configs to config_modules format
-                        for module_name, module_config in global_config.get("module_configs", {}).items():
-                            converted_config["config_modules"][module_name] = {
-                                "enabled": module_config.get("enabled", True),
-                                "overrides": module_config.get("settings", {})
-                            }
-                        
-                        return converted_config
-                    
                     result: Dict[str, Any] = global_config
                     return result
                     
@@ -268,24 +243,18 @@ class ConfigManager:
                         "enabled": True,
                         "overrides": {
                             "restrictions_enabled": False,
-                            "max_message_length": 2048,
-                            "rate_limit": {
-                                "messages_per_minute": 20,
-                                "burst_limit": 5
-                            },
                             "allowed_commands": [
                                 "help",
                                 "weather",
                                 "cat",
                                 "gpt",
                                 "analyze",
-                                "flares",
                                 "gm",
                             ],
                             "ban_words": [],
                             "ban_symbols": [],
                             "random_response_settings": {
-                                "enabled": False,  # Disabled by default
+                                "enabled": False,
                                 "min_words": 5,
                                 "message_threshold": 50,
                                 "probability": 0.02,
@@ -297,10 +266,6 @@ class ConfigManager:
                     "safety": {
                         "enabled": True,
                         "overrides": {
-                            "content_filter_level": "medium",
-                            "profanity_filter_enabled": False,
-                            "sensitive_content_warning_enabled": False,
-                            "restricted_domains": [],
                             "allowed_file_types": [
                                 "image/jpeg",
                                 "image/png",
@@ -313,20 +278,7 @@ class ConfigManager:
                     "weather": {
                         "enabled": True,
                         "overrides": {
-                            "default_location": None,
-                            "units": "metric",
-                            "update_interval_minutes": 30,
-                            "forecast_days": 3,
-                            "show_alerts": True
-                        }
-                    },
-                    "flares": {
-                        "enabled": True,
-                        "overrides": {
-                            "check_interval_minutes": 15,
-                            "notification_threshold": "M5",
-                            "auto_notify": False,
-                            "include_forecast": True
+                            "units": "metric"
                         }
                     },
                      "speechmatics": {
@@ -453,8 +405,7 @@ class ConfigManager:
             return self._module_cache[module_name]
 
         global_config = await self._load_global_config()
-        # Handle both old format (modules) and new format (config_modules)
-        modules = global_config.get("config_modules") or global_config.get("modules", {})
+        modules = global_config.get("config_modules", {})
         module_config = modules.get(module_name, {})
         self._module_cache[module_name] = module_config
         result: Dict[str, Any] = module_config
@@ -488,22 +439,6 @@ class ConfigManager:
                     logger.error(f"Error in config change callback for {module_name}: {e}")
         except Exception as e:
             logger.error(f"Failed to notify change for {module_name}: {e}")
-
-    async def _load_main_config(self) -> Dict[str, Any]:
-        """Load the main configuration file."""
-        config_path = self.GLOBAL_CONFIG_DIR / "main_config.json"
-        async with self._get_lock(str(config_path)):
-            try:
-                async with aiofiles.open(config_path, 'r', encoding='utf-8') as f:
-                    content = await f.read()
-                    result: Dict[str, Any] = json.loads(content)
-                    return result
-            except FileNotFoundError:
-                logger.error("Main config not found")
-                return {}
-            except json.JSONDecodeError:
-                logger.error("Invalid JSON in main config")
-                return {}
 
     async def _load_chat_config(self, chat_id: str, chat_type: str) -> Dict[str, Any]:
         """Load a chat's configuration file."""
@@ -658,21 +593,15 @@ class ConfigManager:
                     }
                 },
                 "chat_behavior": {
-                    "enabled": chat_type == "private",  # Enable by default for private chats
+                    "enabled": chat_type == "private",
                     "overrides": {
                         "restrictions_enabled": False,
-                        "max_message_length": 2048,
-                        "rate_limit": {
-                            "messages_per_minute": 20,
-                            "burst_limit": 5
-                        },
                         "allowed_commands": [
                             "help",
                             "weather",
                             "cat",
                             "gpt",
                             "analyze",
-                            "flares",
                             "gm",
                         ],
                         "ban_words": [],
@@ -688,12 +617,8 @@ class ConfigManager:
                     }
                 },
                 "safety": {
-                    "enabled": chat_type == "private",  # Enable by default for private chats
+                    "enabled": chat_type == "private",
                     "overrides": {
-                        "content_filter_level": "medium",
-                        "profanity_filter_enabled": False,
-                        "sensitive_content_warning_enabled": False,
-                        "restricted_domains": [],
                         "allowed_file_types": [
                             "image/jpeg",
                             "image/png",
@@ -704,24 +629,11 @@ class ConfigManager:
                     }
                 },
                 "weather": {
-                    "enabled": chat_type == "private",  # Enable by default for private chats
+                    "enabled": chat_type == "private",
                     "overrides": {
-                        "default_location": None,
-                        "units": "metric",
-                        "update_interval_minutes": 30,
-                        "forecast_days": 3,
-                        "show_alerts": True
+                        "units": "metric"
                     }
                 },
-                 "flares": {
-                     "enabled": chat_type == "private",  # Enable by default for private chats
-                     "overrides": {
-                         "check_interval_minutes": 15,
-                         "notification_threshold": "M5",
-                         "auto_notify": False,
-                         "include_forecast": True
-                     }
-                 },
                  "video_send": {
                      "enabled": True,
                      "overrides": {
@@ -1098,91 +1010,6 @@ class ConfigManager:
         
         return await self.save_config(chat_config, chat_id, chat_type)
 
-    async def migrate_to_modular_config(self, chat_id: str, chat_type: str) -> bool:
-        """Migrate an existing configuration to the new modular structure."""
-        logger.info(f"Migrating config for {chat_type} chat {chat_id} to modular structure")
-        
-        try:
-            # Load the old config
-            old_config = await self._load_chat_config(chat_id, chat_type)
-            if not old_config:
-                logger.error(f"No config found for {chat_type} chat {chat_id}")
-                return False
-
-            # Create new modular config structure
-            new_config = {
-                "chat_metadata": old_config.get("chat_metadata", {}),
-                "config_modules": {}
-            }
-
-            # Migrate GPT settings
-            if "gpt_settings" in old_config:
-                new_config["config_modules"]["gpt"] = {
-                    "enabled": True,
-                    "overrides": old_config["gpt_settings"]
-                }
-
-            # Migrate chat settings
-            if "chat_settings" in old_config:
-                new_config["config_modules"]["chat"] = {
-                    "enabled": True,
-                    "overrides": old_config["chat_settings"]
-                }
-
-            # Migrate safety settings
-            if "safety_settings" in old_config:
-                new_config["config_modules"]["safety"] = {
-                    "enabled": True,
-                    "overrides": old_config["safety_settings"]
-                }
-
-            # Update timestamps
-            new_config["chat_metadata"]["last_updated"] = str(datetime.datetime.now())
-
-            # Ensure chat directory exists
-            await self.ensure_chat_dir(chat_id, chat_type)
-
-            # Save the new config
-            return await self.save_config(new_config, chat_id, chat_type)
-
-        except Exception as e:
-            logger.error(f"Error migrating config for {chat_type} chat {chat_id}: {e}")
-            return False
-
-    async def migrate_all_to_modular(self) -> Dict[str, bool]:
-        """Migrate all existing configurations to the new modular structure."""
-        logger.info("Starting migration to modular configuration structure")
-        results = {}
-
-        # Migrate private chats
-        for config_file in self.PRIVATE_CONFIG_DIR.glob("*.json"):
-            chat_id = config_file.stem
-            try:
-                success = await self.migrate_to_modular_config(chat_id, "private")
-                results[f"private_{chat_id}"] = success
-            except Exception as e:
-                logger.error(f"Error migrating private chat {chat_id}: {e}")
-                results[f"private_{chat_id}"] = False
-
-        # Migrate group chats
-        for config_file in self.GROUP_CONFIG_DIR.glob("*.json"):
-            chat_id = config_file.stem
-            try:
-                success = await self.migrate_to_modular_config(chat_id, "group")
-                results[f"group_{chat_id}"] = success
-            except Exception as e:
-                logger.error(f"Error migrating group chat {chat_id}: {e}")
-                results[f"group_{chat_id}"] = False
-
-        logger.info(f"Migration completed: {sum(results.values())} successful, {len(results) - sum(results.values())} failed")
-        return results
-
-    async def migrate_existing_configs(self) -> Dict[str, bool]:
-        """Migrate existing configurations to the new modular format."""
-        results: Dict[str, bool] = {}
-        # ... existing code ...
-        return results
-
     async def update_chat_configs_with_template(self) -> Dict[str, bool]:
         """Update all chat configs with new fields from the template while preserving existing values.
         
@@ -1199,13 +1026,9 @@ class ConfigManager:
                 logger.error("Invalid global template format")
                 return results
 
-            # Handle both old format (modules) and new format (config_modules)
-            if "config_modules" in template:
-                template_modules = template["config_modules"]
-            elif "modules" in template:
-                template_modules = template["modules"]
-            else:
-                logger.error("No modules found in global template")
+            template_modules = template.get("config_modules")
+            if not template_modules:
+                logger.error("No config_modules found in global template")
                 return results
 
             # Process private chats
@@ -1236,35 +1059,15 @@ class ConfigManager:
 
                                         if module_name not in chat_config["config_modules"]:
                                             # If module is entirely missing, add it from template
-                                            new_module_config = template_module_data.copy()
-                                            if "settings" in new_module_config and "overrides" not in new_module_config:
-                                                new_module_config["overrides"] = new_module_config.pop("settings")
-                                            chat_config["config_modules"][module_name] = new_module_config
+                                            chat_config["config_modules"][module_name] = template_module_data.copy()
                                             config_modified = True
                                             logger.info(f"[UpdateConfig][private {chat_id}] Added new module: {module_name}")
                                         else:
-                                            # If module exists, perform a recursive merge
+                                            # If module exists, perform a recursive merge of top-level fields
                                             current_chat_module_data = chat_config["config_modules"][module_name]
-                                            logger.info(f"[UpdateConfig][private {chat_id}] Current chat module data for {module_name} (before merge): {json.dumps(current_chat_module_data, indent=2)}")
-
-                                            # Merge top-level fields (e.g., 'enabled' for the module itself)
                                             if self._add_missing_recursive(current_chat_module_data, template_module_data):
                                                 config_modified = True
                                                 logger.info(f"[UpdateConfig][private {chat_id}] Top-level fields modified for module: {module_name}")
-
-                                            # Special handling for merging 'settings' from template into 'overrides' in chat config
-                                            template_settings = template_module_data.get("settings", {})
-                                            if template_settings:
-                                                logger.info(f"[UpdateConfig][private {chat_id}] Template settings for {module_name}: {json.dumps(template_settings, indent=2)}")
-                                                if "overrides" not in current_chat_module_data:
-                                                    current_chat_module_data["overrides"] = {}
-                                                    config_modified = True
-                                                    logger.info(f"[UpdateConfig][private {chat_id}] Added 'overrides' to module: {module_name}")
-                                                
-                                                # Recursively add missing fields from template settings to chat overrides
-                                                if self._add_missing_recursive(current_chat_module_data["overrides"], template_settings):
-                                                    config_modified = True
-                                                    logger.info(f"[UpdateConfig][private {chat_id}] Overrides modified for module: {module_name}")
 
                                             logger.info(f"[UpdateConfig][private {chat_id}] Current chat module data for {module_name} (after merge): {json.dumps(current_chat_module_data, indent=2)}")
 
@@ -1314,37 +1117,15 @@ class ConfigManager:
 
                                         if module_name not in chat_config["config_modules"]:
                                             # If module is entirely missing, add it from template
-                                            new_module_config = template_module_data.copy()
-                                            if "settings" in new_module_config and "overrides" not in new_module_config:
-                                                new_module_config["overrides"] = new_module_config.pop("settings")
-                                            chat_config["config_modules"][module_name] = new_module_config
+                                            chat_config["config_modules"][module_name] = template_module_data.copy()
                                             config_modified = True
                                             logger.info(f"[UpdateConfig][group {chat_id}] Added new module: {module_name}")
                                         else:
-                                            # If module exists, perform a recursive merge
+                                            # If module exists, perform a recursive merge of top-level fields
                                             current_chat_module_data = chat_config["config_modules"][module_name]
-                                            logger.debug(f"[UpdateConfig][group {chat_id}] Current chat module data for {module_name} (before merge): {json.dumps(current_chat_module_data, indent=2)}")
-
-                                            # Merge top-level fields (e.g., 'enabled' for the module itself)
                                             if self._add_missing_recursive(current_chat_module_data, template_module_data):
                                                 config_modified = True
                                                 logger.debug(f"[UpdateConfig][group {chat_id}] Top-level fields modified for module: {module_name}")
-
-                                            # Special handling for merging 'settings' from template into 'overrides' in chat config
-                                            template_settings = template_module_data.get("settings", {})
-                                            if template_settings:
-                                                logger.debug(f"[UpdateConfig][group {chat_id}] Template settings for {module_name}: {json.dumps(template_settings, indent=2)}")
-                                                if "overrides" not in current_chat_module_data:
-                                                    current_chat_module_data["overrides"] = {}
-                                                    config_modified = True
-                                                    logger.debug(f"[UpdateConfig][group {chat_id}] Added 'overrides' to module: {module_name}")
-                                                
-                                                # Recursively add missing fields from template settings to chat overrides
-                                                if self._add_missing_recursive(current_chat_module_data["overrides"], template_settings):
-                                                    config_modified = True
-                                                    logger.debug(f"[UpdateConfig][group {chat_id}] Overrides modified for module: {module_name}")
-
-                                            logger.debug(f"[UpdateConfig][group {chat_id}] Current chat module data for {module_name} (after merge): {json.dumps(current_chat_module_data, indent=2)}")
 
                                     # Debug: Final chat_config state before save decision
                                     logger.debug(f"[UpdateConfig][group {chat_id}] Final chat_config before save decision: {json.dumps(chat_config, indent=2)}")
@@ -1375,3 +1156,21 @@ class ConfigManager:
             "enabled": os.getenv("ENABLE_ANALYSIS_CACHE", "True").lower() == "true",
             "ttl": int(os.getenv("ANALYSIS_CACHE_TTL", "86400")),
         }
+
+
+# Module-level singleton accessor
+_singleton: Optional['ConfigManager'] = None
+
+
+def set_singleton(instance: 'ConfigManager') -> None:
+    """Set the singleton ConfigManager instance (called by bootstrapper at startup)."""
+    global _singleton
+    _singleton = instance
+
+
+def get_shared_config_manager() -> 'ConfigManager':
+    """Get the shared ConfigManager singleton. Falls back to creating one if not yet set."""
+    global _singleton
+    if _singleton is None:
+        _singleton = ConfigManager()
+    return _singleton

@@ -108,7 +108,23 @@ class TextMessageHandler(BaseMessageHandler):
             })
         
         # Check for user restrictions
-        if should_restrict_user(message_text):
+        ban_words, ban_symbols = [], []
+        if update.effective_chat:
+            try:
+                chat_cfg = await self.config_manager.get_config(
+                    chat_id=str(update.effective_chat.id),
+                    chat_type=update.effective_chat.type,
+                )
+                cb_overrides = (
+                    chat_cfg.get("config_modules", {})
+                    .get("chat_behavior", {})
+                    .get("overrides", {})
+                )
+                ban_words = cb_overrides.get("ban_words", [])
+                ban_symbols = cb_overrides.get("ban_symbols", [])
+            except Exception:
+                pass
+        if should_restrict_user(message_text, ban_words=ban_words, ban_symbols=ban_symbols):
             await restrict_user(update, context)
             return
         
