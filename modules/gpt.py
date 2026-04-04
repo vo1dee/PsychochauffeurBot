@@ -1337,10 +1337,24 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         "SELECT COUNT(*) FROM bot_events WHERE event_type = 'video_download' AND chat_id = $1 AND user_id = $2",
                         _chat_id_int, _user_id_int
                     )
+                    media_count = await conn.fetchval("""
+                        SELECT COUNT(*) FROM messages
+                        WHERE chat_id = $1 AND user_id = $2
+                          AND (raw_telegram_message ? 'photo' OR raw_telegram_message ? 'video'
+                               OR raw_telegram_message ? 'video_note' OR raw_telegram_message ? 'animation')
+                    """, _chat_id_int, _user_id_int)
+                    reaction_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'reaction' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
                 if url_mods_count:
                     message_parts.append(f"Модифікацій посилань: {url_mods_count}")
                 if vid_dl_count:
                     message_parts.append(f"Завантажень відео: {vid_dl_count}")
+                if media_count:
+                    message_parts.append(f"Медіа надіслано: {media_count}")
+                if reaction_count:
+                    message_parts.append(f"Реакцій поставлено: {reaction_count}")
         except Exception:
             pass
 
