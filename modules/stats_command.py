@@ -50,6 +50,10 @@ def _empty_stats_data(now: datetime, period_start: datetime, is_all_time: bool) 
         "url_mods_prev": 0,
         "vid_downloads_current": 0,
         "vid_downloads_prev": 0,
+        "media_current": 0,
+        "media_prev": 0,
+        "reactions_current": 0,
+        "reactions_prev": 0,
     }
 
 
@@ -194,6 +198,28 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
               AND timestamp >= $3 AND timestamp < $2
         """, period_start_utc, now_utc, _prev_bound, chat_id)
 
+        # 11. Media sent (photos + videos in messages)
+        media = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM messages
+            WHERE chat_id = $4
+              AND timestamp >= $3 AND timestamp < $2
+              AND (raw_telegram_message ? 'photo' OR raw_telegram_message ? 'video'
+                   OR raw_telegram_message ? 'video_note' OR raw_telegram_message ? 'animation')
+        """, period_start_utc, now_utc, _prev_bound, chat_id)
+
+        # 12. User reactions added
+        reactions = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM bot_events
+            WHERE event_type = 'reaction' AND chat_id = $4
+              AND timestamp >= $3 AND timestamp < $2
+        """, period_start_utc, now_utc, _prev_bound, chat_id)
+
     return {
         "now": now,
         "period_start": period_start,
@@ -215,6 +241,10 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
         "url_mods_prev": url_mods["prev_count"] or 0 if prev_start_utc is not None else 0,
         "vid_downloads_current": vid_downloads["current_count"] or 0,
         "vid_downloads_prev": vid_downloads["prev_count"] or 0 if prev_start_utc is not None else 0,
+        "media_current": media["current_count"] or 0,
+        "media_prev": media["prev_count"] or 0 if prev_start_utc is not None else 0,
+        "reactions_current": reactions["current_count"] or 0,
+        "reactions_prev": reactions["prev_count"] or 0 if prev_start_utc is not None else 0,
     }
 
 
@@ -411,6 +441,24 @@ def format_stats(data: Dict[str, Any]) -> str:
         if not is_all_time:
             dl_str += f" ({_pct_change(vid_dl_cur, vid_dl_prev)})"
         lines.append(f"📥 <b>Video downloads:</b> {dl_str}")
+
+    # Media sent
+    media_cur = data["media_current"]
+    media_prev = data["media_prev"]
+    if media_cur > 0 or not is_all_time:
+        media_str = f"{media_cur:,}"
+        if not is_all_time:
+            media_str += f" ({_pct_change(media_cur, media_prev)})"
+        lines.append(f"🖼 <b>Media sent:</b> {media_str}")
+
+    # Reactions
+    reactions_cur = data["reactions_current"]
+    reactions_prev = data["reactions_prev"]
+    if reactions_cur > 0 or not is_all_time:
+        react_str = f"{reactions_cur:,}"
+        if not is_all_time:
+            react_str += f" ({_pct_change(reactions_cur, reactions_prev)})"
+        lines.append(f"👍 <b>Reactions:</b> {react_str}")
 
     # Active users
     user_extras = []

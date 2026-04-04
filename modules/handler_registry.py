@@ -321,6 +321,11 @@ class HandlerRegistry(ServiceInterface):
 
         setup_message_handlers(application)
 
+        # Register reaction update handler (requires PTB >= 21.0)
+        from telegram.ext import MessageReactionHandler
+        from modules.handlers.reaction_update_handler import handle_reaction_update
+        application.add_handler(MessageReactionHandler(handle_reaction_update))
+
     async def _register_command_handlers(
         self, application: Application[Any, Any, Any, Any, Any, Any]
     ) -> None:
