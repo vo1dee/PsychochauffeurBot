@@ -62,3 +62,14 @@ CREATE INDEX IF NOT EXISTS idx_messages_text_search ON messages USING GIN(to_tsv
 
 -- Composite index for faster chat-specific text searches
 CREATE INDEX IF NOT EXISTS idx_messages_chat_text ON messages(chat_id) WHERE text IS NOT NULL;
+
+-- Bot events tracking (url_modification, video_download)
+CREATE TABLE IF NOT EXISTS bot_events (
+    id BIGSERIAL PRIMARY KEY,
+    event_type VARCHAR(50) NOT NULL,
+    chat_id BIGINT NOT NULL,
+    user_id BIGINT,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_bot_events_type_chat_ts ON bot_events(event_type, chat_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_bot_events_user_chat ON bot_events(user_id, chat_id);

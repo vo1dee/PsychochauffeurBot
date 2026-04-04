@@ -1320,7 +1320,30 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "",
                 f"Перше повідомлення: {first_msg_date}"
             ])
-            
+
+        # Fetch URL modification and video download counts for this user in this chat
+        try:
+            from modules.database import Database
+            _chat_id_int = int(chat_id) if str(chat_id).lstrip('-').isdigit() else 0
+            _user_id_int = int(user_id) if str(user_id).isdigit() else 0
+            if _chat_id_int and _user_id_int:
+                pool = await Database.get_pool()
+                async with pool.acquire() as conn:
+                    url_mods_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'url_modification' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
+                    vid_dl_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'video_download' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
+                if url_mods_count:
+                    message_parts.append(f"Модифікацій посилань: {url_mods_count}")
+                if vid_dl_count:
+                    message_parts.append(f"Завантажень відео: {vid_dl_count}")
+        except Exception:
+            pass
+
         # Send the statistics message without Markdown parsing
         await update.message.reply_text(
             "\n".join(message_parts),

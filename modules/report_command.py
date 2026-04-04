@@ -134,6 +134,25 @@ async def fetch_report_data(days: int) -> Dict[str, Any]:
         # 10. Total chats ever
         total_chats = await conn.fetchval("SELECT COUNT(DISTINCT chat_id) FROM messages")
 
+        # 11. URL modification and video download counts
+        url_mods = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM bot_events
+            WHERE event_type = 'url_modification'
+              AND timestamp >= $3 AND timestamp < $2
+        """, period_start_utc, now_utc, prev_start_utc)
+
+        vid_downloads = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM bot_events
+            WHERE event_type = 'video_download'
+              AND timestamp >= $3 AND timestamp < $2
+        """, period_start_utc, now_utc, prev_start_utc)
+
     return {
         "now": now,
         "period_start": period_start,
@@ -150,6 +169,10 @@ async def fetch_report_data(days: int) -> Dict[str, Any]:
         "daily": daily,
         "inactive_count": inactive_count or 0,
         "total_chats": total_chats or 0,
+        "url_mods_current": url_mods["current_count"] or 0,
+        "url_mods_prev": url_mods["prev_count"] or 0,
+        "vid_downloads_current": vid_downloads["current_count"] or 0,
+        "vid_downloads_prev": vid_downloads["prev_count"] or 0,
     }
 
 
@@ -242,6 +265,8 @@ def format_report(data: Dict[str, Any], days: int) -> str:
         "",
         f"📨 <b>Messages:</b> {cur_total:,} ({_pct_change(cur_total, prev_total)})",
         f"📈 <b>Commands:</b> {cur_cmds} ({_pct_change(cur_cmds, prev_cmds)})",
+        f"🔗 <b>URL modifications:</b> {data['url_mods_current']:,} ({_pct_change(data['url_mods_current'], data['url_mods_prev'])})",
+        f"📥 <b>Video downloads:</b> {data['vid_downloads_current']:,} ({_pct_change(data['vid_downloads_current'], data['vid_downloads_prev'])})",
         f"👥 <b>Active chats:</b> {active_count} ({new_chats} new)",
     ]
 

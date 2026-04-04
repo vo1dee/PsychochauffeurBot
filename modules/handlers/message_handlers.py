@@ -4,6 +4,7 @@ Message handlers for different types of messages.
 Contains handlers for text, photo, sticker, location, and voice messages.
 """
 
+import asyncio
 import hashlib
 import logging
 from typing import Dict, List, Optional, Any, Tuple
@@ -109,7 +110,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     # Process message content and extract URLs
     cleaned_text, modified_links = process_message_content(message_text)
-    
+
+    if modified_links and update.effective_chat and update.effective_user:
+        from modules.event_tracker import record_bot_event
+        asyncio.ensure_future(record_bot_event(
+            'url_modification', update.effective_chat.id, update.effective_user.id
+        ))
+
     # If all modified links are AliExpress, skip sending the "modified link" message
     if modified_links and all(
         (lambda host: host == "aliexpress.com" or host.endswith(".aliexpress.com"))(urlparse(link).hostname or "")

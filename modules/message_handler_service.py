@@ -5,6 +5,7 @@ Centralized message processing service that handles all incoming messages
 and routes them to appropriate specialized handlers.
 """
 
+import asyncio
 import hashlib
 import logging
 from abc import ABC, abstractmethod
@@ -130,12 +131,18 @@ class TextMessageHandler(BaseMessageHandler):
         
         # Process message content and extract URLs
         cleaned_text, modified_links = process_message_content(message_text)
-        
+
+        if modified_links and update.effective_chat and update.effective_user:
+            from modules.event_tracker import record_bot_event
+            asyncio.ensure_future(record_bot_event(
+                'url_modification', update.effective_chat.id, update.effective_user.id
+            ))
+
         # If all modified links are AliExpress, skip sending the "modified link" message
         if modified_links and all(
             link.lower().startswith((
-                'https://aliexpress.com/', 
-                'https://www.aliexpress.com/', 
+                'https://aliexpress.com/',
+                'https://www.aliexpress.com/',
                 'https://m.aliexpress.com/',
                 'https://a.aliexpress.com/'
             )) for link in modified_links

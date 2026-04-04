@@ -1489,6 +1489,14 @@ class VideoDownloader:
                             **send_kwargs
                         )
                 
+            # Track successful video download
+            if update.effective_chat:
+                from modules.event_tracker import record_bot_event
+                _user_id = update.effective_user.id if update.effective_user else None
+                asyncio.ensure_future(record_bot_event(
+                    'video_download', update.effective_chat.id, _user_id
+                ))
+
             # Delete the original message after successful video send
             try:
                 if update.message:

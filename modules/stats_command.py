@@ -46,6 +46,10 @@ def _empty_stats_data(now: datetime, period_start: datetime, is_all_time: bool) 
         "weekday": [],
         "avg_response_seconds": None,
         "prev_avg_response_seconds": None,
+        "url_mods_current": 0,
+        "url_mods_prev": 0,
+        "vid_downloads_current": 0,
+        "vid_downloads_prev": 0,
     }
 
 
@@ -170,6 +174,26 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
                 conn, chat_id, prev_start_utc, period_start_utc
             )
 
+        # 10. URL modification and video download counts
+        _prev_bound = prev_start_utc if prev_start_utc is not None else period_start_utc
+        url_mods = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM bot_events
+            WHERE event_type = 'url_modification' AND chat_id = $4
+              AND timestamp >= $3 AND timestamp < $2
+        """, period_start_utc, now_utc, _prev_bound, chat_id)
+
+        vid_downloads = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM bot_events
+            WHERE event_type = 'video_download' AND chat_id = $4
+              AND timestamp >= $3 AND timestamp < $2
+        """, period_start_utc, now_utc, _prev_bound, chat_id)
+
     return {
         "now": now,
         "period_start": period_start,
@@ -187,6 +211,10 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
         "weekday": weekday,
         "avg_response_seconds": avg_response_seconds,
         "prev_avg_response_seconds": prev_avg_response_seconds,
+        "url_mods_current": url_mods["current_count"] or 0,
+        "url_mods_prev": url_mods["prev_count"] or 0 if prev_start_utc is not None else 0,
+        "vid_downloads_current": vid_downloads["current_count"] or 0,
+        "vid_downloads_prev": vid_downloads["prev_count"] or 0 if prev_start_utc is not None else 0,
     }
 
 
@@ -365,6 +393,24 @@ def format_stats(data: Dict[str, Any]) -> str:
         lines.append(f"💬 <b>Messages sent:</b> {cur_total:,}")
     else:
         lines.append(f"💬 <b>Messages sent:</b> {cur_total:,} ({_pct_change(cur_total, prev_total)})")
+
+    # URL modifications
+    url_mods_cur = data["url_mods_current"]
+    url_mods_prev = data["url_mods_prev"]
+    if url_mods_cur > 0 or not is_all_time:
+        mods_str = f"{url_mods_cur:,}"
+        if not is_all_time:
+            mods_str += f" ({_pct_change(url_mods_cur, url_mods_prev)})"
+        lines.append(f"🔗 <b>URL modifications:</b> {mods_str}")
+
+    # Video downloads
+    vid_dl_cur = data["vid_downloads_current"]
+    vid_dl_prev = data["vid_downloads_prev"]
+    if vid_dl_cur > 0 or not is_all_time:
+        dl_str = f"{vid_dl_cur:,}"
+        if not is_all_time:
+            dl_str += f" ({_pct_change(vid_dl_cur, vid_dl_prev)})"
+        lines.append(f"📥 <b>Video downloads:</b> {dl_str}")
 
     # Active users
     user_extras = []
