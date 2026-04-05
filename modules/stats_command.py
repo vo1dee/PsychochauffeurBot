@@ -220,6 +220,17 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
               AND timestamp >= $3 AND timestamp < $2
         """, period_start_utc, now_utc, _prev_bound, chat_id)
 
+        # 13. Stickers sent
+        stickers = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM messages
+            WHERE chat_id = $4
+              AND timestamp >= $3 AND timestamp < $2
+              AND raw_telegram_message ? 'sticker'
+        """, period_start_utc, now_utc, _prev_bound, chat_id)
+
     return {
         "now": now,
         "period_start": period_start,
@@ -245,6 +256,8 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
         "media_prev": media["prev_count"] or 0 if prev_start_utc is not None else 0,
         "reactions_current": reactions["current_count"] or 0,
         "reactions_prev": reactions["prev_count"] or 0 if prev_start_utc is not None else 0,
+        "stickers_current": stickers["current_count"] or 0,
+        "stickers_prev": stickers["prev_count"] or 0 if prev_start_utc is not None else 0,
     }
 
 
@@ -459,6 +472,15 @@ def format_stats(data: Dict[str, Any]) -> str:
         if not is_all_time:
             react_str += f" ({_pct_change(reactions_cur, reactions_prev)})"
         lines.append(f"👍 <b>Reactions:</b> {react_str}")
+
+    # Stickers sent
+    stickers_cur = data["stickers_current"]
+    stickers_prev = data["stickers_prev"]
+    if stickers_cur > 0 or not is_all_time:
+        stickers_str = f"{stickers_cur:,}"
+        if not is_all_time:
+            stickers_str += f" ({_pct_change(stickers_cur, stickers_prev)})"
+        lines.append(f"🎭 <b>Stickers sent:</b> {stickers_str}")
 
     # Active users
     user_extras = []
