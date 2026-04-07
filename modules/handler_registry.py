@@ -101,6 +101,7 @@ class HandlerRegistry(ServiceInterface):
             error_report_command,
             report_command,
             stats_command,
+            nasa_command,
         )
         from modules.handlers.admin_commands import mute_command, unmute_command
         from modules.handlers.speech_commands import speech_command
@@ -167,6 +168,11 @@ class HandlerRegistry(ServiceInterface):
         # Stats command
         self.command_processor.register_text_command(
             "stats", stats_command, "Show chat statistics"
+        )
+
+        # NASA APOD command
+        self.command_processor.register_text_command(
+            "nasa", nasa_command, "NASA Astronomy Picture of the Day"
         )
 
         # Register admin commands

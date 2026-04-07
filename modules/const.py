@@ -34,6 +34,7 @@ class Config:
     ERROR_CHANNEL_ID: str = os.getenv("ERROR_CHANNEL_ID", "")
     SCREENSHOT_DIR: str = "python-web-screenshots"
     SPEECHMATICS_API_KEY: str = os.getenv("SPEECHMATICS_API_KEY", "")
+    NASA_API_KEY: str = os.getenv("NASA_API_KEY", "")
 
 
 class Stickers:
