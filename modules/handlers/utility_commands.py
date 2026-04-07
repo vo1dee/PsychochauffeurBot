@@ -14,6 +14,7 @@ from modules.count_command import count_command as _count, missing_command as _m
 from modules.error_analytics import error_report_command as _error_report
 from modules.report_command import report_command as _report
 from modules.stats_command import stats_command as _stats
+from modules.nasa_command import nasa_command as _nasa
 
 logger = logging.getLogger(__name__)
 
@@ -51,3 +52,8 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /stats command for chat statistics."""
     await _stats(update, context)
+
+
+async def nasa_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /nasa command for NASA Astronomy Picture of the Day."""
+    await _nasa(update, context)
