@@ -111,6 +111,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Process message content and extract URLs
     cleaned_text, modified_links = process_message_content(message_text)
 
+    # Cache YouTube Shorts URLs for ⚡ reaction trigger
+    from modules.handlers.song_command import find_youtube_shorts_url
+    shorts_url = find_youtube_shorts_url(message_text)
+    if shorts_url and update.message and update.effective_chat:
+        shorts_cache = context.bot_data.setdefault("shorts_url_cache", {})
+        shorts_cache[(update.effective_chat.id, update.message.message_id)] = shorts_url
+        if len(shorts_cache) > 1000:
+            for k in list(shorts_cache.keys())[:500]:
+                del shorts_cache[k]
+
     if modified_links and update.effective_chat and update.effective_user:
         from modules.event_tracker import record_bot_event
         asyncio.ensure_future(record_bot_event(
