@@ -84,6 +84,10 @@ def _build_form_fields(
         if chat_id != "global" and meta["scope"] == "global":
             continue
 
+        # Hide 'enabled' field in per-chat mode — controlled by mode selector
+        if field_name == "enabled" and chat_id != "global":
+            continue
+
         # Sub-models (like GPTContextConfig) get special handling
         if isinstance(value, dict) and _is_sub_model(model_class, field_name):
             sub_fields = _build_sub_model_fields(
@@ -177,14 +181,24 @@ async def edit_config(request: Request, chat_id: str):
     modules_data = []
     for module_key, model_class in MODULE_REGISTRY.items():
         resolved = await mgr.get_resolved_raw(chat_id, module_key)
-        overrides = await mgr.get_raw_config(chat_id, module_key) if chat_id != "global" else resolved
+        overrides = await mgr.get_raw_config(chat_id, module_key) if chat_id != "global" else {}
         fields = _build_form_fields(module_key, resolved, overrides, chat_id)
+
+        # Determine module mode for per-chat configs
+        if is_global:
+            mode = "global"
+        elif overrides:
+            # Has per-chat overrides
+            mode = "enabled" if resolved.get("enabled", True) else "disabled"
+        else:
+            mode = "global"
 
         modules_data.append({
             "key": module_key,
             "label": get_module_label(module_key),
             "fields": fields,
             "enabled": resolved.get("enabled", True),
+            "mode": mode,
         })
 
     return templates.TemplateResponse("edit_config.html", {
@@ -241,25 +255,41 @@ async def reset_module(request: Request, chat_id: str, module_key: str):
         return HTMLResponse('<div class="alert error">Cannot reset global config</div>', status_code=400)
 
     mgr = config_manager()
-    await mgr.db.delete_chat_config(chat_id)
+    await mgr.delete_module_overrides(chat_id, module_key)
 
     return HTMLResponse(
-        '<div class="alert success">Reset to global defaults. Reload to see changes.</div>'
+        status_code=200,
+        headers={"HX-Redirect": f"/config/{chat_id}"},
+        content="",
     )
 
 
-@app.post("/config/{chat_id}/module/{module_key}/toggle")
-async def toggle_module(request: Request, chat_id: str, module_key: str):
-    """Toggle a module on/off (HTMX)."""
+@app.post("/config/{chat_id}/module/{module_key}/mode")
+async def set_module_mode(request: Request, chat_id: str, module_key: str):
+    """Set module mode: global, enabled, or disabled (HTMX)."""
     mgr = config_manager()
-    current = await mgr.get_resolved_raw(chat_id, module_key)
-    new_state = not current.get("enabled", True)
-    await mgr.set_value(chat_id, module_key, "enabled", new_state)
+    form = await request.form()
+    mode = form.get("mode", "global")
 
-    state_text = "enabled" if new_state else "disabled"
-    css = "success" if new_state else "warning"
+    if chat_id == "global":
+        return HTMLResponse('<div class="alert error">Cannot set mode on global config</div>', status_code=400)
+
+    if mode == "global":
+        # Remove all per-chat overrides — inherit from global
+        await mgr.delete_module_overrides(chat_id, module_key)
+    elif mode == "disabled":
+        # Remove config overrides, only store enabled=false
+        await mgr.delete_module_overrides(chat_id, module_key)
+        await mgr.set_value(chat_id, module_key, "enabled", False)
+    elif mode == "enabled":
+        # Ensure enabled=true is stored as per-chat override
+        await mgr.set_value(chat_id, module_key, "enabled", True)
+
+    # Return full page redirect to refresh the form state
     return HTMLResponse(
-        f'<span class="badge {css}">{state_text}</span>'
+        status_code=200,
+        headers={"HX-Redirect": f"/config/{chat_id}"},
+        content="",
     )
 
 

@@ -9,7 +9,7 @@
 {# --- Macro must be defined before use --- #}
 {% macro render_field(field, module_key, parent=None) %}
 {% set name = (parent ~ "." ~ field.name) if parent else field.name %}
-{% set field_class = "form-group" ~ (" full-width" if field.widget in ("textarea",) else "") ~ (" has-override" if field.has_override and not is_global else "") %}
+{% set field_class = "form-group" ~ (" full-width" if field.widget in ("textarea",) else "") %}
 
 <div class="{{ field_class }}">
     <label for="{{ name }}">{{ field.label }}</label>
@@ -102,60 +102,97 @@
         <div style="display: flex; align-items: center; gap: 12px;">
             <span class="arrow">&#9654;</span>
             <h3>{{ module.label }}</h3>
-            {% if module.enabled %}
-            <span class="badge success">enabled</span>
+            {% if is_global %}
+                {% if module.enabled %}
+                <span class="badge success">enabled</span>
+                {% else %}
+                <span class="badge warning">disabled</span>
+                {% endif %}
             {% else %}
-            <span class="badge warning">disabled</span>
+                {% if module.mode == 'global' %}
+                <span class="badge info">global</span>
+                {% elif module.mode == 'enabled' %}
+                <span class="badge success">per-chat</span>
+                {% else %}
+                <span class="badge warning">disabled</span>
+                {% endif %}
             {% endif %}
         </div>
-        <div style="display: flex; gap: 8px;" onclick="event.stopPropagation()">
-            <button class="btn btn-ghost btn-sm"
-                    hx-post="/config/{{ chat_id }}/module/{{ module.key }}/toggle"
-                    hx-swap="outerHTML"
-                    hx-target="previous .badge">
-                Toggle
-            </button>
-            {% if not is_global %}
-            <button class="btn btn-ghost btn-sm"
-                    hx-post="/config/{{ chat_id }}/module/{{ module.key }}/reset"
-                    hx-target="#save-status-{{ module.key }}"
-                    hx-swap="outerHTML"
-                    hx-confirm="Reset {{ module.label }} to global defaults?">
-                Reset
-            </button>
-            {% endif %}
+        {% if not is_global %}
+        <div style="display: flex; gap: 4px;" onclick="event.stopPropagation()">
+            <form hx-post="/config/{{ chat_id }}/module/{{ module.key }}/mode" class="mode-selector">
+                <button type="submit" name="mode" value="global"
+                        class="btn btn-sm {% if module.mode == 'global' %}btn-primary{% else %}btn-ghost{% endif %}">
+                    Global
+                </button>
+                <button type="submit" name="mode" value="enabled"
+                        class="btn btn-sm {% if module.mode == 'enabled' %}btn-primary{% else %}btn-ghost{% endif %}">
+                    Enabled
+                </button>
+                <button type="submit" name="mode" value="disabled"
+                        class="btn btn-sm {% if module.mode == 'disabled' %}btn-danger{% else %}btn-ghost{% endif %}">
+                    Disabled
+                </button>
+            </form>
         </div>
+        {% endif %}
     </div>
 
     <div class="module-body">
-        <form hx-post="/config/{{ chat_id }}/module/{{ module.key }}"
-              hx-target="#save-status-{{ module.key }}"
-              hx-swap="outerHTML">
-
-            <div id="save-status-{{ module.key }}"></div>
-
-            {% for field in module.fields %}
-                {% if field.type == 'sub_model' %}
-                    <div class="sub-model">
-                        <h4>{{ field.label }}</h4>
-                        <div class="form-grid">
-                            {% for sf in field.fields %}
-                                {{ render_field(sf, module.key, field.name) }}
-                            {% endfor %}
+        {% if not is_global and module.mode == 'disabled' %}
+            <p style="color: var(--text-muted); font-style: italic;">
+                Module is disabled for this chat. Switch to "Enabled" to configure.
+            </p>
+        {% elif not is_global and module.mode == 'global' %}
+            <p style="color: var(--text-muted); font-style: italic; margin-bottom: 16px;">
+                Using global defaults. Switch to "Enabled" to customize for this chat.
+            </p>
+            <div class="form-grid" style="opacity: 0.5; pointer-events: none;">
+                {% for field in module.fields %}
+                    {% if field.type == 'sub_model' %}
+                        <div class="sub-model">
+                            <h4>{{ field.label }}</h4>
+                            <div class="form-grid">
+                                {% for sf in field.fields %}
+                                    {{ render_field(sf, module.key, field.name) }}
+                                {% endfor %}
+                            </div>
                         </div>
-                    </div>
-                {% else %}
-                    {{ render_field(field, module.key) }}
-                {% endif %}
-            {% endfor %}
-
-            <div style="margin-top: 16px;">
-                <button type="submit" class="btn btn-primary">
-                    Save {{ module.label }}
-                    <span class="htmx-indicator">...</span>
-                </button>
+                    {% else %}
+                        {{ render_field(field, module.key) }}
+                    {% endif %}
+                {% endfor %}
             </div>
-        </form>
+        {% else %}
+            <form hx-post="/config/{{ chat_id }}/module/{{ module.key }}"
+                  hx-target="#save-status-{{ module.key }}"
+                  hx-swap="outerHTML">
+
+                <div id="save-status-{{ module.key }}"></div>
+
+                {% for field in module.fields %}
+                    {% if field.type == 'sub_model' %}
+                        <div class="sub-model">
+                            <h4>{{ field.label }}</h4>
+                            <div class="form-grid">
+                                {% for sf in field.fields %}
+                                    {{ render_field(sf, module.key, field.name) }}
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% else %}
+                        {{ render_field(field, module.key) }}
+                    {% endif %}
+                {% endfor %}
+
+                <div style="margin-top: 16px;">
+                    <button type="submit" class="btn btn-primary">
+                        Save {{ module.label }}
+                        <span class="htmx-indicator">...</span>
+                    </button>
+                </div>
+            </form>
+        {% endif %}
     </div>
 </div>
 {% endfor %}

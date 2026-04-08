@@ -193,6 +193,14 @@ class ConfigDB:
         )
         await self.db.commit()
 
+    async def delete_module_config(self, chat_id: str, module: str) -> None:
+        """Delete all overrides for a specific module in a chat."""
+        await self.db.execute(
+            "DELETE FROM config_values WHERE chat_id = ? AND module = ?",
+            (chat_id, module),
+        )
+        await self.db.commit()
+
     async def delete_value(self, chat_id: str, module: str, key: str) -> None:
         """Delete a single override (reverts to global default)."""
         await self.db.execute(
