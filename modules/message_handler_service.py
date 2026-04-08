@@ -15,7 +15,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import CallbackContext
 
-from config.config_manager import ConfigManager
+from config_v2.compat import CompatConfigManager as ConfigManager
 from modules.application_models import MessageContext, HandlerMetadata
 from modules.const import Stickers
 from modules.error_handler import handle_errors

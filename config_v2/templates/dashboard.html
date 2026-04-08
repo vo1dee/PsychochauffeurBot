@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Bot Config{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom: 20px;">Dashboard</h1>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Global Configuration</h2>
+        <a href="/config/global" class="btn btn-primary btn-sm">Edit Global</a>
+    </div>
+    <p style="color: var(--text-muted); font-size: 0.9em;">
+        Default settings for all chats. Per-chat overrides take priority.
+    </p>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Chats ({{ chats|length }})</h2>
+    </div>
+
+    <div class="search-box">
+        <input type="text" placeholder="Search chats..." oninput="filterChats(this.value)">
+    </div>
+
+    <div class="chat-list">
+        {% for chat in chats %}
+        <a href="/config/{{ chat.chat_id }}" class="chat-item" data-chat-id="{{ chat.chat_id }}">
+            <div>
+                <div class="chat-name">{{ chat.chat_name or chat.chat_id }}</div>
+                <div class="chat-type">{{ chat.chat_type }} &middot; {{ chat.chat_id }}</div>
+            </div>
+            <span class="badge info">{{ chat.chat_type }}</span>
+        </a>
+        {% endfor %}
+
+        {% if not chats %}
+        <p style="color: var(--text-muted); text-align: center; padding: 20px;">
+            No chats configured yet. Chats appear here when someone uses the bot.
+        </p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

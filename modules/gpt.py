@@ -30,7 +30,7 @@ from modules.const import (
 from modules.diagnostics import run_api_diagnostics
 from modules.logger import general_logger, error_logger, get_daily_log_path, chat_logger
 from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
-from config.config_manager import get_shared_config_manager
+from config_v2.compat import get_shared_config_manager
 
 from modules.chat_analysis import (
     get_messages_for_chat_today,
