@@ -140,6 +140,10 @@ class ConfigManager:
         """Delete a per-chat override (reverts to global default)."""
         await self.db.delete_value(str(chat_id), module, key)
 
+    async def delete_module_overrides(self, chat_id: str, module: str) -> None:
+        """Delete all overrides for a specific module (reverts to global)."""
+        await self.db.delete_module_config(str(chat_id), module)
+
     async def delete_chat_overrides(self, chat_id: str) -> None:
         """Delete all overrides for a chat (reverts entirely to global)."""
         await self.db.delete_chat_config(str(chat_id))
