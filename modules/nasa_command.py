@@ -27,7 +27,7 @@ async def nasa_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     api_key = Config.NASA_API_KEY or "DEMO_KEY"
     chat_data = context.chat_data or {}
 
-    # Check if today's picture was already shown in this chat
+    # Check if we've already attempted today's APOD in this chat.
     today = date.today().isoformat()
     shown_today = chat_data.get("nasa_apod_shown_date") == today
 
@@ -39,23 +39,34 @@ async def nasa_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         async with aiohttp.ClientSession() as session:
             async with session.get(NASA_APOD_URL, params=params) as response:
-                if response.status != 200:
+                if response.status != 200 and not shown_today:
+                    # Today's APOD may not be available yet (timezone mismatch);
+                    # fall back to a random picture
+                    logger.info(
+                        "NASA APOD returned %s for today, falling back to random",
+                        response.status,
+                    )
+                    params["count"] = "1"
+                    async with session.get(NASA_APOD_URL, params=params) as fallback:
+                        if fallback.status != 200:
+                            await update.message.reply_text(
+                                f"NASA API error: {fallback.status}"
+                            )
+                            return
+                        data = await fallback.json()
+                elif response.status != 200:
                     await update.message.reply_text(
                         f"NASA API error: {response.status}"
                     )
                     return
-
-                data = await response.json()
+                else:
+                    data = await response.json()
 
         # count=1 returns a list, default returns a single object
         if isinstance(data, list):
             apod = data[0]
         else:
             apod = data
-
-        # Mark today's picture as shown
-        if not shown_today and context.chat_data is not None:
-            context.chat_data["nasa_apod_shown_date"] = today
 
         title = apod.get("title", "Unknown")
         explanation = apod.get("explanation", "")
@@ -125,6 +136,10 @@ async def nasa_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=False,
             )
+
+        # Mark as shown only after successfully sending to chat
+        if not shown_today and context.chat_data is not None:
+            context.chat_data["nasa_apod_shown_date"] = today
 
     except Exception as e:
         logger.error(f"Error fetching NASA APOD: {e}", exc_info=True)
