@@ -20,7 +20,7 @@ from modules.logger import error_logger, LOG_DIR, general_logger
 from modules.const import (
     Weather, Config, DATA_DIR, DOWNLOADS_DIR
 )
-from config.config_manager import get_shared_config_manager
+from config_v2.compat import get_shared_config_manager
 
 # Constants
 PLAYWRIGHT_AVAILABLE = True

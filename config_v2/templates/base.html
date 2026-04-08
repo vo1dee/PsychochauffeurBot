@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Bot Config{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        :root {
+            --bg: #1a1b2e;
+            --bg-card: #242640;
+            --bg-input: #1e1f36;
+            --border: #3a3c5a;
+            --text: #e0e0f0;
+            --text-muted: #8888aa;
+            --accent: #6c63ff;
+            --accent-hover: #857dff;
+            --success: #2ecc71;
+            --warning: #f39c12;
+            --error: #e74c3c;
+            --radius: 8px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { color: var(--accent-hover); }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+
+        /* Navigation */
+        nav {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 20px;
+            display: flex;
+            gap: 24px;
+            align-items: center;
+        }
+        nav .logo { font-weight: 700; font-size: 1.1em; }
+        nav a { color: var(--text-muted); font-size: 0.95em; }
+        nav a:hover, nav a.active { color: var(--text); }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .card-header h2 { font-size: 1.1em; font-weight: 600; }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.85em;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+        .form-group .description {
+            font-size: 0.8em;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            opacity: 0.7;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="range"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 8px 12px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text);
+            font-size: 0.9em;
+            font-family: inherit;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        textarea { min-height: 80px; resize: vertical; }
+        input[type="range"] { padding: 0; }
+
+        /* Slider with value display */
+        .slider-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .slider-group input[type="range"] { flex: 1; }
+        .slider-group .slider-value {
+            min-width: 50px;
+            text-align: right;
+            font-size: 0.9em;
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        /* Toggle switch */
+        .toggle {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .toggle .slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: var(--border);
+            border-radius: 24px;
+            transition: 0.2s;
+        }
+        .toggle .slider:before {
+            content: "";
+            position: absolute;
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background: var(--text);
+            border-radius: 50%;
+            transition: 0.2s;
+        }
+        .toggle input:checked + .slider { background: var(--accent); }
+        .toggle input:checked + .slider:before { transform: translateX(20px); }
+
+        /* Tags input */
+        .tags-input {
+            font-size: 0.85em;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 500;
+            transition: 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-danger { background: var(--error); color: white; }
+        .btn-danger:hover { opacity: 0.85; }
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { color: var(--text); border-color: var(--text-muted); }
+        .btn-sm { padding: 4px 10px; font-size: 0.8em; }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+        }
+        .badge.success { background: var(--success); color: #111; }
+        .badge.warning { background: var(--warning); color: #111; }
+        .badge.error { background: var(--error); color: white; }
+        .badge.info { background: var(--accent); color: white; }
+
+        /* Alerts */
+        .alert {
+            padding: 10px 16px;
+            border-radius: var(--radius);
+            margin-bottom: 12px;
+            font-size: 0.9em;
+        }
+        .alert.success { background: rgba(46, 204, 113, 0.15); color: var(--success); }
+        .alert.error { background: rgba(231, 76, 60, 0.15); color: var(--error); }
+        .alert.warning { background: rgba(243, 156, 18, 0.15); color: var(--warning); }
+
+        /* Chat list */
+        .chat-list { display: grid; gap: 8px; }
+        .chat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            transition: 0.2s;
+        }
+        .chat-item:hover { border-color: var(--accent); }
+        .chat-item .chat-name { font-weight: 500; }
+        .chat-item .chat-type { font-size: 0.8em; color: var(--text-muted); }
+
+        /* Module section */
+        .module-section {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        .module-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 20px;
+            background: var(--bg-input);
+            cursor: pointer;
+            user-select: none;
+        }
+        .module-header:hover { background: var(--border); }
+        .module-header h3 { font-size: 1em; font-weight: 600; }
+        .module-body { padding: 20px; display: none; }
+        .module-section.open .module-body { display: block; }
+        .module-section.open .module-header .arrow { transform: rotate(90deg); }
+        .arrow { transition: 0.2s; display: inline-block; }
+
+        /* Sub-model section */
+        .sub-model {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+        .sub-model h4 {
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--accent);
+        }
+
+        /* Override indicator */
+        .has-override {
+            position: relative;
+        }
+        .has-override::after {
+            content: "overridden";
+            font-size: 0.7em;
+            color: var(--warning);
+            margin-left: 8px;
+        }
+
+        /* Grid for form fields */
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 16px;
+        }
+        .form-grid .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+
+        /* Search */
+        .search-box {
+            margin-bottom: 16px;
+        }
+        .search-box input {
+            width: 100%;
+            padding: 10px 16px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text);
+            font-size: 0.95em;
+        }
+
+        /* HTMX loading indicator */
+        .htmx-indicator {
+            display: none;
+        }
+        .htmx-request .htmx-indicator {
+            display: inline-block;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .form-grid { grid-template-columns: 1fr; }
+            nav { flex-wrap: wrap; gap: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <span class="logo">Bot Config</span>
+        <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Dashboard</a>
+        <a href="/config/global" {% if request.url.path == "/config/global" %}class="active"{% endif %}>Global</a>
+        <a href="/backups" {% if request.url.path == "/backups" %}class="active"{% endif %}>Backups</a>
+    </nav>
+
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script>
+        // Module section toggle
+        document.addEventListener('click', function(e) {
+            const header = e.target.closest('.module-header');
+            if (header) {
+                header.closest('.module-section').classList.toggle('open');
+            }
+        });
+
+        // Slider value display
+        document.addEventListener('input', function(e) {
+            if (e.target.type === 'range') {
+                const display = e.target.parentElement.querySelector('.slider-value');
+                if (display) display.textContent = e.target.value;
+            }
+        });
+
+        // Chat search filter
+        function filterChats(query) {
+            document.querySelectorAll('.chat-item').forEach(item => {
+                const name = item.querySelector('.chat-name').textContent.toLowerCase();
+                const id = item.dataset.chatId || '';
+                item.style.display = (name.includes(query.toLowerCase()) || id.includes(query)) ? '' : 'none';
+            });
+        }
+
+        // Auto-hide alerts after 3s
+        document.addEventListener('htmx:afterSwap', function() {
+            document.querySelectorAll('.alert.success').forEach(el => {
+                setTimeout(() => el.remove(), 3000);
+            });
+        });
+    </script>
+</body>
+</html>

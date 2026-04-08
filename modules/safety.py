@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, List
 from telegram import Update
 from telegram.ext import CallbackContext
 from modules.logger import general_logger, error_logger
-from config.config_manager import get_shared_config_manager
+from config_v2.compat import get_shared_config_manager
 
 class SafetyManager:
     def __init__(self) -> None:

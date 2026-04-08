@@ -25,7 +25,7 @@ from modules.speechmatics import (
     SpeechmaticsRussianDetected
 )
 from modules.keyboards import get_language_keyboard
-from config.config_manager import ConfigManager
+from config_v2.compat import CompatConfigManager as ConfigManager
 from modules.logger import general_logger, error_logger
 
 # Create component-specific logger with clear service identification

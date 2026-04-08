@@ -15,7 +15,7 @@ from modules.utils import (
     get_last_used_city,
     get_humidity_emoji
 )
-from config.config_manager import get_shared_config_manager
+from config_v2.compat import get_shared_config_manager
 from modules.const import Config, Weather
 from modules.logger import error_logger, general_logger
 from modules.file_manager import save_user_location
