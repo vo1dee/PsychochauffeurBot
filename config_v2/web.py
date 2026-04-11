@@ -174,14 +174,15 @@ async def edit_config(request: Request, chat_id: str):
     """Edit config for a specific chat or global."""
     mgr = config_manager()
 
+    is_global = chat_id == "global"
     chat = None
-    if chat_id != "global":
+    if not is_global:
         chat = await mgr.db.get_chat(chat_id)
 
     modules_data = []
     for module_key, model_class in MODULE_REGISTRY.items():
         resolved = await mgr.get_resolved_raw(chat_id, module_key)
-        overrides = await mgr.get_raw_config(chat_id, module_key) if chat_id != "global" else {}
+        overrides = await mgr.get_raw_config(chat_id, module_key) if not is_global else {}
         fields = _build_form_fields(module_key, resolved, overrides, chat_id)
 
         # Determine module mode for per-chat configs
@@ -206,7 +207,7 @@ async def edit_config(request: Request, chat_id: str):
         "chat_id": chat_id,
         "chat": chat,
         "modules": modules_data,
-        "is_global": chat_id == "global",
+        "is_global": is_global,
     })
 
 
