@@ -77,7 +77,7 @@ async def nasa_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         thumbnail = apod.get("thumbnail_url")
 
         # Truncate explanation for caption (Telegram limit ~1024 for photos)
-        max_explanation = 600
+        max_explanation = 850
         if len(explanation) > max_explanation:
             explanation = explanation[:max_explanation].rsplit(" ", 1)[0] + "..."
 
