@@ -101,6 +101,7 @@ class HandlerRegistry(ServiceInterface):
             error_report_command,
             report_command,
             stats_command,
+            nasa_command,
         )
         from modules.handlers.admin_commands import mute_command, unmute_command
         from modules.handlers.speech_commands import speech_command
@@ -167,6 +168,11 @@ class HandlerRegistry(ServiceInterface):
         # Stats command
         self.command_processor.register_text_command(
             "stats", stats_command, "Show chat statistics"
+        )
+
+        # NASA APOD command
+        self.command_processor.register_text_command(
+            "nasa", nasa_command, "NASA Astronomy Picture of the Day"
         )
 
         # Register admin commands
@@ -320,6 +326,11 @@ class HandlerRegistry(ServiceInterface):
         from modules.message_handler import setup_message_handlers
 
         setup_message_handlers(application)
+
+        # Register reaction update handler (requires PTB >= 21.0)
+        from telegram.ext import MessageReactionHandler
+        from modules.handlers.reaction_update_handler import handle_reaction_update
+        application.add_handler(MessageReactionHandler(handle_reaction_update))
 
     async def _register_command_handlers(
         self, application: Application[Any, Any, Any, Any, Any, Any]

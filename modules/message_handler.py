@@ -35,6 +35,7 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
             should_save = (
                 update.message.text or  # Text message
                 update.message.caption or  # Image/video caption
+                update.message.sticker or  # Sticker
                 (update.message.from_user and update.message.from_user.is_bot)  # Bot's reply
             )
             
@@ -149,7 +150,8 @@ async def _maybe_react_to_message(update: Update, context: ContextTypes.DEFAULT_
 
     try:
         config_manager = service_registry.get_service('config_manager')
-        config = await config_manager.get_config(chat_id, chat_type)
+        chat_title = update.effective_chat.title if update.effective_chat else None
+        config = await config_manager.get_config(chat_id, chat_type, chat_name=chat_title)
         reactions_config = config.get("config_modules", {}).get("reactions", {})
     except Exception as e:
         general_logger.warning(f"Could not check reaction config: {e}")

@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 # Import all enhanced components
 from tests.mocks.enhanced_mocks import (
     EnhancedOpenAIMock, EnhancedDatabaseMock, EnhancedFileSystemMock,
-    EnhancedConfigManagerMock, EnhancedSecurityValidatorMock, mock_registry
+    EnhancedSecurityValidatorMock, mock_registry
 )
 from tests.utils.async_test_utilities import (
     AsyncTestEventLoopManager, AsyncMockManager, AsyncTestPatterns,
@@ -49,10 +49,6 @@ class ComprehensiveTestUtilities:
     def get_filesystem_mock(self) -> EnhancedFileSystemMock:
         """Get enhanced file system mock."""
         return self.mock_registry.get_filesystem_mock()
-        
-    def get_config_mock(self) -> EnhancedConfigManagerMock:
-        """Get enhanced configuration manager mock."""
-        return self.mock_registry.get_config_mock()
         
     def get_security_mock(self) -> EnhancedSecurityValidatorMock:
         """Get enhanced security validator mock."""

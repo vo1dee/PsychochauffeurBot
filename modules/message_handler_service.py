@@ -5,6 +5,7 @@ Centralized message processing service that handles all incoming messages
 and routes them to appropriate specialized handlers.
 """
 
+import asyncio
 import hashlib
 import logging
 from abc import ABC, abstractmethod
@@ -14,7 +15,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import CallbackContext
 
-from config.config_manager import ConfigManager
+from config_v2.compat import CompatConfigManager as ConfigManager
 from modules.application_models import MessageContext, HandlerMetadata
 from modules.const import Stickers
 from modules.error_handler import handle_errors
@@ -108,18 +109,40 @@ class TextMessageHandler(BaseMessageHandler):
             })
         
         # Check for user restrictions
-        if should_restrict_user(message_text):
+        ban_words, ban_symbols = [], []
+        if update.effective_chat:
+            try:
+                chat_cfg = await self.config_manager.get_config(
+                    chat_id=str(update.effective_chat.id),
+                    chat_type=update.effective_chat.type,
+                )
+                cb_overrides = (
+                    chat_cfg.get("config_modules", {})
+                    .get("chat_behavior", {})
+                    .get("overrides", {})
+                )
+                ban_words = cb_overrides.get("ban_words", [])
+                ban_symbols = cb_overrides.get("ban_symbols", [])
+            except Exception:
+                pass
+        if should_restrict_user(message_text, ban_words=ban_words, ban_symbols=ban_symbols):
             await restrict_user(update, context)
             return
         
         # Process message content and extract URLs
         cleaned_text, modified_links = process_message_content(message_text)
-        
+
+        if modified_links and update.effective_chat and update.effective_user:
+            from modules.event_tracker import record_bot_event
+            asyncio.ensure_future(record_bot_event(
+                'url_modification', update.effective_chat.id, update.effective_user.id
+            ))
+
         # If all modified links are AliExpress, skip sending the "modified link" message
         if modified_links and all(
             link.lower().startswith((
-                'https://aliexpress.com/', 
-                'https://www.aliexpress.com/', 
+                'https://aliexpress.com/',
+                'https://www.aliexpress.com/',
                 'https://m.aliexpress.com/',
                 'https://a.aliexpress.com/'
             )) for link in modified_links

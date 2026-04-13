@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}
+{% if is_global %}Global Config{% else %}{{ chat.chat_name or chat_id }}{% endif %} — Bot Config
+{% endblock %}
+
+{% block content %}
+
+{# --- Macro must be defined before use --- #}
+{% macro render_field(field, module_key, parent=None) %}
+{% set name = (parent ~ "." ~ field.name) if parent else field.name %}
+{% set field_class = "form-group" ~ (" full-width" if field.widget in ("textarea",) else "") %}
+
+<div class="{{ field_class }}">
+    <label for="{{ name }}">{{ field.label }}</label>
+    {% if field.description %}
+    <div class="description">{{ field.description }}</div>
+    {% endif %}
+
+    {% if field.widget == "toggle" %}
+        <label class="toggle">
+            <input type="checkbox" name="{{ name }}" value="true"
+                   {% if field.value %}checked{% endif %}>
+            <span class="slider"></span>
+        </label>
+
+    {% elif field.widget == "slider" %}
+        <div class="slider-group">
+            <input type="range" name="{{ name }}"
+                   value="{{ field.value }}"
+                   min="{{ field.ge if field.ge is not none else 0 }}"
+                   max="{{ field.le if field.le is not none else 100 }}"
+                   step="{{ '0.01' if field.le is not none and field.le <= 2 else '1' }}">
+            <span class="slider-value">{{ field.value }}</span>
+        </div>
+
+    {% elif field.widget == "number" %}
+        <input type="number" name="{{ name }}"
+               value="{{ field.value }}"
+               {% if field.ge is not none %}min="{{ field.ge }}"{% endif %}
+               {% if field.le is not none %}max="{{ field.le }}"{% endif %}>
+
+    {% elif field.widget == "select" %}
+        <select name="{{ name }}">
+            {% if field.choices %}
+                {% for choice in field.choices %}
+                <option value="{{ choice }}" {% if field.value == choice %}selected{% endif %}>{{ choice }}</option>
+                {% endfor %}
+            {% endif %}
+        </select>
+
+    {% elif field.widget == "textarea" %}
+        <textarea name="{{ name }}" rows="4">{{ field.value or '' }}</textarea>
+
+    {% elif field.widget == "tags" %}
+        <input type="text" name="{{ name }}" class="tags-input"
+               value="{{ field.value|join(', ') if field.value is iterable and field.value is not string else field.value or '' }}"
+               placeholder="comma-separated values">
+
+    {% else %}
+        <input type="text" name="{{ name }}" value="{{ field.value or '' }}">
+    {% endif %}
+</div>
+{% endmacro %}
+
+{# --- Page content --- #}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <div>
+        <h1>{% if is_global %}Global Configuration{% else %}{{ chat.chat_name or chat_id }}{% endif %}</h1>
+        {% if not is_global and chat %}
+        <p style="color: var(--text-muted); font-size: 0.9em;">
+            {{ chat.chat_type }} &middot; {{ chat_id }}
+        </p>
+        {% endif %}
+    </div>
+    <div style="display: flex; gap: 8px;">
+        {% if not is_global %}
+        <a href="/export/{{ chat_id }}" class="btn btn-ghost btn-sm">Export JSON</a>
+        {% endif %}
+        <a href="/" class="btn btn-ghost btn-sm">Back</a>
+    </div>
+</div>
+
+{% if not is_global %}
+<div class="card" style="margin-bottom: 16px;">
+    <details>
+        <summary style="cursor: pointer; font-size: 0.9em; color: var(--text-muted);">
+            Import config from JSON file
+        </summary>
+        <form action="/import/{{ chat_id }}" method="post" enctype="multipart/form-data"
+              style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+            <input type="file" name="file" accept=".json" style="font-size: 0.85em;">
+            <button type="submit" class="btn btn-primary btn-sm">Import</button>
+        </form>
+    </details>
+</div>
+{% endif %}
+
+{% for module in modules %}
+<div class="module-section{% if loop.first %} open{% endif %}">
+    <div class="module-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <span class="arrow">&#9654;</span>
+            <h3>{{ module.label }}</h3>
+            {% if is_global %}
+                {% if module.enabled %}
+                <span class="badge success">enabled</span>
+                {% else %}
+                <span class="badge warning">disabled</span>
+                {% endif %}
+            {% else %}
+                {% if module.mode == 'global' %}
+                <span class="badge info">global</span>
+                {% elif module.mode == 'enabled' %}
+                <span class="badge success">per-chat</span>
+                {% else %}
+                <span class="badge warning">disabled</span>
+                {% endif %}
+            {% endif %}
+        </div>
+        {% if not is_global %}
+        <div style="display: flex; gap: 4px;" onclick="event.stopPropagation()">
+            <form hx-post="/config/{{ chat_id }}/module/{{ module.key }}/mode" class="mode-selector">
+                <button type="submit" name="mode" value="global"
+                        class="btn btn-sm {% if module.mode == 'global' %}btn-primary{% else %}btn-ghost{% endif %}">
+                    Global
+                </button>
+                <button type="submit" name="mode" value="enabled"
+                        class="btn btn-sm {% if module.mode == 'enabled' %}btn-primary{% else %}btn-ghost{% endif %}">
+                    Enabled
+                </button>
+                <button type="submit" name="mode" value="disabled"
+                        class="btn btn-sm {% if module.mode == 'disabled' %}btn-danger{% else %}btn-ghost{% endif %}">
+                    Disabled
+                </button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="module-body">
+        {% if not is_global and module.mode == 'disabled' %}
+            <p style="color: var(--text-muted); font-style: italic;">
+                Module is disabled for this chat. Switch to "Enabled" to configure.
+            </p>
+        {% elif not is_global and module.mode == 'global' %}
+            <p style="color: var(--text-muted); font-style: italic; margin-bottom: 16px;">
+                Using global defaults. Switch to "Enabled" to customize for this chat.
+            </p>
+            <div class="form-grid" style="opacity: 0.5; pointer-events: none;">
+                {% for field in module.fields %}
+                    {% if field.type == 'sub_model' %}
+                        <div class="sub-model">
+                            <h4>{{ field.label }}</h4>
+                            <div class="form-grid">
+                                {% for sf in field.fields %}
+                                    {{ render_field(sf, module.key, field.name) }}
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% else %}
+                        {{ render_field(field, module.key) }}
+                    {% endif %}
+                {% endfor %}
+            </div>
+        {% else %}
+            <form hx-post="/config/{{ chat_id }}/module/{{ module.key }}"
+                  hx-target="#save-status-{{ module.key }}"
+                  hx-swap="outerHTML">
+
+                <div id="save-status-{{ module.key }}"></div>
+
+                {% for field in module.fields %}
+                    {% if field.type == 'sub_model' %}
+                        <div class="sub-model">
+                            <h4>{{ field.label }}</h4>
+                            <div class="form-grid">
+                                {% for sf in field.fields %}
+                                    {{ render_field(sf, module.key, field.name) }}
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% else %}
+                        {{ render_field(field, module.key) }}
+                    {% endif %}
+                {% endfor %}
+
+                <div style="margin-top: 16px;">
+                    <button type="submit" class="btn btn-primary">
+                        Save {{ module.label }}
+                        <span class="htmx-indicator">...</span>
+                    </button>
+                </div>
+            </form>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

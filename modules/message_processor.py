@@ -115,16 +115,33 @@ def process_message_content(message_text: str) -> Tuple[str, list[str]]:
     
     return cleaned_text, modified_links
 
-def should_restrict_user(message_text: str) -> bool:
+def should_restrict_user(
+    message_text: str,
+    ban_words: list = None,
+    ban_symbols: list = None,
+) -> bool:
     """
     Check if a user should be restricted based on message content.
-    
+
     Args:
         message_text: Message text to check
-        
+        ban_words: List of banned words (case-insensitive substring match)
+        ban_symbols: List of banned symbol strings (substring match)
+
     Returns:
         bool: True if user should be restricted
     """
-    # Check for prohibited characters
+    # Hardcoded prohibited characters (existing behavior)
     prohibited_chars = {'Ы', 'ы', 'Ъ', 'ъ', 'Э', 'э', 'Ё', 'ё'}
-    return any(char in message_text for char in prohibited_chars) 
+    if any(char in message_text for char in prohibited_chars):
+        return True
+
+    if ban_symbols and any(sym in message_text for sym in ban_symbols):
+        return True
+
+    if ban_words:
+        text_lower = message_text.lower()
+        if any(word.lower() in text_lower for word in ban_words):
+            return True
+
+    return False

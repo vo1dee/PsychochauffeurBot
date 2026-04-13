@@ -84,7 +84,7 @@ YTDL_RETRY_DELAY=1
 - Supports multiple platforms:
   - TikTok, Instagram, Facebook
   - YouTube Shorts and Clips
-  - Twitter/X, Vimeo, Reddit
+  - Twitter/X, Vimeo
   - Twitch Clips
 - Maximum file size: 50MB
 

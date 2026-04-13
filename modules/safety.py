@@ -3,16 +3,14 @@ from typing import Optional, Dict, Any, List
 from telegram import Update
 from telegram.ext import CallbackContext
 from modules.logger import general_logger, error_logger
-from config.config_manager import ConfigManager
+from config_v2.compat import get_shared_config_manager
 
 class SafetyManager:
     def __init__(self) -> None:
-        self.config_manager = ConfigManager()
+        self.config_manager = get_shared_config_manager()
 
     async def initialize(self) -> bool:
         """Initialize the safety manager."""
-        # Initialize config manager if needed
-        await self.config_manager.initialize()
         general_logger.info("Safety manager initialized successfully")
         return True
 
