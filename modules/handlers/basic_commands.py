@@ -36,7 +36,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "• `/gm` — геомагнітна активність\n\n"
 
         "🎥 **Медіа:**\n"
-        "• Відео: TikTok, YouTube Shorts, Twitter, Vimeo, Reddit, Twitch\n"
+        "• Відео: TikTok, YouTube Shorts, Twitter, Vimeo, Twitch\n"
         "• 🐱 `/cat` — випадкове фото кота\n\n"
 
         "🔗 **Посилання:**\n"
@@ -81,7 +81,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• `/gm` — геомагнітна активність\n\n"
 
         "🎥 **Завантаження відео:**\n"
-        "• Підтримка: TikTok, YouTube Shorts, Twitter, Vimeo, Reddit, Twitch\n"
+        "• Підтримка: TikTok, YouTube Shorts, Twitter, Vimeo, Twitch\n"
         "• Просто надішліть посилання\n\n"
 
         "🐱 **Розваги:**\n"

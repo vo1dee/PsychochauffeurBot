@@ -195,7 +195,6 @@ class URLPatterns:
         "tiktok.com",
         "vm.tiktok.com",
         "vimeo.com",
-        "reddit.com",
         "twitch.tv",
         "youtube.com/clip",
         "pinterest.com",

@@ -4,6 +4,7 @@ Message handlers for different types of messages.
 Contains handlers for text, photo, sticker, location, and voice messages.
 """
 
+import asyncio
 import hashlib
 import logging
 from typing import Dict, List, Optional, Any, Tuple
@@ -86,13 +87,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     })
     
     # Check for user restrictions
-    if should_restrict_user(message_text):
+    ban_words, ban_symbols = [], []
+    if service_registry and update.effective_chat:
+        try:
+            config_manager = service_registry.get_service('config_manager')
+            chat_cfg = await config_manager.get_config(
+                chat_id=str(update.effective_chat.id),
+                chat_type=update.effective_chat.type,
+            )
+            cb_overrides = (
+                chat_cfg.get("config_modules", {})
+                .get("chat_behavior", {})
+                .get("overrides", {})
+            )
+            ban_words = cb_overrides.get("ban_words", [])
+            ban_symbols = cb_overrides.get("ban_symbols", [])
+        except Exception:
+            pass
+    if should_restrict_user(message_text, ban_words=ban_words, ban_symbols=ban_symbols):
         await restrict_user(update, context)
         return
     
     # Process message content and extract URLs
     cleaned_text, modified_links = process_message_content(message_text)
-    
+
+    # Cache YouTube Shorts URLs for ⚡ reaction trigger
+    from modules.handlers.song_command import find_youtube_shorts_url
+    shorts_url = find_youtube_shorts_url(message_text)
+    if shorts_url and update.message and update.effective_chat:
+        shorts_cache = context.bot_data.setdefault("shorts_url_cache", {})
+        shorts_cache[(update.effective_chat.id, update.message.message_id)] = shorts_url
+        if len(shorts_cache) > 1000:
+            for k in list(shorts_cache.keys())[:500]:
+                del shorts_cache[k]
+
+    if modified_links and update.effective_chat and update.effective_user:
+        from modules.event_tracker import record_bot_event
+        asyncio.ensure_future(record_bot_event(
+            'url_modification', update.effective_chat.id, update.effective_user.id
+        ))
+
     # If all modified links are AliExpress, skip sending the "modified link" message
     if modified_links and all(
         (lambda host: host == "aliexpress.com" or host.endswith(".aliexpress.com"))(urlparse(link).hostname or "")

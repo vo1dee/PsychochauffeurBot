@@ -18,7 +18,7 @@ from modules.service_registry import ServiceRegistry, ServiceInterface, ServiceS
 from modules.application_models import ServiceConfiguration
 from modules.const import Config
 from modules.logger import general_logger, error_logger
-from config.config_manager import ConfigManager
+from config_v2.compat import CompatConfigManager as ConfigManager, set_singleton
 from modules.bot_application import BotApplication
 from modules.message_handler_service import MessageHandlerService
 from modules.speech_recognition_service import SpeechRecognitionService
@@ -84,31 +84,19 @@ class ApplicationBootstrapper:
             logger.debug("Service configuration registered in service registry")
             
             # Import and register core services
-            from config.config_manager import ConfigManager
+            from config_v2.manager import ConfigManager as ConfigManagerV2
+            from config_v2.compat import CompatConfigManager, get_shared_config_manager
             from modules.database import Database
             from modules.bot_application import BotApplication
-            
-            # Register configuration manager as singleton with initialization
-            service_registry.register_singleton(
-                'config_manager',
-                ConfigManager,
-                ConfigManager
-            )
-            logger.info("ConfigManager registered as singleton service")
-            
-            # Initialize configuration manager to ensure it's ready
-            config_manager = service_registry.get_service('config_manager')
-            if hasattr(config_manager, 'initialize'):
-                await config_manager.initialize()
-            logger.info("ConfigManager initialized successfully")
-            
-            # Verify config_manager is properly registered and accessible
-            if not service_registry.is_registered('config_manager'):
-                raise RuntimeError("ConfigManager failed to register properly")
-            
-            # Test config_manager access
-            test_config_manager = service_registry.get_service('config_manager')
-            logger.info(f"ConfigManager verification successful: {type(test_config_manager).__name__}")
+
+            # Initialize new config system (SQLite-backed)
+            await ConfigManagerV2.create()
+            logger.info("ConfigManager v2 (SQLite) initialized")
+
+            # Create compatibility wrapper and register as service
+            compat_manager = get_shared_config_manager()
+            service_registry.register_instance('config_manager', compat_manager)
+            logger.info("ConfigManager compatibility layer registered")
             
             # Register database as singleton
             service_registry.register_singleton(
@@ -326,7 +314,10 @@ class ApplicationBootstrapper:
             
             # Mark as running
             self._running = True
-            
+
+            # Start config web UI in background
+            await self._start_config_web_ui()
+
             # Start the bot application
             if hasattr(self.bot_application, 'start'):
                 await self.bot_application.start()
@@ -369,6 +360,15 @@ class ApplicationBootstrapper:
         signal.signal(signal.SIGTERM, signal_handler)
         logger.info("Signal handlers configured for graceful shutdown")
     
+    async def _start_config_web_ui(self) -> None:
+        """Start the config web UI as a background task."""
+        try:
+            from config_v2.web import start_background
+            port = int(os.getenv('CONFIG_WEB_PORT', '8080'))
+            self._web_ui_task = await start_background(port=port)
+        except Exception as e:
+            logger.warning(f"Config web UI failed to start (non-critical): {e}")
+
     def _create_service_configuration(self) -> Any:
         """Create service configuration from environment variables."""
         from dataclasses import dataclass

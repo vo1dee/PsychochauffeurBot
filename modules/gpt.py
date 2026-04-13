@@ -30,7 +30,7 @@ from modules.const import (
 from modules.diagnostics import run_api_diagnostics
 from modules.logger import general_logger, error_logger, get_daily_log_path, chat_logger
 from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
-from config.config_manager import ConfigManager
+from config_v2.compat import get_shared_config_manager
 
 from modules.chat_analysis import (
     get_messages_for_chat_today,
@@ -42,8 +42,6 @@ from modules.chat_analysis import (
     get_user_chat_stats_with_fallback
 )
 
-# Initialize ConfigManager
-config_manager = ConfigManager()
 
 # Constants - now imported from shared_constants
 MAX_IMAGE_SIZE = GPTConstants.MAX_IMAGE_SIZE
@@ -174,7 +172,7 @@ async def get_system_prompt(response_type: str, chat_config: Dict[str, Any]) -> 
         
         # First try to get global config as default
         try:
-            global_config = await config_manager.get_config()
+            global_config = await get_shared_config_manager().get_config()
             gpt_module = global_config.get("config_modules", {}).get("gpt", {})
             response_settings = gpt_module.get("overrides", {}).get(response_type, {})
             global_prompt = response_settings.get("system_prompt")
@@ -310,8 +308,9 @@ async def analyze_image(
         if update and update.effective_chat:
             chat_id = str(update.effective_chat.id)
             chat_type = update.effective_chat.type
+            chat_title = update.effective_chat.title
             try:
-                chat_config = await config_manager.get_config(chat_id, chat_type)
+                chat_config = await get_shared_config_manager().get_config(chat_id, chat_type, chat_name=chat_title)
                 system_prompt = await get_system_prompt("image_analysis", chat_config)
                 # Get model from config
                 gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
@@ -397,7 +396,8 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
         # Get chat configuration
         chat_id = str(update.effective_chat.id) if update.effective_chat else "unknown"
         chat_type = update.effective_chat.type if update.effective_chat else "unknown"
-        chat_config = await config_manager.get_config(chat_id, chat_type)
+        chat_title = update.effective_chat.title if update.effective_chat else None
+        chat_config = await get_shared_config_manager().get_config(chat_id, chat_type, chat_name=chat_title)
 
         # Get context messages count from config
         # For random responses, check chat_behavior module first
@@ -408,7 +408,7 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
                 context_messages_count = random_settings.get("context_messages_count", 3)
             else:
                 # Fallback to global config
-                global_config = await config_manager.get_config()
+                global_config = await get_shared_config_manager().get_config()
                 global_chat_behavior = global_config.get("config_modules", {}).get("chat_behavior", {})
                 global_random_settings = global_chat_behavior.get("overrides", {}).get("random_response_settings", {})
                 context_messages_count = global_random_settings.get("context_messages_count", 3)
@@ -536,8 +536,9 @@ async def gpt_response(
         # Get chat configuration
         chat_id = str(update.effective_chat.id) if update.effective_chat else "unknown"
         chat_type = update.effective_chat.type if update.effective_chat else "unknown"
-        chat_config = await config_manager.get_config(chat_id, chat_type)
-        
+        chat_title = update.effective_chat.title if update.effective_chat else None
+        chat_config = await get_shared_config_manager().get_config(chat_id, chat_type, chat_name=chat_title)
+
         # Patch: If response_type is 'analyze', use 'summary' system prompt instead
         effective_response_type = "summary" if response_type == "analyze" else response_type
 
@@ -686,11 +687,8 @@ async def answer_from_gpt(
         if return_text:
             # For testing purposes, create a minimal mock response
             try:
-                from config.config_manager import ConfigManager
-                config_manager = ConfigManager()
-                
                 # Get API key from config
-                global_config = await config_manager.get_config("global", "global")
+                global_config = await get_shared_config_manager().get_config("global", "global")
                 api_key = global_config.get("config_modules", {}).get("gpt", {}).get("api_key")
                 
                 if not api_key:
@@ -794,7 +792,7 @@ async def gpt_summary_function(messages: List[str]) -> str:
         system_prompt = DEFAULT_PROMPTS["gpt_summary"]  # Default fallback
         model = GPT_MODEL_TEXT  # Default fallback
         try:
-            chat_config = await config_manager.get_config()
+            chat_config = await get_shared_config_manager().get_config()
             system_prompt = await get_system_prompt("gpt_summary", chat_config)
             # Get model from config
             gpt_module = chat_config.get("config_modules", {}).get("gpt", {})
@@ -914,7 +912,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         # Get config
-        cache_cfg = config_manager.get_analysis_cache_config()
+        cache_cfg = get_shared_config_manager().get_analysis_cache_config()
         cache_enabled = cache_cfg["enabled"]
         cache_ttl = cache_cfg["ttl"]
 
@@ -1256,7 +1254,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def initialize_gpt() -> None:
     """Initialize GPT module."""
-    await config_manager.initialize()
+    await get_shared_config_manager().initialize()
 
 async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -1303,7 +1301,7 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         ]
         
         # Get allowed commands from chat_behavior config
-        chat_behavior_config = await config_manager.get_config(chat_id, chat_type, module_name="chat_behavior")
+        chat_behavior_config = await get_shared_config_manager().get_config(chat_id, chat_type, module_name="chat_behavior")
         allowed_commands = chat_behavior_config.get("overrides", {}).get("allowed_commands", [])
         
         # List of allowed commands (must match those registered in main.py)
@@ -1322,7 +1320,51 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "",
                 f"Перше повідомлення: {first_msg_date}"
             ])
-            
+
+        # Fetch URL modification and video download counts for this user in this chat
+        try:
+            from modules.database import Database
+            _chat_id_int = int(chat_id) if str(chat_id).lstrip('-').isdigit() else 0
+            _user_id_int = int(user_id) if str(user_id).isdigit() else 0
+            if _chat_id_int and _user_id_int:
+                pool = await Database.get_pool()
+                async with pool.acquire() as conn:
+                    url_mods_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'url_modification' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
+                    vid_dl_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'video_download' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
+                    media_count = await conn.fetchval("""
+                        SELECT COUNT(*) FROM messages
+                        WHERE chat_id = $1 AND user_id = $2
+                          AND (raw_telegram_message ? 'photo' OR raw_telegram_message ? 'video'
+                               OR raw_telegram_message ? 'video_note' OR raw_telegram_message ? 'animation')
+                    """, _chat_id_int, _user_id_int)
+                    reaction_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'reaction' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
+                    sticker_count = await conn.fetchval("""
+                        SELECT COUNT(*) FROM messages
+                        WHERE chat_id = $1 AND user_id = $2
+                          AND raw_telegram_message ? 'sticker'
+                    """, _chat_id_int, _user_id_int)
+                if url_mods_count:
+                    message_parts.append(f"Модифікацій посилань: {url_mods_count}")
+                if vid_dl_count:
+                    message_parts.append(f"Завантажень відео: {vid_dl_count}")
+                if media_count:
+                    message_parts.append(f"Медіа надіслано: {media_count}")
+                if reaction_count:
+                    message_parts.append(f"Реакцій поставлено: {reaction_count}")
+                if sticker_count:
+                    message_parts.append(f"Стікерів надіслано: {sticker_count}")
+        except Exception:
+            pass
+
         # Send the statistics message without Markdown parsing
         await update.message.reply_text(
             "\n".join(message_parts),
@@ -1348,8 +1390,9 @@ async def handle_photo_analysis(update: Update, context: ContextTypes.DEFAULT_TY
         # Get chat configuration
         chat_id = str(update.effective_chat.id)
         chat_type = update.effective_chat.type
-        chat_config = await config_manager.get_config(chat_id, chat_type)
-        
+        chat_title = update.effective_chat.title if update.effective_chat else None
+        chat_config = await get_shared_config_manager().get_config(chat_id, chat_type, chat_name=chat_title)
+
         # Check if image analysis is enabled for this chat
         # Default to False if image_analysis config is missing or not explicitly enabled
         image_analysis_config = chat_config.get("config_modules", {}).get("gpt", {}).get("overrides", {}).get("image_analysis", {})

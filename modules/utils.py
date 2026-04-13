@@ -20,7 +20,7 @@ from modules.logger import error_logger, LOG_DIR, general_logger
 from modules.const import (
     Weather, Config, DATA_DIR, DOWNLOADS_DIR
 )
-from config.config_manager import ConfigManager
+from config_v2.compat import get_shared_config_manager
 
 # Constants
 PLAYWRIGHT_AVAILABLE = True
@@ -48,8 +48,6 @@ IMGKIT_OPTIONS = {
     'encoding': 'UTF-8'
 }
 
-# Initialize config manager
-config_manager = ConfigManager()
 
 
 class DateParser:
@@ -343,7 +341,7 @@ async def get_weather_emoji(weather_id: int) -> str:
     """
     Get weather emoji based on weather ID. Use config if available, else fallback to CONDITION_EMOJIS from const.
     """
-    weather_config = await config_manager.get_config("weather_config", None, None)
+    weather_config = await get_shared_config_manager().get_config("weather_config", None, None)
     config_emojis = weather_config.get("CONDITION_EMOJIS", {})
     emojis = config_emojis if config_emojis else Weather.CONDITION_EMOJIS
     general_logger.info(f"CONDITION_EMOJIS used: {emojis}")
@@ -356,7 +354,7 @@ async def get_feels_like_emoji(feels_like: float) -> str:
     """
     Get emoji based on 'feels like' temperature. Use config if available, else fallback to FEELS_LIKE_EMOJIS from const.
     """
-    weather_config = await config_manager.get_config("weather_config", None, None)
+    weather_config = await get_shared_config_manager().get_config("weather_config", None, None)
     config_emojis = weather_config.get("FEELS_LIKE_EMOJIS", {})
     emojis = config_emojis if config_emojis else Weather.FEELS_LIKE_EMOJIS
     general_logger.info(f"FEELS_LIKE_EMOJIS used: {emojis}")
@@ -370,7 +368,7 @@ async def get_humidity_emoji(humidity: int) -> str:
     """
     Get emoji based on humidity percentage. Use config if available, else fallback to HUMIDITY_EMOJIS from const.
     """
-    weather_config = await config_manager.get_config("weather_config", None, None)
+    weather_config = await get_shared_config_manager().get_config("weather_config", None, None)
     config_emojis = weather_config.get("HUMIDITY_EMOJIS", {})
     emojis = config_emojis if config_emojis else Weather.HUMIDITY_EMOJIS
     general_logger.info(f"HUMIDITY_EMOJIS used: {emojis}")
@@ -383,7 +381,7 @@ async def get_city_translation(city: str) -> str:
     """
     Get city translation from dictionary.
     """
-    weather_config = await config_manager.get_config("weather_config", None, None)
+    weather_config = await get_shared_config_manager().get_config("weather_config", None, None)
     config_translations = weather_config.get("CITY_TRANSLATIONS", {})
     city_translations = config_translations if config_translations else Weather.CITY_TRANSLATIONS
     normalized = city.lower().replace(" ", "")
@@ -1353,7 +1351,7 @@ ensure_city_data_file()
 
 async def initialize_utils() -> None:
     """Initialize utility modules."""
-    await config_manager.initialize()
+    await get_shared_config_manager().initialize()
 
 # Only run setup code if this module is the main script
 if __name__ == "__main__":

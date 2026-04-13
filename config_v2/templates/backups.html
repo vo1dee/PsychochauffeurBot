@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Backups — Bot Config{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom: 20px;">Backups</h1>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Create Backup</h2>
+    </div>
+    <form action="/backups/create" method="post" style="display: flex; gap: 8px; align-items: end; flex-wrap: wrap;">
+        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
+            <label>Backup name</label>
+            <input type="text" name="name" placeholder="Optional name..." value="">
+        </div>
+        <div class="form-group" style="min-width: 200px; margin-bottom: 0;">
+            <label>Scope</label>
+            <select name="chat_id">
+                <option value="__full__">Full database</option>
+                <option value="global">Global config only</option>
+                {% for chat in chats %}
+                <option value="{{ chat.chat_id }}">{{ chat.chat_name or chat.chat_id }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">Create Backup</button>
+    </form>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Existing Backups ({{ backups|length }})</h2>
+    </div>
+
+    {% if backups %}
+    <div class="chat-list">
+        {% for backup in backups %}
+        <div class="chat-item" style="cursor: default;">
+            <div>
+                <div class="chat-name">{{ backup.name }}</div>
+                <div class="chat-type">
+                    {% if backup.chat_id == '__full__' %}
+                        Full DB backup
+                    {% elif backup.chat_id == 'global' %}
+                        Global config
+                    {% else %}
+                        Chat {{ backup.chat_id }}
+                    {% endif %}
+                    &middot; {{ backup.created_at }}
+                </div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <form action="/backups/{{ backup.id }}/restore" method="post"
+                      onsubmit="return confirm('Restore this backup? Current config will be overwritten.')">
+                    <button type="submit" class="btn btn-ghost btn-sm">Restore</button>
+                </form>
+                <form action="/backups/{{ backup.id }}/delete" method="post"
+                      onsubmit="return confirm('Delete this backup?')">
+                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p style="color: var(--text-muted); text-align: center; padding: 20px;">
+        No backups yet.
+    </p>
+    {% endif %}
+</div>
+{% endblock %}

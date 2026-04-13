@@ -10,10 +10,11 @@ import shutil
 import subprocess
 from urllib.parse import urljoin, urlparse
 from typing import Optional, Tuple, List, Dict, Any, Callable, TypedDict, cast
-from asyncio import Lock
+from asyncio import Semaphore
 from dataclasses import dataclass
 from enum import Enum
 from telegram import Update, InlineQueryResultCachedAudio, InlineQueryResultArticle, InputTextMessageContent
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes, MessageHandler, filters, InlineQueryHandler
 from modules.const import VideoPlatforms, InstagramConfig, MUSIC_DIR
 from modules.utils import extract_urls
@@ -79,7 +80,7 @@ class VideoDownloader:
         
         self._init_download_path()
         self._verify_yt_dlp()
-        self.lock = Lock()
+        self._download_semaphore = Semaphore(3)  # Allow up to 3 concurrent downloads
         self.last_download: Dict[str, Any] = {}
         
         # Platform-specific download configurations
@@ -401,7 +402,7 @@ class VideoDownloader:
         return None, None
 
     async def download_video(self, url: str, chat_id: Optional[str] = None, chat_type: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
-        async with self.lock:
+        async with self._download_semaphore:
             try:
                 url = url.strip().strip('\\')
                 if self._is_story_url(url):
@@ -858,7 +859,7 @@ class VideoDownloader:
             await self.send_error_sticker(update)
 
     async def handle_inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle inline queries for YouTube Music, TikTok, and cat photos."""
+        """Handle inline queries for YouTube Music, YouTube Shorts, TikTok, and cat photos."""
         query = update.inline_query
         if not query:
             return
@@ -874,11 +875,13 @@ class VideoDownloader:
             # Route to appropriate handler based on URL
             if 'music.youtube.com' in url.lower():
                 await self._handle_inline_youtube_music(query, context, url)
+            elif 'youtube.com/shorts' in url.lower():
+                await self._handle_inline_youtube_shorts(query, context, url)
             elif 'tiktok.com' in url.lower():
                 await self._handle_inline_tiktok(query, context, url)
             else:
                 # Unsupported URL - still show cat button
-                await self._show_cat_with_hint(query, f"Unsupported link. Try music.youtube.com or tiktok.com")
+                await self._show_cat_with_hint(query, f"Unsupported link. Try music.youtube.com, youtube.com/shorts or tiktok.com")
             return
 
         # No URL - show cat photo button (works for empty query, "cat", etc.)
@@ -1022,6 +1025,75 @@ class VideoDownloader:
             error_logger.error(f"Inline TikTok error: {e}")
             await self._send_inline_error(query, str(e))
 
+    async def _handle_inline_youtube_shorts(self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
+        """Handle inline YouTube Shorts video download."""
+        error_logger.info(f"🎬 Inline YouTube Shorts: {url}")
+
+        try:
+            # Try service first, then fall back to direct strategies
+            filename, title = None, None
+            if await self._check_service_health():
+                result = await self._download_from_service(url)
+                if result and result[0]:
+                    filename, title = result
+                    error_logger.info(f"✅ Service download successful for Shorts: {url}")
+
+            if not filename:
+                filename, title = await self._download_youtube_with_strategies(url, is_shorts=True)
+
+            if filename and os.path.exists(filename):
+                file_size = os.path.getsize(filename)
+
+                if file_size > 50 * 1024 * 1024:
+                    error_logger.warning(f"Inline: Video file too large: {file_size}")
+                    await self._send_inline_error(query, "Video file too large")
+                    return
+
+                # Send video to user privately to get file_id
+                with open(filename, 'rb') as video_file:
+                    message = await context.bot.send_video(
+                        chat_id=query.from_user.id,
+                        video=video_file,
+                        caption=f"🎬 {title or 'YouTube Shorts'}\n\n🔗 {url}",
+                        disable_notification=True
+                    )
+
+                if message and message.video:
+                    from telegram import InlineQueryResultCachedVideo
+                    results = [
+                        InlineQueryResultCachedVideo(
+                            id=f'video_{uuid.uuid4().hex[:8]}',
+                            video_file_id=message.video.file_id,
+                            title=title or "YouTube Shorts",
+                            caption=f"🎬 {title or 'YouTube Shorts'}\n\n🔗 {url}"
+                        )
+                    ]
+                    try:
+                        await query.answer(results, cache_time=300)
+                        # Only delete the temp message if inline answer succeeded
+                        try:
+                            await message.delete()
+                        except Exception as e:
+                            error_logger.warning(f"Could not delete temp message: {e}")
+                        error_logger.info(f"✅ Inline YouTube Shorts video ready: {title}")
+                    except BadRequest as e:
+                        # Inline query expired - keep the video in private chat as fallback
+                        error_logger.warning(f"Inline query expired for Shorts, video kept in private chat: {e}")
+                else:
+                    await self._send_inline_error(query, "Failed to upload video")
+
+                # Cleanup local file
+                try:
+                    os.remove(filename)
+                except:
+                    pass
+            else:
+                await self._send_inline_error(query, "Download failed")
+
+        except Exception as e:
+            error_logger.error(f"Inline YouTube Shorts error: {e}")
+            await self._send_inline_error(query, str(e))
+
     async def _send_inline_error(self, query: Any, error_msg: str) -> None:
         """Send error result for inline query."""
         results = [
@@ -1032,7 +1104,10 @@ class VideoDownloader:
                 input_message_content=InputTextMessageContent(message_text=f'❌ {error_msg}')
             )
         ]
-        await query.answer(results, cache_time=10)
+        try:
+            await query.answer(results, cache_time=10)
+        except BadRequest as e:
+            error_logger.warning(f"Inline error answer failed (query expired): {e}")
 
     async def _show_cat_with_hint(self, query: Any, hint: str) -> None:
         """Show cat photo with a hint message."""
@@ -1360,48 +1435,68 @@ class VideoDownloader:
                     await update.message.reply_text("❌ Video file too large to send.")
                 return
 
-            # Escape all special characters for Markdown V2
-            special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-            escaped_title = title or "Video"
-            for char in special_chars:
-                escaped_title = escaped_title.replace(char, f'\\{char}')
+            # Build caption with manual entities to support expandable_blockquote
+            # (HTML/MarkdownV2 parsers in older python-telegram-bot don't support it)
+            from telegram import MessageEntity
 
-            # Get username and escape it
+            def utf16_len(s: str) -> int:
+                return len(s.encode('utf-16-le')) // 2
+
             username = "Unknown"
             if update.effective_user:
                 username = update.effective_user.username or update.effective_user.first_name or "Unknown"
-            escaped_username = username
-            for char in special_chars:
-                escaped_username = escaped_username.replace(char, f'\\{char}')
 
-            caption = f"📹 {escaped_title}\n\n👤 Від: @{escaped_username}"
-            
+            caption = f"👤 Від: @{username}"
+            caption_entities = []
+            offset = utf16_len(caption)
+
             if source_url:
-                # Escape special characters in URL
-                escaped_url = source_url
-                for char in special_chars:
-                    escaped_url = escaped_url.replace(char, f'\\{char}')
-                caption += f"\n\n🔗 [Посилання]({escaped_url})"
+                link_prefix = "\n\n🔗 "
+                link_label = "Посилання"
+                offset += utf16_len(link_prefix)
+                caption_entities.append(MessageEntity(
+                    type=MessageEntity.TEXT_LINK,
+                    offset=offset,
+                    length=utf16_len(link_label),
+                    url=source_url
+                ))
+                caption += link_prefix + link_label
+                offset += utf16_len(link_label)
+
+            if title:
+                title_prefix = "\n\n"
+                # Truncate only if needed to stay within Telegram's 1024-char caption limit
+                max_title_len = 1024 - len(caption) - len(title_prefix)
+                truncated_title = title if len(title) <= max_title_len else title[:max_title_len - 3] + '...'
+                offset += utf16_len(title_prefix)
+                caption_entities.append(MessageEntity(
+                    type="expandable_blockquote",
+                    offset=offset,
+                    length=utf16_len(truncated_title)
+                ))
+                caption += title_prefix + truncated_title
 
             with open(filename, 'rb') as video_file:
+                send_kwargs = dict(caption=caption, caption_entities=caption_entities)
                 # Check if the original message was a reply to another message
                 if update.message and update.message.reply_to_message:
-                    # If it was a reply, send the video as a reply to the parent message
-                    await update.message.reply_to_message.reply_video(
-                        video=video_file,
-                        caption=caption,
-                        parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
-                    )
+                    await update.message.reply_to_message.reply_video(video=video_file, **send_kwargs)
                 else:
-                    # If it wasn't a reply, send the video as a new message (not as a reply)
                     if update.effective_chat:
                         await context.bot.send_video(
                             chat_id=update.effective_chat.id,
                             video=video_file,
-                            caption=caption,
-                            parse_mode='MarkdownV2'  # Enable Markdown V2 formatting
+                            **send_kwargs
                         )
                 
+            # Track successful video download
+            if update.effective_chat:
+                from modules.event_tracker import record_bot_event
+                _user_id = update.effective_user.id if update.effective_user else None
+                asyncio.ensure_future(record_bot_event(
+                    'video_download', update.effective_chat.id, _user_id
+                ))
+
             # Delete the original message after successful video send
             try:
                 if update.message:
@@ -1552,6 +1647,22 @@ class VideoDownloader:
         else:
             return Platform.OTHER
 
+    async def _get_tiktok_title_from_tikwm(self, url: str) -> Optional[str]:
+        """Fetch the full TikTok title from tikwm API (yt-dlp --get-title truncates it)."""
+        try:
+            api_url = f"https://www.tikwm.com/api/?url={url}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                    if response.status != 200:
+                        return None
+                    data = await response.json()
+                    if data.get("code") != 0:
+                        return None
+                    return data.get("data", {}).get("title")
+        except Exception as e:
+            error_logger.warning(f"Failed to fetch TikTok title from tikwm: {e}")
+            return None
+
     async def _download_tiktok_ytdlp(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         """Download TikTok video using yt-dlp with tikwm fallback."""
         config = self.platform_configs[Platform.TIKTOK]
@@ -1563,6 +1674,11 @@ class VideoDownloader:
         if not result or not result[0]:
             error_logger.info(f"yt-dlp failed for TikTok, trying tikwm fallback: {url}")
             result = await self._download_tiktok_tikwm(url)
+        elif result[0]:
+            # yt-dlp succeeded but its --get-title truncates TikTok titles; get full title from tikwm
+            full_title = await self._get_tiktok_title_from_tikwm(url)
+            if full_title:
+                result = (result[0], full_title)
 
         return result
 
@@ -1913,7 +2029,7 @@ def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[
     application.add_handler(
         InlineQueryHandler(video_downloader.handle_inline_query)
     )
-    general_logger.info("Inline query handler registered (music, tiktok, cat)")
+    general_logger.info("Inline query handler registered (music, youtube shorts, tiktok, cat)")
 
     # Mark as registered to prevent duplicates
     application._video_handler_set = True
