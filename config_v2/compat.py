@@ -115,8 +115,8 @@ class CompatConfigManager:
     def get_analysis_cache_config(self) -> Dict[str, Any]:
         """Return default analysis cache config for compatibility."""
         return {
-            "max_size": 100,
-            "ttl_seconds": 3600,
+            "enabled": True,
+            "ttl": 86400,
         }
 
     async def ensure_chat_dir(self, *args: Any, **kwargs: Any) -> None:
