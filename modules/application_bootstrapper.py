@@ -358,6 +358,8 @@ class ApplicationBootstrapper:
         This method configures signal handlers to ensure the application
         can be shut down gracefully when receiving termination signals.
         """
+        loop = asyncio.get_event_loop()
+
         def signal_handler(signum: int, frame: Any) -> None:
             """Handle shutdown signals gracefully."""
             if signum == signal.SIGINT:
@@ -366,12 +368,9 @@ class ApplicationBootstrapper:
                 signal_name = "SIGTERM"
             else:
                 signal_name = f"Signal {signum}"
-            
-            logger.info(f"Received signal {signum}, forcing immediate exit...")
-            
-            # Force exit immediately - no graceful shutdown
-            logger.warning("Signal received, exiting immediately...")
-            os._exit(0)
+
+            logger.info(f"Received {signal_name}, initiating graceful shutdown...")
+            loop.call_soon_threadsafe(self._shutdown_event.set)
         
         # Store the signal handler for testing
         self._signal_handler_func = signal_handler
