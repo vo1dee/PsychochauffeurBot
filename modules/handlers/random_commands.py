@@ -107,5 +107,6 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
         return member.status in {"administrator", "creator"}
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to check admin status for user {user.id} in chat {chat.id}: {e}")
         return False

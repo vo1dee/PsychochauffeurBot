@@ -351,9 +351,9 @@ class EnhancedFlaresCommand:
             if status_msg:
                 try:
                     await status_msg.delete()
-                except:
-                    pass
-            
+                except Exception:
+                    pass  # cleanup
+
             # Send user-friendly error message
             user_error_message = self._get_user_friendly_error_message(e)
             
