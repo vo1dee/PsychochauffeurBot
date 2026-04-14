@@ -714,25 +714,45 @@ class VideoDownloader:
         if os.path.exists(deno_path):
             env['PATH'] = f"{deno_path}:{env.get('PATH', '')}"
 
-        # Define strategies - HLS (m3u8) formats work without PO Token
-        # while regular HTTPS formats often get 403 Forbidden
+        # Check for YouTube cookies file
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        yt_cookies_path = os.path.join(project_root, "youtube_cookies.txt")
+        has_yt_cookies = os.path.exists(yt_cookies_path)
+        if has_yt_cookies:
+            error_logger.info(f"🍪 Using YouTube cookies from {yt_cookies_path}")
+        else:
+            error_logger.info("⚠️ No youtube_cookies.txt found. Some formats may be restricted.")
+
+        cookies_args = ['--cookies', yt_cookies_path] if has_yt_cookies else []
+
+        # Strategies ordered by reliability:
+        # iOS/Android clients don't require PO tokens.
+        # HLS is a fallback when HTTPS formats get 403.
         strategies = [
+            {
+                'name': 'iOS client (bestaudio)',
+                'format': 'bestaudio/best',
+                'args': ['--extractor-args', 'youtube:player_client=ios'],
+            },
+            {
+                'name': 'Android client (bestaudio)',
+                'format': 'bestaudio/best',
+                'args': ['--extractor-args', 'youtube:player_client=android'],
+            },
             {
                 'name': 'HLS stream (extract audio)',
                 'format': 'best[protocol=m3u8_native]/best[protocol=m3u8]',
-                'args': []
-            },
-            {
-                'name': 'Default (bestaudio)',
-                'format': 'bestaudio/best',
-                'args': []
+                'args': [],
             },
             {
                 'name': 'Web Safari client',
                 'format': 'bestaudio/best',
-                'args': [
-                    '--extractor-args', 'youtube:player_client=web_safari',
-                ]
+                'args': ['--extractor-args', 'youtube:player_client=web_safari'],
+            },
+            {
+                'name': 'Default (bestaudio)',
+                'format': 'bestaudio/best',
+                'args': [],
             },
         ]
 
@@ -757,6 +777,10 @@ class VideoDownloader:
                 '--retries', '3',
                 '--print', 'after_move:filepath',  # Print final filepath after processing
             ]
+
+            # Add cookies if available
+            if cookies_args:
+                cmd.extend(cookies_args)
 
             # Add strategy-specific args
             if strategy['args']:
