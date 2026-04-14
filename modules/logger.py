@@ -701,6 +701,8 @@ async def init_telegram_error_handler(bot: Bot, error_channel_id: Optional[str] 
 
         # Add the handler to the root logger to catch all errors
         logging.getLogger().addHandler(telegram_handler)
+        # Also add directly to error_logger since it has propagate=False
+        logging.getLogger('error').addHandler(telegram_handler)
         general_logger.info("Telegram error handler initialized and attached to root logger.")
 
         # Store reference for graceful shutdown
