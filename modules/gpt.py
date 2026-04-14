@@ -1125,7 +1125,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 if cached:
                     general_logger.info(f"Returning cached analysis for chat {chat_id}, key: {time_period_key}")
                     if update.message:
-                        await update.message.reply_text(f"⚡️ (З кешу)\n{cached}")
+                        await update.message.reply_text(f"⚡️ (З кешу)\n{cached}", parse_mode="Markdown")
                     return
             except Exception as cache_error:
                 error_logger.warning(f"Cache retrieval failed for chat {chat_id}: {cache_error}")
@@ -1186,8 +1186,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Send the analysis result
         try:
             if update.message and gpt_result:
-                await update.message.reply_text(gpt_result)
-                
+                await update.message.reply_text(gpt_result, parse_mode="Markdown")
+
                 # Log successful completion
                 execution_time = (datetime.now() - start_time).total_seconds()
                 general_logger.info(
