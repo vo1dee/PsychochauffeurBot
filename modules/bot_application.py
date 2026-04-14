@@ -438,6 +438,9 @@ class BotApplication(ServiceInterface):
             except Exception as e:
                 logger.error(f"Failed to schedule weekly report: {e}")
 
+            # Clear any stale webhook before starting polling
+            await self.telegram_app.bot.delete_webhook(drop_pending_updates=False)
+
             # Start polling and store the task for proper cleanup
             if self.telegram_app.updater:
                 await self.telegram_app.updater.start_polling(
