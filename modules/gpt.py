@@ -137,7 +137,7 @@ class OpenAIAsyncClient:
                             general_logger.warning(f"API connection failed (attempt {attempt + 1}/{MAX_RETRIES}): {type(e).__name__}. Retrying in {wait_time}s...")
                             await asyncio.sleep(wait_time)
                         else:
-                            general_logger.error(f"API connection failed after {MAX_RETRIES} attempts: {type(e).__name__}")
+                            error_logger.error(f"API connection failed after {MAX_RETRIES} attempts: {type(e).__name__}", exc_info=True)
                             raise
                 raise last_exception  # type: ignore
 
@@ -469,7 +469,7 @@ async def verify_api_key() -> bool:
         bool: Whether the API key is valid
     """
     if not Config.OPENROUTER_API_KEY or not Config.OPENROUTER_API_KEY.startswith("sk-"):
-        general_logger.error("Invalid or missing API key")
+        error_logger.error("Invalid or missing API key")
         return False
     return True
 
@@ -1203,8 +1203,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     await update.message.reply_text(
                         "❌ Аналіз завершено, але виникла помилка при відправці результату."
                     )
-            except:
-                pass  # If even this fails, we can't do much more
+            except Exception as fallback_error:
+                error_logger.warning(f"Failed to send fallback error message: {fallback_error}")
 
     except Exception as e:
         # Comprehensive error handling for any unexpected errors

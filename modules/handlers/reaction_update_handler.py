@@ -11,7 +11,7 @@ import os
 from telegram import Update, ReactionTypeEmoji
 from telegram.ext import ContextTypes
 
-from modules.logger import general_logger
+from modules.logger import general_logger, error_logger
 
 
 async def handle_reaction_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -55,7 +55,7 @@ async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user
 
     video_downloader = context.bot_data.get("video_downloader")
     if not video_downloader:
-        general_logger.error("Video downloader not available for ⚡ reaction")
+        error_logger.error("Video downloader not available for ⚡ reaction")
         return
 
     processing_msg = await context.bot.send_message(
@@ -79,8 +79,8 @@ async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user
 
         try:
             await processing_msg.delete()
-        except Exception:
-            pass
+        except Exception as del_err:
+            general_logger.warning(f"Failed to delete processing message: {del_err}")
 
         special_chars = [
             "_", "*", "[", "]", "(", ")", "~", "`", ">",
@@ -115,15 +115,15 @@ async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user
         general_logger.info(f"Successfully sent Shorts via ⚡ reaction: {title}")
 
     except Exception as e:
-        general_logger.error(f"Error in ⚡ shorts download: {e}", exc_info=True)
+        error_logger.error(f"Error in ⚡ shorts download: {e}", exc_info=True)
         try:
             await processing_msg.edit_text(f"Error downloading Shorts: {str(e)[:100]}")
-        except Exception:
-            pass
+        except Exception as edit_err:
+            general_logger.warning(f"Failed to edit processing message after error: {edit_err}")
 
     finally:
         if filename and os.path.exists(filename):
             try:
                 os.remove(filename)
             except Exception:
-                pass
+                pass  # cleanup

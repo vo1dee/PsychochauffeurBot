@@ -1288,9 +1288,9 @@ async def screenshot_command(update: Update, context: CallbackContext[Any, Any, 
         if status_msg:
             try:
                 await status_msg.delete()
-            except:
-                pass
-        
+            except Exception:
+                pass  # cleanup
+
         # Send error message to user
         error_msg = (
             "❌ Не вдалося завантажити дані про сонячну активність.\n"
@@ -1304,9 +1304,9 @@ async def screenshot_command(update: Update, context: CallbackContext[Any, Any, 
         if status_msg:
             try:
                 await status_msg.delete()
-            except:
-                pass
-        
+            except Exception:
+                pass  # cleanup
+
         # Clean up screenshot file if it exists
         if 'screenshot_path' in locals() and screenshot_path and os.path.exists(screenshot_path):
             try:

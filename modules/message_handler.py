@@ -101,7 +101,7 @@ async def handle_gpt_reply(
             gpt_context_message_ids=context_message_ids
         )
     except Exception as e:
-        print(f"Error storing GPT reply: {e}")
+        error_logger.error(f"Error storing GPT reply: {e}", exc_info=True)
 
 def setup_message_handlers(application: Application[Any, Any, Any, Any, Any, Any]) -> None:
     """

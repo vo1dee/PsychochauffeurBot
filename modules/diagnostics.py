@@ -125,17 +125,17 @@ async def run_api_diagnostics(api_url: str) -> Dict[str, Any]:
     
     # Generate recommendation based on results
     if not results["internet_connectivity"]:
-        general_logger.error("DIAGNOSIS: No internet connectivity detected. Check network connection.")
+        error_logger.error("DIAGNOSIS: No internet connectivity detected. Check network connection.")
         results["diagnosis"] = "No internet connectivity"
         return results
-    
+
     if any(result == "Failed to resolve" for result in results["dns_resolution"].values()):
-        general_logger.error("DIAGNOSIS: DNS resolution issues detected. Check DNS configuration.")
+        error_logger.error("DIAGNOSIS: DNS resolution issues detected. Check DNS configuration.")
         results["diagnosis"] = "DNS resolution issues"
         return results
-    
+
     if not results["target_connection"]:
-        general_logger.error(f"DIAGNOSIS: Cannot connect to API endpoint {api_url}. Check if the URL is correct and the service is available.")
+        error_logger.error(f"DIAGNOSIS: Cannot connect to API endpoint {api_url}. Check if the URL is correct and the service is available.")
         results["diagnosis"] = "API endpoint unreachable"
         return results
     
@@ -168,12 +168,12 @@ async def monitor_api_health() -> None:
                 
                 # If multiple consecutive failures, run diagnostics
                 if api_health["consecutive_failures"] >= 3:
-                    general_logger.error(f"Multiple consecutive API failures detected. Running diagnostics...")
+                    error_logger.error(f"Multiple consecutive API failures detected. Running diagnostics...")
                     diagnosis = await run_api_diagnostics(Config.OPENROUTER_BASE_URL)
-                    general_logger.error(f"Diagnosis result: {diagnosis}")
-        
+                    error_logger.warning(f"Diagnosis result: {diagnosis}")
+
         except Exception as e:
-            general_logger.error(f"Error in API health monitoring: {e}")
+            error_logger.error(f"Error in API health monitoring: {e}", exc_info=True)
             
         # Wait before next check (5 minutes)
         await asyncio.sleep(300)

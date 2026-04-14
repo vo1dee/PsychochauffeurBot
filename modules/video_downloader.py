@@ -695,8 +695,8 @@ class VideoDownloader:
                               os.path.getsize(output_path) > 0)
                     if not success:
                         os.remove(output_path)
-                except:
-                    pass
+                except Exception:
+                    pass  # cleanup
 
     async def download_youtube_music(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         """Download audio from YouTube Music as MP3 using multiple strategies."""
@@ -1040,8 +1040,8 @@ class VideoDownloader:
                 # Cleanup local file
                 try:
                     os.remove(filename)
-                except:
-                    pass
+                except Exception:
+                    pass  # cleanup
             else:
                 await self._send_inline_error(query, "Download failed")
 
@@ -1109,8 +1109,8 @@ class VideoDownloader:
                 # Cleanup local file
                 try:
                     os.remove(filename)
-                except:
-                    pass
+                except Exception:
+                    pass  # cleanup
             else:
                 await self._send_inline_error(query, "Download failed")
 
@@ -1228,8 +1228,8 @@ class VideoDownloader:
                     # Only remove if download failed
                     if not (process.returncode == 0 and os.path.getsize(output_path) > 0):
                         os.remove(output_path)
-                except:
-                    pass
+                except Exception:
+                    pass  # cleanup
 
     async def _get_video_title(self, url: str) -> str:
         try:
@@ -1897,8 +1897,8 @@ class VideoDownloader:
                         if os.path.exists(output_template):
                             try:
                                 os.remove(output_template)
-                            except:
-                                pass
+                            except Exception:
+                                pass  # cleanup
                         
                         # If this is not the last strategy, continue to next
                         if i < len(strategies) - 1:
@@ -1913,15 +1913,15 @@ class VideoDownloader:
                         try:
                             process.kill()
                             await process.wait()
-                        except:
-                            pass
+                        except Exception:
+                            pass  # cleanup
                     
                     # Clean up any partial files
                     if os.path.exists(output_template):
                         try:
                             os.remove(output_template)
-                        except:
-                            pass
+                        except Exception:
+                            pass  # cleanup
                     
                     # If this is not the last strategy, continue to next
                     if i < len(strategies) - 1:
@@ -1959,8 +1959,8 @@ class VideoDownloader:
                 try:
                     process.kill()
                     await process.wait()
-                except:
-                    pass
+                except Exception:
+                    pass  # cleanup
 
         return None, None
 

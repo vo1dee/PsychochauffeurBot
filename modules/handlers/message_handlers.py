@@ -102,8 +102,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             ban_words = cb_overrides.get("ban_words", [])
             ban_symbols = cb_overrides.get("ban_symbols", [])
-        except Exception:
-            pass
+        except Exception as cfg_err:
+            error_logger.warning(f"Failed to load chat behavior config: {cfg_err}", exc_info=True)
     if should_restrict_user(message_text, ban_words=ban_words, ban_symbols=ban_symbols):
         await restrict_user(update, context)
         return
@@ -370,10 +370,9 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             'chat_id': update.effective_chat.id if update.effective_chat else 'N/A',
             'username': update.effective_user.username if update.effective_user else 'N/A',
             'chat_title': update.effective_chat.title if update.effective_chat else 'N/A'
-        })
+        }, exc_info=True)
         if update.message:
             await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
-        await update.message.reply_text("📍 Location received!")
 
 
 async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

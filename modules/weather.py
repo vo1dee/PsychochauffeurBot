@@ -113,7 +113,7 @@ class WeatherAPI:
         if self.api_key and len(self.api_key) > 4:
             general_logger.info(f"WeatherAPI initialized with key ending in '...{self.api_key[-4:]}'")
         else:
-            general_logger.error("WeatherAPI initialized WITHOUT a valid API key.")
+            error_logger.error("WeatherAPI initialized WITHOUT a valid API key.")
         self.client = httpx.AsyncClient()
     
     def _is_cache_valid(self, city: str) -> bool:

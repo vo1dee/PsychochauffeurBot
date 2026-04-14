@@ -291,7 +291,7 @@ class SystemDiagnosticsCommand:
                     try:
                         dt = datetime.fromisoformat(timestamp)
                         time_str = dt.strftime("%H:%M %d.%m")
-                    except:
+                    except (ValueError, TypeError):
                         time_str = timestamp[:16]
                 else:
                     time_str = "Unknown"
@@ -411,7 +411,7 @@ class SystemDiagnosticsCommand:
                     try:
                         dt = datetime.fromisoformat(timestamp)
                         time_str = dt.strftime("%H:%M")
-                    except:
+                    except (ValueError, TypeError):
                         time_str = "??:??"
                 else:
                     time_str = "??:??"
