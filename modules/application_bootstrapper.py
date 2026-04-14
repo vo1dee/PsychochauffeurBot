@@ -278,7 +278,26 @@ class ApplicationBootstrapper:
             logger.warning(f"ServiceErrorBoundary not available, skipping registration: {e}")
         
         logger.info("Specialized services registered with dependency injection using service factories")
-    
+
+    async def _update_yt_dlp(self) -> None:
+        """Upgrade yt-dlp to the latest version at startup. Never raises — failure is logged and ignored."""
+        logger.info("Checking for yt-dlp updates...")
+        try:
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "pip", "install", "yt-dlp", "--upgrade", "--quiet",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
+            if process.returncode == 0:
+                logger.info("yt-dlp is up to date")
+            else:
+                logger.warning(f"yt-dlp update failed (exit {process.returncode}): {stderr.decode().strip()[:200]}")
+        except asyncio.TimeoutError:
+            logger.warning("yt-dlp update timed out, continuing startup")
+        except Exception as e:
+            logger.warning(f"yt-dlp update error: {e}, continuing startup")
+
     async def start_application(self) -> None:
         """
         Start the application with proper error handling and lifecycle management.
@@ -293,9 +312,11 @@ class ApplicationBootstrapper:
         if self._running:
             logger.warning("Application is already running")
             return
-            
+
         logger.info("Starting application...")
-        
+
+        await self._update_yt_dlp()
+
         try:
             # Configure services first
             self.service_registry = await self.configure_services()
