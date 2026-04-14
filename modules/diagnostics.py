@@ -170,7 +170,7 @@ async def monitor_api_health() -> None:
                 if api_health["consecutive_failures"] >= 3:
                     error_logger.error(f"Multiple consecutive API failures detected. Running diagnostics...")
                     diagnosis = await run_api_diagnostics(Config.OPENROUTER_BASE_URL)
-                    error_logger.error(f"Diagnosis result: {diagnosis}")
+                    error_logger.warning(f"Diagnosis result: {diagnosis}")
 
         except Exception as e:
             error_logger.error(f"Error in API health monitoring: {e}", exc_info=True)

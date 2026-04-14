@@ -80,7 +80,7 @@ async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user
         try:
             await processing_msg.delete()
         except Exception as del_err:
-            error_logger.warning(f"Failed to delete processing message: {del_err}")
+            general_logger.warning(f"Failed to delete processing message: {del_err}")
 
         special_chars = [
             "_", "*", "[", "]", "(", ")", "~", "`", ">",
@@ -119,7 +119,7 @@ async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user
         try:
             await processing_msg.edit_text(f"Error downloading Shorts: {str(e)[:100]}")
         except Exception as edit_err:
-            error_logger.warning(f"Failed to edit processing message after error: {edit_err}")
+            general_logger.warning(f"Failed to edit processing message after error: {edit_err}")
 
     finally:
         if filename and os.path.exists(filename):

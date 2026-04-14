@@ -373,7 +373,6 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         }, exc_info=True)
         if update.message:
             await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
-        await update.message.reply_text("📍 Location received!")
 
 
 async def handle_voice_or_video_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
