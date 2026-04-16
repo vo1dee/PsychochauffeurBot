@@ -344,18 +344,20 @@ class TelegramErrorHandler(logging.Handler):
         """Creates the bot instance if it doesn't exist."""
         if self._bot_instance is None:
             self._bot_instance = Bot(token=self.bot_token)
-            # Test bot connection (optional but recommended)
             try:
                 await self._bot_instance.get_me()
                 print(f"Telegram bot connected successfully for error reporting.")
             except Exception as e:
                 print(f"ERROR: Failed to connect Telegram bot for error reporting: {e}", file=sys.stderr)
-                self._bot_instance = None # Reset if connection failed
+                self._bot_instance = None
 
     async def _send_message_async(self, text: str) -> None:
         """Internal async sending logic with retries."""
+        # Re-create bot instance if it was lost (e.g. failed at startup)
         if not self._bot_instance:
-            print(f"ERROR: Telegram bot not initialized. Cannot send error: {text[:100]}...", file=sys.stderr)
+            await self._ensure_bot()
+        if not self._bot_instance:
+            print(f"ERROR: Telegram bot not available. Cannot send error: {text[:100]}...", file=sys.stderr)
             return
 
         max_retries = 3
@@ -440,6 +442,9 @@ class TelegramErrorHandler(logging.Handler):
         for char in special_chars:
             safe_time = safe_time.replace(char, f'\\{char}')
 
+        # Inside a triple-backtick pre block only \ and ` need escaping
+        pre_content = core_message.replace('\\', '\\\\').replace('`', '\\`')
+
         # Format the error message with proper Markdown V2 escaping
         error_msg = (
             "🚨 *Error Report*\n\n"
@@ -451,9 +456,9 @@ class TelegramErrorHandler(logging.Handler):
             f"*Chat ID:* `{chat_id}`\n"
             f"*Username:* `{username}`\n"
             f"*Chat Title:* `{chat_title}`\n"
-            f"*Message:*\n`{safe_message}`"
+            f"*Message:*\n```\n{pre_content}\n```"
         )
-        return error_msg[:4090] # Ensure message fits Telegram limits
+        return error_msg[:4090]
 
     async def _process_queue(self) -> None:
         """The core worker task that processes logs from the queue."""

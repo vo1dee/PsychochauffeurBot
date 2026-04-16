@@ -80,6 +80,20 @@ class VideoPlatforms:
     ]
 
 
+class MusicPlatforms:
+    """Supported music streaming platforms for auto-download."""
+
+    PLATFORM_DOMAINS = [
+        "open.spotify.com",
+        "spotify.com",
+        "deezer.com",
+        "music.apple.com",
+        "soundcloud.com",
+    ]
+
+    SOUNDCLOUD_DOMAIN = "soundcloud.com"
+
+
 class InstagramConfig:
     """Instagram-specific download configurations."""
 
