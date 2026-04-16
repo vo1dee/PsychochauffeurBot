@@ -820,6 +820,333 @@ class VideoDownloader:
         error_logger.error(f"❌ All YouTube Music strategies failed for {url}")
         return None, None
 
+    async def resolve_streaming_url(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Extract track title and artist from a streaming platform URL.
+
+        Uses platform-specific HTTP APIs (not yt-dlp, which refuses DRM-protected sites).
+
+        Returns:
+            (title, artist) tuple, or (None, None) on failure.
+        """
+        error_logger.info(f"🔍 Resolving streaming URL metadata: {url}")
+        url_lower = url.lower()
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                if 'deezer.com' in url_lower:
+                    return await self._resolve_deezer(session, url)
+                elif 'spotify.com' in url_lower:
+                    return await self._resolve_spotify(session, url)
+                elif 'music.apple.com' in url_lower:
+                    return await self._resolve_apple_music(session, url)
+        except Exception as e:
+            error_logger.error(f"resolve_streaming_url error for {url}: {e}")
+
+        return None, None
+
+    async def _resolve_deezer(self, session: aiohttp.ClientSession, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Resolve Deezer track metadata via Deezer public API."""
+        try:
+            async with session.get(
+                url,
+                allow_redirects=True,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as response:
+                final_url = str(response.url)
+        except Exception as e:
+            error_logger.warning(f"Failed to follow Deezer redirect for {url}: {e}")
+            final_url = url
+
+        match = re.search(r'deezer\.com/(?:\w{2}/)?track/(\d+)', final_url)
+        if not match:
+            error_logger.warning(f"Could not extract Deezer track ID from {final_url}")
+            return None, None
+
+        track_id = match.group(1)
+        try:
+            async with session.get(
+                f'https://api.deezer.com/track/{track_id}',
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    title = data.get('title')
+                    artist = data.get('artist', {}).get('name')
+                    error_logger.info(f"✅ Deezer resolved: '{artist} - {title}'")
+                    return title, artist
+                else:
+                    error_logger.warning(f"Deezer API returned {response.status} for track {track_id}")
+        except Exception as e:
+            error_logger.warning(f"Deezer API call failed for track {track_id}: {e}")
+
+        return None, None
+
+    async def _resolve_spotify(self, session: aiohttp.ClientSession, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Resolve Spotify track metadata via oEmbed + page scraping for artist."""
+        try:
+            async with session.get(
+                f'https://open.spotify.com/oembed?url={url}',
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    title = data.get('title')
+                    if title:
+                        artist = await self._scrape_spotify_artist(session, url)
+                        error_logger.info(f"✅ Spotify resolved: '{artist} - {title}'")
+                        return title, artist
+        except Exception as e:
+            error_logger.warning(f"Spotify oEmbed failed for {url}: {e}")
+
+        return None, None
+
+    async def _scrape_spotify_artist(self, session: aiohttp.ClientSession, url: str) -> Optional[str]:
+        """Scrape artist name from Spotify page meta tags."""
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    # <meta name="description" content="Listen to X on Spotify. Song · Artist · Year">
+                    m = re.search(r'<meta name="description" content="[^"]+\. Song · ([^·"]+)', html)
+                    if m:
+                        return m.group(1).strip()
+                    m = re.search(r'music:musician_description" content="([^"]+)"', html)
+                    if m:
+                        return m.group(1).strip()
+        except Exception as e:
+            error_logger.debug(f"Could not scrape Spotify artist: {e}")
+        return None
+
+    async def _resolve_apple_music(self, session: aiohttp.ClientSession, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Resolve Apple Music track metadata via oEmbed or og:title scraping."""
+        try:
+            async with session.get(
+                f'https://music.apple.com/oembed?url={url}',
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status == 200:
+                    data = await response.json(content_type=None)
+                    title = data.get('title')
+                    if title:
+                        error_logger.info(f"✅ Apple Music resolved (oEmbed): '{title}'")
+                        return title, None
+        except Exception:
+            pass
+
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    m = re.search(r'<meta property="og:title" content="([^"]+)"', html)
+                    if m:
+                        og_title = m.group(1).strip()
+                        # Apple Music og:title is often "Song - Artist"
+                        parts = og_title.rsplit(' - ', 1)
+                        if len(parts) == 2:
+                            error_logger.info(f"✅ Apple Music resolved (scraped): '{parts[1]} - {parts[0]}'")
+                            return parts[0], parts[1]
+                        error_logger.info(f"✅ Apple Music resolved (scraped title only): '{og_title}'")
+                        return og_title, None
+        except Exception as e:
+            error_logger.warning(f"Apple Music scraping failed for {url}: {e}")
+
+        return None, None
+
+    async def search_and_download_track(self, query: str) -> Tuple[Optional[str], Optional[str]]:
+        """Search YouTube for a track and download it as MP3.
+
+        Args:
+            query: Search query, e.g. "Artist - Song Name"
+
+        Returns:
+            (filename, title) tuple, or (None, None) on failure.
+        """
+        search_query = f"ytsearch1:{query} official audio"
+        error_logger.info(f"🔎 Searching YouTube: {search_query}")
+
+        os.makedirs(MUSIC_DIR, exist_ok=True)
+        output_template = os.path.join(MUSIC_DIR, '%(artist,uploader)s - %(title)s.%(ext)s')
+
+        env = os.environ.copy()
+        deno_path = os.path.expanduser('~/.deno/bin')
+        if os.path.exists(deno_path):
+            env['PATH'] = f"{deno_path}:{env.get('PATH', '')}"
+
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        yt_cookies_path = os.path.join(project_root, "youtube_cookies.txt")
+        cookies_args = ['--cookies', yt_cookies_path] if os.path.exists(yt_cookies_path) else []
+
+        cmd = [
+            self.yt_dlp_path, search_query,
+            '-f', 'bestaudio/best',
+            '-x',
+            '--audio-format', 'mp3',
+            '--audio-quality', '0',
+            '-o', output_template,
+            '--embed-metadata',
+            '--embed-thumbnail',
+            '--add-metadata',
+            '--no-check-certificate',
+            '--geo-bypass',
+            '--no-playlist',
+            '--socket-timeout', '30',
+            '--retries', '3',
+            '--print', 'after_move:filepath',
+        ]
+        if cookies_args:
+            cmd.extend(cookies_args)
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=180.0)
+            output_path = stdout.decode().strip().split('\n')[-1] if stdout else None
+
+            if process.returncode == 0 and output_path and os.path.exists(output_path):
+                title = os.path.splitext(os.path.basename(output_path))[0]
+                error_logger.info(f"✅ Track downloaded: {title}")
+                return output_path, title
+            else:
+                error_logger.warning(f"Track search/download failed (code {process.returncode}): {stderr.decode()[:200]}")
+        except asyncio.TimeoutError:
+            error_logger.warning(f"Track search timed out for query: {query}")
+        except Exception as e:
+            error_logger.error(f"search_and_download_track error: {e}")
+        return None, None
+
+    async def download_music_platform_url(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+        """Download audio from a streaming platform URL.
+
+        For SoundCloud: downloads directly via yt-dlp.
+        For Spotify/Deezer/Apple Music: resolves metadata, then searches YouTube.
+
+        Returns:
+            (filename, title) tuple, or (None, None) on failure.
+        """
+        from modules.const import MusicPlatforms
+
+        if MusicPlatforms.SOUNDCLOUD_DOMAIN in url.lower():
+            error_logger.info(f"🎵 Direct SoundCloud download: {url}")
+            os.makedirs(MUSIC_DIR, exist_ok=True)
+            output_template = os.path.join(MUSIC_DIR, '%(uploader)s - %(title)s.%(ext)s')
+
+            cmd = [
+                self.yt_dlp_path, url,
+                '-f', 'bestaudio/best',
+                '-x',
+                '--audio-format', 'mp3',
+                '--audio-quality', '0',
+                '-o', output_template,
+                '--embed-metadata',
+                '--embed-thumbnail',
+                '--add-metadata',
+                '--no-check-certificate',
+                '--no-playlist',
+                '--socket-timeout', '30',
+                '--retries', '3',
+                '--print', 'after_move:filepath',
+            ]
+            try:
+                env = os.environ.copy()
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                )
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=180.0)
+                output_path = stdout.decode().strip().split('\n')[-1] if stdout else None
+                if process.returncode == 0 and output_path and os.path.exists(output_path):
+                    title = os.path.splitext(os.path.basename(output_path))[0]
+                    error_logger.info(f"✅ SoundCloud downloaded: {title}")
+                    return output_path, title
+                else:
+                    error_logger.warning(f"SoundCloud download failed: {stderr.decode()[:200]}")
+            except asyncio.TimeoutError:
+                error_logger.warning(f"SoundCloud download timed out: {url}")
+            except Exception as e:
+                error_logger.error(f"SoundCloud download error: {e}")
+            return None, None
+
+        # Spotify / Deezer / Apple Music: resolve metadata then search YouTube
+        title, artist = await self.resolve_streaming_url(url)
+        if title:
+            query = f"{artist} - {title}" if artist else title
+        else:
+            error_logger.error(f"❌ Could not resolve metadata for music URL: {url}")
+            return None, None
+
+        return await self.search_and_download_track(query)
+
+    async def handle_music_platform_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Auto-handler: detect music platform URLs in messages and send audio."""
+        from modules.const import MusicPlatforms
+
+        if not update.message or not update.message.text:
+            return
+
+        # Check per-chat disable config
+        if self.config_manager and update.effective_chat:
+            try:
+                config = await self.config_manager.get_config(module_name="music_auto")
+                disabled_chats = config.get("disabled_chats", [])
+                if update.effective_chat.id in disabled_chats:
+                    return
+            except Exception:
+                pass
+
+        urls = self.extract_urls(update.message.text)
+        music_url = None
+        for url in urls:
+            if any(domain in url.lower() for domain in MusicPlatforms.PLATFORM_DOMAINS):
+                music_url = url
+                break
+
+        if not music_url:
+            return
+
+        error_logger.info(f"🎵 Music platform link detected: {music_url}")
+        processing_msg = await update.message.reply_text("⏳ Downloading track...")
+
+        filename = None
+        try:
+            filename, title = await self.download_music_platform_url(music_url)
+
+            if not filename or not os.path.exists(filename):
+                await processing_msg.edit_text("❌ Failed to download track.")
+                return
+
+            file_size = os.path.getsize(filename)
+            if file_size > 50 * 1024 * 1024:
+                await processing_msg.edit_text("❌ Audio file is too large to send (>50MB).")
+                return
+
+            try:
+                await processing_msg.delete()
+            except Exception:
+                pass
+
+            await self._send_audio(update, context, filename, title, source_url=music_url)
+
+        except Exception as e:
+            error_logger.error(f"handle_music_platform_link error: {e}", exc_info=True)
+            try:
+                await processing_msg.edit_text(f"❌ Error: {str(e)[:100]}")
+            except Exception:
+                pass
+        finally:
+            if filename and os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                except Exception:
+                    pass
+
     async def _send_audio(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
                           filename: str, title: Optional[str], source_url: Optional[str] = None) -> None:
         """Send downloaded audio file to chat."""
@@ -908,8 +1235,12 @@ class VideoDownloader:
                 await self._show_cat_with_hint(query, f"Unsupported link. Try music.youtube.com, youtube.com/shorts or tiktok.com")
             return
 
-        # No URL - show cat photo button (works for empty query, "cat", etc.)
-        # This makes cat available immediately when user types @bot
+        # Non-empty text without a URL: treat as song search
+        if len(query_text) >= 3:
+            await self._handle_inline_song_search(query, context, query_text)
+            return
+
+        # Empty/very short query - show cat photo button
         await self._handle_inline_cat(query, context)
 
     async def _handle_inline_cat(self, query: Any, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -991,6 +1322,62 @@ class VideoDownloader:
         except Exception as e:
             error_logger.error(f"Inline YouTube Music error: {e}")
             await self._send_inline_error(query, str(e))
+
+    async def _handle_inline_song_search(self, query: Any, context: ContextTypes.DEFAULT_TYPE, search_text: str) -> None:
+        """Handle inline song search by text query."""
+        error_logger.info(f"🎵 Inline song search: '{search_text}'")
+
+        try:
+            filename, title = await self.search_and_download_track(search_text)
+
+            if not filename or not os.path.exists(filename):
+                await self._send_inline_error(query, "No results found")
+                return
+
+            file_size = os.path.getsize(filename)
+            if file_size > 50 * 1024 * 1024:
+                await self._send_inline_error(query, "Audio file too large")
+                try:
+                    os.remove(filename)
+                except Exception:
+                    pass
+                return
+
+            with open(filename, 'rb') as audio_file:
+                message = await context.bot.send_audio(
+                    chat_id=query.from_user.id,
+                    audio=audio_file,
+                    title=title or search_text,
+                    disable_notification=True,
+                )
+
+            if message and message.audio:
+                try:
+                    await message.delete()
+                except Exception as e:
+                    error_logger.warning(f"Could not delete temp message: {e}")
+
+                results = [
+                    InlineQueryResultCachedAudio(
+                        id=f'song_{uuid.uuid4().hex[:8]}',
+                        audio_file_id=message.audio.file_id,
+                        caption=f"🎵 {title or search_text}",
+                    )
+                ]
+                await query.answer(results, cache_time=300)
+                error_logger.info(f"✅ Inline song search done: {title}")
+            else:
+                await self._send_inline_error(query, "Failed to upload audio")
+
+        except Exception as e:
+            error_logger.error(f"Inline song search error: {e}")
+            await self._send_inline_error(query, str(e))
+        finally:
+            if filename and os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                except Exception:
+                    pass
 
     async def _handle_inline_tiktok(self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
         """Handle inline TikTok video download."""
@@ -2049,11 +2436,24 @@ def setup_video_handlers(application: Any, extract_urls_func: Optional[Callable[
         group=1  # Higher priority group
     )
 
-    # Add inline query handler for YouTube Music, TikTok, and cat photos
+    # Add music platform auto-download handler
+    from modules.const import MusicPlatforms
+    music_pattern = '|'.join(re.escape(d) for d in MusicPlatforms.PLATFORM_DOMAINS)
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & filters.Regex(music_pattern),
+            video_downloader.handle_music_platform_link,
+            block=False,
+        ),
+        group=1,
+    )
+    general_logger.info(f"Music platform handler registered for: {', '.join(MusicPlatforms.PLATFORM_DOMAINS)}")
+
+    # Add inline query handler for YouTube Music, TikTok, cat photos, and song search
     application.add_handler(
         InlineQueryHandler(video_downloader.handle_inline_query)
     )
-    general_logger.info("Inline query handler registered (music, youtube shorts, tiktok, cat)")
+    general_logger.info("Inline query handler registered (music, youtube shorts, tiktok, cat, song search)")
 
     # Mark as registered to prevent duplicates
     application._video_handler_set = True
