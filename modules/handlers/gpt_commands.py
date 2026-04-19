@@ -10,7 +10,6 @@ from telegram.ext import ContextTypes
 
 # Import existing GPT functions
 from modules.gpt import ask_gpt_command as _ask_gpt, analyze_command as _analyze
-from modules.stats_command import mystats_command as _mystats
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +24,3 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await _analyze(update, context)
 
 
-async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /mystats command for user statistics."""
-    await _mystats(update, context)
