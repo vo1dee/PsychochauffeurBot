@@ -16,6 +16,9 @@ from telegram.ext import ContextTypes
 from modules.const import KYIV_TZ
 from modules.database import Database
 from modules.report_command import _pct_change, _peak_time_range
+from modules.logger import general_logger, error_logger
+from modules.chat_analysis import get_user_chat_stats_with_fallback
+from config_v2.compat import get_shared_config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -614,3 +617,109 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text("❌ Error generating statistics. Try again later.")
         except Exception:
             pass
+
+
+async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show message statistics for the calling user in the current chat."""
+    chat_id = str(update.effective_chat.id) if update.effective_chat else "unknown"
+    user_id = update.effective_user.id if update.effective_user else "unknown"
+    username = update.effective_user.username if update.effective_user and update.effective_user.username else f"ID:{user_id}"
+    chat_type = update.effective_chat.type if update.effective_chat else "unknown"
+
+    try:
+        general_logger.info(f"mystats_command: chat_id={chat_id}, user_id={user_id}, username={username}")
+
+        stats = await get_user_chat_stats_with_fallback(
+            int(chat_id) if str(chat_id).lstrip('-').isdigit() else 0,
+            int(user_id) if str(user_id).isdigit() else 0,
+            username
+        )
+
+        general_logger.info(f"mystats_command: stats={stats}")
+
+        if not stats['total_messages']:
+            await update.message.reply_text(
+                "📊 У вас ще немає повідомлень в цьому чаті."
+            ) if update.message else None
+            return
+
+        safe_username = username.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+
+        message_parts = [
+            f"📊 Статистика повідомлень для {safe_username}",
+            "",
+            f"Загальна кількість повідомлень: {stats['total_messages']}",
+            f"Повідомлень за останній тиждень: {stats['messages_last_week']}",
+        ]
+
+        chat_behavior_config = await get_shared_config_manager().get_config(chat_id, chat_type, module_name="chat_behavior")
+        allowed_commands = chat_behavior_config.get("overrides", {}).get("allowed_commands", [])
+
+        if stats['command_stats']:
+            message_parts.extend(["", "Використані команди:"])
+            for cmd, count in stats['command_stats']:
+                if cmd in allowed_commands:
+                    message_parts.append(f"- /{cmd}: {count}")
+
+        if stats['first_message']:
+            message_parts.extend(["", f"Перше повідомлення: {stats['first_message'].strftime('%Y-%m-%d')}"])
+
+        try:
+            _chat_id_int = int(chat_id) if str(chat_id).lstrip('-').isdigit() else 0
+            _user_id_int = int(user_id) if str(user_id).isdigit() else 0
+            if _chat_id_int and _user_id_int:
+                pool = await Database.get_pool()
+                async with pool.acquire() as conn:
+                    url_mods_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'url_modification' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
+                    vid_dl_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'video_download' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
+                    media_count = await conn.fetchval("""
+                        SELECT COUNT(*) FROM messages
+                        WHERE chat_id = $1 AND user_id = $2
+                          AND (raw_telegram_message ? 'photo' OR raw_telegram_message ? 'video'
+                               OR raw_telegram_message ? 'video_note' OR raw_telegram_message ? 'animation')
+                    """, _chat_id_int, _user_id_int)
+                    reaction_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'reaction' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
+                    sticker_count = await conn.fetchval("""
+                        SELECT COUNT(*) FROM messages
+                        WHERE chat_id = $1 AND user_id = $2
+                          AND raw_telegram_message ? 'sticker'
+                    """, _chat_id_int, _user_id_int)
+                    song_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'song_sent' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
+                if url_mods_count:
+                    message_parts.append(f"Модифікацій посилань: {url_mods_count}")
+                if vid_dl_count:
+                    message_parts.append(f"Завантажень відео: {vid_dl_count}")
+                if media_count:
+                    message_parts.append(f"Медіа надіслано: {media_count}")
+                if reaction_count:
+                    message_parts.append(f"Реакцій поставлено: {reaction_count}")
+                if sticker_count:
+                    message_parts.append(f"Стікерів надіслано: {sticker_count}")
+                if song_count:
+                    message_parts.append(f"Пісень надіслано: {song_count}")
+        except Exception:
+            pass
+
+        await update.message.reply_text(
+            "\n".join(message_parts),
+            parse_mode=None
+        ) if update.message else None
+
+    except Exception as e:
+        error_logger.error(f"Error in mystats command: {e}", exc_info=True)
+        if update.message:
+            await update.message.reply_text(
+                "❌ Виникла помилка при отриманні статистики. Спробуйте пізніше."
+            )

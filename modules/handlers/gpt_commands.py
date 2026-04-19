@@ -9,7 +9,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 # Import existing GPT functions
-from modules.gpt import ask_gpt_command as _ask_gpt, analyze_command as _analyze, mystats_command as _mystats
+from modules.gpt import ask_gpt_command as _ask_gpt, analyze_command as _analyze
+from modules.stats_command import mystats_command as _mystats
 
 logger = logging.getLogger(__name__)
 
