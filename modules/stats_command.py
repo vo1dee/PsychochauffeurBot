@@ -54,6 +54,10 @@ def _empty_stats_data(now: datetime, period_start: datetime, is_all_time: bool) 
         "media_prev": 0,
         "reactions_current": 0,
         "reactions_prev": 0,
+        "stickers_current": 0,
+        "stickers_prev": 0,
+        "songs_current": 0,
+        "songs_prev": 0,
         "top_users": [],
     }
 
@@ -232,7 +236,17 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
               AND raw_telegram_message ? 'sticker'
         """, period_start_utc, now_utc, _prev_bound, chat_id)
 
-        # 14. Top users leaderboard
+        # 14. Songs sent
+        songs = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM bot_events
+            WHERE event_type = 'song_sent' AND chat_id = $4
+              AND timestamp >= $3 AND timestamp < $2
+        """, period_start_utc, now_utc, _prev_bound, chat_id)
+
+        # 15. Top users leaderboard
         top_users = await conn.fetch("""
             SELECT m.user_id, u.username, u.first_name, COUNT(*) AS cnt
             FROM messages m
@@ -270,6 +284,8 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
         "reactions_prev": reactions["prev_count"] or 0 if prev_start_utc is not None else 0,
         "stickers_current": stickers["current_count"] or 0,
         "stickers_prev": stickers["prev_count"] or 0 if prev_start_utc is not None else 0,
+        "songs_current": songs["current_count"] or 0,
+        "songs_prev": songs["prev_count"] or 0 if prev_start_utc is not None else 0,
         "top_users": top_users,
     }
 
@@ -494,6 +510,15 @@ def format_stats(data: Dict[str, Any]) -> str:
         if not is_all_time:
             stickers_str += f" ({_pct_change(stickers_cur, stickers_prev)})"
         lines.append(f"🎭 <b>Stickers sent:</b> {stickers_str}")
+
+    # Songs sent
+    songs_cur = data["songs_current"]
+    songs_prev_val = data["songs_prev"]
+    if songs_cur > 0 or not is_all_time:
+        songs_str = f"{songs_cur:,}"
+        if not is_all_time:
+            songs_str += f" ({_pct_change(songs_cur, songs_prev_val)})"
+        lines.append(f"🎵 <b>Songs sent:</b> {songs_str}")
 
     # Active users
     user_extras = []

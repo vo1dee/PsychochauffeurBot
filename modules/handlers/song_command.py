@@ -102,6 +102,11 @@ async def _send_audio_reply(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 parse_mode="MarkdownV2",
             )
 
+    if update.effective_chat:
+        from modules.event_tracker import record_bot_event
+        user_id = update.effective_user.id if update.effective_user else None
+        await record_bot_event("song_sent", update.effective_chat.id, user_id)
+
     try:
         if update.message:
             await update.message.delete()
