@@ -1352,6 +1352,10 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         WHERE chat_id = $1 AND user_id = $2
                           AND raw_telegram_message ? 'sticker'
                     """, _chat_id_int, _user_id_int)
+                    song_count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM bot_events WHERE event_type = 'song_sent' AND chat_id = $1 AND user_id = $2",
+                        _chat_id_int, _user_id_int
+                    )
                 if url_mods_count:
                     message_parts.append(f"Модифікацій посилань: {url_mods_count}")
                 if vid_dl_count:
@@ -1362,6 +1366,8 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     message_parts.append(f"Реакцій поставлено: {reaction_count}")
                 if sticker_count:
                     message_parts.append(f"Стікерів надіслано: {sticker_count}")
+                if song_count:
+                    message_parts.append(f"Пісень надіслано: {song_count}")
         except Exception:
             pass
 

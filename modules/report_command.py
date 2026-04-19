@@ -184,6 +184,16 @@ async def fetch_report_data(days: int) -> Dict[str, Any]:
               AND raw_telegram_message ? 'sticker'
         """, period_start_utc, now_utc, prev_start_utc)
 
+        # 15. Songs sent
+        songs = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM bot_events
+            WHERE event_type = 'song_sent'
+              AND timestamp >= $3 AND timestamp < $2
+        """, period_start_utc, now_utc, prev_start_utc)
+
     return {
         "now": now,
         "period_start": period_start,
@@ -210,6 +220,8 @@ async def fetch_report_data(days: int) -> Dict[str, Any]:
         "reactions_prev": reactions["prev_count"] or 0,
         "stickers_current": stickers["current_count"] or 0,
         "stickers_prev": stickers["prev_count"] or 0,
+        "songs_current": songs["current_count"] or 0,
+        "songs_prev": songs["prev_count"] or 0,
     }
 
 
@@ -307,6 +319,7 @@ def format_report(data: Dict[str, Any], days: int) -> str:
         f"🖼 <b>Media sent:</b> {data['media_current']:,} ({_pct_change(data['media_current'], data['media_prev'])})",
         f"👍 <b>Reactions:</b> {data['reactions_current']:,} ({_pct_change(data['reactions_current'], data['reactions_prev'])})",
         f"🎭 <b>Stickers sent:</b> {data['stickers_current']:,} ({_pct_change(data['stickers_current'], data['stickers_prev'])})",
+        f"🎵 <b>Songs sent:</b> {data['songs_current']:,} ({_pct_change(data['songs_current'], data['songs_prev'])})",
         f"👥 <b>Active chats:</b> {active_count} ({new_chats} new)",
     ]
 

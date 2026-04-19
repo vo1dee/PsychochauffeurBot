@@ -1134,6 +1134,11 @@ class VideoDownloader:
 
             await self._send_audio(update, context, filename, title, source_url=music_url)
 
+            if update.effective_chat:
+                from modules.event_tracker import record_bot_event
+                user_id = update.effective_user.id if update.effective_user else None
+                await record_bot_event("song_sent", update.effective_chat.id, user_id)
+
         except Exception as e:
             error_logger.error(f"handle_music_platform_link error: {e}", exc_info=True)
             try:
