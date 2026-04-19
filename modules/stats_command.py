@@ -54,6 +54,7 @@ def _empty_stats_data(now: datetime, period_start: datetime, is_all_time: bool) 
         "media_prev": 0,
         "reactions_current": 0,
         "reactions_prev": 0,
+        "top_users": [],
     }
 
 
@@ -231,6 +232,17 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
               AND raw_telegram_message ? 'sticker'
         """, period_start_utc, now_utc, _prev_bound, chat_id)
 
+        # 14. Top users leaderboard
+        top_users = await conn.fetch("""
+            SELECT m.user_id, u.username, u.first_name, COUNT(*) AS cnt
+            FROM messages m
+            JOIN users u ON m.user_id = u.user_id
+            WHERE m.chat_id = $1 AND m.timestamp >= $2 AND m.timestamp < $3
+              AND u.is_bot = false
+            GROUP BY m.user_id, u.username, u.first_name
+            ORDER BY cnt DESC LIMIT 5
+        """, chat_id, period_start_utc, now_utc)
+
     return {
         "now": now,
         "period_start": period_start,
@@ -258,6 +270,7 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
         "reactions_prev": reactions["prev_count"] or 0 if prev_start_utc is not None else 0,
         "stickers_current": stickers["current_count"] or 0,
         "stickers_prev": stickers["prev_count"] or 0 if prev_start_utc is not None else 0,
+        "top_users": top_users,
     }
 
 
@@ -490,6 +503,15 @@ def format_stats(data: Dict[str, Any]) -> str:
         user_extras.append(f"{inactive_count} went inactive")
     user_note = f" ({', '.join(user_extras)})" if user_extras else ""
     lines.append(f"🧍‍♂️ <b>Active users:</b> {active_count}{user_note}")
+
+    # Chat leaderboard
+    if data.get("top_users"):
+        lines.append("")
+        lines.append("🏆 <b>Leaderboard:</b>")
+        for i, user in enumerate(data["top_users"], 1):
+            name = f"@{user['username']}" if user["username"] else _html(user["first_name"])
+            lines.append(f" {i}. {name} — {user['cnt']:,}")
+        lines.append("")
 
     # Most used command
     if data["top_commands"]:
