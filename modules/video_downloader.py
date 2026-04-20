@@ -1375,6 +1375,10 @@ class VideoDownloader:
                 await self._send_inline_error(query, "Failed to upload audio")
 
         except Exception as e:
+            err_str = str(e).lower()
+            if "too old" in err_str or "query id is invalid" in err_str:
+                error_logger.debug(f"Inline song search: stale query skipped: {e}")
+                return
             error_logger.error(f"Inline song search error: {e}")
             await self._send_inline_error(query, str(e))
         finally:

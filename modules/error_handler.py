@@ -350,12 +350,17 @@ def handle_errors(feedback_message: Optional[str] = None) -> Callable[[F], F]:
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
+                from telegram.error import BadRequest
+                if isinstance(e, BadRequest) and "message to be replied not found" in str(e).lower():
+                    error_logger.debug(f"Skipping reply to deleted message in {func.__name__}: {e}")
+                    return None
+
                 # Get the update and context objects
                 update = next((arg for arg in args if isinstance(arg, Update)), None)
                 # Fix: Use the actual imported class instead of subscripted generic
                 from telegram.ext import CallbackContext
                 context = next((arg for arg in args if isinstance(arg, CallbackContext)), None)
-                
+
                 # Handle the error
                 await ErrorHandler.handle_error(
                     error=e,
