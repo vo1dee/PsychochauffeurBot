@@ -275,8 +275,8 @@ class CommandRegistry(ServiceInterface):
         from modules.handlers.gpt_commands import (
             ask_gpt_command,
             analyze_command,
-            mystats_command,
         )
+        from modules.stats_command import mystats_command
 
         # Ask GPT command
         self.register_command(
