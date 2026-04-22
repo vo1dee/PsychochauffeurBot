@@ -13,10 +13,13 @@ from typing import Optional, Tuple, List, Dict, Any, Callable, TypedDict, cast
 from asyncio import Semaphore
 from dataclasses import dataclass
 from enum import Enum
-from telegram import Update, InlineQueryResultCachedAudio, InlineQueryResultArticle, InputTextMessageContent
+from telegram import (Update, InlineQueryResultCachedAudio, InlineQueryResultArticle,
+                       InputTextMessageContent, InlineKeyboardMarkup, InlineKeyboardButton)
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes, MessageHandler, filters, InlineQueryHandler
-from modules.const import VideoPlatforms, InstagramConfig, MUSIC_DIR
+from modules.const import (VideoPlatforms, InstagramConfig, MUSIC_DIR,
+                            SONG_CACHE_PATH, SONG_CACHE_CHAT_ID, SONG_CACHE_THREAD_ID)
+from modules.song_cache import SongCache
 from modules.utils import extract_urls
 from modules.logger import (
     TelegramErrorHandler,
@@ -55,6 +58,68 @@ class VideoDownloader:
         "CAACAgQAAxkBAAExX31nn7xByvIhPZHPreVkPONIn82IKgACgxcAAuYrIFHS_QFCSfHYGTYE"
     ]
 
+    @staticmethod
+    def _compose_display_title(meta: dict) -> tuple:
+        """Return (display_title, performer, webpage_url) from yt-dlp JSON metadata."""
+        import re as _re
+
+        def clean(s):
+            return s.strip() if isinstance(s, str) else None
+
+        artist = clean(meta.get('artist'))
+        track = clean(meta.get('track'))
+        title = clean(meta.get('title')) or ''
+        uploader = clean(meta.get('uploader')) or ''
+        webpage_url = clean(meta.get('webpage_url')) or ''
+
+        # Normalize unicode dashes in title
+        title = _re.sub(r'[–—]', ' - ', title)
+
+        # Strip common trailing noise from title
+        _noise = [
+            r'\s*\(Official\s+(?:Music\s+)?Video\)',
+            r'\s*\[Official\s+(?:Music\s+)?Video\]',
+            r'\s*\(Official\s+Audio\)',
+            r'\s*\[Official\s+Audio\]',
+            r'\s*\(Lyric\s+Video\)',
+            r'\s*\[Lyric\s+Video\]',
+            r'\s*\(HD\)',
+            r'\s*\[HD\]',
+            r'\s*\(4K\)',
+            r'\s*\[4K\]',
+            r'\s*\(Remastered(?:\s+\d+)?\)',
+            r'\s*\[Remastered(?:\s+\d+)?\]',
+            r'\s*\(Explicit\)',
+            r'\s*\[Explicit\]',
+        ]
+        for pattern in _noise:
+            title = _re.sub(pattern, '', title, flags=_re.IGNORECASE).strip()
+
+        # Strip ' - Topic' / 'VEVO' from uploader
+        uploader_clean = _re.sub(r'\s*-\s*Topic\s*$', '', uploader, flags=_re.IGNORECASE).strip()
+        uploader_clean = _re.sub(r'VEVO\s*$', '', uploader_clean, flags=_re.IGNORECASE).strip() or uploader_clean
+
+        # Priority 1: structured artist + track fields
+        if artist and track:
+            display = f"{artist} - {track}"
+            return display, artist, webpage_url
+
+        # Priority 2: split on ' - ' in the cleaned title
+        if ' - ' in title:
+            left, right = title.rsplit(' - ', 1)
+            left, right = left.strip(), right.strip()
+            if left and right:
+                display = f"{left} - {right}"
+                return display, left, webpage_url
+
+        # Priority 3: uploader + title
+        if uploader_clean and title:
+            display = f"{uploader_clean} - {title}"
+            return display, uploader_clean, webpage_url
+
+        display = title or uploader_clean or 'Audio'
+        return display, None, webpage_url
+
     def __init__(self, download_path: str = 'downloads', extract_urls_func: Optional[Callable[..., Any]] = None, config_manager: Optional[Any] = None) -> None:
         self.supported_platforms = VideoPlatforms.SUPPORTED_PLATFORMS
         self.download_path = os.path.abspath(download_path)
@@ -82,6 +147,13 @@ class VideoDownloader:
         self._verify_yt_dlp()
         self._download_semaphore = Semaphore(3)  # Allow up to 3 concurrent downloads
         self.last_download: Dict[str, Any] = {}
+
+        # Song file_id cache (persists across restarts)
+        self.song_cache = SongCache(SONG_CACHE_PATH)
+        # Background caching state
+        self._bg_tasks: set = set()
+        self._inflight: Dict[str, Any] = {}  # video_id -> asyncio.Task
+        self._bg_semaphore = Semaphore(2)
         
         # Platform-specific download configurations
         self.platform_configs = {
@@ -698,15 +770,17 @@ class VideoDownloader:
                 except Exception:
                     pass  # cleanup
 
-    async def download_youtube_music(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-        """Download audio from YouTube Music as MP3 using multiple strategies."""
+    async def download_youtube_music(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
+        """Download audio from YouTube Music as MP3.
+
+        Returns:
+            (filename, display_title, performer, webpage_url, video_id) or (None, None, None, None, None)
+        """
         error_logger.info(f"🎵 Starting YouTube Music download for: {url}")
 
-        # Ensure music directory exists
         os.makedirs(MUSIC_DIR, exist_ok=True)
 
-        # Use yt-dlp output template for proper Artist - Title naming
-        output_template = os.path.join(MUSIC_DIR, '%(artist,uploader)s - %(title)s.%(ext)s')
+        output_template = os.path.join(MUSIC_DIR, '%(title)s.%(ext)s')
 
         # Environment with deno in PATH for JS challenge solving
         env = os.environ.copy()
@@ -775,7 +849,8 @@ class VideoDownloader:
                 '--no-playlist',
                 '--socket-timeout', '30',
                 '--retries', '3',
-                '--print', 'after_move:filepath',  # Print final filepath after processing
+                '--print', 'after_move:%(.{id,artist,track,title,uploader,duration,webpage_url})j',
+                '--print', 'after_move:filepath',
             ]
 
             # Add cookies if available
@@ -796,16 +871,24 @@ class VideoDownloader:
 
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=180.0)
 
-                # Get the actual output filepath from yt-dlp's --print output
-                output_path = stdout.decode().strip().split('\n')[-1] if stdout else None
+                lines = [l for l in stdout.decode().strip().split('\n') if l.strip()] if stdout else []
+                output_path = lines[-1] if lines else None
+                meta = {}
+                for line in lines[:-1]:
+                    try:
+                        meta = json.loads(line)
+                        break
+                    except Exception:
+                        pass
 
                 if process.returncode == 0 and output_path and os.path.exists(output_path):
                     file_size = os.path.getsize(output_path)
                     error_logger.info(f"   ✅ Strategy '{strategy['name']}' succeeded! Downloaded {file_size} bytes")
 
-                    # Extract title from filename (Artist - Title.mp3 -> Artist - Title)
-                    title = os.path.splitext(os.path.basename(output_path))[0]
-                    return output_path, title
+                    display_title, performer, webpage_url = self._compose_display_title(meta)
+                    video_id = meta.get('id') or ''
+                    webpage_url = webpage_url or url
+                    return output_path, display_title, performer, webpage_url, video_id
                 else:
                     stderr_text = stderr.decode()
                     error_logger.warning(f"   ❌ Strategy '{strategy['name']}' failed (code {process.returncode})")
@@ -818,7 +901,7 @@ class VideoDownloader:
                 error_logger.error(f"   ❌ Strategy '{strategy['name']}' error: {e}")
 
         error_logger.error(f"❌ All YouTube Music strategies failed for {url}")
-        return None, None
+        return None, None, None, None, None
 
     async def resolve_streaming_url(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         """Extract track title and artist from a streaming platform URL.
@@ -954,20 +1037,20 @@ class VideoDownloader:
 
         return None, None
 
-    async def search_and_download_track(self, query: str) -> Tuple[Optional[str], Optional[str]]:
+    async def search_and_download_track(self, query: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
         """Search YouTube for a track and download it as MP3.
 
         Args:
             query: Search query, e.g. "Artist - Song Name"
 
         Returns:
-            (filename, title) tuple, or (None, None) on failure.
+            (filename, display_title, performer, webpage_url, video_id) or (None, None, None, None, None)
         """
         search_query = f"ytsearch1:{query} official audio"
         error_logger.info(f"🔎 Searching YouTube: {search_query}")
 
         os.makedirs(MUSIC_DIR, exist_ok=True)
-        output_template = os.path.join(MUSIC_DIR, '%(artist,uploader)s - %(title)s.%(ext)s')
+        output_template = os.path.join(MUSIC_DIR, '%(title)s.%(ext)s')
 
         env = os.environ.copy()
         deno_path = os.path.expanduser('~/.deno/bin')
@@ -993,6 +1076,7 @@ class VideoDownloader:
             '--no-playlist',
             '--socket-timeout', '30',
             '--retries', '3',
+            '--print', 'after_move:%(.{id,artist,track,title,uploader,duration,webpage_url})j',
             '--print', 'after_move:filepath',
         ]
         if cookies_args:
@@ -1006,28 +1090,38 @@ class VideoDownloader:
                 env=env,
             )
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=180.0)
-            output_path = stdout.decode().strip().split('\n')[-1] if stdout else None
+
+            lines = [l for l in stdout.decode().strip().split('\n') if l.strip()] if stdout else []
+            output_path = lines[-1] if lines else None
+            meta = {}
+            for line in lines[:-1]:
+                try:
+                    meta = json.loads(line)
+                    break
+                except Exception:
+                    pass
 
             if process.returncode == 0 and output_path and os.path.exists(output_path):
-                title = os.path.splitext(os.path.basename(output_path))[0]
-                error_logger.info(f"✅ Track downloaded: {title}")
-                return output_path, title
+                display_title, performer, webpage_url = self._compose_display_title(meta)
+                video_id = meta.get('id') or ''
+                error_logger.info(f"✅ Track downloaded: {display_title}")
+                return output_path, display_title, performer, webpage_url, video_id
             else:
                 error_logger.warning(f"Track search/download failed (code {process.returncode}): {stderr.decode()[:200]}")
         except asyncio.TimeoutError:
             error_logger.warning(f"Track search timed out for query: {query}")
         except Exception as e:
             error_logger.error(f"search_and_download_track error: {e}")
-        return None, None
+        return None, None, None, None, None
 
-    async def download_music_platform_url(self, url: str) -> Tuple[Optional[str], Optional[str]]:
+    async def download_music_platform_url(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
         """Download audio from a streaming platform URL.
 
         For SoundCloud: downloads directly via yt-dlp.
         For Spotify/Deezer/Apple Music: resolves metadata, then searches YouTube.
 
         Returns:
-            (filename, title) tuple, or (None, None) on failure.
+            (filename, display_title, performer, webpage_url, video_id) or 5-tuple of None
         """
         from modules.const import MusicPlatforms
 
@@ -1065,14 +1159,15 @@ class VideoDownloader:
                 if process.returncode == 0 and output_path and os.path.exists(output_path):
                     title = os.path.splitext(os.path.basename(output_path))[0]
                     error_logger.info(f"✅ SoundCloud downloaded: {title}")
-                    return output_path, title
+                    # SoundCloud: uploader is the artist; no YouTube video_id
+                    return output_path, title, None, url, ''
                 else:
                     error_logger.warning(f"SoundCloud download failed: {stderr.decode()[:200]}")
             except asyncio.TimeoutError:
                 error_logger.warning(f"SoundCloud download timed out: {url}")
             except Exception as e:
                 error_logger.error(f"SoundCloud download error: {e}")
-            return None, None
+            return None, None, None, None, None
 
         # Spotify / Deezer / Apple Music: resolve metadata then search YouTube
         title, artist = await self.resolve_streaming_url(url)
@@ -1080,7 +1175,7 @@ class VideoDownloader:
             query = f"{artist} - {title}" if artist else title
         else:
             error_logger.error(f"❌ Could not resolve metadata for music URL: {url}")
-            return None, None
+            return None, None, None, None, None
 
         return await self.search_and_download_track(query)
 
@@ -1116,7 +1211,7 @@ class VideoDownloader:
 
         filename = None
         try:
-            filename, title = await self.download_music_platform_url(music_url)
+            filename, title, performer, youtube_url, video_id = await self.download_music_platform_url(music_url)
 
             if not filename or not os.path.exists(filename):
                 await processing_msg.edit_text("❌ Failed to download track.")
@@ -1132,7 +1227,9 @@ class VideoDownloader:
             except Exception:
                 pass
 
-            await self._send_audio(update, context, filename, title, source_url=music_url)
+            await self._send_audio(update, context, filename, title,
+                                   performer=performer, youtube_url=youtube_url,
+                                   platform_url=music_url)
 
             if update.effective_chat:
                 from modules.event_tracker import record_bot_event
@@ -1153,11 +1250,14 @@ class VideoDownloader:
                     pass
 
     async def _send_audio(self, update: Update, context: ContextTypes.DEFAULT_TYPE,
-                          filename: str, title: Optional[str], source_url: Optional[str] = None) -> None:
+                          filename: str, title: Optional[str],
+                          performer: Optional[str] = None,
+                          youtube_url: Optional[str] = None,
+                          platform_url: Optional[str] = None) -> None:
         """Send downloaded audio file to chat."""
         try:
             file_size = os.path.getsize(filename)
-            max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
+            max_size = 50 * 1024 * 1024
 
             if file_size > max_size:
                 error_logger.warning(f"Audio file too large: {file_size} bytes")
@@ -1165,45 +1265,42 @@ class VideoDownloader:
                     await update.message.reply_text("❌ Audio file too large to send.")
                 return
 
-            # Escape all special characters for Markdown V2
             special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-            escaped_title = title or "Audio"
-            for char in special_chars:
-                escaped_title = escaped_title.replace(char, f'\\{char}')
 
-            # Get username and escape it
+            def esc(s: str) -> str:
+                for c in special_chars:
+                    s = s.replace(c, f'\\{c}')
+                return s
+
             username = "Unknown"
             if update.effective_user:
                 username = update.effective_user.username or update.effective_user.first_name or "Unknown"
-            escaped_username = username
-            for char in special_chars:
-                escaped_username = escaped_username.replace(char, f'\\{char}')
 
-            caption = f"🎵 {escaped_title}\n\n👤 Від: @{escaped_username}"
+            caption = f"🎵 {esc(title or 'Audio')}\n\n👤 Від: @{esc(username)}"
 
-            if source_url:
-                escaped_url = source_url
-                for char in special_chars:
-                    escaped_url = escaped_url.replace(char, f'\\{char}')
-                caption += f"\n\n🔗 [Посилання]({escaped_url})"
+            if platform_url:
+                caption += f"\n\n🔗 [Посилання]({esc(platform_url)})"
+            if youtube_url:
+                caption += f"\n\n🔗 [YouTube]({esc(youtube_url)})"
+
+            reply_markup = None
+            if youtube_url:
+                reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 YouTube", url=youtube_url)]])
 
             with open(filename, 'rb') as audio_file:
+                send_kwargs = dict(
+                    audio=audio_file,
+                    title=title or 'Audio',
+                    performer=performer,
+                    caption=caption,
+                    parse_mode='MarkdownV2',
+                    reply_markup=reply_markup,
+                )
                 if update.message and update.message.reply_to_message:
-                    await update.message.reply_to_message.reply_audio(
-                        audio=audio_file,
-                        caption=caption,
-                        parse_mode='MarkdownV2'
-                    )
-                else:
-                    if update.effective_chat:
-                        await context.bot.send_audio(
-                            chat_id=update.effective_chat.id,
-                            audio=audio_file,
-                            caption=caption,
-                            parse_mode='MarkdownV2'
-                        )
+                    await update.message.reply_to_message.reply_audio(**send_kwargs)
+                elif update.effective_chat:
+                    await context.bot.send_audio(chat_id=update.effective_chat.id, **send_kwargs)
 
-            # Delete the original message after successful send
             try:
                 if update.message:
                     await update.message.delete()
@@ -1278,115 +1375,247 @@ class VideoDownloader:
             error_logger.error(f"🐱 Inline cat error: {e}")
             await query.answer([], cache_time=5)
 
-    async def _handle_inline_youtube_music(self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
-        """Handle inline YouTube Music download."""
-        error_logger.info(f"🎵 Inline YouTube Music: {url}")
+    async def fast_youtube_search(self, query: str, limit: int = 5, timeout: float = 8.0) -> list:
+        """Fast metadata-only YouTube search (no download).
+
+        Returns list of metadata dicts with id, title, artist, track, uploader, duration, webpage_url.
+        """
+        search_query = f"ytsearch{limit}:{query}"
+        env = os.environ.copy()
+        deno_path = os.path.expanduser('~/.deno/bin')
+        if os.path.exists(deno_path):
+            env['PATH'] = f"{deno_path}:{env.get('PATH', '')}"
+
+        cmd = [
+            self.yt_dlp_path, search_query,
+            '--skip-download',
+            '--no-playlist',
+            '--no-check-certificate',
+            '--socket-timeout', '10',
+            '--print', '%(.{id,title,artist,track,uploader,duration,webpage_url})j',
+        ]
+
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        yt_cookies_path = os.path.join(project_root, "youtube_cookies.txt")
+        if os.path.exists(yt_cookies_path):
+            cmd.extend(['--cookies', yt_cookies_path])
 
         try:
-            # Download the track
-            filename, title = await self.download_youtube_music(url)
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            results = []
+            for line in stdout.decode().strip().split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    results.append(json.loads(line))
+                except Exception:
+                    pass
+            return results
+        except asyncio.TimeoutError:
+            error_logger.warning(f"fast_youtube_search timed out for: {query}")
+        except Exception as e:
+            error_logger.error(f"fast_youtube_search error: {e}")
+        return []
 
-            if filename and os.path.exists(filename):
-                file_size = os.path.getsize(filename)
+    def _schedule_background_cache(self, meta: dict, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Trigger a background download and cache for a single search hit."""
+        video_id = meta.get('id', '')
+        if not video_id or video_id in self._inflight or self.song_cache.get(video_id):
+            return
 
-                if file_size > 50 * 1024 * 1024:
-                    error_logger.warning(f"Inline: Audio file too large: {file_size}")
-                    await self._send_inline_error(query, "Audio file too large")
+        task = asyncio.create_task(self._run_background_cache(meta, context))
+        self._inflight[video_id] = task
+        self._bg_tasks.add(task)
+
+        def _done(t: asyncio.Task) -> None:
+            self._bg_tasks.discard(t)
+            self._inflight.pop(video_id, None)
+
+        task.add_done_callback(_done)
+
+    async def _run_background_cache(self, meta: dict, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Download audio and upload to cache channel to obtain a Telegram file_id."""
+        video_id = meta.get('id', '')
+        webpage_url = meta.get('webpage_url', '')
+        if not webpage_url:
+            return
+
+        error_logger.info(f"🔄 Background cache start: {video_id} ({webpage_url})")
+        try:
+            async with self._bg_semaphore:
+                filename, display_title, performer, yt_url, vid = await self.download_youtube_music(webpage_url)
+                if not filename or not os.path.exists(filename):
+                    error_logger.warning(f"Background cache: download failed for {video_id}")
                     return
 
-                # Send file to user privately to get file_id (will be deleted immediately)
-                with open(filename, 'rb') as audio_file:
-                    message = await context.bot.send_audio(
-                        chat_id=query.from_user.id,
-                        audio=audio_file,
-                        title=title or "Audio",
-                        disable_notification=True
-                    )
+                try:
+                    with open(filename, 'rb') as audio_file:
+                        msg = await context.bot.send_audio(
+                            chat_id=SONG_CACHE_CHAT_ID,
+                            message_thread_id=SONG_CACHE_THREAD_ID,
+                            audio=audio_file,
+                            title=display_title,
+                            performer=performer,
+                            caption=f"🔗 {yt_url or webpage_url}",
+                            disable_notification=True,
+                        )
 
-                if message and message.audio:
-                    # Delete the temporary message from private chat
+                    if msg and msg.audio:
+                        self.song_cache.set(
+                            video_id=video_id,
+                            file_id=msg.audio.file_id,
+                            title=display_title or 'Audio',
+                            performer=performer,
+                            webpage_url=yt_url or webpage_url,
+                            duration=meta.get('duration'),
+                        )
+                        error_logger.info(f"✅ Background cache done: {video_id} → {msg.audio.file_id}")
+                finally:
                     try:
-                        await message.delete()
-                    except Exception as e:
-                        error_logger.warning(f"Could not delete temp message: {e}")
+                        os.remove(filename)
+                    except Exception:
+                        pass
+        except Exception as e:
+            error_logger.exception(f"Background cache error for {video_id}: {e}")
 
+    @staticmethod
+    def _extract_video_id_from_url(url: str) -> str:
+        """Extract YouTube video ID from a URL."""
+        import re as _re
+        m = _re.search(r'[?&v=]([a-zA-Z0-9_-]{11})', url)
+        return m.group(1) if m else ''
+
+    async def _handle_inline_youtube_music(self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
+        """Handle inline YouTube Music URL — check cache first, else article + background cache."""
+        error_logger.info(f"🎵 Inline YouTube Music: {url}")
+
+        video_id = self._extract_video_id_from_url(url)
+        yt_button = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 YouTube", url=url)]])
+
+        # Cache hit: return instantly
+        if video_id:
+            cached = self.song_cache.get(video_id)
+            if cached:
+                try:
                     results = [
                         InlineQueryResultCachedAudio(
-                            id=f'audio_{uuid.uuid4().hex[:8]}',
-                            audio_file_id=message.audio.file_id,
-                            caption=f"🎵 {title}\n\n🔗 {url}"
+                            id=f'yt_{uuid.uuid4().hex[:8]}',
+                            audio_file_id=cached['file_id'],
+                            caption=f"🎵 {cached.get('title', 'Audio')}\n\n🔗 [YouTube]({url})",
+                            parse_mode='MarkdownV2',
+                            reply_markup=yt_button,
                         )
                     ]
                     await query.answer(results, cache_time=300)
-                    error_logger.info(f"✅ Inline audio ready: {title}")
-                else:
-                    await self._send_inline_error(query, "Failed to upload audio")
-            else:
-                await self._send_inline_error(query, "Download failed")
+                    error_logger.info(f"✅ Inline YT Music (cached): {cached.get('title')}")
+                    return
+                except Exception as e:
+                    err = str(e).lower()
+                    if 'file_id' in err or 'invalid' in err:
+                        self.song_cache.evict(video_id)
+                    error_logger.warning(f"Inline YT Music cache hit failed: {e}")
 
+        # Cache miss: return article with YouTube link, trigger background download
+        meta = {'id': video_id, 'webpage_url': url, 'title': '', 'artist': None,
+                'track': None, 'uploader': '', 'duration': None}
+        # Try fast metadata lookup for a nicer display title
+        hits = await self.fast_youtube_search(url, limit=1, timeout=5.0)
+        if hits:
+            meta = hits[0]
+
+        display_title, _, _ = self._compose_display_title(meta)
+
+        results = [
+            InlineQueryResultArticle(
+                id=f'yt_article_{uuid.uuid4().hex[:8]}',
+                title=display_title,
+                description="Audio will be cached for next search",
+                input_message_content=InputTextMessageContent(
+                    f"🎵 {display_title}\n🔗 {url}",
+                ),
+                reply_markup=yt_button,
+            )
+        ]
+        try:
+            await query.answer(results, cache_time=5, is_personal=True)
         except Exception as e:
-            error_logger.error(f"Inline YouTube Music error: {e}")
-            await self._send_inline_error(query, str(e))
+            error_logger.error(f"Inline YT Music article answer error: {e}")
+
+        self._schedule_background_cache(meta, context)
 
     async def _handle_inline_song_search(self, query: Any, context: ContextTypes.DEFAULT_TYPE, search_text: str) -> None:
-        """Handle inline song search by text query."""
+        """Handle inline song search — fast metadata search, serve cached audio or article fallback."""
         error_logger.info(f"🎵 Inline song search: '{search_text}'")
 
-        try:
-            filename, title = await self.search_and_download_track(search_text)
+        hits = await self.fast_youtube_search(search_text, limit=5, timeout=7.0)
+        if not hits:
+            await self._send_inline_error(query, "No results found")
+            return
 
-            if not filename or not os.path.exists(filename):
-                await self._send_inline_error(query, "No results found")
-                return
+        results = []
+        uncached_hits = []
 
-            file_size = os.path.getsize(filename)
-            if file_size > 50 * 1024 * 1024:
-                await self._send_inline_error(query, "Audio file too large")
+        for hit in hits:
+            video_id = hit.get('id', '')
+            display_title, performer, webpage_url = self._compose_display_title(hit)
+            webpage_url = webpage_url or hit.get('webpage_url', '')
+
+            yt_button = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔗 YouTube", url=webpage_url)]]
+            ) if webpage_url else None
+
+            cached = self.song_cache.get(video_id) if video_id else None
+            if cached:
                 try:
-                    os.remove(filename)
-                except Exception:
-                    pass
-                return
-
-            with open(filename, 'rb') as audio_file:
-                message = await context.bot.send_audio(
-                    chat_id=query.from_user.id,
-                    audio=audio_file,
-                    title=title or search_text,
-                    disable_notification=True,
-                )
-
-            if message and message.audio:
-                try:
-                    await message.delete()
-                except Exception as e:
-                    error_logger.warning(f"Could not delete temp message: {e}")
-
-                results = [
-                    InlineQueryResultCachedAudio(
-                        id=f'song_{uuid.uuid4().hex[:8]}',
-                        audio_file_id=message.audio.file_id,
-                        caption=f"🎵 {title or search_text}",
+                    caption = f"🎵 {cached.get('title', display_title)}"
+                    if webpage_url:
+                        caption += f"\n\n🔗 [YouTube]({webpage_url})"
+                    results.append(
+                        InlineQueryResultCachedAudio(
+                            id=f'song_{uuid.uuid4().hex[:8]}',
+                            audio_file_id=cached['file_id'],
+                            caption=caption,
+                            parse_mode='MarkdownV2',
+                            reply_markup=yt_button,
+                        )
                     )
-                ]
-                await query.answer(results, cache_time=300)
-                error_logger.info(f"✅ Inline song search done: {title}")
-            else:
-                await self._send_inline_error(query, "Failed to upload audio")
+                    continue
+                except Exception as e:
+                    err = str(e).lower()
+                    if 'file_id' in err or 'invalid' in err:
+                        self.song_cache.evict(video_id)
+                    error_logger.warning(f"Song cache hit failed for {video_id}: {e}")
 
+            # Article fallback for uncached results
+            results.append(
+                InlineQueryResultArticle(
+                    id=f'song_article_{uuid.uuid4().hex[:8]}',
+                    title=display_title,
+                    description="Tap to send YouTube link. Audio caching in background…",
+                    input_message_content=InputTextMessageContent(
+                        f"🎵 {display_title}\n🔗 {webpage_url}" if webpage_url else f"🎵 {display_title}",
+                    ),
+                    reply_markup=yt_button,
+                )
+            )
+            uncached_hits.append(hit)
+
+        all_cached = len(uncached_hits) == 0
+        try:
+            await query.answer(results, cache_time=300 if all_cached else 5, is_personal=True)
+            error_logger.info(f"✅ Inline song search answered: {len(results)} results ({len(uncached_hits)} uncached)")
         except Exception as e:
-            err_str = str(e).lower()
-            if "too old" in err_str or "query id is invalid" in err_str:
-                error_logger.debug(f"Inline song search: stale query skipped: {e}")
-                return
-            error_logger.error(f"Inline song search error: {e}")
-            await self._send_inline_error(query, str(e))
-        finally:
-            if filename and os.path.exists(filename):
-                try:
-                    os.remove(filename)
-                except Exception:
-                    pass
+            error_logger.error(f"Inline song search answer error: {e}")
+
+        for hit in uncached_hits:
+            self._schedule_background_cache(hit, context)
 
     async def _handle_inline_tiktok(self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
         """Handle inline TikTok video download."""
@@ -1793,9 +2022,10 @@ class VideoDownloader:
 
                 if is_youtube_music:
                     # Handle YouTube Music - download as MP3
-                    filename, title = await self.download_youtube_music(url)
+                    filename, title, performer, youtube_url, video_id = await self.download_youtube_music(url)
                     if filename and os.path.exists(filename):
-                        await self._send_audio(update, context, filename, title, source_url=url)
+                        await self._send_audio(update, context, filename, title,
+                                               performer=performer, youtube_url=youtube_url or url)
                     else:
                         await self._handle_download_error(update, url)
                 else:
