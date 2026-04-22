@@ -16,6 +16,9 @@ DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 LOG_DIR = os.path.join(PROJECT_ROOT, "logs")
 DOWNLOADS_DIR = os.path.join(PROJECT_ROOT, "downloads")
 MUSIC_DIR = os.path.join(DATA_DIR, "music")
+SONG_CACHE_PATH = os.path.join(DATA_DIR, 'song_cache.json')
+SONG_CACHE_CHAT_ID = -1002597639960
+SONG_CACHE_THREAD_ID = 4248
 
 # Define timezone constant
 KYIV_TZ = pytz.timezone("Europe/Kyiv")
