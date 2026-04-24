@@ -73,6 +73,10 @@ class DownloadConfig:
     extra_args: Optional[List[str]] = None
 
 
+class LowConfidenceMatchError(Exception):
+    """Raised when no YouTube candidate passes the metadata confidence gate."""
+
+
 class VideoDownloader:
     ERROR_STICKERS = [
         "CAACAgQAAxkBAAExX39nn7xI2ENP9ev7Ib1-0GCV0TcFvwACNxUAAn_QmFB67ToFiTpdgTYE",
@@ -1227,13 +1231,13 @@ class VideoDownloader:
 
     async def resolve_streaming_url(
         self, url: str
-    ) -> Tuple[Optional[str], Optional[str]]:
-        """Extract track title and artist from a streaming platform URL.
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """Extract track title, artist, and duration from a streaming platform URL.
 
         Uses platform-specific HTTP APIs (not yt-dlp, which refuses DRM-protected sites).
 
         Returns:
-            (title, artist) tuple, or (None, None) on failure.
+            (title, artist, duration_s) tuple, or (None, None, None) on failure.
         """
         general_logger.info(f"Resolving streaming URL metadata: {url}")
 
@@ -1252,7 +1256,7 @@ class VideoDownloader:
         except Exception as e:
             error_logger.error(f"resolve_streaming_url error for {url}: {e}")
 
-        return None, None
+        return None, None, None
 
     def _is_music_platform_url(self, url: str) -> bool:
         """Check whether URL points to a supported music platform."""
@@ -1285,25 +1289,98 @@ class VideoDownloader:
     @staticmethod
     def _extract_spotify_artist_from_description(description: str) -> Optional[str]:
         """Extract artist from Spotify description style metadata."""
+        _, artist = VideoDownloader._extract_spotify_title_artist_from_description(
+            description
+        )
+        return artist
+
+    @staticmethod
+    def _extract_spotify_title_artist_from_description(
+        description: str,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Extract track title and artist from Spotify description style metadata."""
         normalized = html_lib.unescape(description).strip()
         if not normalized:
-            return None
+            return None, None
 
         # Example: "Listen to <track> on Spotify. Song · Artist · 2025"
+        listen_match = re.search(
+            r"Listen to\s+(.+?)\s+on Spotify\.\s*Song\s*[·•]\s*([^·•]+)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if listen_match:
+            return listen_match.group(1).strip(), listen_match.group(2).strip()
+
+        track_song_match = re.search(
+            r"^(.+?)\s*[·•]\s*Song\s*[·•]\s*([^·•]+)", normalized, flags=re.IGNORECASE
+        )
+        if track_song_match:
+            return track_song_match.group(1).strip(), track_song_match.group(2).strip()
+
         song_match = re.search(
             r"\bSong\s*[·•]\s*([^·•]+)", normalized, flags=re.IGNORECASE
         )
         if song_match:
-            return song_match.group(1).strip()
+            return None, song_match.group(1).strip()
 
         parts = [p.strip() for p in re.split(r"\s*[·•]\s*", normalized) if p.strip()]
         if len(parts) >= 2:
             # For "Track · Artist" or "... Song · Artist ..."
             if parts[0].lower() not in {"song", "album", "single", "ep", "playlist"}:
-                return parts[1]
+                return parts[0], parts[1]
             if len(parts) >= 3:
-                return parts[2]
-        return None
+                return parts[0], parts[2]
+        return None, None
+
+    @staticmethod
+    def _normalize_spotify_title(title: Optional[str]) -> Optional[str]:
+        """Normalize Spotify title text from HTML/oEmbed sources."""
+        if not title:
+            return None
+
+        normalized = html_lib.unescape(title).strip()
+        if not normalized:
+            return None
+
+        normalized = re.sub(r"\s*\|\s*Spotify\s*$", "", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(
+            r"\s*-\s*song and lyrics by .*$", "", normalized, flags=re.IGNORECASE
+        )
+        listen_match = re.match(
+            r"Listen to\s+(.+?)\s+on Spotify\.?$", normalized, flags=re.IGNORECASE
+        )
+        if listen_match:
+            normalized = listen_match.group(1).strip()
+        return normalized
+
+    @staticmethod
+    def _is_generic_spotify_title(title: Optional[str]) -> bool:
+        """Detect non-track generic Spotify page titles."""
+        if not title:
+            return False
+
+        normalized = title.strip().casefold()
+        if not normalized:
+            return False
+        if normalized == "spotify":
+            return True
+        if normalized.startswith("spotify - web player"):
+            return True
+        if normalized in {
+            "spotify - web player: music for everyone",
+            "open.spotify.com",
+        }:
+            return True
+        return False
+
+    @staticmethod
+    def _extract_spotify_track_id(url: str) -> Optional[str]:
+        """Extract Spotify track ID from URL."""
+        match = re.search(r"spotify\.com/track/([A-Za-z0-9]+)", url)
+        if not match:
+            return None
+        return match.group(1)
 
     def _extract_artist_from_json_node(self, node: Any) -> Optional[str]:
         """Recursively extract artist name from JSON-LD node."""
@@ -1334,6 +1411,39 @@ class VideoDownloader:
 
     def _extract_spotify_artist_from_json_ld(self, html_text: str) -> Optional[str]:
         """Extract artist name from Spotify JSON-LD blocks."""
+        _, artist = self._extract_spotify_title_artist_from_json_ld(html_text)
+        return artist
+
+    def _extract_spotify_title_artist_from_json_node(
+        self, node: Any
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Recursively extract title/artist pair from JSON-LD node."""
+        if isinstance(node, dict):
+            name = node.get("name")
+            has_artist_fields = any(
+                key in node for key in ("byArtist", "artist", "creator", "author")
+            )
+            if isinstance(name, str) and name.strip() and has_artist_fields:
+                candidate_title = self._normalize_spotify_title(name)
+                candidate_artist = self._extract_artist_from_json_node(node)
+                if candidate_title and candidate_artist:
+                    return candidate_title, candidate_artist
+
+            for value in node.values():
+                title, artist = self._extract_spotify_title_artist_from_json_node(value)
+                if title or artist:
+                    return title, artist
+        elif isinstance(node, list):
+            for item in node:
+                title, artist = self._extract_spotify_title_artist_from_json_node(item)
+                if title or artist:
+                    return title, artist
+        return None, None
+
+    def _extract_spotify_title_artist_from_json_ld(
+        self, html_text: str
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Extract title and artist from Spotify JSON-LD blocks."""
         script_blocks = re.findall(
             r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
             html_text,
@@ -1347,10 +1457,10 @@ class VideoDownloader:
                 payload = json.loads(payload_text)
             except Exception:
                 continue
-            candidate = self._extract_artist_from_json_node(payload)
-            if candidate:
-                return candidate
-        return None
+            title, artist = self._extract_spotify_title_artist_from_json_node(payload)
+            if title or artist:
+                return title, artist
+        return None, None
 
     def _extract_music_url_from_text(self, value: str) -> Optional[str]:
         """Extract a supported music URL from plain or encoded text."""
@@ -1510,7 +1620,7 @@ class VideoDownloader:
 
     async def _resolve_deezer(
         self, session: aiohttp.ClientSession, url: str
-    ) -> Tuple[Optional[str], Optional[str]]:
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         """Resolve Deezer track metadata via Deezer public API."""
         try:
             async with session.get(
@@ -1528,7 +1638,7 @@ class VideoDownloader:
             general_logger.warning(
                 f"Could not extract Deezer track ID from {final_url}"
             )
-            return None, None
+            return None, None, None
 
         track_id = match.group(1)
         try:
@@ -1540,8 +1650,9 @@ class VideoDownloader:
                     data = await response.json()
                     title = data.get("title")
                     artist = data.get("artist", {}).get("name")
-                    general_logger.info(f"Deezer resolved: '{artist} - {title}'")
-                    return title, artist
+                    duration_s = data.get("duration")
+                    general_logger.info(f"Deezer resolved: '{artist} - {title}' ({duration_s}s)")
+                    return title, artist, duration_s if isinstance(duration_s, int) else None
                 else:
                     general_logger.warning(
                         f"Deezer API returned {response.status} for track {track_id}"
@@ -1549,12 +1660,106 @@ class VideoDownloader:
         except Exception as e:
             general_logger.warning(f"Deezer API call failed for track {track_id}: {e}")
 
-        return None, None
+        return None, None, None
+
+    async def _resolve_spotify_via_embed(
+        self, session: aiohttp.ClientSession, track_id: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """Resolve Spotify track metadata from the embed page __NEXT_DATA__ JSON blob."""
+        try:
+            embed_url = f"https://open.spotify.com/embed/track/{track_id}"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "text/html",
+            }
+            async with session.get(
+                embed_url,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    return None, None, None
+                html_text = await response.text()
+
+            match = re.search(
+                r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>\s*(\{.*?\})\s*</script>',
+                html_text,
+                re.DOTALL,
+            )
+            if not match:
+                return None, None, None
+
+            data = json.loads(match.group(1))
+            entity = (
+                data.get("props", {})
+                .get("pageProps", {})
+                .get("state", {})
+                .get("data", {})
+                .get("entity", {})
+            )
+            if not entity:
+                return None, None, None
+
+            title = self._normalize_spotify_title(entity.get("name"))
+            if not title:
+                return None, None, None
+
+            artists_raw = entity.get("artists") or []
+            if isinstance(artists_raw, dict):
+                artists_raw = artists_raw.get("items", [])
+            artist_names = []
+            for a in artists_raw:
+                if not isinstance(a, dict):
+                    continue
+                name = a.get("name") or a.get("profile", {}).get("name") or ""
+                name = name.strip()
+                if name:
+                    artist_names.append(name)
+            artist = ", ".join(artist_names) if artist_names else None
+
+            duration_raw = entity.get("duration")
+            if isinstance(duration_raw, int):
+                duration_s = duration_raw // 1000
+            elif isinstance(duration_raw, dict):
+                duration_ms = duration_raw.get("totalMilliseconds") or duration_raw.get("milliseconds")
+                duration_s = duration_ms // 1000 if isinstance(duration_ms, int) else None
+            else:
+                duration_s = None
+
+            general_logger.info(
+                f"Spotify resolved via embed: '{artist} - {title}' ({duration_s}s)"
+            )
+            return title, artist, duration_s
+        except Exception as e:
+            general_logger.warning(
+                f"Spotify embed fallback failed for track {track_id}: {e}"
+            )
+            return None, None, None
 
     async def _resolve_spotify(
         self, session: aiohttp.ClientSession, url: str
-    ) -> Tuple[Optional[str], Optional[str]]:
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         """Resolve Spotify track metadata via oEmbed with robust HTML/JSON-LD fallback."""
+        api_title, api_artist, api_duration = await self._resolve_spotify_track_via_open_api(
+            session, url
+        )
+        if api_title:
+            general_logger.info(
+                f"Spotify resolved via Web API: '{api_artist} - {api_title}' ({api_duration}s)"
+            )
+            return api_title, api_artist, api_duration
+
+        # Try embed page __NEXT_DATA__ before falling back to brittle HTML scraping
+        track_id = self._extract_spotify_track_id(url)
+        if track_id:
+            embed_title, embed_artist, embed_duration = await self._resolve_spotify_via_embed(
+                session, track_id
+            )
+            if embed_title:
+                return embed_title, embed_artist, embed_duration
+
+        oembed_title: Optional[str] = None
+        oembed_artist: Optional[str] = None
         try:
             async with session.get(
                 f"https://open.spotify.com/oembed?url={url}",
@@ -1562,17 +1767,12 @@ class VideoDownloader:
             ) as response:
                 if response.status == 200:
                     data = await response.json(content_type=None)
-                    title = data.get("title")
-                    artist = data.get("author_name")
-                    if title:
-                        if not artist:
-                            _, artist = await self._scrape_spotify_metadata(
-                                session, url
-                            )
+                    oembed_title = self._normalize_spotify_title(data.get("title"))
+                    oembed_artist = data.get("author_name")
+                    if oembed_title:
                         general_logger.info(
-                            f"Spotify resolved via oEmbed: '{artist} - {title}'"
+                            f"Spotify oEmbed candidate: '{oembed_artist} - {oembed_title}'"
                         )
-                        return title, artist
                 else:
                     general_logger.warning(
                         f"Spotify oEmbed returned {response.status} for {url}"
@@ -1580,13 +1780,100 @@ class VideoDownloader:
         except Exception as e:
             general_logger.warning(f"Spotify oEmbed failed for {url}: {e}")
 
-        title, artist = await self._scrape_spotify_metadata(session, url)
-        if title:
+        scraped_title, scraped_artist = await self._scrape_spotify_metadata(
+            session, url
+        )
+        if scraped_title:
+            if oembed_title and oembed_title.casefold() != scraped_title.casefold():
+                general_logger.warning(
+                    "Spotify metadata mismatch (oEmbed vs scrape): "
+                    f"oEmbed='{oembed_artist} - {oembed_title}' "
+                    f"scrape='{scraped_artist} - {scraped_title}'. Preferring scrape."
+                )
+            artist = scraped_artist or oembed_artist
             general_logger.info(
-                f"Spotify resolved via HTML fallback: '{artist} - {title}'"
+                f"Spotify resolved via HTML fallback: '{artist} - {scraped_title}'"
             )
-            return title, artist
-        return None, None
+            return scraped_title, artist, None
+
+        if oembed_title:
+            general_logger.info(
+                f"Spotify resolved via oEmbed fallback: '{oembed_artist} - {oembed_title}'"
+            )
+            return oembed_title, oembed_artist, None
+        return None, None, None
+
+    async def _resolve_spotify_track_via_open_api(
+        self, session: aiohttp.ClientSession, url: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """Resolve Spotify track metadata via Spotify Web API using public web player token."""
+        track_id = self._extract_spotify_track_id(url)
+        if not track_id:
+            return None, None, None
+
+        token_url = "https://open.spotify.com/get_access_token?reason=transport&productType=web_player"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+        }
+        access_token = None
+        try:
+            async with session.get(
+                token_url,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    general_logger.warning(
+                        f"Spotify token endpoint returned {response.status} for track {track_id}"
+                    )
+                    return None, None, None
+                token_data = await response.json(content_type=None)
+                access_token = token_data.get("accessToken")
+        except Exception as e:
+            general_logger.warning(
+                f"Spotify token request failed for track {track_id}: {e}"
+            )
+            return None, None, None
+
+        if not access_token:
+            general_logger.warning(f"Spotify token missing for track {track_id}")
+            return None, None, None
+
+        track_url = f"https://api.spotify.com/v1/tracks/{track_id}"
+        api_headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+        }
+        try:
+            async with session.get(
+                track_url,
+                headers=api_headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    general_logger.warning(
+                        f"Spotify track API returned {response.status} for track {track_id}"
+                    )
+                    return None, None, None
+                data = await response.json(content_type=None)
+                title = self._normalize_spotify_title(data.get("name"))
+                artists = data.get("artists") or []
+                artist_names = [
+                    artist.get("name", "").strip()
+                    for artist in artists
+                    if isinstance(artist, dict) and artist.get("name")
+                ]
+                performer = ", ".join(artist_names) if artist_names else None
+                duration_ms = data.get("duration_ms")
+                duration_s = duration_ms // 1000 if isinstance(duration_ms, int) else None
+                if title:
+                    return title, performer, duration_s
+        except Exception as e:
+            general_logger.warning(
+                f"Spotify track API request failed for track {track_id}: {e}"
+            )
+        return None, None, None
 
     async def _scrape_spotify_metadata(
         self, session: aiohttp.ClientSession, url: str
@@ -1616,6 +1903,9 @@ class VideoDownloader:
                     title = self._extract_meta_tag_content(
                         html_text, "name", "twitter:title"
                     )
+                title = self._normalize_spotify_title(title)
+                if self._is_generic_spotify_title(title):
+                    title = None
 
                 description = self._extract_meta_tag_content(
                     html_text, "property", "og:description"
@@ -1625,11 +1915,21 @@ class VideoDownloader:
                         html_text, "name", "description"
                     )
 
-                artist = self._extract_spotify_artist_from_description(
-                    description or ""
+                desc_title, desc_artist = (
+                    self._extract_spotify_title_artist_from_description(
+                        description or ""
+                    )
                 )
-                if not artist:
-                    artist = self._extract_spotify_artist_from_json_ld(html_text)
+                if not title and desc_title:
+                    title = self._normalize_spotify_title(desc_title)
+                artist = desc_artist
+                jsonld_title, jsonld_artist = (
+                    self._extract_spotify_title_artist_from_json_ld(html_text)
+                )
+                if not artist and jsonld_artist:
+                    artist = jsonld_artist
+                if not title and jsonld_title:
+                    title = self._normalize_spotify_title(jsonld_title)
 
                 if not artist:
                     # Legacy fallback regex from older Spotify HTML layouts.
@@ -1646,7 +1946,7 @@ class VideoDownloader:
 
     async def _resolve_apple_music(
         self, session: aiohttp.ClientSession, url: str
-    ) -> Tuple[Optional[str], Optional[str]]:
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         """Resolve Apple Music track metadata via oEmbed or og:title scraping."""
         try:
             async with session.get(
@@ -1658,7 +1958,7 @@ class VideoDownloader:
                     title = data.get("title")
                     if title:
                         general_logger.info(f"Apple Music resolved (oEmbed): '{title}'")
-                        return title, None
+                        return title, None, None
         except Exception:
             pass
 
@@ -1680,32 +1980,143 @@ class VideoDownloader:
                             general_logger.info(
                                 f"Apple Music resolved (scraped): '{parts[1]} - {parts[0]}'"
                             )
-                            return parts[0], parts[1]
+                            return parts[0], parts[1], None
                         general_logger.info(
                             f"Apple Music resolved (scraped title only): '{og_title}'"
                         )
-                        return og_title, None
+                        return og_title, None, None
         except Exception as e:
             general_logger.warning(f"Apple Music scraping failed for {url}: {e}")
 
-        return None, None
+        return None, None, None
 
-    async def search_and_download_track(
-        self, query: str
+    @staticmethod
+    def _pick_best_youtube_candidate(
+        candidates: list,
+        expected_title: str,
+        expected_artist: Optional[str],
+        expected_duration_s: Optional[int],
+    ) -> Optional[dict]:
+        """Score YouTube search candidates and return the best match.
+
+        Returns None when the best candidate fails both the duration AND artist checks —
+        indicating we cannot reliably identify the correct track.
+        """
+        import unicodedata
+
+        def _norm(s: str) -> str:
+            s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+            return re.sub(r"[^a-z0-9 ]", " ", s.lower())
+
+        def _tokens(s: str) -> set:
+            return set(_norm(s).split())
+
+        def _strip_noise(s: str) -> str:
+            return re.sub(
+                r"\b(official\s*(music\s*)?video|official\s*audio|official\s*lyric\s*video|"
+                r"lyrics|lyric\s*video|audio|hd|hq|4k|feat\.?|ft\.?|extended\s*mix|"
+                r"radio\s*edit|remaster(?:ed)?|re-?upload)\b",
+                "",
+                s,
+                flags=re.IGNORECASE,
+            ).strip()
+
+        def _artist_tokens(artist_str: str) -> set:
+            parts = re.split(
+                r"[,&]|\bfeat\.?\b|\bft\.?\b|\bx\b|×", artist_str, flags=re.IGNORECASE
+            )
+            result: set = set()
+            for part in parts:
+                result.update(_tokens(part.strip()))
+            return result
+
+        title_tokens = _tokens(_strip_noise(expected_title))
+        artist_tokens = _artist_tokens(expected_artist) if expected_artist else set()
+
+        best_score = -999
+        best_candidate: Optional[dict] = None
+        best_duration_miss: Optional[int] = None
+        best_artist_overlap = False
+
+        for cand in candidates:
+            score = 0
+
+            cand_duration = cand.get("duration")
+            duration_miss: Optional[int] = None
+            if expected_duration_s and isinstance(cand_duration, (int, float)):
+                duration_miss = abs(int(cand_duration) - expected_duration_s)
+                if duration_miss <= 3:
+                    score += 40
+                elif duration_miss <= 10:
+                    score += 10
+                elif duration_miss <= 15:
+                    score -= 10
+                else:
+                    score -= 40
+
+            cand_artist_str = " ".join(
+                filter(
+                    None,
+                    [
+                        cand.get("artist") or "",
+                        cand.get("uploader") or "",
+                        cand.get("channel") or "",
+                    ],
+                )
+            )
+            cand_artist_tokens = _tokens(cand_artist_str)
+            artist_overlap = bool(artist_tokens & cand_artist_tokens) if artist_tokens else False
+            if artist_overlap:
+                score += 30
+
+            uploader = cand.get("uploader") or ""
+            if uploader.endswith(" - Topic"):
+                score += 15
+
+            cand_title_str = cand.get("track") or cand.get("title") or ""
+            cand_title_tokens = _tokens(_strip_noise(cand_title_str))
+            if title_tokens and cand_title_tokens:
+                overlap = len(title_tokens & cand_title_tokens)
+                union = len(title_tokens | cand_title_tokens)
+                jaccard = overlap / union if union > 0 else 0
+                score += int(jaccard * 20)
+
+            if score > best_score:
+                best_score = score
+                best_candidate = cand
+                best_duration_miss = duration_miss
+                best_artist_overlap = artist_overlap
+
+        if best_candidate is None:
+            return None
+
+        # Reject when both duration AND artist clearly miss (only when we have expected values)
+        if (
+            artist_tokens
+            and expected_duration_s
+            and best_duration_miss is not None
+            and best_duration_miss > 15
+            and not best_artist_overlap
+        ):
+            general_logger.warning(
+                f"Low-confidence: best candidate '{best_candidate.get('title')}' "
+                f"duration_miss={best_duration_miss}s, no artist overlap "
+                f"(expected_artist='{expected_artist}')"
+            )
+            return None
+
+        return best_candidate
+
+    async def _download_youtube_by_url(
+        self, url_or_query: str
     ) -> Tuple[
         Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]
     ]:
-        """Search YouTube for a track and download it as MP3.
-
-        Args:
-            query: Search query, e.g. "Artist - Song Name"
+        """Download a track from a direct YouTube URL or ytsearchN: query.
 
         Returns:
-            (filename, display_title, performer, webpage_url, video_id) or (None, None, None, None, None)
+            (filename, display_title, performer, webpage_url, video_id) or 5-tuple of None
         """
-        search_query = f"ytsearch1:{query} official audio"
-        general_logger.info(f"Searching YouTube: {search_query}")
-
         os.makedirs(MUSIC_DIR, exist_ok=True)
         output_template = os.path.join(MUSIC_DIR, "%(title)s.%(ext)s")
 
@@ -1722,7 +2133,7 @@ class VideoDownloader:
 
         cmd = [
             self.yt_dlp_path,
-            search_query,
+            url_or_query,
             "-f",
             "bestaudio/best",
             "-x",
@@ -1767,7 +2178,7 @@ class VideoDownloader:
                 else []
             )
             output_path = lines[-1] if lines else None
-            meta = {}
+            meta: dict = {}
             for line in lines[:-1]:
                 try:
                     meta = json.loads(line)
@@ -1776,26 +2187,69 @@ class VideoDownloader:
                     pass
 
             if process.returncode == 0 and output_path and os.path.exists(output_path):
-                display_title, performer, webpage_url = self._compose_display_title(
-                    meta
-                )
+                display_title, performer, webpage_url = self._compose_display_title(meta)
                 video_id = meta.get("id") or ""
                 general_logger.info(f"Track downloaded: {display_title}")
                 return output_path, display_title, performer, webpage_url, video_id
             else:
                 general_logger.warning(
-                    f"Track search/download failed (code {process.returncode}): {stderr.decode()[:200]}"
+                    f"Track download failed (code {process.returncode}): {stderr.decode()[:200]}"
                 )
         except asyncio.TimeoutError:
-            general_logger.warning(f"Track search timed out for query: {query}")
+            general_logger.warning(f"Track download timed out for: {url_or_query}")
         except Exception as e:
-            error_logger.error(f"search_and_download_track error: {e}")
+            error_logger.error(f"_download_youtube_by_url error: {e}")
         return None, None, None, None, None
+
+    async def search_and_download_track(
+        self,
+        query: str,
+        expected_title: Optional[str] = None,
+        expected_artist: Optional[str] = None,
+        expected_duration_s: Optional[int] = None,
+    ) -> Tuple[
+        Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]
+    ]:
+        """Search YouTube for a track and download it as MP3.
+
+        When expected_title/artist/duration_s are provided, candidates are ranked and
+        the best match is validated. Raises LowConfidenceMatchError when all candidates
+        fail the confidence gate (duration AND artist both miss badly).
+
+        Args:
+            query: Search query, e.g. "Artist - Song Name"
+            expected_title: Known track title for candidate scoring (optional)
+            expected_artist: Known artist name for confidence validation (optional)
+            expected_duration_s: Known track duration in seconds for confidence validation (optional)
+
+        Returns:
+            (filename, display_title, performer, webpage_url, video_id) or (None, None, None, None, None)
+        """
+        general_logger.info(f"Searching YouTube: {query!r}")
+
+        rank_title = expected_title or query
+        candidates = await self.fast_youtube_search(query, limit=5)
+
+        if candidates:
+            best = self._pick_best_youtube_candidate(
+                candidates, rank_title, expected_artist, expected_duration_s
+            )
+            if best is None:
+                raise LowConfidenceMatchError(
+                    f"No reliable YouTube match for '{expected_artist} - {expected_title}'"
+                )
+            webpage_url = best.get("webpage_url") or ""
+            if webpage_url:
+                return await self._download_youtube_by_url(webpage_url)
+
+        # Fallback: no candidates from fast search — use ytsearch1 directly
+        general_logger.warning(f"fast_youtube_search returned no results for {query!r}, using ytsearch1 fallback")
+        return await self._download_youtube_by_url(f"ytsearch1:{query}")
 
     async def download_music_platform_url(
         self, url: str
     ) -> Tuple[
-        Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]
+        Optional[str], Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]
     ]:
         """Download audio from a streaming platform URL.
 
@@ -1803,7 +2257,8 @@ class VideoDownloader:
         For Spotify/Deezer/Apple Music: resolves metadata, then searches YouTube.
 
         Returns:
-            (filename, display_title, performer, webpage_url, video_id) or 5-tuple of None
+            (filename, display_title, performer, webpage_url, video_id, error_reason)
+            error_reason is None on success, or a user-facing message string on failure.
         """
         from modules.const import MusicPlatforms
 
@@ -1865,7 +2320,7 @@ class VideoDownloader:
                     title = os.path.splitext(os.path.basename(output_path))[0]
                     general_logger.info(f"SoundCloud downloaded: {title}")
                     # SoundCloud: uploader is the artist; no YouTube video_id
-                    return output_path, title, None, url, ""
+                    return output_path, title, None, url, "", None
                 else:
                     general_logger.warning(
                         f"SoundCloud download failed: {stderr.decode()[:200]}"
@@ -1874,17 +2329,38 @@ class VideoDownloader:
                 general_logger.warning(f"SoundCloud download timed out: {url}")
             except Exception as e:
                 error_logger.error(f"SoundCloud download error: {e}")
-            return None, None, None, None, None
+            return None, None, None, None, None, None
 
         # Spotify / Deezer / Apple Music: resolve metadata then search YouTube
-        title, artist = await self.resolve_streaming_url(url)
-        if title:
-            query = f"{artist} - {title}" if artist else title
-        else:
+        title, artist, duration_s = await self.resolve_streaming_url(url)
+        if not title:
             error_logger.error(f"❌ Could not resolve metadata for music URL: {url}")
-            return None, None, None, None, None
+            return None, None, None, None, None, None
 
-        return await self.search_and_download_track(query)
+        query = f"{artist} - {title}" if artist else title
+        try:
+            filename, display_title, performer, webpage_url, video_id = (
+                await self.search_and_download_track(
+                    query,
+                    expected_title=title,
+                    expected_artist=artist,
+                    expected_duration_s=duration_s,
+                )
+            )
+            return filename, display_title, performer, webpage_url, video_id, None
+        except LowConfidenceMatchError:
+            error_logger.warning(
+                f"Low-confidence match rejected for '{artist} - {title}' ({url})"
+            )
+            return (
+                None,
+                None,
+                None,
+                None,
+                None,
+                "Couldn't find a reliable match for this track on YouTube. "
+                "The title may be too generic or the track too obscure.",
+            )
 
     async def handle_music_platform_link(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -1921,12 +2397,13 @@ class VideoDownloader:
 
         filename = None
         try:
-            filename, title, performer, youtube_url, video_id = (
+            filename, title, performer, youtube_url, video_id, error_reason = (
                 await self.download_music_platform_url(music_url)
             )
 
             if not filename or not os.path.exists(filename):
-                await processing_msg.edit_text("❌ Failed to download track.")
+                msg = f"❌ {error_reason}" if error_reason else "❌ Failed to download track."
+                await processing_msg.edit_text(msg)
                 return
 
             file_size = os.path.getsize(filename)

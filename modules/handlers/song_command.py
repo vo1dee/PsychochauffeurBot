@@ -306,11 +306,12 @@ async def song_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         processing_msg = await update.message.reply_text("⏳ Resolving track…")
         filename = None
         try:
-            filename, title, performer, youtube_url, video_id = (
+            filename, title, performer, youtube_url, video_id, error_reason = (
                 await video_downloader.download_music_platform_url(platform_url)
             )
             if not filename or not os.path.exists(filename):
-                await processing_msg.edit_text("❌ Failed to download track.")
+                msg = f"❌ {error_reason}" if error_reason else "❌ Failed to download track."
+                await processing_msg.edit_text(msg)
                 return
             try:
                 await processing_msg.delete()
