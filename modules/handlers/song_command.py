@@ -178,7 +178,7 @@ async def _send_audio_reply(
     reply_target = (
         update.message.reply_to_message
         if update.message and update.message.reply_to_message
-        else update.message
+        else None
     )
 
     sent_msg = None
