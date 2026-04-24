@@ -99,6 +99,18 @@ class VideoDownloader:
                 return match.group(1).strip()
             return track_name
 
+        def collapse_duplicate_title_artist_prefix(title_name: str) -> str:
+            """Collapse titles like 'Artist - Artist - Song' to 'Artist - Song'."""
+            parts = [p.strip() for p in title_name.split(" - ")]
+            while (
+                len(parts) >= 3
+                and parts[0]
+                and parts[1]
+                and parts[0].casefold() == parts[1].casefold()
+            ):
+                parts = [parts[0]] + parts[2:]
+            return " - ".join(parts)
+
         artist = clean(meta.get("artist"))
         track = clean(meta.get("track"))
         title = clean(meta.get("title")) or ""
@@ -127,6 +139,7 @@ class VideoDownloader:
         ]
         for pattern in _noise:
             title = _re.sub(pattern, "", title, flags=_re.IGNORECASE).strip()
+        title = collapse_duplicate_title_artist_prefix(title)
 
         # Strip ' - Topic' / 'VEVO' from uploader
         uploader_clean = _re.sub(
@@ -153,11 +166,28 @@ class VideoDownloader:
 
         # Priority 3: uploader + title
         if uploader_clean and title:
+            title = drop_artist_prefix(uploader_clean, title) or title
             display = f"{uploader_clean} - {title}"
             return display, uploader_clean, webpage_url
 
         display = title or uploader_clean or "Audio"
         return display, None, webpage_url
+
+    @staticmethod
+    def _normalize_telegram_audio_metadata(
+        title: Optional[str], performer: Optional[str]
+    ) -> Tuple[str, Optional[str]]:
+        """Ensure Telegram audio card doesn't duplicate performer in title."""
+        normalized_title = (title or "Audio").strip() or "Audio"
+        normalized_performer = (
+            performer.strip() if isinstance(performer, str) else performer
+        )
+        if normalized_performer:
+            pattern = rf"^\s*{re.escape(normalized_performer)}\s*[-–—:]\s*(.+)$"
+            match = re.match(pattern, normalized_title, flags=re.IGNORECASE)
+            if match:
+                normalized_title = match.group(1).strip() or normalized_title
+        return normalized_title, normalized_performer
 
     def __init__(
         self,
@@ -1987,6 +2017,18 @@ class VideoDownloader:
                     s = s.replace(c, f"\\{c}")
                 return s
 
+            def platform_label_from_url(url: str) -> str:
+                host = (urlparse(url).hostname or "").lower()
+                if "spotify" in host:
+                    return "Spotify"
+                if "deezer" in host:
+                    return "Deezer"
+                if "apple" in host:
+                    return "Apple Music"
+                if "soundcloud" in host:
+                    return "SoundCloud"
+                return "Original"
+
             username = "Unknown"
             if update.effective_user:
                 username = (
@@ -1995,10 +2037,15 @@ class VideoDownloader:
                     or "Unknown"
                 )
 
-            caption = f"🎵 {esc(title or 'Audio')}\n\n👤 Від: @{esc(username)}"
+            tg_title, tg_performer = self._normalize_telegram_audio_metadata(
+                title, performer
+            )
+            caption_title = f"{tg_performer} - {tg_title}" if tg_performer else tg_title
+            caption = f"🎵 {esc(caption_title)}\n\n👤 Від: @{esc(username)}"
 
             if platform_url:
-                caption += f"\n\n🔗 [Посилання]({esc(platform_url)})"
+                source_label = platform_label_from_url(platform_url)
+                caption += f"\n\n🔗 [{esc(source_label)}]({esc(platform_url)})"
             if youtube_url:
                 caption += f"\n\n🔗 [YouTube]({esc(youtube_url)})"
 
@@ -2007,26 +2054,18 @@ class VideoDownloader:
             if youtube_url:
                 buttons.append(InlineKeyboardButton("🔗 YouTube", url=youtube_url))
             if platform_url and platform_url != youtube_url:
-                host = (urlparse(platform_url).hostname or "").lower()
-                if "spotify" in host:
-                    source_label = "🎵 Spotify"
-                elif "deezer" in host:
-                    source_label = "🎵 Deezer"
-                elif "apple" in host:
-                    source_label = "🎵 Apple Music"
-                elif "soundcloud" in host:
-                    source_label = "🎵 SoundCloud"
-                else:
-                    source_label = "🔗 Original"
-                buttons.append(InlineKeyboardButton(source_label, url=platform_url))
+                source_label = platform_label_from_url(platform_url)
+                buttons.append(
+                    InlineKeyboardButton(f"🎵 {source_label}", url=platform_url)
+                )
             if buttons:
                 reply_markup = InlineKeyboardMarkup([buttons])
 
             with open(filename, "rb") as audio_file:
                 send_kwargs = dict(
                     audio=audio_file,
-                    title=title or "Audio",
-                    performer=performer,
+                    title=tg_title,
+                    performer=tg_performer,
                     caption=caption,
                     parse_mode="MarkdownV2",
                     reply_markup=reply_markup,
@@ -2220,13 +2259,19 @@ class VideoDownloader:
                     return
 
                 try:
+                    tg_title, tg_performer = self._normalize_telegram_audio_metadata(
+                        display_title, performer
+                    )
+                    cache_display_title = (
+                        f"{tg_performer} - {tg_title}" if tg_performer else tg_title
+                    )
                     with open(filename, "rb") as audio_file:
                         msg = await context.bot.send_audio(
                             chat_id=SONG_CACHE_CHAT_ID,
                             message_thread_id=SONG_CACHE_THREAD_ID,
                             audio=audio_file,
-                            title=display_title,
-                            performer=performer,
+                            title=tg_title,
+                            performer=tg_performer,
                             caption=f"🔗 {yt_url or webpage_url}",
                             disable_notification=True,
                         )
@@ -2235,8 +2280,8 @@ class VideoDownloader:
                         self.song_cache.set(
                             video_id=video_id,
                             file_id=msg.audio.file_id,
-                            title=display_title or "Audio",
-                            performer=performer,
+                            title=cache_display_title or "Audio",
+                            performer=tg_performer,
                             webpage_url=yt_url or webpage_url,
                             duration=meta.get("duration"),
                         )

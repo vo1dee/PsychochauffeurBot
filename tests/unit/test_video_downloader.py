@@ -80,6 +80,40 @@ class TestVideoDownloader(unittest.TestCase):
         self.assertEqual(display_title, "Test Artist - Test Song")
         self.assertEqual(performer, "Test Artist")
 
+    def test_compose_display_title_deduplicates_title_prefix_chain(self):
+        """Should collapse title-only duplicate artist prefix chain."""
+        meta = {
+            "artist": None,
+            "track": None,
+            "title": "Test Artist - Test Artist - Test Song",
+            "uploader": "",
+            "webpage_url": "https://youtube.com/watch?v=abc",
+        }
+        display_title, performer, _ = self.video_downloader._compose_display_title(meta)
+        self.assertEqual(display_title, "Test Artist - Test Song")
+        self.assertEqual(performer, "Test Artist")
+
+    def test_compose_display_title_deduplicates_uploader_fallback(self):
+        """Should avoid Artist - Artist - Song in uploader fallback path."""
+        meta = {
+            "artist": None,
+            "track": None,
+            "title": "Test Artist - Test Song",
+            "uploader": "Test Artist - Topic",
+            "webpage_url": "https://youtube.com/watch?v=abc",
+        }
+        display_title, performer, _ = self.video_downloader._compose_display_title(meta)
+        self.assertEqual(display_title, "Test Artist - Test Song")
+        self.assertEqual(performer, "Test Artist")
+
+    def test_normalize_telegram_audio_metadata_strips_performer_prefix(self):
+        """Telegram audio title should be track-only when performer is set."""
+        title, performer = self.video_downloader._normalize_telegram_audio_metadata(
+            "Test Artist - Test Song", "Test Artist"
+        )
+        self.assertEqual(title, "Test Song")
+        self.assertEqual(performer, "Test Artist")
+
     @unittest.skip("This test requires network access")
     def test_download_video(self):
         """Test video download functionality."""

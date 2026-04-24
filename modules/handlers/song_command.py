@@ -59,6 +59,19 @@ def is_music_platform_url(url: str) -> bool:
     )
 
 
+def platform_label_from_url(url: str) -> str:
+    host = (urlparse(url).hostname or "").lower()
+    if "spotify" in host:
+        return "Spotify"
+    if "deezer" in host:
+        return "Deezer"
+    if "apple" in host:
+        return "Apple Music"
+    if "soundcloud" in host:
+        return "SoundCloud"
+    return "Original"
+
+
 def convert_to_youtube_music_url(url: str) -> Optional[str]:
     """Convert a YouTube URL to a YouTube Music URL."""
     youtube_pattern = r"https?://(?:www\.)?youtube\.com/watch\?v=([a-zA-Z0-9_-]+)"
@@ -94,6 +107,22 @@ def find_youtube_url(text: str) -> Optional[str]:
     return None
 
 
+def normalize_telegram_audio_metadata(
+    title: Optional[str], performer: Optional[str]
+) -> tuple[str, Optional[str]]:
+    """Ensure Telegram audio card doesn't duplicate performer in title."""
+    normalized_title = (title or "Audio").strip() or "Audio"
+    normalized_performer = (
+        performer.strip() if isinstance(performer, str) else performer
+    )
+    if normalized_performer:
+        pattern = rf"^\s*{re.escape(normalized_performer)}\s*[-–—:]\s*(.+)$"
+        match = re.match(pattern, normalized_title, flags=re.IGNORECASE)
+        if match:
+            normalized_title = match.group(1).strip() or normalized_title
+    return normalized_title, normalized_performer
+
+
 async def _send_audio_reply(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -113,7 +142,11 @@ async def _send_audio_reply(
             )
         return
 
-    escaped_title = _escape_md(title or "Audio")
+    tg_title, tg_performer = normalize_telegram_audio_metadata(title, performer)
+    display_title = (
+        f"{tg_performer} - {tg_title}" if tg_performer else tg_title
+    )  # for caption text
+    escaped_title = _escape_md(display_title or "Audio")
     username = "Unknown"
     if update.effective_user:
         username = (
@@ -125,7 +158,8 @@ async def _send_audio_reply(
 
     caption = f"🎵 {escaped_title}\n\n👤 Від: @{escaped_username}"
     if platform_url:
-        caption += f"\n\n🔗 [Посилання]({_escape_md(platform_url)})"
+        source_label = platform_label_from_url(platform_url)
+        caption += f"\n\n🔗 [{_escape_md(source_label)}]({_escape_md(platform_url)})"
     if youtube_url:
         caption += f"\n\n🔗 [YouTube]({_escape_md(youtube_url)})"
 
@@ -134,18 +168,8 @@ async def _send_audio_reply(
     if youtube_url:
         buttons.append(InlineKeyboardButton("🔗 YouTube", url=youtube_url))
     if platform_url and platform_url != youtube_url:
-        host = (urlparse(platform_url).hostname or "").lower()
-        if "spotify" in host:
-            source_label = "🎵 Spotify"
-        elif "deezer" in host:
-            source_label = "🎵 Deezer"
-        elif "apple" in host:
-            source_label = "🎵 Apple Music"
-        elif "soundcloud" in host:
-            source_label = "🎵 SoundCloud"
-        else:
-            source_label = "🔗 Original"
-        buttons.append(InlineKeyboardButton(source_label, url=platform_url))
+        source_label = platform_label_from_url(platform_url)
+        buttons.append(InlineKeyboardButton(f"🎵 {source_label}", url=platform_url))
     if buttons:
         reply_markup = InlineKeyboardMarkup([buttons])
 
@@ -159,8 +183,8 @@ async def _send_audio_reply(
     with open(filename, "rb") as audio_file:
         send_kwargs = dict(
             audio=audio_file,
-            title=title or "Audio",
-            performer=performer,
+            title=tg_title,
+            performer=tg_performer,
             caption=caption,
             parse_mode="MarkdownV2",
             reply_markup=reply_markup,
@@ -179,8 +203,8 @@ async def _send_audio_reply(
             video_downloader.song_cache.set(
                 video_id=video_id,
                 file_id=sent_msg.audio.file_id,
-                title=title or "Audio",
-                performer=performer,
+                title=display_title or "Audio",
+                performer=tg_performer,
                 webpage_url=youtube_url or "",
             )
 
