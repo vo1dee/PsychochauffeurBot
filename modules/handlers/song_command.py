@@ -11,6 +11,7 @@ import logging
 import os
 import re
 from typing import Optional
+from urllib.parse import urlparse
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
@@ -20,17 +21,42 @@ from modules.const import MusicPlatforms
 
 logger = logging.getLogger(__name__)
 
-_SPECIAL_CHARS = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+_SPECIAL_CHARS = [
+    "_",
+    "*",
+    "[",
+    "]",
+    "(",
+    ")",
+    "~",
+    "`",
+    ">",
+    "#",
+    "+",
+    "-",
+    "=",
+    "|",
+    "{",
+    "}",
+    ".",
+    "!",
+]
 
 
 def _escape_md(text: str) -> str:
     for ch in _SPECIAL_CHARS:
-        text = text.replace(ch, f'\\{ch}')
+        text = text.replace(ch, f"\\{ch}")
     return text
 
 
 def is_music_platform_url(url: str) -> bool:
-    return any(domain in url.lower() for domain in MusicPlatforms.PLATFORM_DOMAINS)
+    hostname = (urlparse(url).hostname or "").lower()
+    if not hostname:
+        return False
+    return any(
+        hostname == domain or hostname.endswith(f".{domain}")
+        for domain in MusicPlatforms.PLATFORM_DOMAINS
+    )
 
 
 def convert_to_youtube_music_url(url: str) -> Optional[str]:
@@ -60,28 +86,41 @@ def convert_to_youtube_music_url(url: str) -> Optional[str]:
 def find_youtube_url(text: str) -> Optional[str]:
     urls = extract_urls(text)
     for url in urls:
-        if any(domain in url.lower() for domain in ["youtube.com", "youtu.be", "music.youtube.com"]):
+        if any(
+            domain in url.lower()
+            for domain in ["youtube.com", "youtu.be", "music.youtube.com"]
+        ):
             return url
     return None
 
 
-async def _send_audio_reply(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                            filename: str, title: Optional[str],
-                            performer: Optional[str] = None,
-                            youtube_url: Optional[str] = None,
-                            platform_url: Optional[str] = None,
-                            video_id: Optional[str] = None) -> None:
+async def _send_audio_reply(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    filename: str,
+    title: Optional[str],
+    performer: Optional[str] = None,
+    youtube_url: Optional[str] = None,
+    platform_url: Optional[str] = None,
+    video_id: Optional[str] = None,
+) -> None:
     """Send audio as a reply, then delete the command message."""
     file_size = os.path.getsize(filename)
     if file_size > 50 * 1024 * 1024:
         if update.message:
-            await update.message.reply_text("❌ Audio file is too large to send (>50MB).")
+            await update.message.reply_text(
+                "❌ Audio file is too large to send (>50MB)."
+            )
         return
 
     escaped_title = _escape_md(title or "Audio")
     username = "Unknown"
     if update.effective_user:
-        username = update.effective_user.username or update.effective_user.first_name or "Unknown"
+        username = (
+            update.effective_user.username
+            or update.effective_user.first_name
+            or "Unknown"
+        )
     escaped_username = _escape_md(username)
 
     caption = f"🎵 {escaped_title}\n\n👤 Від: @{escaped_username}"
@@ -91,8 +130,24 @@ async def _send_audio_reply(update: Update, context: ContextTypes.DEFAULT_TYPE,
         caption += f"\n\n🔗 [YouTube]({_escape_md(youtube_url)})"
 
     reply_markup = None
+    buttons = []
     if youtube_url:
-        reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 YouTube", url=youtube_url)]])
+        buttons.append(InlineKeyboardButton("🔗 YouTube", url=youtube_url))
+    if platform_url and platform_url != youtube_url:
+        host = (urlparse(platform_url).hostname or "").lower()
+        if "spotify" in host:
+            source_label = "🎵 Spotify"
+        elif "deezer" in host:
+            source_label = "🎵 Deezer"
+        elif "apple" in host:
+            source_label = "🎵 Apple Music"
+        elif "soundcloud" in host:
+            source_label = "🎵 SoundCloud"
+        else:
+            source_label = "🔗 Original"
+        buttons.append(InlineKeyboardButton(source_label, url=platform_url))
+    if buttons:
+        reply_markup = InlineKeyboardMarkup([buttons])
 
     reply_target = (
         update.message.reply_to_message
@@ -120,17 +175,18 @@ async def _send_audio_reply(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # Populate song cache if we have a file_id and video_id
     if sent_msg and sent_msg.audio and video_id:
         video_downloader = context.bot_data.get("video_downloader")
-        if video_downloader and hasattr(video_downloader, 'song_cache'):
+        if video_downloader and hasattr(video_downloader, "song_cache"):
             video_downloader.song_cache.set(
                 video_id=video_id,
                 file_id=sent_msg.audio.file_id,
-                title=title or 'Audio',
+                title=title or "Audio",
                 performer=performer,
-                webpage_url=youtube_url or '',
+                webpage_url=youtube_url or "",
             )
 
     if update.effective_chat:
         from modules.event_tracker import record_bot_event
+
         user_id = update.effective_user.id if update.effective_user else None
         await record_bot_event("song_sent", update.effective_chat.id, user_id)
 
@@ -158,7 +214,9 @@ async def song_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         processing_msg = await update.message.reply_text(f"🔎 Searching for: {query}…")
         filename = None
         try:
-            filename, title, performer, youtube_url, video_id = await video_downloader.search_and_download_track(query)
+            filename, title, performer, youtube_url, video_id = (
+                await video_downloader.search_and_download_track(query)
+            )
             if not filename or not os.path.exists(filename):
                 await processing_msg.edit_text("❌ Track not found.")
                 return
@@ -166,8 +224,15 @@ async def song_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 await processing_msg.delete()
             except Exception:
                 pass
-            await _send_audio_reply(update, context, filename, title,
-                                    performer=performer, youtube_url=youtube_url, video_id=video_id)
+            await _send_audio_reply(
+                update,
+                context,
+                filename,
+                title,
+                performer=performer,
+                youtube_url=youtube_url,
+                video_id=video_id,
+            )
         except Exception as e:
             logger.error(f"song_command search error: {e}", exc_info=True)
             try:
@@ -199,11 +264,27 @@ async def song_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # Mode B: streaming platform URL
     platform_url = next((u for u in urls if is_music_platform_url(u)), None)
+    if not platform_url:
+        for candidate_url in urls:
+            try:
+                normalized_url = await video_downloader.normalize_music_platform_url(
+                    candidate_url
+                )
+            except Exception as e:
+                logger.debug(f"Could not normalize music URL '{candidate_url}': {e}")
+                continue
+
+            if is_music_platform_url(normalized_url):
+                platform_url = normalized_url
+                break
+
     if platform_url:
         processing_msg = await update.message.reply_text("⏳ Resolving track…")
         filename = None
         try:
-            filename, title, performer, youtube_url, video_id = await video_downloader.download_music_platform_url(platform_url)
+            filename, title, performer, youtube_url, video_id = (
+                await video_downloader.download_music_platform_url(platform_url)
+            )
             if not filename or not os.path.exists(filename):
                 await processing_msg.edit_text("❌ Failed to download track.")
                 return
@@ -211,9 +292,16 @@ async def song_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 await processing_msg.delete()
             except Exception:
                 pass
-            await _send_audio_reply(update, context, filename, title,
-                                    performer=performer, youtube_url=youtube_url,
-                                    platform_url=platform_url, video_id=video_id)
+            await _send_audio_reply(
+                update,
+                context,
+                filename,
+                title,
+                performer=performer,
+                youtube_url=youtube_url,
+                platform_url=platform_url,
+                video_id=video_id,
+            )
         except Exception as e:
             logger.error(f"song_command platform error: {e}", exc_info=True)
             try:
@@ -231,18 +319,24 @@ async def song_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Mode C: YouTube URL (existing behaviour)
     youtube_url = find_youtube_url(reply_text)
     if not youtube_url:
-        await update.message.reply_text("❌ No supported link found in the replied message.")
+        await update.message.reply_text(
+            "❌ No supported link found in the replied message."
+        )
         return
 
     music_url = convert_to_youtube_music_url(youtube_url)
     if not music_url:
-        await update.message.reply_text("❌ Could not convert the link to a YouTube Music URL.")
+        await update.message.reply_text(
+            "❌ Could not convert the link to a YouTube Music URL."
+        )
         return
 
     processing_msg = await update.message.reply_text("⏳ Downloading audio…")
     filename = None
     try:
-        filename, title, performer, youtube_url, video_id = await video_downloader.download_youtube_music(music_url)
+        filename, title, performer, youtube_url, video_id = (
+            await video_downloader.download_youtube_music(music_url)
+        )
         if not filename or not os.path.exists(filename):
             await processing_msg.edit_text("❌ Failed to download audio.")
             return
@@ -250,9 +344,15 @@ async def song_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await processing_msg.delete()
         except Exception:
             pass
-        await _send_audio_reply(update, context, filename, title,
-                                performer=performer, youtube_url=youtube_url or music_url,
-                                video_id=video_id)
+        await _send_audio_reply(
+            update,
+            context,
+            filename,
+            title,
+            performer=performer,
+            youtube_url=youtube_url or music_url,
+            video_id=video_id,
+        )
     except Exception as e:
         logger.error(f"song_command youtube error: {e}", exc_info=True)
         try:
