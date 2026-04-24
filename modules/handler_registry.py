@@ -13,6 +13,8 @@ from telegram.ext import Application, CallbackContext
 from typing import Any
 from telegram.ext import filters
 
+from telegram.constants import ChatAction
+
 from modules.service_registry import ServiceInterface, service_registry
 from modules.command_processor import CommandProcessor
 
@@ -142,10 +144,10 @@ class HandlerRegistry(ServiceInterface):
 
         # Register utility commands
         self.command_processor.register_text_command(
-            "cat", cat_command, "Get a random cat photo"
+            "cat", cat_command, "Get a random cat photo", chat_action=ChatAction.UPLOAD_PHOTO
         )
         self.command_processor.register_text_command(
-            "flares", screenshot_command, "Get solar flares screenshot"
+            "flares", screenshot_command, "Get solar flares screenshot", chat_action=ChatAction.UPLOAD_PHOTO
         )
         self.command_processor.register_text_command(
             "count", count_command, "Count messages in chat"
@@ -172,7 +174,7 @@ class HandlerRegistry(ServiceInterface):
 
         # NASA APOD command
         self.command_processor.register_text_command(
-            "nasa", nasa_command, "NASA Astronomy Picture of the Day"
+            "nasa", nasa_command, "NASA Astronomy Picture of the Day", chat_action=ChatAction.UPLOAD_PHOTO
         )
 
         # Register admin commands
@@ -263,6 +265,7 @@ class HandlerRegistry(ServiceInterface):
             handle_member_left,
             filters.StatusUpdate.LEFT_CHAT_MEMBER,
             "Handle member left group messages",
+            chat_action=None,
         )
 
         # Register callback handlers using service-based approach
