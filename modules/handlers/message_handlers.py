@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from urllib.parse import urlparse
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ChatAction
 from telegram.ext import ContextTypes, Application
 
 # Service registry will be accessed through context
@@ -22,6 +23,7 @@ from modules.message_processor import (
     process_message_content, should_restrict_user
 )
 from modules.gpt import gpt_response, handle_photo_analysis as _handle_photo
+from modules.chat_action import chat_action as _chat_action
 from modules.keyboards import get_language_keyboard
 from modules.speechmatics import (
     transcribe_telegram_voice, SpeechmaticsLanguageNotExpected,
@@ -53,7 +55,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     # --- БЛЯ! TRANSLATION COMMAND ---
     if message_text.lower() == "бля!":
-        await _handle_translation_command(update, user_id)
+        async with _chat_action(update, context, ChatAction.TYPING):
+            await _handle_translation_command(update, user_id)
         return
     # --- END БЛЯ! TRANSLATION COMMAND ---
 
@@ -136,7 +139,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Check for GPT response
     needs_response, response_type = needs_gpt_response(update, context, message_text)
     if needs_response:
-        await gpt_response(update, context, response_type=response_type, message_text_override=cleaned_text)
+        async with _chat_action(update, context, ChatAction.TYPING):
+            await gpt_response(update, context, response_type=response_type, message_text_override=cleaned_text)
         return
 
     # --- RANDOM GPT RESPONSE LOGIC ---
@@ -146,7 +150,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Handle modified links if any were found
     if modified_links:
-        await process_urls(update, context, modified_links, cleaned_text)
+        async with _chat_action(update, context, ChatAction.TYPING):
+            await process_urls(update, context, modified_links, cleaned_text)
 
 
 async def _handle_translation_command(update: Update, user_id: int) -> None:
@@ -233,11 +238,12 @@ async def handle_random_gpt_response(
                 if random.random() < probability:
                     message_counter.reset(update.effective_chat.id)
                     general_logger.info(f"Triggering random response in chat {chat_id}")
-                    await gpt_response(
-                        update, context, 
-                        response_type="random", 
-                        message_text_override=cleaned_text
-                    )
+                    async with _chat_action(update, context, ChatAction.TYPING):
+                        await gpt_response(
+                            update, context,
+                            response_type="random",
+                            message_text_override=cleaned_text
+                        )
                     return
     else:
         # Log why random responses are disabled
