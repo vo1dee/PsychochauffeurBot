@@ -13,7 +13,6 @@ import logging
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.constants import ChatAction
 # Avoid running code at module import time
 from telegram.ext import CallbackContext
 from modules.logger import error_logger, LOG_DIR, general_logger
@@ -1210,32 +1209,20 @@ async def screenshot_command(update: Update, context: CallbackContext[Any, Any, 
         
     status_msg = None
     try:
-        # Show typing action
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id,
-            action=ChatAction.TYPING
-        )
-        
         # Get current time in Kyiv timezone
         kyiv_tz = pytz.timezone('Europe/Kyiv')
         current_time = datetime.now(kyiv_tz)
-        
+
         # Send initial status message
         status_msg = await update.message.reply_text("🔄 Завантажую дані про сонячну активність...")
-        
+
         # Initialize screenshot manager
         manager = ScreenshotManager()
-        
+
         # Capture the MeteoAgent widget
         if status_msg:
             await status_msg.edit_text("📸 Роблю знімок віджета MeteoAgent...")
-        
-        # Show upload photo action
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id,
-            action=ChatAction.UPLOAD_PHOTO
-        )
-        
+
         # Try to capture the widget
         screenshot_path = await manager.capture_meteoagent_widget()
         

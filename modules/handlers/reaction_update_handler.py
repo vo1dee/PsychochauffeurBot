@@ -9,8 +9,10 @@ import asyncio
 import os
 
 from telegram import Update, ReactionTypeEmoji
+from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
+from modules.chat_action import chat_action_for as _chat_action_for
 from modules.logger import general_logger, error_logger
 
 
@@ -66,53 +68,54 @@ async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user
 
     filename = None
     try:
-        filename, title = await video_downloader.download_video(watch_url)
+        async with _chat_action_for(context.bot, chat_id, ChatAction.UPLOAD_VIDEO):
+            filename, title = await video_downloader.download_video(watch_url)
 
-        if not filename or not os.path.exists(filename):
-            await processing_msg.edit_text("Failed to download Shorts.")
-            return
+            if not filename or not os.path.exists(filename):
+                await processing_msg.edit_text("Failed to download Shorts.")
+                return
 
-        file_size = os.path.getsize(filename)
-        if file_size > 50 * 1024 * 1024:
-            await processing_msg.edit_text("Video file is too large to send (>50MB).")
-            return
+            file_size = os.path.getsize(filename)
+            if file_size > 50 * 1024 * 1024:
+                await processing_msg.edit_text("Video file is too large to send (>50MB).")
+                return
 
-        try:
-            await processing_msg.delete()
-        except Exception as del_err:
-            general_logger.warning(f"Failed to delete processing message: {del_err}")
+            try:
+                await processing_msg.delete()
+            except Exception as del_err:
+                general_logger.warning(f"Failed to delete processing message: {del_err}")
 
-        special_chars = [
-            "_", "*", "[", "]", "(", ")", "~", "`", ">",
-            "#", "+", "-", "=", "|", "{", "}", ".", "!",
-        ]
-        escaped_title = title or "Shorts"
-        for char in special_chars:
-            escaped_title = escaped_title.replace(char, f"\\{char}")
+            special_chars = [
+                "_", "*", "[", "]", "(", ")", "~", "`", ">",
+                "#", "+", "-", "=", "|", "{", "}", ".", "!",
+            ]
+            escaped_title = title or "Shorts"
+            for char in special_chars:
+                escaped_title = escaped_title.replace(char, f"\\{char}")
 
-        username = "Unknown"
-        if user:
-            username = user.username or user.first_name or "Unknown"
-        escaped_username = username
-        for char in special_chars:
-            escaped_username = escaped_username.replace(char, f"\\{char}")
+            username = "Unknown"
+            if user:
+                username = user.username or user.first_name or "Unknown"
+            escaped_username = username
+            for char in special_chars:
+                escaped_username = escaped_username.replace(char, f"\\{char}")
 
-        escaped_url = watch_url
-        for char in special_chars:
-            escaped_url = escaped_url.replace(char, f"\\{char}")
+            escaped_url = watch_url
+            for char in special_chars:
+                escaped_url = escaped_url.replace(char, f"\\{char}")
 
-        caption = f"🎬 {escaped_title}\n\n👤 Від: @{escaped_username}\n\n🔗 [Посилання]({escaped_url})"
+            caption = f"🎬 {escaped_title}\n\n👤 Від: @{escaped_username}\n\n🔗 [Посилання]({escaped_url})"
 
-        with open(filename, "rb") as video_file:
-            await context.bot.send_video(
-                chat_id=chat_id,
-                video=video_file,
-                caption=caption,
-                parse_mode="MarkdownV2",
-                reply_to_message_id=message_id,
-            )
+            with open(filename, "rb") as video_file:
+                await context.bot.send_video(
+                    chat_id=chat_id,
+                    video=video_file,
+                    caption=caption,
+                    parse_mode="MarkdownV2",
+                    reply_to_message_id=message_id,
+                )
 
-        general_logger.info(f"Successfully sent Shorts via ⚡ reaction: {title}")
+            general_logger.info(f"Successfully sent Shorts via ⚡ reaction: {title}")
 
     except Exception as e:
         error_logger.error(f"Error in ⚡ shorts download: {e}", exc_info=True)

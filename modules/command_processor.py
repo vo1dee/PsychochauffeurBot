@@ -8,17 +8,19 @@ for the PsychoChauffeur bot.
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import CallbackContext
 from telegram.ext import CallbackContext, CommandHandler, MessageHandler, filters
 from typing import Any
 
 from modules.service_registry import ServiceInterface
 from modules.error_handler import handle_errors
+from modules.chat_action import chat_action as _send_chat_action
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,8 @@ class CommandMetadata:
     admin_only: bool = False
     group_only: bool = False
     private_only: bool = False
-    
+    chat_action: Optional[ChatAction] = ChatAction.TYPING
+
     def __post_init__(self) -> None:
         if self.permissions is None:
             self.permissions = []
@@ -108,8 +111,12 @@ class TextCommandHandler(BaseCommandHandler):
             if update.message:
                 await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
             return
-        
-        await self.handler_func(update, context)
+
+        if self.metadata.chat_action is None:
+            await self.handler_func(update, context)
+        else:
+            async with _send_chat_action(update, context, self.metadata.chat_action):
+                await self.handler_func(update, context)
 
 
 class CallbackQueryHandler(BaseCommandHandler):
@@ -127,8 +134,12 @@ class CallbackQueryHandler(BaseCommandHandler):
             if update.callback_query:
                 await update.callback_query.answer("❌ You don't have permission to use this feature.")
             return
-        
-        await self.handler_func(update, context)
+
+        if self.metadata.chat_action is None:
+            await self.handler_func(update, context)
+        else:
+            async with _send_chat_action(update, context, self.metadata.chat_action):
+                await self.handler_func(update, context)
 
 
 class MessageFilterHandler(BaseCommandHandler):
@@ -144,8 +155,12 @@ class MessageFilterHandler(BaseCommandHandler):
         """Handle the filtered message."""
         if not await self.can_execute(update, context):
             return  # Silently ignore for message handlers
-        
-        await self.handler_func(update, context)
+
+        if self.metadata.chat_action is None:
+            await self.handler_func(update, context)
+        else:
+            async with _send_chat_action(update, context, self.metadata.chat_action):
+                await self.handler_func(update, context)
 
 
 class CommandProcessor(ServiceInterface):
@@ -180,7 +195,8 @@ class CommandProcessor(ServiceInterface):
         admin_only: bool = False,
         group_only: bool = False,
         private_only: bool = False,
-        rate_limit: Optional[int] = None
+        rate_limit: Optional[int] = None,
+        chat_action: Optional[ChatAction] = ChatAction.TYPING,
     ) -> 'CommandProcessor':
         """Register a text command handler."""
         metadata = CommandMetadata(
@@ -190,7 +206,8 @@ class CommandProcessor(ServiceInterface):
             admin_only=admin_only,
             group_only=group_only,
             private_only=private_only,
-            rate_limit=rate_limit
+            rate_limit=rate_limit,
+            chat_action=chat_action,
         )
         
         handler = TextCommandHandler(metadata, handler_func)
@@ -209,14 +226,16 @@ class CommandProcessor(ServiceInterface):
         handler_func: Callable[..., Any],
         pattern: Optional[str] = None,
         description: str = "",
-        admin_only: bool = False
+        admin_only: bool = False,
+        chat_action: Optional[ChatAction] = ChatAction.TYPING,
     ) -> 'CommandProcessor':
         """Register a callback query handler."""
         metadata = CommandMetadata(
             name=name,
             description=description,
             command_type=CommandType.CALLBACK_QUERY,
-            admin_only=admin_only
+            admin_only=admin_only,
+            chat_action=chat_action,
         )
         
         handler = CallbackQueryHandler(metadata, handler_func, pattern)
@@ -241,7 +260,8 @@ class CommandProcessor(ServiceInterface):
         description: str = "",
         admin_only: bool = False,
         group_only: bool = False,
-        private_only: bool = False
+        private_only: bool = False,
+        chat_action: Optional[ChatAction] = ChatAction.TYPING,
     ) -> 'CommandProcessor':
         """Register a message handler with filter."""
         metadata = CommandMetadata(
@@ -250,7 +270,8 @@ class CommandProcessor(ServiceInterface):
             command_type=CommandType.MESSAGE_HANDLER,
             admin_only=admin_only,
             group_only=group_only,
-            private_only=private_only
+            private_only=private_only,
+            chat_action=chat_action,
         )
         
         handler = MessageFilterHandler(metadata, handler_func, message_filter)

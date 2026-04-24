@@ -23,8 +23,10 @@ from telegram import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
+from telegram.constants import ChatAction
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes, MessageHandler, filters, InlineQueryHandler
+from modules.chat_action import chat_action as _chat_action
 from modules.const import (
     VideoPlatforms,
     InstagramConfig,
@@ -2397,42 +2399,43 @@ class VideoDownloader:
 
         filename = None
         try:
-            filename, title, performer, youtube_url, video_id, error_reason = (
-                await self.download_music_platform_url(music_url)
-            )
-
-            if not filename or not os.path.exists(filename):
-                msg = f"❌ {error_reason}" if error_reason else "❌ Failed to download track."
-                await processing_msg.edit_text(msg)
-                return
-
-            file_size = os.path.getsize(filename)
-            if file_size > 50 * 1024 * 1024:
-                await processing_msg.edit_text(
-                    "❌ Audio file is too large to send (>50MB)."
+            async with _chat_action(update, context, ChatAction.UPLOAD_VOICE):
+                filename, title, performer, youtube_url, video_id, error_reason = (
+                    await self.download_music_platform_url(music_url)
                 )
-                return
 
-            try:
-                await processing_msg.delete()
-            except Exception:
-                pass
+                if not filename or not os.path.exists(filename):
+                    msg = f"❌ {error_reason}" if error_reason else "❌ Failed to download track."
+                    await processing_msg.edit_text(msg)
+                    return
 
-            await self._send_audio(
-                update,
-                context,
-                filename,
-                title,
-                performer=performer,
-                youtube_url=youtube_url,
-                platform_url=music_url,
-            )
+                file_size = os.path.getsize(filename)
+                if file_size > 50 * 1024 * 1024:
+                    await processing_msg.edit_text(
+                        "❌ Audio file is too large to send (>50MB)."
+                    )
+                    return
 
-            if update.effective_chat:
-                from modules.event_tracker import record_bot_event
+                try:
+                    await processing_msg.delete()
+                except Exception:
+                    pass
 
-                user_id = update.effective_user.id if update.effective_user else None
-                await record_bot_event("song_sent", update.effective_chat.id, user_id)
+                await self._send_audio(
+                    update,
+                    context,
+                    filename,
+                    title,
+                    performer=performer,
+                    youtube_url=youtube_url,
+                    platform_url=music_url,
+                )
+
+                if update.effective_chat:
+                    from modules.event_tracker import record_bot_event
+
+                    user_id = update.effective_user.id if update.effective_user else None
+                    await record_bot_event("song_sent", update.effective_chat.id, user_id)
 
         except Exception as e:
             error_logger.error(f"handle_music_platform_link error: {e}", exc_info=True)
@@ -3409,35 +3412,36 @@ class VideoDownloader:
                     "⏳ Processing your request..."
                 )
 
-            for url in urls:
-                # Check if this is a YouTube Music URL
-                is_youtube_music = "music.youtube.com" in url.lower()
+            async with _chat_action(update, context, ChatAction.UPLOAD_VIDEO):
+                for url in urls:
+                    # Check if this is a YouTube Music URL
+                    is_youtube_music = "music.youtube.com" in url.lower()
 
-                if is_youtube_music:
-                    # Handle YouTube Music - download as MP3
-                    filename, title, performer, youtube_url, video_id = (
-                        await self.download_youtube_music(url)
-                    )
-                    if filename and os.path.exists(filename):
-                        await self._send_audio(
-                            update,
-                            context,
-                            filename,
-                            title,
-                            performer=performer,
-                            youtube_url=youtube_url or url,
+                    if is_youtube_music:
+                        # Handle YouTube Music - download as MP3
+                        filename, title, performer, youtube_url, video_id = (
+                            await self.download_youtube_music(url)
                         )
+                        if filename and os.path.exists(filename):
+                            await self._send_audio(
+                                update,
+                                context,
+                                filename,
+                                title,
+                                performer=performer,
+                                youtube_url=youtube_url or url,
+                            )
+                        else:
+                            await self._handle_download_error(update, url)
                     else:
-                        await self._handle_download_error(update, url)
-                else:
-                    # Handle regular video platforms
-                    filename, title = await self.download_video(url, chat_id, chat_type)
-                    if filename and os.path.exists(filename):
-                        await self._send_video(
-                            update, context, filename, title, source_url=url
-                        )
-                    else:
-                        await self._handle_download_error(update, url)
+                        # Handle regular video platforms
+                        filename, title = await self.download_video(url, chat_id, chat_type)
+                        if filename and os.path.exists(filename):
+                            await self._send_video(
+                                update, context, filename, title, source_url=url
+                            )
+                        else:
+                            await self._handle_download_error(update, url)
 
         except Exception as e:
             await self._handle_processing_error(update, e, message_text)
