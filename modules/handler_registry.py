@@ -235,12 +235,14 @@ class HandlerRegistry(ServiceInterface):
             handle_message,
             filters.TEXT & ~filters.COMMAND,
             "Handle text messages",
+            chat_action=None,
         )
         self.command_processor.register_message_handler(
             "photo_messages",
             handle_photo_analysis,
             filters.PHOTO,
             "Handle photo messages",
+            chat_action=None,
         )
         self.command_processor.register_message_handler(
             "sticker_messages",
