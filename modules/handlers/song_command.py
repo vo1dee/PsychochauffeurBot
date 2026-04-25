@@ -10,10 +10,12 @@ Supports three modes:
 import logging
 import os
 import re
+import unicodedata
+from difflib import SequenceMatcher
 from typing import Optional
 from urllib.parse import urlparse
 
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import CallbackQuery, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
@@ -223,6 +225,197 @@ async def _send_audio_reply(
         logger.debug(f"Could not delete command message: {e}")
 
 
+def _fuzzy_match(query: str, candidate: dict) -> float:
+    """Return 0–1 similarity between user query and a YouTube candidate.
+
+    Uses both SequenceMatcher (order-sensitive) and token-set overlap
+    (order-insensitive) and returns the higher of the two scores.
+    """
+    _NOISE = re.compile(
+        r"\b(official\s*(music\s*)?video|official\s*audio|lyrics|lyric\s*video|"
+        r"audio|hd|hq|4k|feat\.?|ft\.?|extended\s*mix|radio\s*edit|remaster(?:ed)?)\b",
+        flags=re.IGNORECASE,
+    )
+
+    def _norm(s: str) -> str:
+        s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+        s = _NOISE.sub("", s)
+        return re.sub(r"[^a-z0-9 ]", " ", s.lower()).strip()
+
+    artist = candidate.get("artist") or candidate.get("uploader") or ""
+    title = candidate.get("title") or candidate.get("track") or ""
+    cand_norm = _norm(f"{artist} {title}")
+    q_norm = _norm(query)
+
+    seq_ratio = SequenceMatcher(None, q_norm, cand_norm).ratio()
+
+    q_tokens = set(q_norm.split())
+    c_tokens = set(cand_norm.split())
+    denom = len(q_tokens) + len(c_tokens)
+    token_overlap = 2 * len(q_tokens & c_tokens) / denom if denom else 0.0
+
+    return max(seq_ratio, token_overlap)
+
+
+def _format_duration(seconds) -> str:
+    try:
+        mins, secs = divmod(int(seconds), 60)
+        return f"{mins}:{secs:02d}"
+    except (TypeError, ValueError):
+        return ""
+
+
+async def _show_song_selection(
+    update: Update, candidates: list, query_str: str
+) -> None:
+    buttons = []
+    for cand in candidates:
+        video_id = cand.get("id") or ""
+        if not video_id:
+            continue
+        title = cand.get("title") or cand.get("track") or "Unknown"
+        artist = cand.get("artist") or cand.get("uploader") or ""
+        label = f"{artist} — {title}" if artist else title
+        dur = _format_duration(cand.get("duration"))
+        if dur:
+            label += f" ({dur})"
+        if len(label) > 60:
+            label = label[:57] + "…"
+        buttons.append(
+            [InlineKeyboardButton(label, callback_data=f"song_select:{video_id}")]
+        )
+
+    if not buttons:
+        await update.message.reply_text("❌ No results found.")
+        return
+
+    escaped_query = _escape_md(query_str)
+    await update.message.reply_text(
+        f"🔎 Results for: *{escaped_query}*\nSelect a track:",
+        parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+
+async def _send_audio_from_callback(
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    filename: str,
+    title: Optional[str],
+    performer: Optional[str],
+    youtube_url: Optional[str],
+    video_id: Optional[str],
+) -> None:
+    """Send downloaded audio in response to a song-selection inline button press."""
+    file_size = os.path.getsize(filename)
+    if file_size > 50 * 1024 * 1024:
+        await query.edit_message_text("❌ Audio file is too large to send (>50MB).")
+        return
+
+    tg_title, tg_performer = normalize_telegram_audio_metadata(title, performer)
+    display_title = f"{tg_performer} - {tg_title}" if tg_performer else tg_title
+    escaped_title = _escape_md(display_title or "Audio")
+
+    username = "Unknown"
+    if query.from_user:
+        username = query.from_user.username or query.from_user.first_name or "Unknown"
+    escaped_username = _escape_md(username)
+
+    caption = f"🎵 {escaped_title}\n\n👤 Від: @{escaped_username}"
+    if youtube_url:
+        caption += f"\n\n🔗 [YouTube]({_escape_md(youtube_url)})"
+
+    buttons = []
+    if youtube_url:
+        buttons.append(InlineKeyboardButton("🔗 YouTube", url=youtube_url))
+    reply_markup = InlineKeyboardMarkup([buttons]) if buttons else None
+
+    chat_id = query.message.chat_id if query.message else None
+    if not chat_id:
+        return
+
+    try:
+        await query.delete_message()
+    except Exception:
+        pass
+
+    sent_msg = None
+    with open(filename, "rb") as audio_file:
+        sent_msg = await context.bot.send_audio(
+            chat_id=chat_id,
+            audio=audio_file,
+            title=tg_title,
+            performer=tg_performer,
+            caption=caption,
+            parse_mode="MarkdownV2",
+            reply_markup=reply_markup,
+        )
+
+    if sent_msg and sent_msg.audio and video_id:
+        vd = context.bot_data.get("video_downloader")
+        if vd and hasattr(vd, "song_cache"):
+            vd.song_cache.set(
+                video_id=video_id,
+                file_id=sent_msg.audio.file_id,
+                title=display_title or "Audio",
+                performer=tg_performer,
+                webpage_url=youtube_url or "",
+            )
+
+    if chat_id:
+        from modules.event_tracker import record_bot_event
+
+        user_id = query.from_user.id if query.from_user else None
+        await record_bot_event("song_sent", chat_id, user_id)
+
+
+async def handle_song_selection_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle a song_select:<video_id> inline button press."""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    video_id = query.data[len("song_select:"):]
+    music_url = f"https://music.youtube.com/watch?v={video_id}"
+
+    video_downloader = context.bot_data.get("video_downloader")
+    if not video_downloader:
+        await query.edit_message_text("❌ Audio download service unavailable.")
+        return
+
+    await query.edit_message_text("⏳ Downloading…")
+
+    filename = None
+    try:
+        filename, title, performer, youtube_url, vid_id = (
+            await video_downloader.download_youtube_music(music_url)
+        )
+        if not filename or not os.path.exists(filename):
+            await query.edit_message_text("❌ Failed to download track.")
+            return
+        await _send_audio_from_callback(
+            query, context, filename, title, performer, youtube_url, vid_id
+        )
+    except Exception as e:
+        logger.error(f"song selection callback error: {e}", exc_info=True)
+        try:
+            await query.edit_message_text(f"❌ Error: {str(e)[:100]}")
+        except Exception:
+            pass
+    finally:
+        if filename and os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except Exception:
+                pass
+
+
 async def song_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /song command (3 modes)."""
     if not update.message:
@@ -237,41 +430,57 @@ async def song_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     async with _chat_action(update, context, ChatAction.UPLOAD_VOICE):
         # ── Mode A: /song artist - song ──────────────────────────────────────────
         if context.args:
-            query = " ".join(context.args)
-            processing_msg = await update.message.reply_text(f"🔎 Searching for: {query}…")
-            filename = None
-            try:
-                filename, title, performer, youtube_url, video_id = (
-                    await video_downloader.search_and_download_track(query)
+            query_str = " ".join(context.args)
+
+            candidates = await video_downloader.fast_youtube_search(query_str, limit=5)
+
+            if not candidates:
+                await update.message.reply_text("❌ No results found.")
+                return
+
+            best_cand = max(candidates, key=lambda c: _fuzzy_match(query_str, c))
+            if _fuzzy_match(query_str, best_cand) >= 0.95:
+                # High-confidence match — download immediately
+                processing_msg = await update.message.reply_text(
+                    f"🔎 Searching for: {query_str}…"
                 )
-                if not filename or not os.path.exists(filename):
-                    await processing_msg.edit_text("❌ Track not found.")
-                    return
+                filename = None
                 try:
-                    await processing_msg.delete()
-                except Exception:
-                    pass
-                await _send_audio_reply(
-                    update,
-                    context,
-                    filename,
-                    title,
-                    performer=performer,
-                    youtube_url=youtube_url,
-                    video_id=video_id,
-                )
-            except Exception as e:
-                logger.error(f"song_command search error: {e}", exc_info=True)
-                try:
-                    await processing_msg.edit_text(f"❌ Error: {str(e)[:100]}")
-                except Exception:
-                    pass
-            finally:
-                if filename and os.path.exists(filename):
+                    filename, title, performer, youtube_url, video_id = (
+                        await video_downloader._download_youtube_by_url(
+                            best_cand.get("webpage_url") or ""
+                        )
+                    )
+                    if not filename or not os.path.exists(filename):
+                        await processing_msg.edit_text("❌ Track not found.")
+                        return
                     try:
-                        os.remove(filename)
+                        await processing_msg.delete()
                     except Exception:
                         pass
+                    await _send_audio_reply(
+                        update,
+                        context,
+                        filename,
+                        title,
+                        performer=performer,
+                        youtube_url=youtube_url,
+                        video_id=video_id,
+                    )
+                except Exception as e:
+                    logger.error(f"song_command search error: {e}", exc_info=True)
+                    try:
+                        await processing_msg.edit_text(f"❌ Error: {str(e)[:100]}")
+                    except Exception:
+                        pass
+                finally:
+                    if filename and os.path.exists(filename):
+                        try:
+                            os.remove(filename)
+                        except Exception:
+                            pass
+            else:
+                await _show_song_selection(update, candidates, query_str)
             return
 
         # ── Modes B & C: reply to a message ──────────────────────────────────────

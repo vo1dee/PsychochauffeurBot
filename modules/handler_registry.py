@@ -249,6 +249,7 @@ class HandlerRegistry(ServiceInterface):
             handle_sticker,
             filters.Sticker.ALL,
             "Handle sticker messages",
+            chat_action=None,
         )
         self.command_processor.register_message_handler(
             "location_messages",

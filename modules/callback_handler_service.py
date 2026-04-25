@@ -70,6 +70,7 @@ class CallbackHandlerService(ServiceInterface):
             r"^speechrec_": self._handle_speech_recognition_callback,
             r"^lang_": self._handle_language_selection_callback,
             r"^test_callback$": self._handle_test_callback,
+            r"^song_select:[a-zA-Z0-9_-]+$": self._handle_song_selection_callback,
             r"^[a-zA-Z_]+:[0-9a-f]+$": self._handle_link_modification_callback,
         }
         
@@ -229,9 +230,18 @@ class CallbackHandlerService(ServiceInterface):
         if query:
             await query.edit_message_text("✅ Test callback received and handled!")
             
+    async def _handle_song_selection_callback(
+        self,
+        update: Update,
+        context: CallbackContext[Any, Any, Any, Any],
+    ) -> None:
+        """Delegate song selection buttons to song_command handler."""
+        from modules.handlers.song_command import handle_song_selection_callback
+        await handle_song_selection_callback(update, context)
+
     async def _handle_link_modification_callback(
-        self, 
-        update: Update, 
+        self,
+        update: Update,
         context: CallbackContext[Any, Any, Any, Any]
     ) -> None:
         """Handle link modification callbacks (from keyboards.py).
