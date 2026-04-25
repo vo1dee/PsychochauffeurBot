@@ -36,6 +36,7 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
                 update.message.text or  # Text message
                 update.message.caption or  # Image/video caption
                 update.message.sticker or  # Sticker
+                update.message.animation or  # GIF
                 (update.message.from_user and update.message.from_user.is_bot)  # Bot's reply
             )
             
