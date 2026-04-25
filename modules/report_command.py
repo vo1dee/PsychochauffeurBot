@@ -243,18 +243,26 @@ def _html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _peak_time_range(hourly: List) -> str:
-    """Find the best 2-hour window from hourly data."""
+def _peak_start_hour(hourly: List) -> Optional[int]:
+    """Return the start hour (0-23) of the busiest 2-hour window, or None if no data."""
     if not hourly:
-        return "N/A"
+        return None
     hour_map = {r["hour"]: r["cnt"] for r in hourly}
     best_start, best_total = 0, 0
     for h in range(24):
         total = hour_map.get(h, 0) + hour_map.get((h + 1) % 24, 0)
         if total > best_total:
             best_start, best_total = h, total
-    end = (best_start + 2) % 24
-    return f"{best_start:02d}:00–{end:02d}:00"
+    return best_start
+
+
+def _peak_time_range(hourly: List) -> str:
+    """Find the best 2-hour window from hourly data."""
+    start = _peak_start_hour(hourly)
+    if start is None:
+        return "N/A"
+    end = (start + 2) % 24
+    return f"{start:02d}:00–{end:02d}:00"
 
 
 def _build_insights(data: Dict[str, Any], days: int) -> str:
@@ -342,7 +350,9 @@ def format_report(data: Dict[str, Any], days: int) -> str:
         lines.append(f"🔥 <b>Most used feature:</b> /{_html(cmd_name)}")
 
     lines.append(f"😴 <b>Dead chats:</b> {inactive} (no activity in 14 days)")
-    lines.append(f"⏱ <b>Peak time:</b> {_peak_time_range(data['hourly'])}")
+    _peak_h = _peak_start_hour(data['hourly'])
+    _peak_icon = clock_emoji(_peak_h) if _peak_h is not None else "⏱"
+    lines.append(f"{_peak_icon} <b>Peak time:</b> {_peak_time_range(data['hourly'])}")
 
     # Top commands
     if data["top_commands"]:
