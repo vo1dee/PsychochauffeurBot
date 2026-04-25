@@ -35,16 +35,19 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 KYIV_TZ = pytz.timezone("Europe/Kyiv")
 
-# Matches lines like:
-# 2026-02-19 11:38:33,998 +0200 - chat - INFO - Ctx:[-1002096701815][supergroup][Psychochauffeur Club][vo1dee] - [ANIMATION]
+# Matches [ANIMATION] lines (new format, after chat_streamer fix) and
+# [DOCUMENT] lines for GIF files (old format — Telegram GIFs have both animation
+# and document fields; the document branch fired first before the fix).
+# GIF documents from Telegram are always *.gif.mp4 or named animation.mp4 / gif.mp4.
 LOG_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+) ([+-]\d{4}) - chat - INFO - "
-    r"Ctx:\[(-?\d+)\]\[[^\]]+\]\[[^\]]*\]\[([^\]]+)\] - \[ANIMATION\]"
+    r"Ctx:\[(-?\d+)\]\[[^\]]+\]\[[^\]]*\]\[([^\]]+)\] - "
+    r"(?:\[ANIMATION\]|\[DOCUMENT\] \S+\.gif\.mp4|\[DOCUMENT\] (?:animation|gif)\.mp4)"
 )
 
 
 def parse_log_files():
-    """Yield (timestamp_utc, chat_id, username) for every [ANIMATION] line in all logs."""
+    """Yield (timestamp_utc, chat_id, username) for every GIF log line in all logs."""
     for log_file in sorted(LOGS_DIR.rglob("*.log")):
         try:
             with open(log_file, "r", encoding="utf-8", errors="replace") as f:
