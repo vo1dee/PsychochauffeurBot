@@ -78,11 +78,11 @@ class ChatStreamer:
                 elif update.message.audio:
                     message_text = "[AUDIO]"
                     self._chat_logger.info(message_text, extra=log_context)
-                elif update.message.document:
-                    message_text = f"[DOCUMENT] {update.message.document.file_name or 'Unnamed'}"
-                    self._chat_logger.info(message_text, extra=log_context)
                 elif update.message.animation:
                     message_text = "[ANIMATION]"
+                    self._chat_logger.info(message_text, extra=log_context)
+                elif update.message.document:
+                    message_text = f"[DOCUMENT] {update.message.document.file_name or 'Unnamed'}"
                     self._chat_logger.info(message_text, extra=log_context)
                 else:
                     message_text = "[OTHER MEDIA]"
