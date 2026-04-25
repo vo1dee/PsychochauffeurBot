@@ -47,6 +47,31 @@ IMGKIT_OPTIONS = {
     'encoding': 'UTF-8'
 }
 
+_CLOCK_EMOJIS = [
+    "🕛", "🕧",  # 12:00, 12:30
+    "🕐", "🕜",  # 1:00,  1:30
+    "🕑", "🕝",  # 2:00,  2:30
+    "🕒", "🕞",  # 3:00,  3:30
+    "🕓", "🕟",  # 4:00,  4:30
+    "🕔", "🕠",  # 5:00,  5:30
+    "🕕", "🕡",  # 6:00,  6:30
+    "🕖", "🕢",  # 7:00,  7:30
+    "🕗", "🕣",  # 8:00,  8:30
+    "🕘", "🕤",  # 9:00,  9:30
+    "🕙", "🕥",  # 10:00, 10:30
+    "🕚", "🕦",  # 11:00, 11:30
+]
+
+
+def clock_emoji(hour: int, minute: int = 0) -> str:
+    """Return the clock emoji closest to the given hour and minute (rounds to nearest half-hour)."""
+    if minute < 15:
+        h, half = hour, 0
+    elif minute < 45:
+        h, half = hour, 1
+    else:
+        h, half = (hour + 1) % 24, 0
+    return _CLOCK_EMOJIS[(h % 12) * 2 + half]
 
 
 class DateParser:
@@ -1232,7 +1257,7 @@ async def screenshot_command(update: Update, context: CallbackContext[Any, Any, 
         # Format the caption
         caption = (
             f"🌞 *Прогноз сонячних спалахів та магнітних бурь*\n\n"
-            f"🕒 *Час оновлення:* {current_time.strftime('%H:%M %d.%m.%Y')}\n"
+            f"{clock_emoji(current_time.hour, current_time.minute)} *Час оновлення:* {current_time.strftime('%H:%M %d.%m.%Y')}\n"
             "🔗 *Джерело:* [MeteoAgent](https://meteoagent.com/solar-flares-storms)"
         )
         

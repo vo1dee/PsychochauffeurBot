@@ -23,6 +23,7 @@ from modules.command_diagnostics import (
 )
 from modules.structured_logging import StructuredLogger, LogLevel
 from modules.const import KYIV_TZ
+from modules.utils import clock_emoji
 
 
 class SystemDiagnosticsCommand:
@@ -435,7 +436,8 @@ class SystemDiagnosticsCommand:
             
             lines.append("")
         
-        lines.append(f"🕐 **Час звіту:** {datetime.now(KYIV_TZ).strftime('%H:%M %d.%m.%Y')}")
+        _now = datetime.now(KYIV_TZ)
+        lines.append(f"{clock_emoji(_now.hour, _now.minute)} **Час звіту:** {_now.strftime('%H:%M %d.%m.%Y')}")
         
         return "\n".join(lines)
 

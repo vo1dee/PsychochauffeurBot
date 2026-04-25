@@ -15,7 +15,8 @@ from telegram.ext import ContextTypes
 
 from modules.const import KYIV_TZ
 from modules.database import Database
-from modules.report_command import _pct_change, _peak_time_range
+from modules.report_command import _pct_change, _peak_time_range, _peak_start_hour
+from modules.utils import clock_emoji
 from modules.logger import general_logger, error_logger
 from modules.chat_analysis import get_user_chat_stats_with_fallback
 from config_v2.compat import get_shared_config_manager
@@ -573,7 +574,9 @@ def format_stats(data: Dict[str, Any]) -> str:
 
     # Peak activity time
     peak = _peak_time_range(data["hourly"])
-    lines.append(f"⏱ <b>Peak activity time:</b> {peak} (Kyiv)")
+    _peak_h = _peak_start_hour(data["hourly"])
+    _peak_icon = clock_emoji(_peak_h) if _peak_h is not None else "⏱"
+    lines.append(f"{_peak_icon} <b>Peak activity time:</b> {peak} (Kyiv)")
 
     # Response time
     avg_rt = data.get("avg_response_seconds")
