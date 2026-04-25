@@ -59,6 +59,8 @@ def _empty_stats_data(now: datetime, period_start: datetime, is_all_time: bool) 
         "reactions_prev": 0,
         "stickers_current": 0,
         "stickers_prev": 0,
+        "gifs_current": 0,
+        "gifs_prev": 0,
         "songs_current": 0,
         "songs_prev": 0,
         "top_users": [],
@@ -215,7 +217,7 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
             WHERE chat_id = $4
               AND timestamp >= $3 AND timestamp < $2
               AND (raw_telegram_message ? 'photo' OR raw_telegram_message ? 'video'
-                   OR raw_telegram_message ? 'video_note' OR raw_telegram_message ? 'animation')
+                   OR raw_telegram_message ? 'video_note')
         """, period_start_utc, now_utc, _prev_bound, chat_id)
 
         # 12. User reactions added
@@ -239,7 +241,18 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
               AND raw_telegram_message ? 'sticker'
         """, period_start_utc, now_utc, _prev_bound, chat_id)
 
-        # 14. Songs sent
+        # 14. GIFs sent
+        gifs = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM messages
+            WHERE chat_id = $4
+              AND timestamp >= $3 AND timestamp < $2
+              AND raw_telegram_message ? 'animation'
+        """, period_start_utc, now_utc, _prev_bound, chat_id)
+
+        # 15. Songs sent
         songs = await conn.fetchrow("""
             SELECT
                 COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
@@ -287,6 +300,8 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
         "reactions_prev": reactions["prev_count"] or 0 if prev_start_utc is not None else 0,
         "stickers_current": stickers["current_count"] or 0,
         "stickers_prev": stickers["prev_count"] or 0 if prev_start_utc is not None else 0,
+        "gifs_current": gifs["current_count"] or 0,
+        "gifs_prev": gifs["prev_count"] or 0 if prev_start_utc is not None else 0,
         "songs_current": songs["current_count"] or 0,
         "songs_prev": songs["prev_count"] or 0 if prev_start_utc is not None else 0,
         "top_users": top_users,
@@ -514,6 +529,15 @@ def format_stats(data: Dict[str, Any]) -> str:
             stickers_str += f" ({_pct_change(stickers_cur, stickers_prev)})"
         lines.append(f"🎭 <b>Stickers sent:</b> {stickers_str}")
 
+    # GIFs sent
+    gifs_cur = data["gifs_current"]
+    gifs_prev = data["gifs_prev"]
+    if gifs_cur > 0 or not is_all_time:
+        gifs_str = f"{gifs_cur:,}"
+        if not is_all_time:
+            gifs_str += f" ({_pct_change(gifs_cur, gifs_prev)})"
+        lines.append(f"🎞 <b>GIFs sent:</b> {gifs_str}")
+
     # Songs sent
     songs_cur = data["songs_current"]
     songs_prev_val = data["songs_prev"]
@@ -682,7 +706,7 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         SELECT COUNT(*) FROM messages
                         WHERE chat_id = $1 AND user_id = $2
                           AND (raw_telegram_message ? 'photo' OR raw_telegram_message ? 'video'
-                               OR raw_telegram_message ? 'video_note' OR raw_telegram_message ? 'animation')
+                               OR raw_telegram_message ? 'video_note')
                     """, _chat_id_int, _user_id_int)
                     reaction_count = await conn.fetchval(
                         "SELECT COUNT(*) FROM bot_events WHERE event_type = 'reaction' AND chat_id = $1 AND user_id = $2",
@@ -692,6 +716,11 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         SELECT COUNT(*) FROM messages
                         WHERE chat_id = $1 AND user_id = $2
                           AND raw_telegram_message ? 'sticker'
+                    """, _chat_id_int, _user_id_int)
+                    gif_count = await conn.fetchval("""
+                        SELECT COUNT(*) FROM messages
+                        WHERE chat_id = $1 AND user_id = $2
+                          AND raw_telegram_message ? 'animation'
                     """, _chat_id_int, _user_id_int)
                     song_count = await conn.fetchval(
                         "SELECT COUNT(*) FROM bot_events WHERE event_type = 'song_sent' AND chat_id = $1 AND user_id = $2",
@@ -707,6 +736,8 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     message_parts.append(f"Реакцій поставлено: {reaction_count}")
                 if sticker_count:
                     message_parts.append(f"Стікерів надіслано: {sticker_count}")
+                if gif_count:
+                    message_parts.append(f"GIF-ів надіслано: {gif_count}")
                 if song_count:
                     message_parts.append(f"Пісень надіслано: {song_count}")
         except Exception:
