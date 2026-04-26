@@ -254,11 +254,13 @@ class BotApplication(ServiceInterface):
             write_timeout = float(os.getenv('TELEGRAM_WRITE_TIMEOUT', DEFAULT_TIMEOUT * 2))  # 60 seconds default
             connect_timeout = float(os.getenv('TELEGRAM_CONNECT_TIMEOUT', DEFAULT_TIMEOUT))  # 30 seconds default
             pool_size = int(os.getenv('TELEGRAM_POOL_SIZE', '20'))  # Default connection pool size
-            
-            logger.info(f"Creating Telegram application with timeouts: read={read_timeout}s, write={write_timeout}s, connect={connect_timeout}s, pool_size={pool_size}")
-            
+            concurrent_updates = int(os.getenv('TELEGRAM_CONCURRENT_UPDATES', '5'))
+
+            logger.info(f"Creating Telegram application with timeouts: read={read_timeout}s, write={write_timeout}s, connect={connect_timeout}s, pool_size={pool_size}, concurrent_updates={concurrent_updates}")
+
             # Build application with configured timeouts
             builder = ApplicationBuilder().token(Config.TELEGRAM_BOT_TOKEN)
+            builder = builder.concurrent_updates(concurrent_updates)
             
             # Configure timeouts via custom HTTPXRequest if available
             # When using a custom request, we must configure timeouts on the request object,

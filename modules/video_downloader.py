@@ -211,6 +211,8 @@ class VideoDownloader:
             error_logger.error("extract_urls_func is not provided or not callable.")
             raise ValueError("extract_urls_func must be a callable function.")
 
+        self._video_work_semaphore = asyncio.Semaphore(3)
+
         self.yt_dlp_path = self._get_yt_dlp_path()
 
         # Service configuration - use environment variables with fallback
@@ -3412,36 +3414,40 @@ class VideoDownloader:
                     "⏳ Processing your request..."
                 )
 
-            async with _chat_action(update, context, ChatAction.UPLOAD_VIDEO):
-                for url in urls:
-                    # Check if this is a YouTube Music URL
-                    is_youtube_music = "music.youtube.com" in url.lower()
+            async with self._video_work_semaphore:
+                async with _chat_action(update, context, ChatAction.UPLOAD_VIDEO):
+                    for url in urls:
+                        # Check if this is a YouTube Music URL
+                        is_youtube_music = "music.youtube.com" in url.lower()
 
-                    if is_youtube_music:
-                        # Handle YouTube Music - download as MP3
-                        filename, title, performer, youtube_url, video_id = (
-                            await self.download_youtube_music(url)
-                        )
-                        if filename and os.path.exists(filename):
-                            await self._send_audio(
-                                update,
-                                context,
-                                filename,
-                                title,
-                                performer=performer,
-                                youtube_url=youtube_url or url,
+                        if is_youtube_music:
+                            # Handle YouTube Music - download as MP3
+                            filename, title, performer, youtube_url, video_id = (
+                                await self.download_youtube_music(url)
                             )
+                            if filename and os.path.exists(filename):
+                                await self._send_audio(
+                                    update,
+                                    context,
+                                    filename,
+                                    title,
+                                    performer=performer,
+                                    youtube_url=youtube_url or url,
+                                )
+                            else:
+                                await self._handle_download_error(update, url)
                         else:
-                            await self._handle_download_error(update, url)
-                    else:
-                        # Handle regular video platforms
-                        filename, title = await self.download_video(url, chat_id, chat_type)
-                        if filename and os.path.exists(filename):
-                            await self._send_video(
-                                update, context, filename, title, source_url=url
+                            # Handle regular video platforms
+                            filename, title = await asyncio.wait_for(
+                                self.download_video(url, chat_id, chat_type),
+                                timeout=120,
                             )
-                        else:
-                            await self._handle_download_error(update, url)
+                            if filename and os.path.exists(filename):
+                                await self._send_video(
+                                    update, context, filename, title, source_url=url
+                                )
+                            else:
+                                await self._handle_download_error(update, url)
 
         except Exception as e:
             await self._handle_processing_error(update, e, message_text)
@@ -3565,12 +3571,19 @@ class VideoDownloader:
                 )
                 caption += title_prefix + truncated_title
 
+            _upload_timeouts = dict(
+                write_timeout=120,
+                read_timeout=60,
+                connect_timeout=30,
+                pool_timeout=10,
+            )
+
             with open(filename, "rb") as video_file:
                 send_kwargs = dict(caption=caption, caption_entities=caption_entities)
                 # Check if the original message was a reply to another message
                 if update.message and update.message.reply_to_message:
                     await update.message.reply_to_message.reply_video(
-                        video=video_file, **send_kwargs
+                        video=video_file, **send_kwargs, **_upload_timeouts
                     )
                 else:
                     if update.effective_chat:
@@ -3578,6 +3591,7 @@ class VideoDownloader:
                             chat_id=update.effective_chat.id,
                             video=video_file,
                             **send_kwargs,
+                            **_upload_timeouts,
                         )
 
             # Track successful video download
@@ -3594,8 +3608,8 @@ class VideoDownloader:
             # Delete the original message after successful video send
             try:
                 if update.message:
-                    await update.message.delete()
-            except Exception as e:
+                    await asyncio.wait_for(update.message.delete(), timeout=10)
+            except (asyncio.TimeoutError, Exception) as e:
                 error_logger.error(f"Failed to delete original message: {str(e)}")
 
         except Exception as e:
@@ -4261,7 +4275,7 @@ def setup_video_handlers(
         MessageHandler(
             filters.TEXT & filters.Regex(video_pattern),
             debug_video_handler,
-            block=True,  # Block other handlers to ensure video processing takes priority
+            block=False,
         ),
         group=1,  # Higher priority group
     )
