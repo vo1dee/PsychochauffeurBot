@@ -16,6 +16,7 @@ from telegram.ext import ContextTypes
 
 from modules.const import KYIV_TZ
 from modules.database import Database
+from modules.logger import error_logger
 from modules.utils import clock_emoji
 
 logger = logging.getLogger(__name__)
@@ -423,7 +424,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         text = format_report(data, days)
         await progress_msg.edit_text(text, parse_mode="HTML")
     except Exception as e:
-        logger.error(f"Error in /report command: {e}", exc_info=True)
+        error_logger.error(f"Error in /report command: {e}", exc_info=True)
         try:
             await update.message.reply_text("❌ Error generating report. Try again later.")
         except Exception:
@@ -443,4 +444,4 @@ async def weekly_report_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         logger.info("Weekly report sent successfully")
     except Exception as e:
-        logger.error(f"Error sending weekly report: {e}", exc_info=True)
+        error_logger.error(f"Error sending weekly report: {e}", exc_info=True)
