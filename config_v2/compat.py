@@ -112,6 +112,21 @@ class CompatConfigManager:
         mgr = config_manager()
         await mgr.set_value(str(chat_id), module_name, "enabled", False)
 
+    async def update_module_setting(
+        self,
+        module_name: str,
+        setting_path: str,
+        value: Any,
+        chat_id: Optional[str] = None,
+        chat_type: Optional[str] = None,
+    ) -> bool:
+        mgr = config_manager()
+        effective_chat = str(chat_id) if chat_id else "global"
+        # Strip "overrides." prefix used by old API
+        key = setting_path.removeprefix("overrides.")
+        await mgr.set_value(effective_chat, module_name, key, value)
+        return True
+
     def get_analysis_cache_config(self) -> Dict[str, Any]:
         """Return default analysis cache config for compatibility."""
         return {
