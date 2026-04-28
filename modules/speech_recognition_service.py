@@ -651,7 +651,7 @@ class SpeechRecognitionService(ServiceInterface):
 
     def _store_hash_entry(self, file_hash: str, file_id: str) -> None:
         """Store a hash->file_id mapping with timestamp."""
-        self._store_hash_entry(file_hash, file_id)
+        self.file_id_hash_map[file_hash] = file_id
         self._hash_map_timestamps[file_hash] = time.time()
 
     def get_service_configuration(self) -> Dict[str, Any]:
