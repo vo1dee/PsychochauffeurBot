@@ -78,7 +78,9 @@ async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user
             reply_to_message_id=message_id,
         )
         async with _chat_action_for(context.bot, chat_id, ChatAction.UPLOAD_VIDEO):
-            filename, title = await video_downloader.download_video(watch_url)
+            filename, title = await asyncio.wait_for(
+                video_downloader.download_video(watch_url), timeout=60
+            )
 
             if not filename or not os.path.exists(filename):
                 await processing_msg.edit_text("Failed to download Shorts.")
