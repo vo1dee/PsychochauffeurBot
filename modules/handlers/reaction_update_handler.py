@@ -49,25 +49,34 @@ async def handle_reaction_update(update: Update, context: ContextTypes.DEFAULT_T
 
 async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user):
     """Download and send a YouTube Short triggered by ⚡ reaction."""
+    in_progress = context.bot_data.setdefault("shorts_in_progress", set())
+    key = (chat_id, message_id)
+    if key in in_progress:
+        general_logger.debug(f"Shorts download already in progress for message {message_id}, skipping duplicate")
+        return
+    in_progress.add(key)
+
     from modules.handlers.song_command import convert_shorts_to_regular
 
     watch_url = convert_shorts_to_regular(shorts_url)
     if not watch_url:
+        in_progress.discard(key)
         return
 
     video_downloader = context.bot_data.get("video_downloader")
     if not video_downloader:
         error_logger.error("Video downloader not available for ⚡ reaction")
+        in_progress.discard(key)
         return
 
-    processing_msg = await context.bot.send_message(
-        chat_id=chat_id,
-        text="⚡ Downloading Shorts...",
-        reply_to_message_id=message_id,
-    )
-
+    processing_msg = None
     filename = None
     try:
+        processing_msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text="⚡ Downloading Shorts...",
+            reply_to_message_id=message_id,
+        )
         async with _chat_action_for(context.bot, chat_id, ChatAction.UPLOAD_VIDEO):
             filename, title = await video_downloader.download_video(watch_url)
 
@@ -119,12 +128,14 @@ async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user
 
     except Exception as e:
         error_logger.error(f"Error in ⚡ shorts download: {e}", exc_info=True)
-        try:
-            await processing_msg.edit_text(f"Error downloading Shorts: {str(e)[:100]}")
-        except Exception as edit_err:
-            general_logger.warning(f"Failed to edit processing message after error: {edit_err}")
+        if processing_msg:
+            try:
+                await processing_msg.edit_text(f"Error downloading Shorts: {str(e)[:100]}")
+            except Exception as edit_err:
+                general_logger.warning(f"Failed to edit processing message after error: {edit_err}")
 
     finally:
+        in_progress.discard(key)
         if filename and os.path.exists(filename):
             try:
                 os.remove(filename)
