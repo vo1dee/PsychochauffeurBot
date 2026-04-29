@@ -120,7 +120,7 @@ BUTTONS_CONFIG: List[Dict[str, Any]] = [
     {
         'action': 'download_instagram_service',
         'text': '⬇️ Download',
-        'check': lambda link: link.lower().startswith(('https://instagram.com/', 'https://www.instagram.com/', 'https://m.instagram.com/', 'https://kkinstagram.com/', 'https://www.kkinstagram.com/')),
+        'check': lambda link: link.lower().startswith(('https://instagram.com/', 'https://www.instagram.com/', 'https://m.instagram.com/', 'https://toinstagram.com/', 'https://www.toinstagram.com/')),
         'modify': lambda link: link
     },
 ] 
