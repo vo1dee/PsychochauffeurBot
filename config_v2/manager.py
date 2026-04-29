@@ -202,6 +202,9 @@ def _deep_merge(base: dict, override: dict) -> dict:
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = _deep_merge(result[key], value)
+        elif key in result and isinstance(result[key], list) and value == "":
+            # Empty string stored in DB for a list field — treat as empty list
+            result[key] = []
         else:
             result[key] = value
     return result
