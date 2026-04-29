@@ -2403,7 +2403,9 @@ class VideoDownloader:
         try:
             async with _chat_action(update, context, ChatAction.UPLOAD_VOICE):
                 filename, title, performer, youtube_url, video_id, error_reason = (
-                    await self.download_music_platform_url(music_url)
+                    await asyncio.wait_for(
+                        self.download_music_platform_url(music_url), timeout=60
+                    )
                 )
 
                 if not filename or not os.path.exists(filename):
@@ -3423,7 +3425,9 @@ class VideoDownloader:
                         if is_youtube_music:
                             # Handle YouTube Music - download as MP3
                             filename, title, performer, youtube_url, video_id = (
-                                await self.download_youtube_music(url)
+                                await asyncio.wait_for(
+                                    self.download_youtube_music(url), timeout=60
+                                )
                             )
                             if filename and os.path.exists(filename):
                                 await self._send_audio(
@@ -3440,7 +3444,7 @@ class VideoDownloader:
                             # Handle regular video platforms
                             filename, title = await asyncio.wait_for(
                                 self.download_video(url, chat_id, chat_type),
-                                timeout=120,
+                                timeout=60,
                             )
                             if filename and os.path.exists(filename):
                                 await self._send_video(
