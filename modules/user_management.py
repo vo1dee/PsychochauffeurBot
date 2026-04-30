@@ -23,6 +23,15 @@ async def _unrestrict_user(context: CallbackContext[Any, Any, Any, Any]) -> None
     user_id = job.data["user_id"]
     user_name = job.data.get("user_name", "User")
 
+    try:
+        member = await context.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+        if member.status != "restricted" or getattr(member, "can_send_messages", True):
+            general_logger.info(f"User {user_id} in chat {chat_id} already unrestricted, skipping auto-unmute notification")
+            return
+    except TelegramError as e:
+        error_logger.error(f"Failed to check restriction status for user {user_id} in chat {chat_id}: {e}")
+        return
+
     permissions = ChatPermissions(
         can_send_messages=True,
         can_send_polls=True,

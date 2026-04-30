@@ -355,6 +355,11 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if target_member.user.username:
             target_name += f" (@{target_member.user.username})"
 
+        # Cancel any pending auto-unmute job so it doesn't fire a duplicate notification
+        job_name = f"unrestrict_{chat.id}_{target_user_id}"
+        for job in context.job_queue.get_jobs_by_name(job_name):
+            job.schedule_removal()
+
         await update.message.reply_text(f"✅ {target_name} has been unmuted.")
 
         if user is not None:
