@@ -994,20 +994,6 @@ class TestDataFactory:
     """Factory for creating test data objects."""
     
     @staticmethod
-    def create_reminder_data():
-        """Create test reminder data."""
-        return {
-            "task": "Test reminder",
-            "frequency": "daily",
-            "delay": 3600,  # 1 hour
-            "date_modifier": None,
-            "next_execution": datetime.now(KYIV_TZ),
-            "user_id": 12345,
-            "chat_id": 12345,
-            "user_mention_md": "@testuser"
-        }
-    
-    @staticmethod
     def create_error_data():
         """Create test error data."""
         return {
