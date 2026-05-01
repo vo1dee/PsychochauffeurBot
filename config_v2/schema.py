@@ -322,29 +322,6 @@ class VideoSendConfig(BaseModel):
     )
 
 
-class RemindersConfig(BaseModel):
-    """Reminders module settings."""
-
-    __module_label__ = "Reminders"
-
-    enabled: bool = CField(False, scope="per_chat", widget=Widget.TOGGLE, label="Module enabled")
-    max_reminders_per_user: int = CField(
-        5, scope="global", widget=Widget.NUMBER, label="Max reminders per user", ge=1
-    )
-    max_reminder_duration_days: int = CField(
-        30, scope="global", widget=Widget.NUMBER, label="Max duration (days)", ge=1
-    )
-    reminder_notification_interval_minutes: int = CField(
-        60, scope="global", widget=Widget.NUMBER, label="Notification interval (min)", ge=1
-    )
-    allow_recurring_reminders: bool = CField(
-        True, scope="global", widget=Widget.TOGGLE, label="Allow recurring"
-    )
-    max_recurring_reminders: int = CField(
-        3, scope="global", widget=Widget.NUMBER, label="Max recurring", ge=1
-    )
-
-
 # ---------------------------------------------------------------------------
 # Registry — maps module key → Pydantic model class
 # ---------------------------------------------------------------------------
@@ -355,7 +332,6 @@ MODULE_REGISTRY: dict[str, type[BaseModel]] = {
     "weather": WeatherConfig,
     "speechmatics": SpeechmaticsConfig,
     "video_send": VideoSendConfig,
-    "reminders": RemindersConfig,
 }
 
 
