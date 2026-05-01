@@ -239,7 +239,7 @@ async def save_module(request: Request, chat_id: str, module_key: str):
             data[parts[0]][parts[1]] = parsed_value
 
     # Handle toggle checkboxes (unchecked = not in form data)
-    _fill_missing_toggles(data, model_class, form)
+    _fill_missing_toggles(data, model_class, form, chat_id)
 
     await mgr.set_module_config(chat_id, module_key, data)
 
@@ -420,10 +420,15 @@ def _field_is_list(model_class: type, parts: list[str]) -> bool:
     return False
 
 
-def _fill_missing_toggles(data: dict, model_class: type, form: Any) -> None:
+def _fill_missing_toggles(data: dict, model_class: type, form: Any, chat_id: str = "global") -> None:
     """Fill in False for toggle fields not present in form data (unchecked checkboxes)."""
     for field_name, field_info in model_class.model_fields.items():
         extra = field_info.json_schema_extra or {}
+        # Mirror _build_form_fields: skip 'enabled' and global-only fields in per-chat mode
+        if chat_id != "global" and field_name == "enabled":
+            continue
+        if chat_id != "global" and extra.get("scope") == "global":
+            continue
         if extra.get("widget") == "toggle" and field_name not in data and field_name not in form:
             data[field_name] = False
 
