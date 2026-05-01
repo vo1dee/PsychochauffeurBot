@@ -2400,6 +2400,7 @@ class VideoDownloader:
         processing_msg = await update.message.reply_text("⏳ Downloading track...")
 
         filename = None
+        title = performer = youtube_url = video_id = None
         try:
             async with _chat_action(update, context, ChatAction.UPLOAD_VOICE):
                 filename, title, performer, youtube_url, video_id, error_reason = (
@@ -2413,8 +2414,7 @@ class VideoDownloader:
                     await processing_msg.edit_text(msg)
                     return
 
-                file_size = os.path.getsize(filename)
-                if file_size > 50 * 1024 * 1024:
+                if os.path.getsize(filename) > 50 * 1024 * 1024:
                     await processing_msg.edit_text(
                         "❌ Audio file is too large to send (>50MB)."
                     )
@@ -2424,22 +2424,23 @@ class VideoDownloader:
                     await processing_msg.delete()
                 except Exception:
                     pass
+            # chat_action exited — keepalive cancelled, indicator stops refreshing
 
-                await self._send_audio(
-                    update,
-                    context,
-                    filename,
-                    title,
-                    performer=performer,
-                    youtube_url=youtube_url,
-                    platform_url=music_url,
-                )
+            await self._send_audio(
+                update,
+                context,
+                filename,
+                title,
+                performer=performer,
+                youtube_url=youtube_url,
+                platform_url=music_url,
+            )
 
-                if update.effective_chat:
-                    from modules.event_tracker import record_bot_event
+            if update.effective_chat:
+                from modules.event_tracker import record_bot_event
 
-                    user_id = update.effective_user.id if update.effective_user else None
-                    await record_bot_event("song_sent", update.effective_chat.id, user_id)
+                user_id = update.effective_user.id if update.effective_user else None
+                await record_bot_event("song_sent", update.effective_chat.id, user_id)
 
         except Exception as e:
             error_logger.error(f"handle_music_platform_link error: {e}", exc_info=True)
@@ -3417,11 +3418,9 @@ class VideoDownloader:
                 )
 
             async with self._video_work_semaphore:
-                async with _chat_action(update, context, ChatAction.UPLOAD_VIDEO):
-                    for url in urls:
-                        # Check if this is a YouTube Music URL
-                        is_youtube_music = "music.youtube.com" in url.lower()
-
+                for url in urls:
+                    is_youtube_music = "music.youtube.com" in url.lower()
+                    async with _chat_action(update, context, ChatAction.UPLOAD_VIDEO):
                         if is_youtube_music:
                             # Handle YouTube Music - download as MP3
                             filename, title, performer, youtube_url, video_id = (
@@ -3429,29 +3428,32 @@ class VideoDownloader:
                                     self.download_youtube_music(url), timeout=60
                                 )
                             )
-                            if filename and os.path.exists(filename):
-                                await self._send_audio(
-                                    update,
-                                    context,
-                                    filename,
-                                    title,
-                                    performer=performer,
-                                    youtube_url=youtube_url or url,
-                                )
-                            else:
-                                await self._handle_download_error(update, url)
                         else:
                             # Handle regular video platforms
                             filename, title = await asyncio.wait_for(
                                 self.download_video(url, chat_id, chat_type),
                                 timeout=60,
                             )
-                            if filename and os.path.exists(filename):
-                                await self._send_video(
-                                    update, context, filename, title, source_url=url
-                                )
-                            else:
-                                await self._handle_download_error(update, url)
+                    # chat_action exited — keepalive cancelled, indicator stops refreshing
+                    if is_youtube_music:
+                        if filename and os.path.exists(filename):
+                            await self._send_audio(
+                                update,
+                                context,
+                                filename,
+                                title,
+                                performer=performer,
+                                youtube_url=youtube_url or url,
+                            )
+                        else:
+                            await self._handle_download_error(update, url)
+                    else:
+                        if filename and os.path.exists(filename):
+                            await self._send_video(
+                                update, context, filename, title, source_url=url
+                            )
+                        else:
+                            await self._handle_download_error(update, url)
 
         except Exception as e:
             await self._handle_processing_error(update, e, message_text)
