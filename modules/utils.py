@@ -83,6 +83,7 @@ class DateParser:
         ('%d-%m-%Y', r'^\d{1,2}-\d{1,2}-\d{4}$'),    # D-M-YYYY or DD-MM-YYYY (European format)
         ('%d/%m/%Y', r'^\d{1,2}/\d{1,2}/\d{4}$'),    # D/M/YYYY or DD/MM/YYYY (Alternative European format)
         ('%Y/%m/%d', r'^\d{4}/\d{1,2}/\d{1,2}$'),    # YYYY/M/D or YYYY/MM/DD (Alternative ISO format)
+        ('%d.%m.%Y', r'^\d{1,2}\.\d{1,2}\.\d{4}$'),  # D.M.YYYY or DD.MM.YYYY (Dot-separated European format)
     ]
     
     @staticmethod

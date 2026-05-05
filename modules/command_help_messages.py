@@ -18,7 +18,8 @@ class CommandHelpMessages:
         "📅 **Підтримувані формати дат:**\n"
         "• `YYYY-MM-DD` (наприклад: 2024-01-15)\n"
         "• `DD-MM-YYYY` (наприклад: 15-01-2024)\n"
-        "• `DD/MM/YYYY` (наприклад: 15/01/2024)"
+        "• `DD/MM/YYYY` (наприклад: 15/01/2024)\n"
+        "• `DD.MM.YYYY` (наприклад: 15.01.2024)"
     )
     
     # Analyze command help messages

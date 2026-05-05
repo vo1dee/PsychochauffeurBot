@@ -359,7 +359,8 @@ class EnhancedAnalyzeCommand:
                     "📅 **Формати дат:**\n"
                     "• YYYY-MM-DD (2024-01-15)\n"
                     "• DD-MM-YYYY (15-01-2024)\n"
-                    "• DD/MM/YYYY (15/01/2024)\n\n"
+                    "• DD/MM/YYYY (15/01/2024)\n"
+                    "• DD.MM.YYYY (15.01.2024)\n\n"
                     "💡 **Приклади:**\n"
                     "• /analyze last 50 messages\n"
                     "• /analyze date 15-01-2024\n"
@@ -463,7 +464,8 @@ class EnhancedAnalyzeCommand:
                 "Підтримувані формати дат:\n"
                 "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
                 "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
-                "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                "• DD/MM/YYYY (наприклад: 15/01/2024)\n"
+                "• DD.MM.YYYY (наприклад: 15.01.2024)\n\n"
                 "Приклад: /analyze period 01-01-2024 31-01-2024"
             )
             raise ValueError(error_message)
@@ -482,7 +484,8 @@ class EnhancedAnalyzeCommand:
                 "Підтримувані формати дат:\n"
                 "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
                 "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
-                "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                "• DD/MM/YYYY (наприклад: 15/01/2024)\n"
+                "• DD.MM.YYYY (наприклад: 15.01.2024)\n\n"
                 "Приклад: /analyze period 01-01-2024 31-01-2024"
             )
             raise ValueError(error_message)
@@ -504,7 +507,8 @@ class EnhancedAnalyzeCommand:
                 "Підтримувані формати дат:\n"
                 "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
                 "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
-                "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                "• DD/MM/YYYY (наприклад: 15/01/2024)\n"
+                "• DD.MM.YYYY (наприклад: 15.01.2024)\n\n"
                 "Приклад: /analyze date 15-01-2024"
             )
             raise ValueError(error_message)
@@ -529,7 +533,8 @@ class EnhancedAnalyzeCommand:
                 "Підтримувані формати дат:\n"
                 "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
                 "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
-                "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                "• DD/MM/YYYY (наприклад: 15/01/2024)\n"
+                "• DD.MM.YYYY (наприклад: 15.01.2024)\n\n"
                 "Приклад: /analyze date 15-01-2024"
             )
             raise ValueError(error_message)

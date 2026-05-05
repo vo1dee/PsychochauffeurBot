@@ -843,8 +843,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     - /analyze: Analyze today's messages
     - /analyze last <number> messages: Analyze last N messages
     - /analyze last <number> days: Analyze messages from last N days
-    - /analyze period <date1> <date2>: Analyze messages in date range (supports DD-MM-YYYY and YYYY-MM-DD)
-    - /analyze date <date>: Analyze messages for specific date (supports DD-MM-YYYY and YYYY-MM-DD)
+    - /analyze period <date1> <date2>: Analyze messages in date range (supports DD-MM-YYYY, YYYY-MM-DD, DD/MM/YYYY, DD.MM.YYYY)
+    - /analyze date <date>: Analyze messages for specific date (supports DD-MM-YYYY, YYYY-MM-DD, DD/MM/YYYY, DD.MM.YYYY)
     
     Args:
         update: Telegram update object
@@ -993,7 +993,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         "Підтримувані формати дат:\n"
                         "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
                         "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
-                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n"
+                        "• DD.MM.YYYY (наприклад: 15.01.2024)\n\n"
                         "Приклад: /analyze period 01-01-2024 31-01-2024"
                     )
                     general_logger.warning(f"Invalid 'period' command format from user {username}: {args}")
@@ -1025,7 +1026,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         "Підтримувані формати:\n"
                         "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
                         "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
-                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n"
+                        "• DD.MM.YYYY (наприклад: 15.01.2024)\n\n"
                         "Переконайтеся, що початкова дата передує кінцевій."
                     )
                     general_logger.warning(f"Date parsing error in 'period' command from user {username}: {args[1]}, {args[2]} - {e}")
@@ -1042,7 +1044,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         "Підтримувані формати дат:\n"
                         "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
                         "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
-                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n"
+                        "• DD.MM.YYYY (наприклад: 15.01.2024)\n\n"
                         "Приклад: /analyze date 15-01-2024"
                     )
                     general_logger.warning(f"Invalid 'date' command format from user {username}: {args}")
@@ -1073,7 +1076,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         "Підтримувані формати:\n"
                         "• YYYY-MM-DD (наприклад: 2024-01-15)\n"
                         "• DD-MM-YYYY (наприклад: 15-01-2024)\n"
-                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n\n"
+                        "• DD/MM/YYYY (наприклад: 15/01/2024)\n"
+                        "• DD.MM.YYYY (наприклад: 15.01.2024)\n\n"
                         "Приклад: /analyze date 15-01-2024"
                     )
                     general_logger.warning(f"Date parsing error in 'date' command from user {username}: {args[1]} - {e}")
@@ -1182,7 +1186,11 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Send the analysis result
         try:
             if update.message and gpt_result:
-                await update.message.reply_text(gpt_result, parse_mode="Markdown")
+                try:
+                    await update.message.reply_text(gpt_result, parse_mode="Markdown")
+                except Exception as markdown_error:
+                    error_logger.warning(f"Markdown send failed, retrying as plain text: {markdown_error}")
+                    await update.message.reply_text(gpt_result)
 
                 # Log successful completion
                 execution_time = (datetime.now() - start_time).total_seconds()
