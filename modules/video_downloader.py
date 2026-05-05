@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from enum import Enum
 from telegram import (
     Update,
-    InlineQueryResultCachedAudio,
     InlineQueryResultArticle,
     InputTextMessageContent,
     InlineKeyboardMarkup,
@@ -32,8 +31,6 @@ from modules.const import (
     InstagramConfig,
     MUSIC_DIR,
     SONG_CACHE_PATH,
-    SONG_CACHE_CHAT_ID,
-    SONG_CACHE_THREAD_ID,
 )
 from modules.song_cache import SongCache
 from modules.utils import extract_urls
@@ -232,10 +229,6 @@ class VideoDownloader:
 
         # Song file_id cache (persists across restarts)
         self.song_cache = SongCache(SONG_CACHE_PATH)
-        # Background caching state
-        self._bg_tasks: set = set()
-        self._inflight: Dict[str, Any] = {}  # video_id -> asyncio.Task
-        self._bg_semaphore = Semaphore(2)
 
         # Platform-specific download configurations
         self.platform_configs = {
@@ -2575,7 +2568,7 @@ class VideoDownloader:
     async def handle_inline_query(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        """Handle inline queries for YouTube Music, YouTube Shorts, TikTok, and cat photos."""
+        """Handle inline queries for YouTube Shorts, TikTok, and cat photos."""
         query = update.inline_query
         if not query:
             return
@@ -2591,9 +2584,7 @@ class VideoDownloader:
         if urls:
             url = urls[0]
             # Route to appropriate handler based on URL
-            if "music.youtube.com" in url.lower():
-                await self._handle_inline_youtube_music(query, context, url)
-            elif "youtube.com/shorts" in url.lower():
+            if "youtube.com/shorts" in url.lower():
                 await self._handle_inline_youtube_shorts(query, context, url)
             elif "tiktok.com" in url.lower():
                 await self._handle_inline_tiktok(query, context, url)
@@ -2601,16 +2592,11 @@ class VideoDownloader:
                 # Unsupported URL - still show cat button
                 await self._show_cat_with_hint(
                     query,
-                    f"Unsupported link. Try music.youtube.com, youtube.com/shorts or tiktok.com",
+                    f"Unsupported link. Try youtube.com/shorts or tiktok.com",
                 )
             return
 
-        # Non-empty text without a URL: treat as song search
-        if len(query_text) >= 3:
-            await self._handle_inline_song_search(query, context, query_text)
-            return
-
-        # Empty/very short query - show cat photo button
+        # Empty or text query - show cat photo button
         await self._handle_inline_cat(query, context)
 
     async def _handle_inline_cat(
@@ -2703,243 +2689,6 @@ class VideoDownloader:
         except Exception as e:
             error_logger.error(f"fast_youtube_search error: {e}")
         return []
-
-    def _schedule_background_cache(
-        self, meta: dict, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """Trigger a background download and cache for a single search hit."""
-        video_id = meta.get("id", "")
-        if not video_id or video_id in self._inflight or self.song_cache.get(video_id):
-            return
-
-        task = asyncio.create_task(self._run_background_cache(meta, context))
-        self._inflight[video_id] = task
-        self._bg_tasks.add(task)
-
-        def _done(t: asyncio.Task) -> None:
-            self._bg_tasks.discard(t)
-            self._inflight.pop(video_id, None)
-
-        task.add_done_callback(_done)
-
-    async def _run_background_cache(
-        self, meta: dict, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """Download audio and upload to cache channel to obtain a Telegram file_id."""
-        video_id = meta.get("id", "")
-        webpage_url = meta.get("webpage_url", "")
-        if not webpage_url:
-            return
-
-        error_logger.info(f"🔄 Background cache start: {video_id} ({webpage_url})")
-        try:
-            async with self._bg_semaphore:
-                filename, display_title, performer, yt_url, vid = (
-                    await self.download_youtube_music(webpage_url)
-                )
-                if not filename or not os.path.exists(filename):
-                    error_logger.warning(
-                        f"Background cache: download failed for {video_id}"
-                    )
-                    return
-
-                try:
-                    tg_title, tg_performer = self._normalize_telegram_audio_metadata(
-                        display_title, performer
-                    )
-                    cache_display_title = (
-                        f"{tg_performer} - {tg_title}" if tg_performer else tg_title
-                    )
-                    with open(filename, "rb") as audio_file:
-                        msg = await context.bot.send_audio(
-                            chat_id=SONG_CACHE_CHAT_ID,
-                            message_thread_id=SONG_CACHE_THREAD_ID,
-                            audio=audio_file,
-                            title=tg_title,
-                            performer=tg_performer,
-                            caption=f"🔗 {yt_url or webpage_url}",
-                            disable_notification=True,
-                        )
-
-                    if msg and msg.audio:
-                        self.song_cache.set(
-                            video_id=video_id,
-                            file_id=msg.audio.file_id,
-                            title=cache_display_title or "Audio",
-                            performer=tg_performer,
-                            webpage_url=yt_url or webpage_url,
-                            duration=meta.get("duration"),
-                        )
-                        error_logger.info(
-                            f"✅ Background cache done: {video_id} → {msg.audio.file_id}"
-                        )
-                finally:
-                    try:
-                        os.remove(filename)
-                    except Exception:
-                        pass
-        except Exception as e:
-            error_logger.exception(f"Background cache error for {video_id}: {e}")
-
-    @staticmethod
-    def _extract_video_id_from_url(url: str) -> str:
-        """Extract YouTube video ID from a URL."""
-        import re as _re
-
-        m = _re.search(r"[?&v=]([a-zA-Z0-9_-]{11})", url)
-        return m.group(1) if m else ""
-
-    async def _handle_inline_youtube_music(
-        self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str
-    ) -> None:
-        """Handle inline YouTube Music URL — check cache first, else article + background cache."""
-        error_logger.info(f"🎵 Inline YouTube Music: {url}")
-
-        video_id = self._extract_video_id_from_url(url)
-        yt_button = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🔗 YouTube", url=url)]]
-        )
-
-        # Cache hit: return instantly
-        if video_id:
-            cached = self.song_cache.get(video_id)
-            if cached:
-                try:
-                    results = [
-                        InlineQueryResultCachedAudio(
-                            id=f"yt_{uuid.uuid4().hex[:8]}",
-                            audio_file_id=cached["file_id"],
-                            caption=f"🎵 {cached.get('title', 'Audio')}\n\n🔗 [YouTube]({url})",
-                            parse_mode="MarkdownV2",
-                            reply_markup=yt_button,
-                        )
-                    ]
-                    await query.answer(results, cache_time=300)
-                    error_logger.info(
-                        f"✅ Inline YT Music (cached): {cached.get('title')}"
-                    )
-                    return
-                except Exception as e:
-                    err = str(e).lower()
-                    if "file_id" in err or "invalid" in err:
-                        self.song_cache.evict(video_id)
-                    error_logger.warning(f"Inline YT Music cache hit failed: {e}")
-
-        # Cache miss: return article with YouTube link, trigger background download
-        meta = {
-            "id": video_id,
-            "webpage_url": url,
-            "title": "",
-            "artist": None,
-            "track": None,
-            "uploader": "",
-            "duration": None,
-        }
-        # Try fast metadata lookup for a nicer display title
-        hits = await self.fast_youtube_search(url, limit=1, timeout=5.0)
-        if hits:
-            meta = hits[0]
-
-        display_title, _, _ = self._compose_display_title(meta)
-
-        results = [
-            InlineQueryResultArticle(
-                id=f"yt_article_{uuid.uuid4().hex[:8]}",
-                title=display_title,
-                description="Audio will be cached for next search",
-                input_message_content=InputTextMessageContent(
-                    f"🎵 {display_title}\n🔗 {url}",
-                ),
-                reply_markup=yt_button,
-            )
-        ]
-        try:
-            await query.answer(results, cache_time=5, is_personal=True)
-        except Exception as e:
-            error_logger.error(f"Inline YT Music article answer error: {e}")
-
-        self._schedule_background_cache(meta, context)
-
-    async def _handle_inline_song_search(
-        self, query: Any, context: ContextTypes.DEFAULT_TYPE, search_text: str
-    ) -> None:
-        """Handle inline song search — fast metadata search, serve cached audio or article fallback."""
-        error_logger.info(f"🎵 Inline song search: '{search_text}'")
-
-        hits = await self.fast_youtube_search(search_text, limit=5, timeout=7.0)
-        if not hits:
-            await self._send_inline_error(query, "No results found")
-            return
-
-        results = []
-        uncached_hits = []
-
-        for hit in hits:
-            video_id = hit.get("id", "")
-            display_title, performer, webpage_url = self._compose_display_title(hit)
-            webpage_url = webpage_url or hit.get("webpage_url", "")
-
-            yt_button = (
-                InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("🔗 YouTube", url=webpage_url)]]
-                )
-                if webpage_url
-                else None
-            )
-
-            cached = self.song_cache.get(video_id) if video_id else None
-            if cached:
-                try:
-                    caption = f"🎵 {cached.get('title', display_title)}"
-                    if webpage_url:
-                        caption += f"\n\n🔗 [YouTube]({webpage_url})"
-                    results.append(
-                        InlineQueryResultCachedAudio(
-                            id=f"song_{uuid.uuid4().hex[:8]}",
-                            audio_file_id=cached["file_id"],
-                            caption=caption,
-                            parse_mode="MarkdownV2",
-                            reply_markup=yt_button,
-                        )
-                    )
-                    continue
-                except Exception as e:
-                    err = str(e).lower()
-                    if "file_id" in err or "invalid" in err:
-                        self.song_cache.evict(video_id)
-                    error_logger.warning(f"Song cache hit failed for {video_id}: {e}")
-
-            # Article fallback for uncached results
-            results.append(
-                InlineQueryResultArticle(
-                    id=f"song_article_{uuid.uuid4().hex[:8]}",
-                    title=display_title,
-                    description="Tap to send YouTube link. Audio caching in background…",
-                    input_message_content=InputTextMessageContent(
-                        (
-                            f"🎵 {display_title}\n🔗 {webpage_url}"
-                            if webpage_url
-                            else f"🎵 {display_title}"
-                        ),
-                    ),
-                    reply_markup=yt_button,
-                )
-            )
-            uncached_hits.append(hit)
-
-        all_cached = len(uncached_hits) == 0
-        try:
-            await query.answer(
-                results, cache_time=300 if all_cached else 5, is_personal=True
-            )
-            error_logger.info(
-                f"✅ Inline song search answered: {len(results)} results ({len(uncached_hits)} uncached)"
-            )
-        except Exception as e:
-            error_logger.error(f"Inline song search answer error: {e}")
-
-        for hit in uncached_hits:
-            self._schedule_background_cache(hit, context)
 
     async def _handle_inline_tiktok(
         self, query: Any, context: ContextTypes.DEFAULT_TYPE, url: str
