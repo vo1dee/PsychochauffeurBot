@@ -29,6 +29,12 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
     error_logger.warning("Playwright not available. Install with 'pip install playwright && playwright install' for screenshot functionality.")
 
+try:
+    from PIL import Image as _PILImage
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')   
 CITY_DATA_FILE = os.path.join(DATA_DIR, 'user_locations.csv')
@@ -477,6 +483,19 @@ async def cat_command(update: Update, context: CallbackContext[Any, Any, Any, An
         if update.message:
             await update.message.reply_text('An error occurred while fetching a cat image.')
 
+def _crop_screenshot_top(path: str, fraction: float = 0.45) -> None:
+    """Keep only the top `fraction` of the screenshot height."""
+    if not PIL_AVAILABLE:
+        return
+    try:
+        img = _PILImage.open(path)
+        new_height = int(img.height * fraction)
+        img.crop((0, 0, img.width, new_height)).save(path)
+        general_logger.info(f"Cropped screenshot to top {int(fraction*100)}%: {img.width}x{new_height}")
+    except Exception as e:
+        error_logger.warning(f"Screenshot crop failed, using original: {e}")
+
+
 # Screenshot functionality
 class ScreenshotManager:
     _instance: Optional['ScreenshotManager'] = None
@@ -677,6 +696,7 @@ class ScreenshotManager:
                 
                 # Verify the screenshot was created
                 if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
+                    _crop_screenshot_top(screenshot_path)
                     general_logger.info(f"Successfully captured MeteoAgent widget to {screenshot_path}")
                     return screenshot_path
                 
