@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.ext import CallbackContext, CommandHandler
 
 from modules.command_processor import CommandProcessor, CommandMetadata, CommandType
@@ -46,6 +47,7 @@ class CommandInfo:
     aliases: List[str] = field(default_factory=list)
     usage: Optional[str] = None
     examples: List[str] = field(default_factory=list)
+    chat_action: Optional[ChatAction] = ChatAction.TYPING
 
 
 class CommandRegistry(ServiceInterface):
@@ -165,6 +167,7 @@ class CommandRegistry(ServiceInterface):
             group_only=command_info.group_only,
             private_only=command_info.private_only,
             rate_limit=command_info.rate_limit,
+            chat_action=command_info.chat_action,
         )
 
         # Register aliases with CommandProcessor
@@ -177,6 +180,7 @@ class CommandRegistry(ServiceInterface):
                 group_only=command_info.group_only,
                 private_only=command_info.private_only,
                 rate_limit=command_info.rate_limit,
+                chat_action=command_info.chat_action,
             )
 
         logger.info(
@@ -417,6 +421,7 @@ class CommandRegistry(ServiceInterface):
                 handler_func=song_command,
                 usage="/song (as reply to message with YouTube link)",
                 examples=["/song"],
+                chat_action=None,
             )
         )
 
@@ -429,6 +434,7 @@ class CommandRegistry(ServiceInterface):
                 handler_func=short_command,
                 usage="/short (as reply to message with YouTube Shorts link)",
                 examples=["/short"],
+                chat_action=None,
             )
         )
 
