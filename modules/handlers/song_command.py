@@ -609,16 +609,14 @@ async def song_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("❌ Audio download service is not available.")
         return
 
-    send_kwargs = None
     cleanup_path = None
     try:
         async with _chat_action(update, context, ChatAction.UPLOAD_VOICE):
             send_kwargs, cleanup_path = await _resolve_and_download(
                 update, context, video_downloader
             )
-        # chat_action exited here — keepalive cancelled, indicator stops refreshing
-        if send_kwargs is not None:
-            await _send_audio_reply(update, context, **send_kwargs)
+            if send_kwargs is not None:
+                await _send_audio_reply(update, context, **send_kwargs)
     finally:
         if cleanup_path and os.path.exists(cleanup_path):
             try:
