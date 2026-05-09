@@ -697,10 +697,8 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             ) if update.message else None
             return
 
-        safe_username = username.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
-
         message_parts = [
-            f"📊 Статистика повідомлень для {safe_username}",
+            f"📊 Статистика повідомлень для {username}",
             "",
             f"💬 Загальна кількість повідомлень: {stats['total_messages']}",
             f"📅 Повідомлень за останній тиждень: {stats['messages_last_week']}",
