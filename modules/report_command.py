@@ -206,6 +206,20 @@ async def fetch_report_data(days: int) -> Dict[str, Any]:
               AND timestamp >= $3 AND timestamp < $2
         """, period_start_utc, now_utc, prev_start_utc)
 
+        # 17. Text messages (no media, no commands, no GPT replies)
+        text_msgs = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM messages
+            WHERE timestamp >= $3 AND timestamp < $2
+              AND is_command = false
+              AND is_gpt_reply = false
+              AND NOT (raw_telegram_message ? 'photo' OR raw_telegram_message ? 'video'
+                       OR raw_telegram_message ? 'video_note' OR raw_telegram_message ? 'sticker'
+                       OR raw_telegram_message ? 'animation')
+        """, period_start_utc, now_utc, prev_start_utc)
+
     return {
         "now": now,
         "period_start": period_start,
@@ -236,6 +250,8 @@ async def fetch_report_data(days: int) -> Dict[str, Any]:
         "gifs_prev": gifs["prev_count"] or 0,
         "songs_current": songs["current_count"] or 0,
         "songs_prev": songs["prev_count"] or 0,
+        "text_msgs_current": text_msgs["current_count"] or 0,
+        "text_msgs_prev": text_msgs["prev_count"] or 0,
     }
 
 
@@ -335,6 +351,7 @@ def format_report(data: Dict[str, Any], days: int) -> str:
         f"📊 <b>Weekly Intelligence Report ({start_str}–{end_str})</b>",
         "",
         f"📨 <b>Messages:</b> {cur_total:,} ({_pct_change(cur_total, prev_total)})",
+        f"📝 <b>Text messages:</b> {data['text_msgs_current']:,} ({_pct_change(data['text_msgs_current'], data['text_msgs_prev'])})",
         f"📈 <b>Commands:</b> {cur_cmds} ({_pct_change(cur_cmds, prev_cmds)})",
         f"🔗 <b>URL modifications:</b> {data['url_mods_current']:,} ({_pct_change(data['url_mods_current'], data['url_mods_prev'])})",
         f"📥 <b>Video downloads:</b> {data['vid_downloads_current']:,} ({_pct_change(data['vid_downloads_current'], data['vid_downloads_prev'])})",
