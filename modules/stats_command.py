@@ -64,6 +64,8 @@ def _empty_stats_data(now: datetime, period_start: datetime, is_all_time: bool) 
         "gifs_prev": 0,
         "songs_current": 0,
         "songs_prev": 0,
+        "text_msgs_current": 0,
+        "text_msgs_prev": 0,
         "top_users": [],
     }
 
@@ -263,7 +265,22 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
               AND timestamp >= $3 AND timestamp < $2
         """, period_start_utc, now_utc, _prev_bound, chat_id)
 
-        # 15. Top users leaderboard
+        # 16. Text messages (no media, no commands, no GPT replies)
+        text_msgs = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE timestamp >= $1 AND timestamp < $2) AS current_count,
+                COUNT(*) FILTER (WHERE timestamp >= $3 AND timestamp < $1) AS prev_count
+            FROM messages
+            WHERE chat_id = $4
+              AND timestamp >= $3 AND timestamp < $2
+              AND is_command = false
+              AND is_gpt_reply = false
+              AND NOT (raw_telegram_message ? 'photo' OR raw_telegram_message ? 'video'
+                       OR raw_telegram_message ? 'video_note' OR raw_telegram_message ? 'sticker'
+                       OR raw_telegram_message ? 'animation')
+        """, period_start_utc, now_utc, _prev_bound, chat_id)
+
+        # 17. Top users leaderboard
         top_users = await conn.fetch("""
             SELECT m.user_id, u.username, u.first_name, COUNT(*) AS cnt
             FROM messages m
@@ -305,6 +322,8 @@ async def fetch_stats_data(chat_id: int, days: Optional[int] = None) -> Dict[str
         "gifs_prev": gifs["prev_count"] or 0 if prev_start_utc is not None else 0,
         "songs_current": songs["current_count"] or 0,
         "songs_prev": songs["prev_count"] or 0 if prev_start_utc is not None else 0,
+        "text_msgs_current": text_msgs["current_count"] or 0,
+        "text_msgs_prev": text_msgs["prev_count"] or 0 if prev_start_utc is not None else 0,
         "top_users": top_users,
     }
 
@@ -484,6 +503,14 @@ def format_stats(data: Dict[str, Any]) -> str:
         lines.append(f"💬 <b>Messages sent:</b> {cur_total:,}")
     else:
         lines.append(f"💬 <b>Messages sent:</b> {cur_total:,} ({_pct_change(cur_total, prev_total)})")
+
+    # Text messages
+    text_msgs_cur = data["text_msgs_current"]
+    text_msgs_prev = data["text_msgs_prev"]
+    if is_all_time:
+        lines.append(f"📝 <b>Text messages:</b> {text_msgs_cur:,}")
+    else:
+        lines.append(f"📝 <b>Text messages:</b> {text_msgs_cur:,} ({_pct_change(text_msgs_cur, text_msgs_prev)})")
 
     # URL modifications
     url_mods_cur = data["url_mods_current"]
@@ -675,8 +702,8 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         message_parts = [
             f"📊 Статистика повідомлень для {safe_username}",
             "",
-            f"Загальна кількість повідомлень: {stats['total_messages']}",
-            f"Повідомлень за останній тиждень: {stats['messages_last_week']}",
+            f"💬 Загальна кількість повідомлень: {stats['total_messages']}",
+            f"📅 Повідомлень за останній тиждень: {stats['messages_last_week']}",
         ]
 
         chat_behavior_config = await get_shared_config_manager().get_config(chat_id, chat_type, module_name="chat_behavior")
@@ -689,7 +716,7 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     message_parts.append(f"- /{cmd}: {count}")
 
         if stats['first_message']:
-            message_parts.extend(["", f"Перше повідомлення: {stats['first_message'].strftime('%Y-%m-%d')}"])
+            message_parts.extend(["", f"🗓 Перше повідомлення: {stats['first_message'].strftime('%Y-%m-%d')}"])
 
         try:
             _chat_id_int = int(chat_id) if str(chat_id).lstrip('-').isdigit() else 0
@@ -729,20 +756,31 @@ async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         "SELECT COUNT(*) FROM bot_events WHERE event_type = 'song_sent' AND chat_id = $1 AND user_id = $2",
                         _chat_id_int, _user_id_int
                     )
+                    text_msg_count = await conn.fetchval("""
+                        SELECT COUNT(*) FROM messages
+                        WHERE chat_id = $1 AND user_id = $2
+                          AND is_command = false
+                          AND is_gpt_reply = false
+                          AND NOT (raw_telegram_message ? 'photo' OR raw_telegram_message ? 'video'
+                                   OR raw_telegram_message ? 'video_note' OR raw_telegram_message ? 'sticker'
+                                   OR raw_telegram_message ? 'animation')
+                    """, _chat_id_int, _user_id_int)
+                if text_msg_count:
+                    message_parts.append(f"📝 Текстових повідомлень: {text_msg_count}")
                 if url_mods_count:
-                    message_parts.append(f"Модифікацій посилань: {url_mods_count}")
+                    message_parts.append(f"🔗 Модифікацій посилань: {url_mods_count}")
                 if vid_dl_count:
-                    message_parts.append(f"Завантажень відео: {vid_dl_count}")
+                    message_parts.append(f"📥 Завантажень відео: {vid_dl_count}")
                 if media_count:
-                    message_parts.append(f"Медіа надіслано: {media_count}")
+                    message_parts.append(f"🖼 Медіа надіслано: {media_count}")
                 if reaction_count:
-                    message_parts.append(f"Реакцій поставлено: {reaction_count}")
+                    message_parts.append(f"👍 Реакцій поставлено: {reaction_count}")
                 if sticker_count:
-                    message_parts.append(f"Стікерів надіслано: {sticker_count}")
+                    message_parts.append(f"🎭 Стікерів надіслано: {sticker_count}")
                 if gif_count:
-                    message_parts.append(f"GIF-ів надіслано: {gif_count}")
+                    message_parts.append(f"🎞 GIF-ів надіслано: {gif_count}")
                 if song_count:
-                    message_parts.append(f"Пісень надіслано: {song_count}")
+                    message_parts.append(f"🎵 Пісень надіслано: {song_count}")
         except Exception:
             pass
 
