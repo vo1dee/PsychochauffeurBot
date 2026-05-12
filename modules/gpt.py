@@ -75,7 +75,8 @@ DEFAULT_PROMPTS = {
     If the user's request appears to be in Russian, respond in Ukrainian instead. 
     Do not reply in Russian under any circumstance.
     Make your responses feel natural and contextual to the conversation flow.""",
-    "weather": "You are a weather information assistant. Provide concise weather updates and forecasts."
+    "weather": "You are a weather assistant. Provide brief, practical clothing and activity advice in Ukrainian based on current conditions. Keep responses to 2-3 sentences.",
+    "headache_risk": "Ти асистент з охорони здоров'я. Оцінюй ризик головного болю та мігрені на основі метеорологічних даних. Відповідай виключно українською мовою. Будь конкретним та практичним, 2-3 речення."
 }
 
 # Configure timeouts and retries for API clients
@@ -384,7 +385,7 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
     messages: List[Dict[str, str]] = []
 
     # Response types that are purely functional commands and should not use conversation context
-    NO_CONTEXT_TYPES = {"weather", "summary", "gpt_summary", "analyze", "image_analysis"}
+    NO_CONTEXT_TYPES = {"weather", "headache_risk", "summary", "gpt_summary", "analyze", "image_analysis"}
     if response_type in NO_CONTEXT_TYPES:
         return messages
 
