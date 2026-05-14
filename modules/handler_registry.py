@@ -94,6 +94,7 @@ class HandlerRegistry(ServiceInterface):
             ask_gpt_command,
             analyze_command,
         )
+        from modules.handlers.tldr_command import tldr_command
         from modules.stats_command import mystats_command
         from modules.handlers.utility_commands import (
             cat_command,
@@ -137,6 +138,9 @@ class HandlerRegistry(ServiceInterface):
         )
         self.command_processor.register_text_command(
             "analyze", analyze_command, "Analyze text with GPT"
+        )
+        self.command_processor.register_text_command(
+            "tldr", tldr_command, "Summarize a message or URL"
         )
         self.command_processor.register_text_command(
             "mystats", mystats_command, "Show your usage statistics"
