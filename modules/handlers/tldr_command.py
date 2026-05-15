@@ -3,6 +3,7 @@
 import html as html_lib
 import re
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from telegram import Update
@@ -15,7 +16,8 @@ from config_v2.compat import get_shared_config_manager
 CHUNK_SIZE = 4000
 MAX_CONTENT_LENGTH = 40_000
 URL_PATTERN = re.compile(r'https?://\S+')
-REDDIT_PATTERN = re.compile(r'https?://(?:www\.)?reddit\.com/r/\w+/comments/\w+', re.IGNORECASE)
+REDDIT_DOMAIN_PATTERN = re.compile(r'https?://(?:www\.)?reddit\.com/', re.IGNORECASE)
+REDDIT_POST_PATTERN = re.compile(r'https?://(?:www\.)?reddit\.com/r/\w+/comments/\w+', re.IGNORECASE)
 
 _BROWSER_HEADERS = {
     "User-Agent": (
@@ -49,7 +51,9 @@ _MERGE_PROMPTS = {
 async def _fetch_reddit_text(url: str) -> Optional[str]:
     """Fetch a Reddit post via the public JSON API."""
     try:
-        json_url = url.rstrip('/') + '.json'
+        parsed = urlparse(url)
+        clean = urlunparse(parsed._replace(query='', fragment=''))
+        json_url = clean.rstrip('/') + '.json'
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(15.0),
             follow_redirects=True,
@@ -88,8 +92,23 @@ async def _fetch_reddit_text(url: str) -> Optional[str]:
 
 async def _fetch_url_text(url: str) -> Optional[str]:
     """Fetch a webpage and return cleaned plain text, or None on failure."""
-    if REDDIT_PATTERN.match(url):
-        return await _fetch_reddit_text(url)
+    if REDDIT_DOMAIN_PATTERN.match(url):
+        # Follow redirects first (share links use /s/ and redirect to the actual post)
+        resolved = url
+        if not REDDIT_POST_PATTERN.match(url):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(10.0),
+                    follow_redirects=True,
+                    headers={"User-Agent": "TLDRBot/1.0 (summarization; contact: bot@example.com)"},
+                ) as http_client:
+                    resp = await http_client.head(url)
+                    resolved = str(resp.url)
+            except Exception:
+                resolved = url
+        if REDDIT_POST_PATTERN.match(resolved):
+            return await _fetch_reddit_text(resolved)
+        # Fell through (e.g. profile/subreddit page) — try generic fetch below
 
     try:
         async with httpx.AsyncClient(
