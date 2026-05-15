@@ -1,6 +1,7 @@
 """Weather module for fetching and displaying weather information."""
 
 import asyncio
+import html as html_lib
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple, Any
 import time
@@ -461,7 +462,7 @@ class WeatherCommandHandler:
                     return_exceptions=True,
                 )
 
-                full_message = raw_message
+                full_message = html_lib.escape(raw_message)
 
                 # Append pressure trend detail if available
                 if isinstance(headache, HeadacheRiskAssessment) and headache.pressure_trend:
@@ -475,23 +476,23 @@ class WeatherCommandHandler:
                     aq = headache.air_quality
                     aqi_label = _AQI_LABELS.get(aq.aqi, "Невідома")
                     full_message += (
-                        f"\n💨 Повітря: {aqi_label} (AQI {aq.aqi}/5)"
+                        f"\n💨 Повітря: {html_lib.escape(aqi_label)} (AQI {aq.aqi}/5)"
                         f" | PM2.5: {aq.pm2_5:.0f}, NO2: {aq.no2:.0f}, O3: {aq.o3:.0f} мкг/м³"
                     )
 
-                # Clothing advice
+                # Clothing advice — expandable block
                 if isinstance(clothing, WeatherCommand) and clothing.clothing_advice:
-                    full_message += f"\n\n👕 {clothing.clothing_advice}"
+                    full_message += f"\n\n<blockquote expandable>👕 {html_lib.escape(clothing.clothing_advice)}</blockquote>"
 
-                # Headache risk
+                # Headache risk — expandable block
                 if isinstance(headache, HeadacheRiskAssessment):
                     emoji = _RISK_EMOJIS.get(headache.risk_level, "⚪")
-                    risk_line = f"\n\n🧠 Ризик мігрені: {emoji} {headache.risk_level}"
+                    block_body = f"🧠 Ризик мігрені: {emoji} {html_lib.escape(headache.risk_level)}"
                     if headache.explanation:
-                        risk_line += f"\n{headache.explanation}"
-                    full_message += risk_line
+                        block_body += f"\n{html_lib.escape(headache.explanation)}"
+                    full_message += f"\n\n<blockquote expandable>{block_body}</blockquote>"
 
-                await sent_message.edit_text(full_message)
+                await sent_message.edit_text(full_message, parse_mode="HTML")
 
             except Exception as e:
                 error_logger.error(f"Error fetching weather advice: {e}")
