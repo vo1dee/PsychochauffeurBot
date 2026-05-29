@@ -547,15 +547,16 @@ class VideoDownloader:
                                 await asyncio.sleep(retry_delay)
                             else:
                                 response_text = await response.text()
-                                error_logger.error(
-                                    f"   Service download failed with status {response.status}"
-                                )
-                                error_logger.error(
-                                    f"   Response: {response_text[:200]}..."
+                                error_logger.warning(
+                                    f"   Service download failed with status {response.status}: {response_text[:100]}"
                                 )
 
-                                # For Instagram, retry on certain HTTP errors
-                                if is_instagram and response.status in [400, 404, 500]:
+                                # 404 is deterministic — retrying won't help
+                                if response.status == 404:
+                                    return None, None
+
+                                # For Instagram, retry on transient HTTP errors
+                                if is_instagram and response.status in [400, 500]:
                                     if attempt < max_attempts - 1:
                                         await asyncio.sleep(
                                             self._calculate_retry_delay(
