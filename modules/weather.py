@@ -1,6 +1,6 @@
-aude"""Weather module for fetching and displaying weather information."""
+"""Weather module for fetching and displaying weather information."""
 
-шimport asyncio
+import asyncio
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple, Any
 import time
@@ -8,7 +8,7 @@ import httpx
 from telegram import Update
 from telegram.ext import CallbackContext
 
-from modules.utils import (
+from modules.utils import (no
     country_code_to_emoji,
     get_weather_emoji,
     get_city_translation,

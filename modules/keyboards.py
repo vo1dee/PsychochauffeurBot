@@ -238,21 +238,28 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
                 await video_downloader._send_before_video(str(chat_id), chat_type, context)
 
                 if hasattr(query.message, 'edit_text'):
-                    await query.message.edit_text("🔄 Downloading Instagram video via service...")
+                    await query.message.edit_text("🔄 Downloading...")
                 filename, title = await video_downloader.download_video(original_link)
                 if filename and os.path.exists(filename):
-                    with open(filename, 'rb') as video_file:
-                        await context.bot.send_video(
-                            chat_id=chat_id,
-                            video=video_file,
-                            caption=f"📹 {title or 'Instagram Video'}"
-                        )
+                    with open(filename, 'rb') as media_file:
+                        if video_downloader._file_is_image(filename):
+                            await context.bot.send_photo(
+                                chat_id=chat_id,
+                                photo=media_file,
+                                caption=f"📷 {title or 'Instagram Photo'}"
+                            )
+                        else:
+                            await context.bot.send_video(
+                                chat_id=chat_id,
+                                video=media_file,
+                                caption=f"📹 {title or 'Instagram Video'}"
+                            )
                     os.remove(filename)
                     if hasattr(query.message, 'edit_text'):
                         await query.message.edit_text("✅ Download complete!")
                 else:
                     if hasattr(query.message, 'edit_text'):
-                        await query.message.edit_text(f"❌ Instagram video download failed.\n\n{original_link}")
+                        await query.message.edit_text(f"❌ Instagram download failed.\n\n{original_link}")
                 return
             except Exception as e:
                 error_logger.error(f"Error in Instagram service download: {str(e)}")

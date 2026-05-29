@@ -700,8 +700,11 @@ class VideoDownloader:
                 is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
                 parsed_url = urlparse(url)
                 host = parsed_url.hostname or ""
-                is_instagram = host == "instagram.com" or host.endswith(
-                    ".instagram.com"
+                is_instagram = (
+                    host == "instagram.com"
+                    or host.endswith(".instagram.com")
+                    or host == "toinstagram.com"
+                    or host.endswith(".toinstagram.com")
                 )
 
                 # Prioritize service for YouTube, Instagram, and other problematic platforms
@@ -969,7 +972,12 @@ class VideoDownloader:
 
             try:
                 result = await self._try_instagram_strategy(url, strategy)
-                if result and result[0]:
+                if result and result[0] == "__no_video__":
+                    error_logger.info(
+                        "📷 No video in post — falling back to image extraction"
+                    )
+                    return await self._fetch_instagram_image(url)
+                elif result and result[0]:
                     error_logger.info(
                         f"✅ Instagram strategy '{strategy['name']}' succeeded!"
                     )
@@ -984,7 +992,7 @@ class VideoDownloader:
                 )
 
         error_logger.error(f"❌ All Instagram strategies failed for {url}")
-        return None, None
+        return await self._fetch_instagram_image(url)
 
     async def _try_instagram_strategy(
         self, url: str, strategy: Dict[str, Any]
@@ -1038,6 +1046,8 @@ class VideoDownloader:
                     f"   ❌ Process failed (code {process.returncode})"
                 )
                 error_logger.warning(f"   Error: {stderr_text[:200]}...")
+                if "there is no video in this post" in stderr_text.lower():
+                    return "__no_video__", None
                 return None, None
 
         except asyncio.TimeoutError:
@@ -1061,6 +1071,119 @@ class VideoDownloader:
                         os.remove(output_path)
                 except Exception:
                     pass  # cleanup
+
+    async def _fetch_instagram_image(
+        self, url: str
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Extract and download the full-quality image from an Instagram photo-only post.
+
+        Uses the /embed/ page which returns CDN URLs up to 1080px without JS execution.
+        Falls back to og:image if the embed page yields nothing.
+        """
+        error_logger.info(f"📷 Fetching Instagram image for: {url}")
+
+        # Normalise toinstagram.com → instagram.com
+        ig_url = re.sub(r"toinstagram\.com", "instagram.com", url, flags=re.IGNORECASE)
+
+        # Extract post path (/p/<shortcode>/ or /reel/<shortcode>/)
+        path_match = re.search(r"/(p|reel|tv)/([A-Za-z0-9_-]+)", ig_url)
+        if not path_match:
+            error_logger.warning(f"Cannot parse Instagram post path from: {ig_url}")
+            return None, None
+
+        shortcode = path_match.group(2)
+        embed_url = f"https://www.instagram.com/p/{shortcode}/embed/"
+
+        # No modern browser UA — Instagram's embed endpoint returns the lightweight
+        # server-rendered HTML (with CDN image URLs) only for non-browser clients.
+        # A Chrome/Firefox UA triggers the JS-heavy shell that has no image data.
+        embed_headers = {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+
+        image_url: Optional[str] = None
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    embed_url,
+                    headers=embed_headers,
+                    allow_redirects=True,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as response:
+                    html_text = await response.text() if response.status == 200 else ""
+
+            if html_text:
+                # Prefer the highest-res CDN URL — look for p1080x1080, then p750x750, p640x640
+                all_cdn = re.findall(
+                    r"https://scontent[^\s\"'<>\\]+\.jpg[^\s\"'<>\\]*", html_text
+                )
+                decoded = [html_lib.unescape(u) for u in all_cdn]
+
+                def _quality_score(u: str) -> int:
+                    if "p1080x1080" in u:
+                        return 4
+                    if "p750x750" in u:
+                        return 3
+                    if "p640x640" in u:
+                        return 2
+                    if "s640x640" not in u and "s150x150" not in u and "s320x320" not in u:
+                        return 1
+                    return 0
+
+                if decoded:
+                    best = max(decoded, key=_quality_score)
+                    image_url = best
+                    error_logger.info(
+                        f"📷 Embed page CDN URL (score {_quality_score(best)}): {best[:100]}..."
+                    )
+
+            # Fallback: og:image from the main page
+            if not image_url:
+                error_logger.info("📷 Embed gave no URL, trying og:image fallback")
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        ig_url,
+                        headers=embed_headers,
+                        allow_redirects=True,
+                        timeout=aiohttp.ClientTimeout(total=15),
+                    ) as response:
+                        fallback_html = await response.text() if response.status == 200 else ""
+                image_url = self._extract_meta_tag_content(
+                    fallback_html, "property", "og:image"
+                ) or self._extract_meta_tag_content(
+                    fallback_html, "name", "twitter:image"
+                )
+
+            if not image_url:
+                error_logger.warning("No image URL found for Instagram post")
+                return None, None
+
+            unique_filename = f"instagram_photo_{uuid.uuid4().hex[:8]}.jpg"
+            output_path = os.path.join(self.download_path, unique_filename)
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    image_url, timeout=aiohttp.ClientTimeout(total=30)
+                ) as img_response:
+                    if img_response.status != 200:
+                        error_logger.warning(
+                            f"Image download returned {img_response.status}"
+                        )
+                        return None, None
+                    with open(output_path, "wb") as f:
+                        async for chunk in img_response.content.iter_chunked(8192):
+                            f.write(chunk)
+
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                error_logger.info(f"✅ Instagram image saved: {output_path}")
+                return output_path, "Instagram Photo"
+
+        except Exception as e:
+            error_logger.error(f"Instagram image extraction failed: {e}")
+
+        return None, None
 
     async def download_youtube_music(
         self, url: str
@@ -1267,6 +1390,21 @@ class VideoDownloader:
             hostname == domain or hostname.endswith(f".{domain}")
             for domain in MusicPlatforms.PLATFORM_DOMAINS
         )
+
+    @staticmethod
+    def _file_is_image(path: str) -> bool:
+        """Detect image files by magic bytes, regardless of extension."""
+        try:
+            with open(path, "rb") as f:
+                header = f.read(12)
+            return (
+                header[:3] == b"\xff\xd8\xff"  # JPEG
+                or header[:8] == b"\x89PNG\r\n\x1a\n"  # PNG
+                or (header[:4] == b"RIFF" and header[8:12] == b"WEBP")  # WebP
+                or header[:3] == b"GIF"  # GIF
+            )
+        except Exception:
+            return path.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif"))
 
     @staticmethod
     def _extract_meta_tag_content(
@@ -3198,9 +3336,14 @@ class VideoDownloader:
                             await self._handle_download_error(update, url)
                     else:
                         if filename and os.path.exists(filename):
-                            await self._send_video(
-                                update, context, filename, title, source_url=url
-                            )
+                            if self._file_is_image(filename):
+                                await self._send_photo(
+                                    update, context, filename, title, source_url=url
+                                )
+                            else:
+                                await self._send_video(
+                                    update, context, filename, title, source_url=url
+                                )
                         else:
                             await self._handle_download_error(update, url)
 
@@ -3369,6 +3512,88 @@ class VideoDownloader:
 
         except Exception as e:
             error_logger.error(f"Video sending error: {str(e)}")
+            await self.send_error_sticker(update)
+
+    async def _send_photo(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        filename: str,
+        title: Optional[str],
+        source_url: Optional[str] = None,
+    ) -> None:
+        try:
+            from telegram import MessageEntity
+
+            def utf16_len(s: str) -> int:
+                return len(s.encode("utf-16-le")) // 2
+
+            username = "Unknown"
+            if update.effective_user:
+                username = (
+                    update.effective_user.username
+                    or update.effective_user.first_name
+                    or "Unknown"
+                )
+
+            caption = f"👤 Від: @{username}"
+            caption_entities = []
+            offset = utf16_len(caption)
+
+            if source_url:
+                link_prefix = "\n\n🔗 "
+                link_label = "Посилання"
+                offset += utf16_len(link_prefix)
+                caption_entities.append(
+                    MessageEntity(
+                        type=MessageEntity.TEXT_LINK,
+                        offset=offset,
+                        length=utf16_len(link_label),
+                        url=source_url,
+                    )
+                )
+                caption += link_prefix + link_label
+
+            _upload_timeouts = dict(
+                write_timeout=60,
+                read_timeout=30,
+                connect_timeout=30,
+                pool_timeout=10,
+            )
+
+            with open(filename, "rb") as photo_file:
+                send_kwargs = dict(caption=caption, caption_entities=caption_entities)
+                if update.message and update.message.reply_to_message:
+                    await update.message.reply_to_message.reply_photo(
+                        photo=photo_file, **send_kwargs, **_upload_timeouts
+                    )
+                else:
+                    if update.effective_chat:
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=photo_file,
+                            **send_kwargs,
+                            **_upload_timeouts,
+                        )
+
+            if update.effective_chat:
+                from modules.event_tracker import record_bot_event
+
+                _user_id = update.effective_user.id if update.effective_user else None
+                asyncio.ensure_future(
+                    record_bot_event(
+                        "video_download", update.effective_chat.id, _user_id
+                    )
+                )
+
+            try:
+                if update.message:
+                    await asyncio.wait_for(update.message.delete(), timeout=10)
+            except (asyncio.TimeoutError, Exception) as e:
+                error_logger.error(f"Failed to delete original message: {str(e)}")
+
+        except Exception as e:
+            error_logger.error(f"Photo sending error: {str(e)}")
             await self.send_error_sticker(update)
 
     async def _handle_download_error(self, update: Update, url: str) -> None:
