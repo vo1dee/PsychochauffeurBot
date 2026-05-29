@@ -8,7 +8,7 @@ import httpx
 from telegram import Update
 from telegram.ext import CallbackContext
 
-from modules.utils import (no
+from modules.utils import (
     country_code_to_emoji,
     get_weather_emoji,
     get_city_translation,
