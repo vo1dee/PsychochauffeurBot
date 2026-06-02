@@ -12,6 +12,7 @@ import time
 from modules.const import Config # Assuming Config.ERROR_CHANNEL_ID exists
 from telegram import Bot
 from telegram.ext import Application
+from telegram.error import NetworkError, BadRequest
 from collections import deque # More efficient for fixed-size buffer than list
 
 # --- Configuration (Placeholder - Ideally load from file/env) ---
@@ -272,23 +273,36 @@ class TransientNetworkErrorFilter(logging.Filter):
     """
     Filters out transient network errors from Telegram polling.
 
-    These errors (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError)
-    occur during normal operation when Telegram's servers briefly disconnect.
-    They are automatically retried by python-telegram-bot and are not actionable.
+    These errors occur during normal operation when Telegram's servers briefly
+    disconnect.  python-telegram-bot retries them automatically; they are not
+    actionable and should never reach the error channel.
 
-    Only suppresses errors from telegram.ext loggers that match known transient patterns.
+    Primary check: PTB wraps every transport error as telegram.error.NetworkError
+    before default_error_callback sees it (httpcore.ReadError → httpx.ReadError →
+    telegram.error.NetworkError), so a single isinstance() call covers all variants.
+    BadRequest is a NetworkError subclass but IS actionable (HTTP 400), so it is
+    explicitly kept.
+
+    Secondary fallback: substring patterns cover transient errors that are logged
+    inline in the message string rather than via exc_info.
+
+    Only suppresses errors from telegram.ext loggers.
     All other errors (download failures, bot logic, database, etc.) pass through.
     """
 
-    # Known transient network error patterns from Telegram polling
+    # Secondary fallback: transient error substrings that appear inline in message text.
+    # The primary path (exc_info type check) handles polling errors; these cover edge cases.
     TRANSIENT_PATTERNS = (
         'httpx.RemoteProtocolError',
         'httpx.ReadError',
+        'httpx.ReadTimeout',
         'httpx.ConnectError',
         'Server disconnected without sending a response',
         'All connection attempts failed',
         'httpcore.RemoteProtocolError',
         'httpcore.ConnectError',
+        'httpcore.ReadError',
+        'httpcore.ReadTimeout',
     )
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -296,6 +310,14 @@ class TransientNetworkErrorFilter(logging.Filter):
         if not record.name.startswith('telegram.ext'):
             return True  # Keep all non-telegram errors
 
+        # Primary check: transient errors are wrapped by PTB as NetworkError.
+        # Exclude BadRequest (a NetworkError subclass) so actionable HTTP 400s
+        # are still reported.
+        exc = record.exc_info[1] if record.exc_info else None
+        if isinstance(exc, NetworkError) and not isinstance(exc, BadRequest):
+            return False  # Suppress this transient error
+
+        # Secondary fallback: substring match for transient errors logged without exc_info.
         message = record.getMessage()
         for pattern in self.TRANSIENT_PATTERNS:
             if pattern in message:
