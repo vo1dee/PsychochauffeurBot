@@ -296,6 +296,99 @@
             display: inline-block;
         }
 
+        /* Tabs */
+        .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+        .tab {
+            padding: 6px 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text-muted);
+            font-size: 0.9em;
+        }
+        .tab:hover { color: var(--text); border-color: var(--text-muted); }
+        .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+        /* Data tables */
+        .table-wrap { overflow-x: auto; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+        .data-table th, .data-table td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+        .data-table th { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+        .data-table tr:hover td { background: rgba(108, 99, 255, 0.05); }
+        .data-table .num { text-align: right; }
+        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+        .muted { color: var(--text-muted); }
+        .msg-text { word-break: break-word; max-width: 480px; white-space: pre-wrap; }
+
+        /* Filter bar */
+        .filter-bar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+        .filter-bar input[type="text"] { flex: 1; min-width: 180px; width: auto; }
+        .filter-bar select { width: auto; max-width: 280px; }
+        .checkbox-label {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 0.85em; color: var(--text-muted); white-space: nowrap;
+        }
+
+        /* Pagination */
+        .pagination { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 16px; }
+
+        /* Stat cards */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px;
+            text-align: center;
+        }
+        .stat-card .stat-value { font-size: 1.5em; font-weight: 700; color: var(--accent); }
+        .stat-card .stat-value.stat-error { color: var(--error); }
+        .stat-card .stat-label { font-size: 0.78em; color: var(--text-muted); margin-top: 2px; }
+
+        /* Chart grid */
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .chart-card h3 { font-size: 0.95em; font-weight: 600; margin-bottom: 12px; }
+        .chart-card.wide { grid-column: 1 / -1; }
+        .chart-card canvas { max-height: 280px; }
+
+        /* Retention table */
+        .retention-table .retention-cell { color: var(--text); }
+
+        /* Error log viewer */
+        .error-log { display: grid; gap: 6px; max-height: 600px; overflow-y: auto; }
+        .error-entry {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 8px 12px;
+            font-size: 0.85em;
+        }
+        .error-entry summary { cursor: pointer; word-break: break-word; }
+        .error-entry pre {
+            margin-top: 8px;
+            padding: 10px;
+            background: var(--bg);
+            border-radius: var(--radius);
+            overflow-x: auto;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .form-grid { grid-template-columns: 1fr; }
@@ -309,6 +402,8 @@
         <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Dashboard</a>
         <a href="/config/global" {% if request.url.path == "/config/global" %}class="active"{% endif %}>Global</a>
         <a href="/backups" {% if request.url.path == "/backups" %}class="active"{% endif %}>Backups</a>
+        <a href="/admin" {% if request.url.path == "/admin" %}class="active"{% endif %}>Admin</a>
+        <a href="/analytics" {% if request.url.path == "/analytics" %}class="active"{% endif %}>Analytics</a>
     </nav>
 
     <div class="container">

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Admin — Bot Data{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom: 16px;">Admin</h1>
+
+{% if db_error %}
+<div class="alert error">Database error: {{ db_error }}</div>
+{% endif %}
+
+<div class="tabs">
+    <a href="/admin?tab=users" class="tab {% if tab == 'users' %}active{% endif %}">Users</a>
+    <a href="/admin?tab=chats" class="tab {% if tab == 'chats' %}active{% endif %}">Chats</a>
+    <a href="/admin?tab=messages" class="tab {% if tab == 'messages' %}active{% endif %}">Messages</a>
+</div>
+
+<div class="card">
+    {# ---------------- Filters ---------------- #}
+    <form method="get" action="/admin" class="filter-bar">
+        <input type="hidden" name="tab" value="{{ tab }}">
+        <input type="text" name="q" value="{{ q }}" placeholder="{% if tab == 'messages' %}Search message text…{% else %}Search by name, username or ID…{% endif %}">
+        {% if tab == 'messages' %}
+        <select name="chat_id">
+            <option value="">All chats</option>
+            {% for c in chat_options %}
+            <option value="{{ c.chat_id }}" {% if chat_id == c.chat_id|string %}selected{% endif %}>
+                {{ c.title or c.chat_id }} ({{ c.chat_type }})
+            </option>
+            {% endfor %}
+        </select>
+        <input type="text" name="user_id" value="{{ user_id }}" placeholder="User ID" style="max-width: 140px;">
+        <label class="checkbox-label"><input type="checkbox" name="only_commands" value="true" {% if only_commands %}checked{% endif %}> Commands</label>
+        <label class="checkbox-label"><input type="checkbox" name="only_gpt" value="true" {% if only_gpt %}checked{% endif %}> GPT replies</label>
+        {% endif %}
+        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+        <a href="/admin?tab={{ tab }}" class="btn btn-ghost btn-sm">Reset</a>
+    </form>
+
+    <p class="muted" style="margin-bottom: 12px;">{{ data.total }} result{{ 's' if data.total != 1 }}</p>
+
+    {# ---------------- Users ---------------- #}
+    {% if tab == 'users' %}
+    <div class="table-wrap">
+    <table class="data-table">
+        <thead><tr>
+            <th>ID</th><th>Name</th><th>Username</th><th>Bot</th>
+            <th class="num">Messages</th><th class="num">Chats</th><th>Last seen</th><th>First seen</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for u in data.rows %}
+        <tr>
+            <td class="mono">{{ u.user_id }}</td>
+            <td>{{ u.first_name }} {{ u.last_name or '' }}</td>
+            <td>{% if u.username %}@{{ u.username }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>{% if u.is_bot %}<span class="badge info">bot</span>{% endif %}</td>
+            <td class="num">{{ u.msg_count }}</td>
+            <td class="num">{{ u.chat_count }}</td>
+            <td class="muted">{{ u.last_seen.strftime('%Y-%m-%d %H:%M') if u.last_seen else '—' }}</td>
+            <td class="muted">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
+            <td><a href="/admin?tab=messages&user_id={{ u.user_id }}" class="btn btn-ghost btn-sm">Messages</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+
+    {# ---------------- Chats ---------------- #}
+    {% elif tab == 'chats' %}
+    <div class="table-wrap">
+    <table class="data-table">
+        <thead><tr>
+            <th>ID</th><th>Title</th><th>Type</th>
+            <th class="num">Messages</th><th class="num">Users</th><th>Last activity</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for c in data.rows %}
+        <tr>
+            <td class="mono">{{ c.chat_id }}</td>
+            <td>{{ c.title or '—' }}</td>
+            <td><span class="badge info">{{ c.chat_type }}</span></td>
+            <td class="num">{{ c.msg_count }}</td>
+            <td class="num">{{ c.user_count }}</td>
+            <td class="muted">{{ c.last_activity.strftime('%Y-%m-%d %H:%M') if c.last_activity else '—' }}</td>
+            <td style="white-space: nowrap;">
+                <a href="/admin?tab=messages&chat_id={{ c.chat_id }}" class="btn btn-ghost btn-sm">Messages</a>
+                <a href="/config/{{ c.chat_id }}" class="btn btn-ghost btn-sm">Config</a>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+
+    {# ---------------- Messages ---------------- #}
+    {% else %}
+    <div class="table-wrap">
+    <table class="data-table">
+        <thead><tr>
+            <th>Time</th><th>Chat</th><th>User</th><th>Text</th><th>Flags</th>
+        </tr></thead>
+        <tbody>
+        {% for m in data.rows %}
+        <tr>
+            <td class="muted" style="white-space: nowrap;">{{ m.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td><a href="/admin?tab=messages&chat_id={{ m.chat_id }}">{{ m.chat_title or m.chat_id }}</a></td>
+            <td>
+                {% if m.user_id %}
+                <a href="/admin?tab=messages&user_id={{ m.user_id }}">{{ m.username and '@' ~ m.username or m.first_name or m.user_id }}</a>
+                {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+            <td class="msg-text">{{ (m.text or '')[:300] }}{% if m.text and m.text|length > 300 %}…{% endif %}</td>
+            <td style="white-space: nowrap;">
+                {% if m.is_command %}<span class="badge warning">/{{ m.command_name or 'cmd' }}</span>{% endif %}
+                {% if m.is_gpt_reply %}<span class="badge success">GPT</span>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% endif %}
+
+    {# ---------------- Pagination ---------------- #}
+    {% if data.pages > 1 %}
+    {% set base = '/admin?tab=' ~ tab ~ '&q=' ~ (q | urlencode) ~ '&chat_id=' ~ chat_id ~ '&user_id=' ~ user_id
+        ~ (only_commands and '&only_commands=true' or '') ~ (only_gpt and '&only_gpt=true' or '') %}
+    <div class="pagination">
+        {% if data.page > 1 %}
+        <a href="{{ base }}&page={{ data.page - 1 }}" class="btn btn-ghost btn-sm">← Prev</a>
+        {% endif %}
+        <span class="muted">Page {{ data.page }} of {{ data.pages }}</span>
+        {% if data.page < data.pages %}
+        <a href="{{ base }}&page={{ data.page + 1 }}" class="btn btn-ghost btn-sm">Next →</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

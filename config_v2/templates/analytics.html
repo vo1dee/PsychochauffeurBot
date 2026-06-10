@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+    <h1>Analytics</h1>
+    <div class="tabs" style="margin-bottom: 0;">
+        {% for d in [7, 14, 30, 90, 180] %}
+        <a href="/analytics?days={{ d }}" class="tab {% if days == d %}active{% endif %}">{{ d }}d</a>
+        {% endfor %}
+    </div>
+</div>
+
+{% if db_error %}
+<div class="alert error">Database error: {{ db_error }} — showing log-based data only.</div>
+{% endif %}
+
+{# ---------------- Summary cards ---------------- #}
+<div class="stat-grid">
+    <div class="stat-card"><div class="stat-value">{{ summary.total_messages or 0 }}</div><div class="stat-label">Total messages</div></div>
+    <div class="stat-card"><div class="stat-value">{{ summary.total_users or 0 }}</div><div class="stat-label">Users</div></div>
+    <div class="stat-card"><div class="stat-value">{{ summary.total_chats or 0 }}</div><div class="stat-label">Chats</div></div>
+    <div class="stat-card"><div class="stat-value">{{ summary.messages_today or 0 }}</div><div class="stat-label">Messages today</div></div>
+    <div class="stat-card"><div class="stat-value">{{ summary.active_users_today or 0 }}</div><div class="stat-label">Active today</div></div>
+    <div class="stat-card"><div class="stat-value">{{ summary.active_users_7d or 0 }}</div><div class="stat-label">Active 7d</div></div>
+    <div class="stat-card"><div class="stat-value">{{ summary.active_users_30d or 0 }}</div><div class="stat-label">Active 30d</div></div>
+    <div class="stat-card"><div class="stat-value">{{ summary.total_commands or 0 }}</div><div class="stat-label">Commands</div></div>
+    <div class="stat-card"><div class="stat-value">{{ summary.total_gpt or 0 }}</div><div class="stat-label">GPT replies</div></div>
+    <div class="stat-card"><div class="stat-value">{{ summary.total_events or 0 }}</div><div class="stat-label">Bot events</div></div>
+    <div class="stat-card"><div class="stat-value {% if errors.total %}stat-error{% endif %}">{{ errors.total }}</div><div class="stat-label">Errors ({{ days }}d)</div></div>
+</div>
+
+{# ---------------- Charts ---------------- #}
+<div class="chart-grid">
+    <div class="card chart-card wide"><h3>Messages &amp; active users per day</h3><canvas id="chartActivity"></canvas></div>
+    <div class="card chart-card"><h3>Commands &amp; GPT replies per day</h3><canvas id="chartCommands"></canvas></div>
+    <div class="card chart-card"><h3>New users per day</h3><canvas id="chartNewUsers"></canvas></div>
+    <div class="card chart-card"><h3>Activity by hour of day</h3><canvas id="chartHourly"></canvas></div>
+    <div class="card chart-card"><h3>Activity by day of week</h3><canvas id="chartWeekday"></canvas></div>
+    <div class="card chart-card"><h3>Top chats ({{ days }}d)</h3><canvas id="chartTopChats"></canvas></div>
+    <div class="card chart-card"><h3>Top users ({{ days }}d)</h3><canvas id="chartTopUsers"></canvas></div>
+    <div class="card chart-card"><h3>Top commands ({{ days }}d)</h3><canvas id="chartTopCommands"></canvas></div>
+    <div class="card chart-card"><h3>Bot events by type</h3><canvas id="chartEventsPie"></canvas></div>
+    <div class="card chart-card wide"><h3>Bot events per day</h3><canvas id="chartEventsDaily"></canvas></div>
+    <div class="card chart-card wide"><h3>Errors per day</h3><canvas id="chartErrors"></canvas></div>
+</div>
+
+{# ---------------- Retention cohorts ---------------- #}
+<div class="card">
+    <h3 style="margin-bottom: 12px;">Weekly retention cohorts</h3>
+    <p class="muted" style="margin-bottom: 12px;">Percent of users first seen in a given week who sent a message N weeks later.</p>
+    {% if retention.table %}
+    <div class="table-wrap">
+    <table class="data-table retention-table">
+        <thead><tr>
+            <th>Cohort week</th><th class="num">Users</th>
+            {% for off in range(retention.max_offset + 1) %}<th class="num">W{{ off }}</th>{% endfor %}
+        </tr></thead>
+        <tbody>
+        {% for row in retention.table %}
+        <tr>
+            <td class="mono">{{ row.week }}</td>
+            <td class="num">{{ row.size }}</td>
+            {% for cell in row.cells %}
+            {% if cell.pct is not none %}
+            <td class="num retention-cell" style="background: rgba(108, 99, 255, {{ '%.2f' | format(cell.pct / 125) }});">{{ cell.pct }}%</td>
+            {% else %}
+            <td class="num muted"></td>
+            {% endif %}
+            {% endfor %}
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="muted">No retention data available.</p>
+    {% endif %}
+</div>
+
+{# ---------------- Errors ---------------- #}
+<div class="card">
+    <h3 style="margin-bottom: 12px;">Top error groups ({{ days }}d)</h3>
+    {% if errors.top_groups %}
+    <div class="table-wrap">
+    <table class="data-table">
+        <thead><tr><th class="num" style="width: 70px;">Count</th><th>Error</th></tr></thead>
+        <tbody>
+        {% for g in errors.top_groups %}
+        <tr><td class="num">{{ g.count }}</td><td class="msg-text mono">{{ g.message }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="muted">No errors in the selected period 🎉</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 style="margin-bottom: 12px;">Recent errors</h3>
+    {% if errors.recent %}
+    <div class="error-log">
+        {% for e in errors.recent %}
+        <details class="error-entry">
+            <summary><span class="muted mono">{{ e.timestamp }}</span> <span class="badge error">{{ e.level }}</span> {{ e.message.splitlines()[0][:160] }}</summary>
+            <pre>{{ e.message }}</pre>
+        </details>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">No recent errors.</p>
+    {% endif %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+const DATA = {
+    activity: {{ activity | tojson }},
+    newUsers: {{ new_users | tojson }},
+    hourly: {{ hourly | tojson }},
+    weekday: {{ weekday | tojson }},
+    topChats: {{ top_chats | tojson }},
+    topUsers: {{ top_users | tojson }},
+    topCommands: {{ top_commands | tojson }},
+    events: {{ events | tojson }},
+    errors: { labels: {{ errors.labels | tojson }}, daily: {{ errors.daily | tojson }} },
+};
+
+const C = {
+    accent: '#6c63ff', green: '#2ecc71', orange: '#f39c12', red: '#e74c3c',
+    cyan: '#1abc9c', pink: '#e84393', blue: '#3498db', yellow: '#f1c40f',
+};
+const PALETTE = [C.accent, C.green, C.orange, C.cyan, C.pink, C.blue, C.yellow, C.red];
+
+Chart.defaults.color = '#8888aa';
+Chart.defaults.borderColor = '#3a3c5a';
+Chart.defaults.plugins.legend.labels.boxWidth = 12;
+
+function lineChart(id, labels, datasets, stacked = false) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {
+        type: 'line',
+        data: { labels, datasets: datasets.map(d => ({ tension: 0.3, pointRadius: 0, borderWidth: 2, fill: false, ...d })) },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            scales: { y: { beginAtZero: true, stacked }, x: { ticks: { maxTicksLimit: 12 } } },
+        },
+    });
+}
+
+function barChart(id, labels, data, color, horizontal = false) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {
+        type: 'bar',
+        data: { labels, datasets: [{ data, backgroundColor: color, borderRadius: 4 }] },
+        options: {
+            indexAxis: horizontal ? 'y' : 'x',
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { [horizontal ? 'x' : 'y']: { beginAtZero: true } },
+        },
+    });
+}
+
+const days = DATA.activity.map(d => d.day.slice(5));
+
+lineChart('chartActivity', days, [
+    { label: 'Messages', data: DATA.activity.map(d => d.messages), borderColor: C.accent },
+    { label: 'Active users', data: DATA.activity.map(d => d.active_users), borderColor: C.green },
+]);
+
+lineChart('chartCommands', days, [
+    { label: 'Commands', data: DATA.activity.map(d => d.commands), borderColor: C.orange },
+    { label: 'GPT replies', data: DATA.activity.map(d => d.gpt_replies), borderColor: C.cyan },
+]);
+
+barChart('chartNewUsers', DATA.newUsers.map(d => d.day.slice(5)), DATA.newUsers.map(d => d.new_users), C.green);
+barChart('chartHourly', [...Array(24).keys()].map(h => h + ':00'), DATA.hourly, C.accent);
+barChart('chartWeekday', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], DATA.weekday, C.blue);
+barChart('chartTopChats', DATA.topChats.map(c => c.title), DATA.topChats.map(c => c.count), C.accent, true);
+barChart('chartTopUsers', DATA.topUsers.map(u => u.name), DATA.topUsers.map(u => u.count), C.cyan, true);
+barChart('chartTopCommands', DATA.topCommands.map(c => '/' + c.command_name), DATA.topCommands.map(c => c.count), C.orange, true);
+
+if (DATA.events.totals.length) {
+    new Chart(document.getElementById('chartEventsPie'), {
+        type: 'doughnut',
+        data: {
+            labels: DATA.events.totals.map(e => e.event_type),
+            datasets: [{ data: DATA.events.totals.map(e => e.count), backgroundColor: PALETTE }],
+        },
+        options: { responsive: true },
+    });
+    lineChart('chartEventsDaily', DATA.events.labels.map(d => d.slice(5)),
+        Object.entries(DATA.events.series).map(([type, series], i) => ({
+            label: type, data: series, borderColor: PALETTE[i % PALETTE.length],
+        })));
+}
+
+barChart('chartErrors', DATA.errors.labels.map(d => d.slice(5)), DATA.errors.daily, C.red);
+</script>
+{% endblock %}

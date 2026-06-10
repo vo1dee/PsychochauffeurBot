@@ -22,6 +22,7 @@ from pathlib import Path
 
 from config_v2.schema import MODULE_REGISTRY, get_module_label, Widget
 from config_v2.manager import config_manager
+from config_v2 import stats
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +293,105 @@ async def set_module_mode(request: Request, chat_id: str, module_key: str):
         headers={"HX-Redirect": f"/config/{chat_id}"},
         content="",
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin: users / chats / messages browser
+# ---------------------------------------------------------------------------
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(
+    request: Request,
+    tab: str = "users",
+    page: int = 1,
+    q: str = "",
+    chat_id: str = "",
+    user_id: str = "",
+    only_commands: bool = False,
+    only_gpt: bool = False,
+):
+    """Admin browser for bot data: users, chats and messages."""
+    if tab not in ("users", "chats", "messages"):
+        tab = "users"
+
+    ctx: dict[str, Any] = {
+        "request": request,
+        "tab": tab,
+        "q": q,
+        "page": page,
+        "chat_id": chat_id,
+        "user_id": user_id,
+        "only_commands": only_commands,
+        "only_gpt": only_gpt,
+        "db_error": None,
+        "data": {"rows": [], "total": 0, "page": 1, "pages": 1},
+        "chat_options": [],
+    }
+
+    try:
+        if tab == "users":
+            ctx["data"] = await stats.fetch_users(page=page, q=q)
+        elif tab == "chats":
+            ctx["data"] = await stats.fetch_chats(page=page, q=q)
+        else:
+            ctx["chat_options"] = await stats.fetch_chat_options()
+            ctx["data"] = await stats.fetch_messages(
+                page=page,
+                chat_id=int(chat_id) if chat_id.lstrip("-").isdigit() else None,
+                user_id=int(user_id) if user_id.lstrip("-").isdigit() else None,
+                q=q,
+                only_commands=only_commands,
+                only_gpt=only_gpt,
+            )
+    except Exception as e:
+        logger.error("Admin page query failed: %s", e, exc_info=True)
+        ctx["db_error"] = str(e)
+
+    return templates.TemplateResponse("admin.html", ctx)
+
+
+# ---------------------------------------------------------------------------
+# Analytics dashboard
+# ---------------------------------------------------------------------------
+@app.get("/analytics", response_class=HTMLResponse)
+async def analytics_page(request: Request, days: int = 30):
+    """Analytics dashboard: activity, users, commands, events, errors, retention."""
+    days = days if days in (7, 14, 30, 90, 180) else 30
+
+    ctx: dict[str, Any] = {
+        "request": request,
+        "days": days,
+        "db_error": None,
+        "summary": {},
+        "activity": [],
+        "new_users": [],
+        "hourly": [0] * 24,
+        "weekday": [0] * 7,
+        "top_chats": [],
+        "top_users": [],
+        "top_commands": [],
+        "events": {"totals": [], "labels": [], "series": {}},
+        "retention": {"table": [], "max_offset": 0},
+    }
+
+    try:
+        ctx["summary"] = await stats.fetch_summary()
+        ctx["activity"] = await stats.fetch_activity_series(days)
+        ctx["new_users"] = await stats.fetch_new_users_series(days)
+        ctx["hourly"] = await stats.fetch_hourly_histogram(days)
+        ctx["weekday"] = await stats.fetch_weekday_histogram(days)
+        ctx["top_chats"] = await stats.fetch_top_chats(days)
+        ctx["top_users"] = await stats.fetch_top_users(days)
+        ctx["top_commands"] = await stats.fetch_top_commands(days)
+        ctx["events"] = await stats.fetch_bot_events(days)
+        ctx["retention"] = await stats.fetch_retention()
+    except Exception as e:
+        logger.error("Analytics queries failed: %s", e, exc_info=True)
+        ctx["db_error"] = str(e)
+
+    # Error log parsing is file-based — works even if the DB is down
+    ctx["errors"] = stats.parse_error_log(days=days)
+
+    return templates.TemplateResponse("analytics.html", ctx)
 
 
 # ---------------------------------------------------------------------------
