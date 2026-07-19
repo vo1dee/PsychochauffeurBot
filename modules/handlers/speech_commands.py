@@ -77,12 +77,15 @@ async def speech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Update config - use "enabled" not "overrides.enabled" because update_module_setting
     # already starts inside the overrides object
+    from config_v2.manager import telegram_actor
+
     await config_manager.update_module_setting(
         module_name="speechmatics",
         setting_path="enabled",
         value=enabled,
         chat_id=chat_id,
-        chat_type=chat_type
+        chat_type=chat_type,
+        actor=telegram_actor(update.effective_user),
     )
     
     if update.message:

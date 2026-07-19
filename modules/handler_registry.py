@@ -208,6 +208,17 @@ class HandlerRegistry(ServiceInterface):
             "reaction", reaction_command, "Toggle emoji reactions", admin_only=True
         )
 
+        # Register config menu commands (/settings is an alias of /config;
+        # admin gating is chat-type aware and done inside the handler)
+        from modules.handlers.config_commands import config_command
+
+        self.command_processor.register_text_command(
+            "config", config_command, "Налаштування бота для цього чату"
+        )
+        self.command_processor.register_text_command(
+            "settings", config_command, "Alias for /config"
+        )
+
         # Register weather and geomagnetic commands using service registry
         if self.service_registry:
             try:

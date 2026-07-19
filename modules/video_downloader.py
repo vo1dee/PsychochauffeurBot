@@ -233,8 +233,10 @@ class VideoDownloader:
         # Platform-specific download configurations
         self.platform_configs = {
             Platform.TIKTOK: DownloadConfig(
-                # Prioritize best video + best audio combination, fallback to best single file
-                format="best[height<=1080][ext=mp4]/best",
+                # TikTok's HEVC/bytevc1 MP4 variants can be served without an audio
+                # track even when yt-dlp metadata reports AAC. Prefer H.264 MP4s,
+                # which TikTok serves as complete audio/video files.
+                format="best[height<=1080][ext=mp4][vcodec^=h264][acodec!=none]",
                 max_retries=3,
                 headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -685,12 +687,7 @@ class VideoDownloader:
                     error_logger.info(f"Story URL detected and skipped: {url}")
                     return None, None
 
-                # Get video config to determine download path
-                video_config = await self._get_video_config(chat_id, chat_type)
-                current_download_path = video_config.get(
-                    "video_path", self.download_path
-                )
-                current_download_path = os.path.abspath(current_download_path)
+                current_download_path = os.path.abspath(self.download_path)
 
                 # Ensure the download directory exists
                 os.makedirs(current_download_path, exist_ok=True)
@@ -3290,15 +3287,6 @@ class VideoDownloader:
 
             error_logger.info(f"DEBUG: chat_id={chat_id}, chat_type={chat_type}")
 
-            # Send before video if configured BEFORE processing message
-            error_logger.info("DEBUG: About to call _send_before_video_if_configured")
-            await self._send_before_video_if_configured(
-                update, context, chat_id, chat_type
-            )
-            error_logger.info(
-                "DEBUG: Finished calling _send_before_video_if_configured"
-            )
-
             # Now send processing message
             if update.message:
                 processing_msg = await update.message.reply_text(
@@ -3353,39 +3341,6 @@ class VideoDownloader:
         finally:
             await self._cleanup(processing_msg, filename, update)
 
-    async def _send_before_video(
-        self, chat_id: str, chat_type: str, context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """Send before video for the given chat."""
-        try:
-            video_config = await self._get_video_config(chat_id, chat_type)
-            before_video_path = video_config.get("before_video_path")
-
-            if before_video_path and os.path.exists(before_video_path):
-                general_logger.info(
-                    f"Sending before video for chat {chat_id}: {before_video_path}"
-                )
-                with open(before_video_path, "rb") as before_video_file:
-                    await context.bot.send_video(
-                        chat_id=chat_id, video=before_video_file
-                    )
-                general_logger.info("Before video sent successfully")
-        except Exception as e:
-            general_logger.error(f"Failed to send before video for chat {chat_id}: {e}")
-
-    async def _send_before_video_if_configured(
-        self,
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE,
-        chat_id: Optional[str],
-        chat_type: Optional[str],
-    ) -> None:
-        """Send before video if configured for this chat."""
-        if not chat_id or not chat_type:
-            return
-
-        await self._send_before_video(chat_id, chat_type, context)
-
     async def _send_video(
         self,
         update: Update,
@@ -3402,11 +3357,6 @@ class VideoDownloader:
                 if update.effective_chat and update.effective_chat.type == "private"
                 else "group"
             )
-
-            video_config = await self._get_video_config(chat_id, chat_type)
-
-            # Note: Before video is sent in _send_before_video_if_configured method
-            # Videos are always sent now
 
             file_size = os.path.getsize(filename)
             max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
@@ -4184,41 +4134,6 @@ class VideoDownloader:
             if re.search(pattern, url, re.IGNORECASE):
                 return True
         return False
-
-    async def _get_video_config(
-        self, chat_id: Optional[str] = None, chat_type: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Get video configuration for the current chat."""
-        if not self.config_manager:
-            # Return default config if no config manager is available
-            return {"video_path": self.download_path, "before_video_path": ""}
-
-        try:
-            if chat_id and chat_type:
-                # Get video_send module config directly
-                module_config = await self.config_manager.get_config(
-                    chat_id, chat_type, module_name="video_send"
-                )
-                if isinstance(module_config, dict) and "overrides" in module_config:
-                    return cast(Dict[str, Any], module_config["overrides"])
-                else:
-                    return {"video_path": self.download_path, "before_video_path": ""}
-            else:
-                # Get global module config
-                module_config = await self.config_manager.get_config(
-                    module_name="video_send"
-                )
-                return cast(
-                    Dict[str, Any],
-                    module_config.get(
-                        "overrides",
-                        {"video_path": self.download_path, "before_video_path": ""},
-                    ),
-                )
-        except Exception as e:
-            general_logger.error(f"Failed to get video config: {e}")
-            return {"video_path": self.download_path, "before_video_path": ""}
-
 
 def setup_video_handlers(
     application: Any,

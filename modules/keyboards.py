@@ -197,10 +197,6 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
                 return
                 
             try:
-                # Send before video if configured
-                chat_type = "private" if query.message.chat.type == "private" else "group"
-                await video_downloader._send_before_video(str(chat_id), chat_type, context)
-
                 if hasattr(query.message, 'edit_text'):
                     await query.message.edit_text("🔄 Downloading video...")
                 filename, title = await video_downloader.download_video(original_link)
@@ -233,10 +229,6 @@ async def button_callback(update: Update, context: CallbackContext[Any, Any, Any
                     await query.message.edit_text("❌ Video downloader not initialized.")
                 return
             try:
-                # Send before video if configured
-                chat_type = "private" if query.message.chat.type == "private" else "group"
-                await video_downloader._send_before_video(str(chat_id), chat_type, context)
-
                 if hasattr(query.message, 'edit_text'):
                     await query.message.edit_text("🔄 Downloading...")
                 filename, title = await video_downloader.download_video(original_link)

@@ -821,8 +821,9 @@ class TestVideoDownloaderFormatConversion:
         """Test download configuration format strings for different platforms."""
         # Test TikTok format
         tiktok_config = self.downloader.platform_configs[Platform.TIKTOK]
-        assert "best[ext=mp4]" in tiktok_config.format
-        assert "avc1" in tiktok_config.format
+        assert "ext=mp4" in tiktok_config.format
+        assert "vcodec^=h264" in tiktok_config.format
+        assert "acodec!=none" in tiktok_config.format
         
         # Test OTHER platform format
         other_config = self.downloader.platform_configs[Platform.OTHER]

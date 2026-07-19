@@ -53,12 +53,15 @@ async def reaction_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     await config_manager.enable_custom_config(chat_id, chat_type)
 
+    from config_v2.manager import telegram_actor
+
     await config_manager.update_module_setting(
         module_name="reactions",
         setting_path="enabled",
         value=enabled,
         chat_id=chat_id,
-        chat_type=chat_type
+        chat_type=chat_type,
+        actor=telegram_actor(update.effective_user),
     )
 
     if update.message:

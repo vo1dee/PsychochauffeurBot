@@ -54,6 +54,19 @@ CREATE TABLE IF NOT EXISTS backups (
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS config_audit (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id        TEXT    NOT NULL,
+    module         TEXT    NOT NULL,  -- '*' for bulk operations
+    key            TEXT    NOT NULL,  -- dotted path within module, '*' for bulk operations
+    old_value      TEXT,              -- JSON, NULL if previously unset
+    new_value      TEXT,              -- JSON, NULL if removed (reset to default)
+    actor_id       TEXT,              -- Telegram user id, NULL for web/system
+    actor_username TEXT,
+    source         TEXT    NOT NULL DEFAULT 'system',  -- 'telegram' | 'web' | 'system'
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Ensure global "chat" always exists
 INSERT OR IGNORE INTO chats (chat_id, chat_type, chat_name)
 VALUES ('global', 'global', 'Global Configuration');
@@ -64,6 +77,8 @@ CREATE INDEX IF NOT EXISTS idx_config_values_chat_module
     ON config_values(chat_id, module);
 CREATE INDEX IF NOT EXISTS idx_backups_chat
     ON backups(chat_id);
+CREATE INDEX IF NOT EXISTS idx_config_audit_chat
+    ON config_audit(chat_id, created_at);
 """
 
 
@@ -154,6 +169,60 @@ class ConfigDB:
                 result[mod] = {}
             result[mod][row["key"]] = json.loads(row["value"])
         return result
+
+    async def find_rows(
+        self, module: str, key: Optional[str] = None
+    ) -> list[dict[str, Any]]:
+        """Find config rows across all chats for a module (optionally one key)."""
+        if key is None:
+            cursor = await self.db.execute(
+                "SELECT chat_id, key, value FROM config_values WHERE module = ?",
+                (module,),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT chat_id, key, value FROM config_values WHERE module = ? AND key = ?",
+                (module, key),
+            )
+        return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_value(self, chat_id: str, module: str, key: str) -> Any:
+        """Get a single config value, or None if unset."""
+        cursor = await self.db.execute(
+            "SELECT value FROM config_values WHERE chat_id = ? AND module = ? AND key = ?",
+            (chat_id, module, key),
+        )
+        row = await cursor.fetchone()
+        return json.loads(row["value"]) if row else None
+
+    async def add_audit_entry(
+        self,
+        chat_id: str,
+        module: str,
+        key: str,
+        old_value: Any,
+        new_value: Any,
+        actor_id: Optional[str] = None,
+        actor_username: Optional[str] = None,
+        source: str = "system",
+    ) -> None:
+        """Append a config change to the audit ledger. Write-only — nothing reads it back."""
+        await self.db.execute(
+            """INSERT INTO config_audit
+               (chat_id, module, key, old_value, new_value, actor_id, actor_username, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                chat_id,
+                module,
+                key,
+                json.dumps(old_value) if old_value is not None else None,
+                json.dumps(new_value) if new_value is not None else None,
+                actor_id,
+                actor_username,
+                source,
+            ),
+        )
+        await self.db.commit()
 
     async def set_value(
         self, chat_id: str, module: str, key: str, value: Any

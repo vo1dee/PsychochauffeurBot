@@ -81,6 +81,15 @@ class WeatherData:
     lon: float
     timezone_offset: int  # seconds from UTC
     local_time: int       # unix timestamp (UTC)
+    # Display preference only: internal values stay metric (°C) so emoji
+    # thresholds, GPT prompts and risk scores keep working; conversion to °F
+    # happens at formatting time.
+    units: str = "metric"
+
+    def _display_temp(self, celsius: float) -> str:
+        if self.units == "imperial":
+            return f"{round(celsius * 9 / 5 + 32)}°F"
+        return f"{round(celsius)}°C"
 
     async def get_clothing_advice(self, update: Optional[Update] = None, context: Optional[CallbackContext[Any, Any, Any, Any]] = None) -> WeatherCommand:
         from datetime import datetime, timedelta
@@ -176,8 +185,8 @@ class WeatherData:
         return (
             f"Погода в {self.city_name}, {self.country_code} {country_flag} (місцевий час: {local_time_str}):\n"
             f"{weather_emoji} {self.description.capitalize()}\n"
-            f"🌡 Температура: {round(self.temperature)}°C\n"
-            f"{feels_like_emoji} Відчувається як: {round(self.feels_like)}°C\n"
+            f"🌡 Температура: {self._display_temp(self.temperature)}\n"
+            f"{feels_like_emoji} Відчувається як: {self._display_temp(self.feels_like)}\n"
             f"{humidity_emoji} Вологість: {self.humidity}%\n"
             f"📊 Тиск: {self.pressure} гПа"
         )
@@ -446,6 +455,16 @@ class WeatherCommandHandler:
                 if update.message:
                     await update.message.reply_text("Не вдалося отримати дані про погоду.")
                 return
+
+            # Apply the chat's display units preference (config: weather.units)
+            try:
+                chat_type = update.effective_chat.type if update.effective_chat else "private"
+                weather_cfg = await self.config_manager.get_config(
+                    str(chat_id), chat_type, module_name="weather"
+                )
+                weather_data.units = weather_cfg.get("overrides", {}).get("units", "metric")
+            except Exception as e:
+                general_logger.warning(f"Failed to read weather units config: {e}")
 
             raw_message = await weather_data.format_message_raw()
             if not update.message:

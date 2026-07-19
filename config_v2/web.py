@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
 from config_v2.schema import MODULE_REGISTRY, get_module_label, Widget
-from config_v2.manager import config_manager
+from config_v2.manager import WEB_ACTOR, config_manager
 from config_v2 import stats
 
 logger = logging.getLogger(__name__)
@@ -242,7 +242,7 @@ async def save_module(request: Request, chat_id: str, module_key: str):
     # Handle toggle checkboxes (unchecked = not in form data)
     _fill_missing_toggles(data, model_class, form, chat_id)
 
-    await mgr.set_module_config(chat_id, module_key, data)
+    await mgr.set_module_config(chat_id, module_key, data, actor=WEB_ACTOR)
 
     return HTMLResponse(
         f'<div class="alert success" id="save-status-{module_key}">'
@@ -257,7 +257,7 @@ async def reset_module(request: Request, chat_id: str, module_key: str):
         return HTMLResponse('<div class="alert error">Cannot reset global config</div>', status_code=400)
 
     mgr = config_manager()
-    await mgr.delete_module_overrides(chat_id, module_key)
+    await mgr.delete_module_overrides(chat_id, module_key, actor=WEB_ACTOR)
 
     return HTMLResponse(
         status_code=200,
@@ -278,14 +278,14 @@ async def set_module_mode(request: Request, chat_id: str, module_key: str):
 
     if mode == "global":
         # Remove all per-chat overrides — inherit from global
-        await mgr.delete_module_overrides(chat_id, module_key)
+        await mgr.delete_module_overrides(chat_id, module_key, actor=WEB_ACTOR)
     elif mode == "disabled":
         # Remove config overrides, only store enabled=false
-        await mgr.delete_module_overrides(chat_id, module_key)
-        await mgr.set_value(chat_id, module_key, "enabled", False)
+        await mgr.delete_module_overrides(chat_id, module_key, actor=WEB_ACTOR)
+        await mgr.set_value(chat_id, module_key, "enabled", False, actor=WEB_ACTOR)
     elif mode == "enabled":
         # Ensure enabled=true is stored as per-chat override
-        await mgr.set_value(chat_id, module_key, "enabled", True)
+        await mgr.set_value(chat_id, module_key, "enabled", True, actor=WEB_ACTOR)
 
     # Return full page redirect to refresh the form state
     return HTMLResponse(
@@ -422,7 +422,7 @@ async def create_backup(request: Request):
 @app.post("/backups/{backup_id}/restore")
 async def restore_backup(backup_id: int):
     mgr = config_manager()
-    ok = await mgr.restore_backup(backup_id)
+    ok = await mgr.restore_backup(backup_id, actor=WEB_ACTOR)
     if not ok:
         return HTMLResponse('<div class="alert error">Backup not found</div>', status_code=404)
     return RedirectResponse("/backups", status_code=303)
@@ -452,7 +452,7 @@ async def import_chat(chat_id: str, file: UploadFile = File(...)):
     content = await file.read()
     data = json.loads(content)
     mgr = config_manager()
-    await mgr.import_chat(chat_id, data)
+    await mgr.import_chat(chat_id, data, actor=WEB_ACTOR)
     return RedirectResponse(f"/config/{chat_id}", status_code=303)
 
 

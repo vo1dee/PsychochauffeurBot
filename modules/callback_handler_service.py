@@ -65,8 +65,11 @@ class CallbackHandlerService(ServiceInterface):
         # Enhanced logging with service identification
         self.logger = logging.getLogger('callback_handler_service')
         
-        # Define callback patterns and their handlers
+        # Define callback patterns and their handlers.
+        # NOTE: "^cfg:" must stay ahead of the link-modification catch-all,
+        # which would otherwise swallow some cfg payloads.
         self._callback_handlers: Dict[str, Callable[[Update, CallbackContext[Any, Any, Any, Any]], Awaitable[None]]] = {
+            r"^cfg:": self._handle_config_callback,
             r"^speechrec_": self._handle_speech_recognition_callback,
             r"^lang_": self._handle_language_selection_callback,
             r"^test_callback$": self._handle_test_callback,
@@ -132,10 +135,15 @@ class CallbackHandlerService(ServiceInterface):
         if not query:
             general_logger.warning("Received update without callback_query")
             return
-            
-        await query.answer()
-        
+
         callback_data = query.data
+
+        # /config callbacks answer the query themselves (they use the answer
+        # text for toasts like "saved" / "admins only") — a pre-answer here
+        # would make those toasts silently disappear.
+        if not callback_data or not callback_data.startswith("cfg:"):
+            await query.answer()
+
         if not callback_data:
             await self._send_error_response(query, "❌ Invalid callback data.")
             return
@@ -177,6 +185,15 @@ class CallbackHandlerService(ServiceInterface):
         if query:
             await self._send_error_response(query, "❌ Unknown callback action.")
             
+    async def _handle_config_callback(
+        self,
+        update: Update,
+        context: CallbackContext[Any, Any, Any, Any],
+    ) -> None:
+        """Delegate /config menu buttons to the config commands handler."""
+        from modules.handlers.config_commands import handle_config_callback
+        await handle_config_callback(update, context)
+
     async def _handle_speech_recognition_callback(
         self, 
         update: Update, 

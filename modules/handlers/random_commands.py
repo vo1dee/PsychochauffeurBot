@@ -42,27 +42,10 @@ async def random_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Get config manager service
     config_manager = service_registry.get_service('config_manager')
 
-    gpt_config = await get_gpt_config(chat_id, chat_type, config_manager)
-
-    # Ensure 'overrides' exists in config before updating
-    if 'overrides' not in gpt_config:
-        gpt_config['overrides'] = {}
-        # Save the updated config immediately
-        config = await config_manager.get_config(chat_id, chat_type)
-        # Ensure config_modules exists
-        if 'config_modules' not in config:
-            config['config_modules'] = {}
-        config['config_modules']['gpt'] = gpt_config
-        await config_manager.save_config(config, chat_id, chat_type)
-
-    overrides = gpt_config.get("overrides", {})
-    random_settings = overrides.get("random_response_settings", {})
-    allow_all = random_settings.get("allow_all_users", False)
-
     if not update.message:
         return
 
-    if not allow_all and not await is_admin(update, context):
+    if not await is_admin(update, context):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
 
@@ -72,25 +55,21 @@ async def random_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     enabled = args[0] == "on"
 
-    # Update config
+    # Random responses live under chat_behavior — the module the runtime reads
+    # (message_handler_service / gpt.py), not gpt.
+    from config_v2.manager import telegram_actor
+
     await config_manager.update_module_setting(
-        module_name="gpt",
-        setting_path="overrides.random_response_settings.enabled",
+        module_name="chat_behavior",
+        setting_path="random_response_settings.enabled",
         value=enabled,
         chat_id=chat_id,
-        chat_type=chat_type
+        chat_type=chat_type,
+        actor=telegram_actor(update.effective_user),
     )
 
     if update.message:
         await update.message.reply_text(f"Random responses {'enabled' if enabled else 'disabled'}.")
-
-
-async def get_gpt_config(chat_id: str, chat_type: str, config_manager: Any) -> Dict[str, Any]:
-    """Get GPT configuration for a chat."""
-    config = await config_manager.get_config(chat_id, chat_type)
-    # Explicitly type the return value to avoid Any return
-    result: Dict[str, Any] = config.get("config_modules", {}).get("gpt", {})
-    return result
 
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:

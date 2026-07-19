@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from config_v2.manager import config_manager
+from config_v2.manager import AuditActor, SYSTEM_ACTOR, config_manager
 from config_v2.schema import MODULE_REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -101,16 +101,24 @@ class CompatConfigManager:
         pass
 
     async def enable_module(
-        self, chat_id: str, chat_type: str, module_name: str
+        self,
+        chat_id: str,
+        chat_type: str,
+        module_name: str,
+        actor: AuditActor = SYSTEM_ACTOR,
     ) -> None:
         mgr = config_manager()
-        await mgr.set_value(str(chat_id), module_name, "enabled", True)
+        await mgr.set_value(str(chat_id), module_name, "enabled", True, actor=actor)
 
     async def disable_module(
-        self, chat_id: str, chat_type: str, module_name: str
+        self,
+        chat_id: str,
+        chat_type: str,
+        module_name: str,
+        actor: AuditActor = SYSTEM_ACTOR,
     ) -> None:
         mgr = config_manager()
-        await mgr.set_value(str(chat_id), module_name, "enabled", False)
+        await mgr.set_value(str(chat_id), module_name, "enabled", False, actor=actor)
 
     async def update_module_setting(
         self,
@@ -119,12 +127,15 @@ class CompatConfigManager:
         value: Any,
         chat_id: Optional[str] = None,
         chat_type: Optional[str] = None,
+        actor: AuditActor = SYSTEM_ACTOR,
     ) -> bool:
         mgr = config_manager()
         effective_chat = str(chat_id) if chat_id else "global"
-        # Strip "overrides." prefix used by old API
+        # Strip "overrides." prefix used by old API; set_leaf handles dotted
+        # paths by nesting them inside the stored blob (a raw dotted row key
+        # would be invisible to the schema merge).
         key = setting_path.removeprefix("overrides.")
-        await mgr.set_value(effective_chat, module_name, key, value)
+        await mgr.set_leaf(effective_chat, module_name, key, value, actor=actor)
         return True
 
     def get_analysis_cache_config(self) -> Dict[str, Any]:
