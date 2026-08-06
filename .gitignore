@@ -37,10 +37,10 @@ python-web-screenshots/*
 # downloads
 downloads/*
 
-# Test Suite Optimizer temporary files
-test_suite_optimizer_project/temp_files/*
-test_suite_optimizer_project/analysis_results/*.json
-test_suite_optimizer_project/reports/*.json
+# Test Suite Optimizer temporary files (archived)
+archive/test_suite_optimizer_project/temp_files/*
+archive/test_suite_optimizer_project/analysis_results/*.json
+archive/test_suite_optimizer_project/reports/*.json
 
 # Project management temporary files
 project_management/temp/*
@@ -49,10 +49,10 @@ project_management/temp/*
 *.json
 
 # Allow specific config files to be tracked
-!config/global/global_config.json
-!test_suite_optimizer_project/analysis_results/.gitkeep
-!test_suite_optimizer_project/reports/.gitkeep
-!test_suite_optimizer_project/temp_files/.gitkeep
+!archive/legacy_config_v1_snapshot/global_config.json
+!archive/test_suite_optimizer_project/analysis_results/.gitkeep
+!archive/test_suite_optimizer_project/reports/.gitkeep
+!archive/test_suite_optimizer_project/temp_files/.gitkeep
 !worker/package.json
 !worker/package-lock.json
 !worker/tsconfig.json

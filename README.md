@@ -90,9 +90,9 @@ A versatile Telegram bot that downloads videos and images from social media plat
 
 2. Configure your `.env` file (already included with sample values)
 
-3. Start with automated setup:
+3. Start the database and run the bot:
    ```bash
-   ./start.sh
+   docker-compose up -d postgres
    source .venv/bin/activate && python main.py
    ```
 
@@ -115,12 +115,6 @@ source .venv/bin/activate && python main.py
 docker-compose up --build
 ```
 
-#### Option 3: Automated Script
-```bash
-# Use the provided startup script
-./start.sh
-```
-
 ### 📋 What Docker Provides
 
 - **PostgreSQL Database**: Automatically configured with proper schema
@@ -128,7 +122,7 @@ docker-compose up --build
 - **Persistent Storage**: Data survives container restarts
 - **Easy Management**: Simple commands for backup, restore, and maintenance
 
-See [DOCKER_SETUP.md](DOCKER_SETUP.md) for detailed Docker documentation.
+See [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) for detailed Docker documentation.
 
 ### 🔧 Manual Installation (Alternative)
 
@@ -196,10 +190,9 @@ docker-compose exec postgres pg_isready -U postgres -d telegram_bot
 - **`docker-compose.yml`** - PostgreSQL service with auto-initialization
 - **`Dockerfile`** - Bot container configuration
 - **`init-db.sql`** - Database schema and setup
-- **`start.sh`** - Automated startup script
 - **`.dockerignore`** - Optimized build context
 
-For detailed Docker setup instructions, see [DOCKER_SETUP.md](DOCKER_SETUP.md).
+For detailed Docker setup instructions, see [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md).
 
 ## ⚙️ Configuration
 
@@ -231,22 +224,23 @@ For detailed Docker setup instructions, see [DOCKER_SETUP.md](DOCKER_SETUP.md).
 ```
 PsychochauffeurBot/
 ├── main.py              # Main entry point
-├── api.py              # API endpoints
 ├── docker-compose.yml   # Docker services configuration
-├── Dockerfile          # Bot container configuration
-├── init-db.sql         # Database initialization
-├── start.sh            # Automated startup script
-├── .dockerignore       # Docker build optimization
-├── DOCKER_SETUP.md     # Docker documentation
-├── config/             # Configuration files
-├── modules/            # Core functionality
-│   ├── gpt.py         # GPT integration
-│   ├── weather.py     # Weather features
+├── Dockerfile           # Bot container configuration
+├── init-db.sql          # Database initialization
+├── .dockerignore        # Docker build optimization
+├── config_v2/           # Active configuration system (schema-driven)
+├── config/              # Legacy configuration system (still used by tests)
+├── modules/             # Core functionality
+│   ├── gpt.py          # GPT integration
+│   ├── weather.py      # Weather features
 │   ├── video_downloader.py
+│   ├── d1_api_client.py # Cloudflare D1 dual-write client
 │   └── ...
-├── tests/             # Test suite
-├── utils/             # Utility functions
-└── requirements.txt   # Dependencies
+├── worker/              # Cloudflare Worker + D1 API (migration target)
+├── scripts/             # Operational and migration scripts
+├── docs/                # Documentation
+├── tests/               # Test suite
+└── requirements.txt     # Dependencies
 ```
 
 ### Code Style
