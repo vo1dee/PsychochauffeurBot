@@ -142,6 +142,10 @@ analysis_results/
 # Config backups
 config_backup_*/
 
+# Database dumps/backups
+*.dump
+telegram_bot_backup.dump
+
 ### Node / Cloudflare Workers ###
 node_modules/
 .wrangler/
