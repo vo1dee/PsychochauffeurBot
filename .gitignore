@@ -18,6 +18,8 @@ __pycache__/
 *.env
 .env.local
 .env.*.local
+.dev.vars
+.dev.vars.*
 
 ### Logs and Databases ###
 logs/
@@ -51,6 +53,9 @@ project_management/temp/*
 !test_suite_optimizer_project/analysis_results/.gitkeep
 !test_suite_optimizer_project/reports/.gitkeep
 !test_suite_optimizer_project/temp_files/.gitkeep
+!worker/package.json
+!worker/package-lock.json
+!worker/tsconfig.json
 
 ### IDE and Editor Files ###
 # VS Code
@@ -136,3 +141,11 @@ analysis_results/
 
 # Config backups
 config_backup_*/
+
+### Node / Cloudflare Workers ###
+node_modules/
+.wrangler/
+.mf/
+wrangler-account.json
+worker-configuration.d.ts
+*.tsbuildinfo

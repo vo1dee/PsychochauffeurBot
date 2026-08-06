@@ -235,8 +235,10 @@ class VideoDownloader:
             Platform.TIKTOK: DownloadConfig(
                 # TikTok's HEVC/bytevc1 MP4 variants can be served without an audio
                 # track even when yt-dlp metadata reports AAC. Prefer H.264 MP4s,
-                # which TikTok serves as complete audio/video files.
-                format="best[height<=1080][ext=mp4][vcodec^=h264][acodec!=none]",
+                # which TikTok serves as complete audio/video files. TikTok videos
+                # are portrait, so 1080p is 1080x1920 (height 1920, not 1080) -
+                # cap on the portrait height, with an uncapped h264 fallback.
+                format="best[ext=mp4][vcodec^=h264][acodec!=none][height<=1920]/best[ext=mp4][vcodec^=h264][acodec!=none]",
                 max_retries=3,
                 headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

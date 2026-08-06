@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "psychochauffeur-d1-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-23",
+  "d1_databases": [
+    {
+      "binding": "DATA_DB",
+      "database_name": "psychochauffeur-data",
+      "database_id": "ec166290-3da2-4af7-bc1c-ada2aa4c41fb",
+      "migrations_dir": "migrations/data"
+    },
+    {
+      "binding": "CONFIG_DB",
+      "database_name": "psychochauffeur-config",
+      "database_id": "72d6d494-b451-44f2-91bd-75acb2f7f3ab",
+      "migrations_dir": "migrations/config"
+    }
+  ]
+}

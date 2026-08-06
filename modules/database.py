@@ -23,10 +23,22 @@ from modules.shared_utilities import (
     CacheManager, PerformanceMonitor, RetryManager, AsyncContextManager
 )
 from modules.error_decorators import handle_database_errors, database_operation
+from modules.d1_api_client import close_d1_api_client, get_d1_api_client, serialize_datetime
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+async def _mirror_d1(operation: str, action: Callable[[], Awaitable[None]]) -> None:
+    """Mirror a successful PostgreSQL write to D1 during the migration window."""
+    if not await get_d1_api_client():
+        return
+    try:
+        await action()
+    except Exception as error:
+        logger.error("D1 dual-write failed for %s: %s", operation, error, exc_info=True)
+        if os.getenv("D1_DUAL_WRITE_REQUIRED", "false").lower() in {"1", "true", "yes"}:
+            raise
 
 # Database connection configuration with type hints
 # Support both DATABASE_URL and individual environment variables
@@ -434,7 +446,8 @@ class Database:
         
         # Check cache first
         cached_chat = manager._cache_manager.get(cache_key)
-        if cached_chat and cached_chat.get('title') == chat.title:
+        d1_client = await get_d1_api_client()
+        if cached_chat and cached_chat.get('title') == chat.title and not d1_client:
             manager._connection_stats['cache_hits'] += 1
             return
         
@@ -455,6 +468,8 @@ class Database:
             }, ttl=3600)  # Cache for 1 hour
             
             manager._connection_stats['queries_executed'] += 1
+        if d1_client:
+            await _mirror_d1("save_chat_info", lambda: d1_client.save_chat(chat.id, chat.type, chat.title))
 
     @classmethod
     @database_operation("save_user_info")
@@ -465,9 +480,10 @@ class Database:
         
         # Check cache first
         cached_user = manager._cache_manager.get(cache_key)
+        d1_client = await get_d1_api_client()
         if (cached_user and 
             cached_user.get('username') == user.username and
-            cached_user.get('first_name') == user.first_name):
+            cached_user.get('first_name') == user.first_name and not d1_client):
             manager._connection_stats['cache_hits'] += 1
             return
         
@@ -490,6 +506,10 @@ class Database:
             }, ttl=3600)  # Cache for 1 hour
             
             manager._connection_stats['queries_executed'] += 1
+        if d1_client:
+            await _mirror_d1("save_user_info", lambda: d1_client.save_user(
+                user.id, user.first_name, user.last_name, user.username, user.is_bot
+            ))
 
     @classmethod
     @database_operation("save_message")
@@ -545,6 +565,21 @@ class Database:
                 )
                 manager._connection_stats['queries_executed'] += 1
                 logger.debug(f"Message saved successfully: chat_id={message.chat.id}, message_id={message.message_id}")
+            d1_client = await get_d1_api_client()
+            if d1_client:
+                await _mirror_d1("save_message", lambda: d1_client.save_message({
+                    "message_id": message.message_id,
+                    "chat_id": message.chat.id,
+                    "user_id": message.from_user.id if message.from_user else None,
+                    "timestamp": serialize_datetime(message.date),
+                    "text": message.text,
+                    "is_command": is_command,
+                    "command_name": command_name,
+                    "is_gpt_reply": is_gpt_reply,
+                    "replied_to_message_id": replied_to_message_id,
+                    "gpt_context_message_ids": json.dumps(gpt_context_message_ids) if gpt_context_message_ids else None,
+                    "raw_telegram_message": json.dumps(raw_message),
+                }))
                 
         except Exception as e:
             logger.error(f"Failed to save message: chat_id={message.chat.id}, message_id={message.message_id}, error={e}")
@@ -663,6 +698,28 @@ class Database:
             manager._cache_manager.set(cache_key, result, ttl=DEFAULT_CACHE_TTL)
             manager._connection_stats['queries_executed'] += 1
 
+        d1_client = await get_d1_api_client()
+        if d1_client:
+            await _mirror_d1("set_analysis_cache", lambda: d1_client.set_analysis_cache(
+                chat_id, time_period, message_content_hash, result
+            ))
+
+    @classmethod
+    @database_operation("record_bot_event")
+    async def record_bot_event(cls, event_type: str, chat_id: ChatId, user_id: Optional[UserId] = None) -> None:
+        """Record an event and mirror it to D1 during the migration window."""
+        manager = cls.get_connection_manager()
+        async with manager.get_connection() as conn:
+            await conn.execute(
+                "INSERT INTO bot_events (event_type, chat_id, user_id) VALUES ($1, $2, $3)",
+                event_type, chat_id, user_id
+            )
+            manager._connection_stats['queries_executed'] += 1
+
+        d1_client = await get_d1_api_client()
+        if d1_client:
+            await _mirror_d1("record_bot_event", lambda: d1_client.record_event(event_type, chat_id, user_id))
+
     @classmethod
     @database_operation("invalidate_analysis_cache")
     async def invalidate_analysis_cache(
@@ -698,6 +755,12 @@ class Database:
                     manager._cache_manager.delete(key)
             
             manager._connection_stats['queries_executed'] += 1
+
+        d1_client = await get_d1_api_client()
+        if d1_client:
+            await _mirror_d1("invalidate_analysis_cache", lambda: d1_client.invalidate_analysis_cache(
+                chat_id, time_period
+            ))
 
     # New optimized query methods
     @classmethod
@@ -959,3 +1022,4 @@ class Database:
         if cls._connection_manager:
             await cls._connection_manager.close()
             cls._connection_manager = None
+        await close_d1_api_client()
