@@ -31,8 +31,10 @@ from modules.const import (
     InstagramConfig,
     MUSIC_DIR,
     SONG_CACHE_PATH,
+    VIDEO_CACHE_PATH,
 )
 from modules.song_cache import SongCache
+from modules.video_cache import VideoCache
 from modules.utils import extract_urls
 from modules.logger import (
     TelegramErrorHandler,
@@ -229,6 +231,7 @@ class VideoDownloader:
 
         # Song file_id cache (persists across restarts)
         self.song_cache = SongCache(SONG_CACHE_PATH)
+        self.video_cache = VideoCache(VIDEO_CACHE_PATH)
 
         # Platform-specific download configurations
         self.platform_configs = {
@@ -1128,7 +1131,11 @@ class VideoDownloader:
                         return 3
                     if "p640x640" in u:
                         return 2
-                    if "s640x640" not in u and "s150x150" not in u and "s320x320" not in u:
+                    if (
+                        "s640x640" not in u
+                        and "s150x150" not in u
+                        and "s320x320" not in u
+                    ):
                         return 1
                     return 0
 
@@ -1149,7 +1156,9 @@ class VideoDownloader:
                         allow_redirects=True,
                         timeout=aiohttp.ClientTimeout(total=15),
                     ) as response:
-                        fallback_html = await response.text() if response.status == 200 else ""
+                        fallback_html = (
+                            await response.text() if response.status == 200 else ""
+                        )
                 image_url = self._extract_meta_tag_content(
                     fallback_html, "property", "og:image"
                 ) or self._extract_meta_tag_content(
@@ -1786,8 +1795,14 @@ class VideoDownloader:
                     title = data.get("title")
                     artist = data.get("artist", {}).get("name")
                     duration_s = data.get("duration")
-                    general_logger.info(f"Deezer resolved: '{artist} - {title}' ({duration_s}s)")
-                    return title, artist, duration_s if isinstance(duration_s, int) else None
+                    general_logger.info(
+                        f"Deezer resolved: '{artist} - {title}' ({duration_s}s)"
+                    )
+                    return (
+                        title,
+                        artist,
+                        duration_s if isinstance(duration_s, int) else None,
+                    )
                 else:
                     general_logger.warning(
                         f"Deezer API returned {response.status} for track {track_id}"
@@ -1856,8 +1871,12 @@ class VideoDownloader:
             if isinstance(duration_raw, int):
                 duration_s = duration_raw // 1000
             elif isinstance(duration_raw, dict):
-                duration_ms = duration_raw.get("totalMilliseconds") or duration_raw.get("milliseconds")
-                duration_s = duration_ms // 1000 if isinstance(duration_ms, int) else None
+                duration_ms = duration_raw.get("totalMilliseconds") or duration_raw.get(
+                    "milliseconds"
+                )
+                duration_s = (
+                    duration_ms // 1000 if isinstance(duration_ms, int) else None
+                )
             else:
                 duration_s = None
 
@@ -1875,8 +1894,8 @@ class VideoDownloader:
         self, session: aiohttp.ClientSession, url: str
     ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         """Resolve Spotify track metadata via oEmbed with robust HTML/JSON-LD fallback."""
-        api_title, api_artist, api_duration = await self._resolve_spotify_track_via_open_api(
-            session, url
+        api_title, api_artist, api_duration = (
+            await self._resolve_spotify_track_via_open_api(session, url)
         )
         if api_title:
             general_logger.info(
@@ -1887,8 +1906,8 @@ class VideoDownloader:
         # Try embed page __NEXT_DATA__ before falling back to brittle HTML scraping
         track_id = self._extract_spotify_track_id(url)
         if track_id:
-            embed_title, embed_artist, embed_duration = await self._resolve_spotify_via_embed(
-                session, track_id
+            embed_title, embed_artist, embed_duration = (
+                await self._resolve_spotify_via_embed(session, track_id)
             )
             if embed_title:
                 return embed_title, embed_artist, embed_duration
@@ -2001,7 +2020,9 @@ class VideoDownloader:
                 ]
                 performer = ", ".join(artist_names) if artist_names else None
                 duration_ms = data.get("duration_ms")
-                duration_s = duration_ms // 1000 if isinstance(duration_ms, int) else None
+                duration_s = (
+                    duration_ms // 1000 if isinstance(duration_ms, int) else None
+                )
                 if title:
                     return title, performer, duration_s
         except Exception as e:
@@ -2200,7 +2221,9 @@ class VideoDownloader:
                 )
             )
             cand_artist_tokens = _tokens(cand_artist_str)
-            artist_overlap = bool(artist_tokens & cand_artist_tokens) if artist_tokens else False
+            artist_overlap = (
+                bool(artist_tokens & cand_artist_tokens) if artist_tokens else False
+            )
             if artist_overlap:
                 score += 30
 
@@ -2322,7 +2345,9 @@ class VideoDownloader:
                     pass
 
             if process.returncode == 0 and output_path and os.path.exists(output_path):
-                display_title, performer, webpage_url = self._compose_display_title(meta)
+                display_title, performer, webpage_url = self._compose_display_title(
+                    meta
+                )
                 video_id = meta.get("id") or ""
                 general_logger.info(f"Track downloaded: {display_title}")
                 return output_path, display_title, performer, webpage_url, video_id
@@ -2378,13 +2403,18 @@ class VideoDownloader:
                 return await self._download_youtube_by_url(webpage_url)
 
         # Fallback: no candidates from fast search — use ytsearch1 directly
-        general_logger.warning(f"fast_youtube_search returned no results for {query!r}, using ytsearch1 fallback")
+        general_logger.warning(
+            f"fast_youtube_search returned no results for {query!r}, using ytsearch1 fallback"
+        )
         return await self._download_youtube_by_url(f"ytsearch1:{query}")
 
-    async def download_music_platform_url(
-        self, url: str
-    ) -> Tuple[
-        Optional[str], Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]
+    async def download_music_platform_url(self, url: str) -> Tuple[
+        Optional[str],
+        Optional[str],
+        Optional[str],
+        Optional[str],
+        Optional[str],
+        Optional[str],
     ]:
         """Download audio from a streaming platform URL.
 
@@ -2541,7 +2571,11 @@ class VideoDownloader:
                 )
 
                 if not filename or not os.path.exists(filename):
-                    msg = f"❌ {error_reason}" if error_reason else "❌ Failed to download track."
+                    msg = (
+                        f"❌ {error_reason}"
+                        if error_reason
+                        else "❌ Failed to download track."
+                    )
                     await processing_msg.edit_text(msg)
                     return
 
@@ -3298,6 +3332,12 @@ class VideoDownloader:
             async with self._video_work_semaphore:
                 for url in urls:
                     is_youtube_music = "music.youtube.com" in url.lower()
+                    if not is_youtube_music:
+                        cached = self.video_cache.get(url)
+                        if cached and await self._send_cached_media(
+                            update, context, cached, source_url=url
+                        ):
+                            continue
                     async with _chat_action(update, context, ChatAction.UPLOAD_VIDEO):
                         if is_youtube_music:
                             # Handle YouTube Music - download as MP3
@@ -3343,6 +3383,125 @@ class VideoDownloader:
         finally:
             await self._cleanup(processing_msg, filename, update)
 
+    def _build_media_caption(
+        self, update: Update, title: Optional[str], source_url: Optional[str]
+    ) -> tuple[str, list]:
+        """Build the shared caption and entities for uploaded or cached media."""
+        from telegram import MessageEntity
+
+        def utf16_len(value: str) -> int:
+            return len(value.encode("utf-16-le")) // 2
+
+        username = "Unknown"
+        if update.effective_user:
+            username = (
+                update.effective_user.username
+                or update.effective_user.first_name
+                or "Unknown"
+            )
+        caption = f"👤 Від: @{username}"
+        entities = []
+        offset = utf16_len(caption)
+        if source_url:
+            prefix, label = "\n\n🔗 ", "Посилання"
+            offset += utf16_len(prefix)
+            entities.append(
+                MessageEntity(
+                    type=MessageEntity.TEXT_LINK,
+                    offset=offset,
+                    length=utf16_len(label),
+                    url=source_url,
+                )
+            )
+            caption += prefix + label
+            offset += utf16_len(label)
+        if title:
+            prefix = "\n\n"
+            available_units = 1024 - utf16_len(caption) - utf16_len(prefix)
+            if utf16_len(title) <= available_units:
+                truncated = title
+            else:
+                limit = max(0, available_units - utf16_len("..."))
+                truncated = ""
+                for character in title:
+                    if utf16_len(truncated + character) > limit:
+                        break
+                    truncated += character
+                truncated += "..."
+            offset += utf16_len(prefix)
+            entities.append(
+                MessageEntity(
+                    type="expandable_blockquote",
+                    offset=offset,
+                    length=utf16_len(truncated),
+                )
+            )
+            caption += prefix + truncated
+        return caption, entities
+
+    async def _send_cached_media(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        entry: dict,
+        source_url: str,
+    ) -> bool:
+        """Send cached Telegram media, evicting only stale bot-scoped file IDs."""
+        try:
+            media_kind = entry.get("media_kind")
+            if media_kind not in ("video", "photo") or not entry.get("file_id"):
+                return False
+            title = entry.get("title") if media_kind == "video" else None
+            caption, caption_entities = self._build_media_caption(
+                update, title, source_url
+            )
+            send_kwargs = dict(caption=caption, caption_entities=caption_entities)
+            if update.message and update.message.reply_to_message:
+                if media_kind == "photo":
+                    await update.message.reply_to_message.reply_photo(
+                        photo=entry["file_id"], **send_kwargs
+                    )
+                else:
+                    await update.message.reply_to_message.reply_video(
+                        video=entry["file_id"], **send_kwargs
+                    )
+            elif update.effective_chat:
+                if media_kind == "photo":
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=entry["file_id"],
+                        **send_kwargs,
+                    )
+                else:
+                    await context.bot.send_video(
+                        chat_id=update.effective_chat.id,
+                        video=entry["file_id"],
+                        **send_kwargs,
+                    )
+            else:
+                return False
+            if update.effective_chat:
+                from modules.event_tracker import record_bot_event
+
+                user_id = update.effective_user.id if update.effective_user else None
+                asyncio.ensure_future(
+                    record_bot_event(
+                        "video_download", update.effective_chat.id, user_id
+                    )
+                )
+            if update.message:
+                try:
+                    await asyncio.wait_for(update.message.delete(), timeout=10)
+                except Exception as error:
+                    error_logger.error("Failed to delete original message: %s", error)
+            return True
+        except BadRequest:
+            self.video_cache.evict(source_url)
+            return False
+        except Exception as error:
+            error_logger.error("Cached media sending error: %s", error)
+            return False
+
     async def _send_video(
         self,
         update: Update,
@@ -3352,6 +3511,7 @@ class VideoDownloader:
         source_url: Optional[str] = None,
     ) -> None:
         try:
+            sent_message = None
             # Get video config for this chat
             chat_id = str(update.effective_chat.id) if update.effective_chat else None
             chat_type = (
@@ -3369,58 +3529,9 @@ class VideoDownloader:
                     await update.message.reply_text("❌ Video file too large to send.")
                 return
 
-            # Build caption with manual entities to support expandable_blockquote
-            # (HTML/MarkdownV2 parsers in older python-telegram-bot don't support it)
-            from telegram import MessageEntity
-
-            def utf16_len(s: str) -> int:
-                return len(s.encode("utf-16-le")) // 2
-
-            username = "Unknown"
-            if update.effective_user:
-                username = (
-                    update.effective_user.username
-                    or update.effective_user.first_name
-                    or "Unknown"
-                )
-
-            caption = f"👤 Від: @{username}"
-            caption_entities = []
-            offset = utf16_len(caption)
-
-            if source_url:
-                link_prefix = "\n\n🔗 "
-                link_label = "Посилання"
-                offset += utf16_len(link_prefix)
-                caption_entities.append(
-                    MessageEntity(
-                        type=MessageEntity.TEXT_LINK,
-                        offset=offset,
-                        length=utf16_len(link_label),
-                        url=source_url,
-                    )
-                )
-                caption += link_prefix + link_label
-                offset += utf16_len(link_label)
-
-            if title:
-                title_prefix = "\n\n"
-                # Truncate only if needed to stay within Telegram's 1024-char caption limit
-                max_title_len = 1024 - len(caption) - len(title_prefix)
-                truncated_title = (
-                    title
-                    if len(title) <= max_title_len
-                    else title[: max_title_len - 3] + "..."
-                )
-                offset += utf16_len(title_prefix)
-                caption_entities.append(
-                    MessageEntity(
-                        type="expandable_blockquote",
-                        offset=offset,
-                        length=utf16_len(truncated_title),
-                    )
-                )
-                caption += title_prefix + truncated_title
+            caption, caption_entities = self._build_media_caption(
+                update, title, source_url
+            )
 
             _upload_timeouts = dict(
                 write_timeout=120,
@@ -3433,17 +3544,22 @@ class VideoDownloader:
                 send_kwargs = dict(caption=caption, caption_entities=caption_entities)
                 # Check if the original message was a reply to another message
                 if update.message and update.message.reply_to_message:
-                    await update.message.reply_to_message.reply_video(
+                    sent_message = await update.message.reply_to_message.reply_video(
                         video=video_file, **send_kwargs, **_upload_timeouts
                     )
                 else:
                     if update.effective_chat:
-                        await context.bot.send_video(
+                        sent_message = await context.bot.send_video(
                             chat_id=update.effective_chat.id,
                             video=video_file,
                             **send_kwargs,
                             **_upload_timeouts,
                         )
+
+            if source_url and sent_message and sent_message.video:
+                self.video_cache.set(
+                    source_url, sent_message.video.file_id, title, "video"
+                )
 
             # Track successful video download
             if update.effective_chat:
@@ -3476,36 +3592,10 @@ class VideoDownloader:
         source_url: Optional[str] = None,
     ) -> None:
         try:
-            from telegram import MessageEntity
-
-            def utf16_len(s: str) -> int:
-                return len(s.encode("utf-16-le")) // 2
-
-            username = "Unknown"
-            if update.effective_user:
-                username = (
-                    update.effective_user.username
-                    or update.effective_user.first_name
-                    or "Unknown"
-                )
-
-            caption = f"👤 Від: @{username}"
-            caption_entities = []
-            offset = utf16_len(caption)
-
-            if source_url:
-                link_prefix = "\n\n🔗 "
-                link_label = "Посилання"
-                offset += utf16_len(link_prefix)
-                caption_entities.append(
-                    MessageEntity(
-                        type=MessageEntity.TEXT_LINK,
-                        offset=offset,
-                        length=utf16_len(link_label),
-                        url=source_url,
-                    )
-                )
-                caption += link_prefix + link_label
+            sent_message = None
+            caption, caption_entities = self._build_media_caption(
+                update, None, source_url
+            )
 
             _upload_timeouts = dict(
                 write_timeout=60,
@@ -3517,17 +3607,22 @@ class VideoDownloader:
             with open(filename, "rb") as photo_file:
                 send_kwargs = dict(caption=caption, caption_entities=caption_entities)
                 if update.message and update.message.reply_to_message:
-                    await update.message.reply_to_message.reply_photo(
+                    sent_message = await update.message.reply_to_message.reply_photo(
                         photo=photo_file, **send_kwargs, **_upload_timeouts
                     )
                 else:
                     if update.effective_chat:
-                        await context.bot.send_photo(
+                        sent_message = await context.bot.send_photo(
                             chat_id=update.effective_chat.id,
                             photo=photo_file,
                             **send_kwargs,
                             **_upload_timeouts,
                         )
+
+            if source_url and sent_message and sent_message.photo:
+                self.video_cache.set(
+                    source_url, sent_message.photo[-1].file_id, title, "photo"
+                )
 
             if update.effective_chat:
                 from modules.event_tracker import record_bot_event
@@ -4136,6 +4231,7 @@ class VideoDownloader:
             if re.search(pattern, url, re.IGNORECASE):
                 return True
         return False
+
 
 def setup_video_handlers(
     application: Any,

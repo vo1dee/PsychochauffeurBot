@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 from telegram import CallbackQuery, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ChatAction
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from modules.chat_action import chat_action as _chat_action
@@ -51,6 +52,14 @@ def _escape_md(text: str) -> str:
     for ch in _SPECIAL_CHARS:
         text = text.replace(ch, f"\\{ch}")
     return text
+
+
+def build_shorts_caption(title: Optional[str], username: str, watch_url: str) -> str:
+    return (
+        f"🎬 {_escape_md(title or 'Shorts')}\n\n"
+        f"👤 Від: @{_escape_md(username)}\n\n"
+        f"🔗 [Посилання]({_escape_md(watch_url)})"
+    )
 
 
 def is_music_platform_url(url: str) -> bool:
@@ -381,7 +390,7 @@ async def handle_song_selection_callback(
     if not query or not query.data:
         return
 
-    video_id = query.data[len("song_select:"):]
+    video_id = query.data[len("song_select:") :]
     music_url = f"https://music.youtube.com/watch?v={video_id}"
 
     video_downloader = context.bot_data.get("video_downloader")
@@ -463,13 +472,16 @@ async def _resolve_and_download(
                 await processing_msg.delete()
             except Exception:
                 pass
-            return dict(
-                filename=filename,
-                title=title,
-                performer=performer,
-                youtube_url=youtube_url,
-                video_id=video_id,
-            ), filename
+            return (
+                dict(
+                    filename=filename,
+                    title=title,
+                    performer=performer,
+                    youtube_url=youtube_url,
+                    video_id=video_id,
+                ),
+                filename,
+            )
         except Exception as e:
             logger.error(f"song_command search error: {e}", exc_info=True)
             try:
@@ -521,21 +533,28 @@ async def _resolve_and_download(
                 await video_downloader.download_music_platform_url(platform_url)
             )
             if not filename or not os.path.exists(filename):
-                msg = f"❌ {error_reason}" if error_reason else "❌ Failed to download track."
+                msg = (
+                    f"❌ {error_reason}"
+                    if error_reason
+                    else "❌ Failed to download track."
+                )
                 await processing_msg.edit_text(msg)
                 return None, None
             try:
                 await processing_msg.delete()
             except Exception:
                 pass
-            return dict(
-                filename=filename,
-                title=title,
-                performer=performer,
-                youtube_url=youtube_url,
-                platform_url=platform_url,
-                video_id=video_id,
-            ), filename
+            return (
+                dict(
+                    filename=filename,
+                    title=title,
+                    performer=performer,
+                    youtube_url=youtube_url,
+                    platform_url=platform_url,
+                    video_id=video_id,
+                ),
+                filename,
+            )
         except Exception as e:
             logger.error(f"song_command platform error: {e}", exc_info=True)
             try:
@@ -577,13 +596,16 @@ async def _resolve_and_download(
             await processing_msg.delete()
         except Exception:
             pass
-        return dict(
-            filename=filename,
-            title=title,
-            performer=performer,
-            youtube_url=youtube_url or music_url,
-            video_id=video_id,
-        ), filename
+        return (
+            dict(
+                filename=filename,
+                title=title,
+                performer=performer,
+                youtube_url=youtube_url or music_url,
+                video_id=video_id,
+            ),
+            filename,
+        )
     except Exception as e:
         logger.error(f"song_command youtube error: {e}", exc_info=True)
         try:
@@ -681,6 +703,28 @@ async def short_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("Video download service is not available.")
         return
 
+    username = "Unknown"
+    if update.effective_user:
+        username = (
+            update.effective_user.username
+            or update.effective_user.first_name
+            or "Unknown"
+        )
+    cached = video_downloader.video_cache.get(watch_url)
+    if cached and cached.get("media_kind") == "video":
+        try:
+            caption = build_shorts_caption(cached.get("title"), username, watch_url)
+            await reply_message.reply_video(
+                video=cached["file_id"], caption=caption, parse_mode="MarkdownV2"
+            )
+            try:
+                await update.message.delete()
+            except Exception as error:
+                logger.debug("Could not delete command message: %s", error)
+            return
+        except BadRequest:
+            video_downloader.video_cache.evict(watch_url)
+
     processing_msg = await update.message.reply_text("Downloading Shorts...")
 
     filename = None
@@ -705,22 +749,15 @@ async def short_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         except Exception:
             pass
 
-        escaped_title = _escape_md(title or "Shorts")
-        username = "Unknown"
-        if update.effective_user:
-            username = (
-                update.effective_user.username
-                or update.effective_user.first_name
-                or "Unknown"
-            )
-        escaped_username = _escape_md(username)
-        escaped_url = _escape_md(watch_url)
-
-        caption = f"🎬 {escaped_title}\n\n👤 Від: @{escaped_username}\n\n🔗 [Посилання]({escaped_url})"
+        caption = build_shorts_caption(title, username, watch_url)
 
         with open(filename, "rb") as video_file:
-            await reply_message.reply_video(
+            sent = await reply_message.reply_video(
                 video=video_file, caption=caption, parse_mode="MarkdownV2"
+            )
+        if sent.video:
+            video_downloader.video_cache.set(
+                watch_url, sent.video.file_id, title, "video"
             )
 
         try:
