@@ -115,7 +115,7 @@ class TestSendRecap:
     async def test_sends_html(self) -> None:
         bot = MagicMock()
         bot.send_message = AsyncMock()
-        await recap.send_recap(bot, 1, "short text")
+        await recap.send_recap(bot, 1, "short text", pin=False)
         bot.send_message.assert_awaited_once()
         _, kwargs = bot.send_message.call_args
         assert kwargs.get("parse_mode") is not None
@@ -124,10 +124,81 @@ class TestSendRecap:
         from telegram.error import BadRequest
         bot = MagicMock()
         bot.send_message = AsyncMock(side_effect=[BadRequest("bad html"), None])
-        await recap.send_recap(bot, 1, "<b>broken")
+        await recap.send_recap(bot, 1, "<b>broken", pin=False)
         assert bot.send_message.await_count == 2
         second_call_args = bot.send_message.call_args_list[1]
         assert "<b>" not in second_call_args.args[1]
+
+    async def test_pins_first_sent_message_by_default(self) -> None:
+        bot = MagicMock()
+        sent_message = MagicMock(message_id=555)
+        bot.send_message = AsyncMock(return_value=sent_message)
+        with patch.object(recap, "_pin_recap_message", new=AsyncMock()) as mock_pin:
+            await recap.send_recap(bot, 1, "short text")
+        mock_pin.assert_awaited_once_with(bot, 1, sent_message)
+
+    async def test_pin_false_skips_pinning(self) -> None:
+        bot = MagicMock()
+        bot.send_message = AsyncMock(return_value=MagicMock(message_id=555))
+        with patch.object(recap, "_pin_recap_message", new=AsyncMock()) as mock_pin:
+            await recap.send_recap(bot, 1, "short text", pin=False)
+        mock_pin.assert_not_called()
+
+    async def test_no_pin_when_every_chunk_failed_to_send(self) -> None:
+        bot = MagicMock()
+        bot.send_message = AsyncMock(side_effect=RuntimeError("network down"))
+        with patch.object(recap, "_pin_recap_message", new=AsyncMock()) as mock_pin:
+            await recap.send_recap(bot, 1, "short text")
+        mock_pin.assert_not_called()
+
+
+@pytest.mark.asyncio
+class TestPinRecapMessage:
+    async def test_pins_and_records_when_nothing_pinned_before(self) -> None:
+        bot = MagicMock()
+        bot.pin_chat_message = AsyncMock()
+        bot.unpin_chat_message = AsyncMock()
+        message = MagicMock(message_id=42)
+        with patch.object(recap.Database, "get_recap_settings", new=AsyncMock(return_value=None)), \
+             patch.object(recap.Database, "set_recap_pinned_message", new=AsyncMock()) as mock_set:
+            await recap._pin_recap_message(bot, 1, message)
+
+        bot.unpin_chat_message.assert_not_called()
+        bot.pin_chat_message.assert_awaited_once_with(1, 42, disable_notification=True)
+        mock_set.assert_awaited_once_with(1, 42)
+
+    async def test_unpins_previous_recap_before_pinning_new_one(self) -> None:
+        bot = MagicMock()
+        bot.pin_chat_message = AsyncMock()
+        bot.unpin_chat_message = AsyncMock()
+        message = MagicMock(message_id=99)
+        with patch.object(recap.Database, "get_recap_settings", new=AsyncMock(
+                 return_value={"last_pinned_message_id": 42})), \
+             patch.object(recap.Database, "set_recap_pinned_message", new=AsyncMock()) as mock_set:
+            await recap._pin_recap_message(bot, 1, message)
+
+        bot.unpin_chat_message.assert_awaited_once_with(1, message_id=42)
+        bot.pin_chat_message.assert_awaited_once_with(1, 99, disable_notification=True)
+        mock_set.assert_awaited_once_with(1, 99)
+
+    async def test_skips_unpin_when_same_message_already_pinned(self) -> None:
+        bot = MagicMock()
+        bot.pin_chat_message = AsyncMock()
+        bot.unpin_chat_message = AsyncMock()
+        message = MagicMock(message_id=42)
+        with patch.object(recap.Database, "get_recap_settings", new=AsyncMock(
+                 return_value={"last_pinned_message_id": 42})), \
+             patch.object(recap.Database, "set_recap_pinned_message", new=AsyncMock()):
+            await recap._pin_recap_message(bot, 1, message)
+
+        bot.unpin_chat_message.assert_not_called()
+
+    async def test_pin_failure_is_swallowed(self) -> None:
+        bot = MagicMock()
+        bot.pin_chat_message = AsyncMock(side_effect=RuntimeError("bot lacks rights"))
+        message = MagicMock(message_id=42)
+        with patch.object(recap.Database, "get_recap_settings", new=AsyncMock(return_value=None)):
+            await recap._pin_recap_message(bot, 1, message)  # must not raise
 
 
 @pytest.mark.asyncio
@@ -167,8 +238,9 @@ class TestRecapTick:
         context.bot = MagicMock()
         call_order = []
 
-        async def fake_mark(chat_id: int, sent_date: date) -> None:
+        async def fake_mark(chat_id: int, sent_date: date) -> bool:
             call_order.append("mark")
+            return True
 
         async def fake_generate(chat_id: int, target_date: date) -> str:
             call_order.append("generate")
@@ -184,3 +256,21 @@ class TestRecapTick:
 
         assert call_order == ["mark", "generate"]
         mock_send.assert_awaited_once_with(context.bot, 1, "the recap")
+
+    async def test_skips_when_claim_lost_to_another_process(self) -> None:
+        # mark_recap_sent returning False means another process/tick already
+        # claimed today for this chat (the WHERE clause matched no row).
+        rows = [{"chat_id": 1, "send_time": "09:00", "last_sent_date": None}]
+        context = MagicMock()
+        context.bot = MagicMock()
+
+        with patch.object(recap.Database, "get_enabled_recap_chats", new=AsyncMock(return_value=rows)), \
+             patch.object(recap, "datetime") as mock_dt, \
+             patch.object(recap.Database, "mark_recap_sent", new=AsyncMock(return_value=False)), \
+             patch.object(recap, "generate_recap", new=AsyncMock()) as mock_generate, \
+             patch.object(recap, "send_recap", new=AsyncMock()) as mock_send:
+            mock_dt.now.return_value = datetime(2026, 9, 27, 9, 30)
+            await recap.recap_tick(context)
+
+        mock_generate.assert_not_called()
+        mock_send.assert_not_called()

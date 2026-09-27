@@ -126,8 +126,11 @@ CREATE TABLE IF NOT EXISTS chat_recap_settings (
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
     send_time VARCHAR(5) NOT NULL DEFAULT '09:30',
     last_sent_date DATE,
+    last_pinned_message_id BIGINT,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+-- Safe to re-run against a table created before this column existed.
+ALTER TABLE chat_recap_settings ADD COLUMN IF NOT EXISTS last_pinned_message_id BIGINT;
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
@@ -781,7 +784,7 @@ class Database:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT chat_id, enabled, send_time, last_sent_date
+                SELECT chat_id, enabled, send_time, last_sent_date, last_pinned_message_id
                 FROM chat_recap_settings
                 WHERE chat_id = $1
                 """,
@@ -794,6 +797,7 @@ class Database:
                 'enabled': row['enabled'],
                 'send_time': row['send_time'],
                 'last_sent_date': row['last_sent_date'],
+                'last_pinned_message_id': row['last_pinned_message_id'],
             }
 
     @classmethod
@@ -846,17 +850,45 @@ class Database:
 
     @classmethod
     @database_operation("mark_recap_sent")
-    async def mark_recap_sent(cls, chat_id: ChatId, sent_date: date) -> None:
-        """Record that a recap was sent for a chat on the given (Kyiv) date."""
+    async def mark_recap_sent(cls, chat_id: ChatId, sent_date: date) -> bool:
+        """
+        Atomically claim the given (Kyiv) date as sent for a chat.
+
+        Returns True if this call was the one that claimed it (so the caller
+        should proceed to generate and send), or False if another process/tick
+        already claimed it first — the WHERE clause and single UPDATE make the
+        check-and-set race-free even across multiple bot instances sharing one
+        database, unlike a separate read-then-write.
+        """
         pool = await cls.get_pool()
         async with pool.acquire() as conn:
-            await conn.execute(
+            row = await conn.fetchrow(
                 """
                 UPDATE chat_recap_settings
                 SET last_sent_date = $2, updated_at = NOW()
                 WHERE chat_id = $1
+                  AND (last_sent_date IS NULL OR last_sent_date < $2)
+                RETURNING chat_id
                 """,
                 chat_id, sent_date
+            )
+            return row is not None
+
+    @classmethod
+    @database_operation("set_recap_pinned_message")
+    async def set_recap_pinned_message(cls, chat_id: ChatId, message_id: Optional[int]) -> None:
+        """Record which message is currently pinned as the chat's recap (or clear it with None)."""
+        pool = await cls.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO chat_recap_settings (chat_id, last_pinned_message_id)
+                VALUES ($1, $2)
+                ON CONFLICT (chat_id) DO UPDATE SET
+                    last_pinned_message_id = $2,
+                    updated_at = NOW()
+                """,
+                chat_id, message_id
             )
 
     @classmethod

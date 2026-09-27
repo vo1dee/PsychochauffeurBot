@@ -96,3 +96,34 @@ async def test_error_handling_on_db_failure(monkeypatch: Any, mock_chat: Chat) -
     with patch.object(manager, 'get_connection', side_effect=Exception("DB fail")):
         with pytest.raises(Exception, match="DB fail"):
             await Database.save_chat_info(mock_chat)
+
+
+def _fake_pool_with_fetchrow(return_value: Any) -> MagicMock:
+    """Build a fake asyncpg-style pool whose acquired connection's fetchrow() returns return_value."""
+    fake_conn = AsyncMock()
+    fake_conn.fetchrow = AsyncMock(return_value=return_value)
+    fake_acquire_cm = AsyncMock()
+    fake_acquire_cm.__aenter__ = AsyncMock(return_value=fake_conn)
+    fake_acquire_cm.__aexit__ = AsyncMock(return_value=False)
+    fake_pool = MagicMock()
+    fake_pool.acquire = MagicMock(return_value=fake_acquire_cm)
+    return fake_pool
+
+@pytest.mark.asyncio
+async def test_mark_recap_sent_claims_when_not_yet_sent() -> None:
+    from datetime import date
+    fake_pool = _fake_pool_with_fetchrow({"chat_id": 1})
+    with patch.object(Database, "get_pool", new=AsyncMock(return_value=fake_pool)):
+        claimed = await Database.mark_recap_sent(1, date(2026, 9, 27))
+    assert claimed is True
+
+@pytest.mark.asyncio
+async def test_mark_recap_sent_loses_race_when_already_claimed() -> None:
+    # The WHERE clause matches no row (another process/tick already advanced
+    # last_sent_date), so RETURNING yields nothing and the call must not
+    # report success — this is what makes the daily send race-free.
+    from datetime import date
+    fake_pool = _fake_pool_with_fetchrow(None)
+    with patch.object(Database, "get_pool", new=AsyncMock(return_value=fake_pool)):
+        claimed = await Database.mark_recap_sent(1, date(2026, 9, 27))
+    assert claimed is False
