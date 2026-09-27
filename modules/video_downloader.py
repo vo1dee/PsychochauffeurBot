@@ -1194,6 +1194,39 @@ class VideoDownloader:
 
         return None, None
 
+    @staticmethod
+    async def _run_yt_dlp_subprocess(
+        cmd: list, env: dict, timeout: float
+    ) -> Tuple[Optional[int], bytes, bytes]:
+        """Run a yt-dlp subprocess with a hard wall-clock timeout.
+
+        Unlike wrapping only `process.communicate()` in `asyncio.wait_for`,
+        this also bounds subprocess *creation* and kills the process on
+        timeout so a stall never leaves the caller waiting forever or the
+        child running as an orphan.
+        """
+        process = await asyncio.wait_for(
+            asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            ),
+            timeout=15.0,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=timeout
+            )
+            return process.returncode, stdout, stderr
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+                await process.wait()
+            except ProcessLookupError:
+                pass
+            raise
+
     async def download_youtube_music(
         self, url: str
     ) -> Tuple[
@@ -1301,15 +1334,8 @@ class VideoDownloader:
                 cmd.extend(strategy["args"])
 
             try:
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
-
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout=180.0
+                returncode, stdout, stderr = await self._run_yt_dlp_subprocess(
+                    cmd, env, timeout=180.0
                 )
 
                 lines = (
@@ -1326,11 +1352,7 @@ class VideoDownloader:
                     except Exception:
                         pass
 
-                if (
-                    process.returncode == 0
-                    and output_path
-                    and os.path.exists(output_path)
-                ):
+                if returncode == 0 and output_path and os.path.exists(output_path):
                     file_size = os.path.getsize(output_path)
                     error_logger.info(
                         f"   ✅ Strategy '{strategy['name']}' succeeded! Downloaded {file_size} bytes"
@@ -1345,7 +1367,7 @@ class VideoDownloader:
                 else:
                     stderr_text = stderr.decode()
                     error_logger.warning(
-                        f"   ❌ Strategy '{strategy['name']}' failed (code {process.returncode})"
+                        f"   ❌ Strategy '{strategy['name']}' failed (code {returncode})"
                     )
                     if stderr_text:
                         error_logger.warning(f"   Error: {stderr_text[:200]}...")
@@ -2320,14 +2342,8 @@ class VideoDownloader:
             cmd.extend(cookies_args)
 
         try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=180.0
+            returncode, stdout, stderr = await self._run_yt_dlp_subprocess(
+                cmd, env, timeout=180.0
             )
 
             lines = (
@@ -2344,7 +2360,7 @@ class VideoDownloader:
                 except Exception:
                     pass
 
-            if process.returncode == 0 and output_path and os.path.exists(output_path):
+            if returncode == 0 and output_path and os.path.exists(output_path):
                 display_title, performer, webpage_url = self._compose_display_title(
                     meta
                 )
@@ -2353,7 +2369,7 @@ class VideoDownloader:
                 return output_path, display_title, performer, webpage_url, video_id
             else:
                 general_logger.warning(
-                    f"Track download failed (code {process.returncode}): {stderr.decode()[:200]}"
+                    f"Track download failed (code {returncode}): {stderr.decode()[:200]}"
                 )
         except asyncio.TimeoutError:
             general_logger.warning(f"Track download timed out for: {url_or_query}")
@@ -2465,23 +2481,13 @@ class VideoDownloader:
             ]
             try:
                 env = os.environ.copy()
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout=180.0
+                returncode, stdout, stderr = await self._run_yt_dlp_subprocess(
+                    cmd, env, timeout=180.0
                 )
                 output_path = (
                     stdout.decode().strip().split("\n")[-1] if stdout else None
                 )
-                if (
-                    process.returncode == 0
-                    and output_path
-                    and os.path.exists(output_path)
-                ):
+                if returncode == 0 and output_path and os.path.exists(output_path):
                     title = os.path.splitext(os.path.basename(output_path))[0]
                     general_logger.info(f"SoundCloud downloaded: {title}")
                     # SoundCloud: uploader is the artist; no YouTube video_id
@@ -2839,13 +2845,7 @@ class VideoDownloader:
             cmd.extend(["--cookies", yt_cookies_path])
 
         try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            _, stdout, _ = await self._run_yt_dlp_subprocess(cmd, env, timeout=timeout)
             results = []
             for line in stdout.decode().strip().split("\n"):
                 line = line.strip()

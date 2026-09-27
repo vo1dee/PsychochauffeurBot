@@ -7,6 +7,7 @@ Supports three modes:
   3. /song (reply to YouTube URL)  → download directly (legacy behaviour)
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -25,6 +26,13 @@ from modules.utils import extract_urls
 from modules.const import MusicPlatforms
 
 logger = logging.getLogger(__name__)
+
+# Hard wall-clock ceilings on top of video_downloader's own internal
+# per-strategy timeouts, so a stuck download always surfaces as an error
+# message instead of leaving the user staring at "Downloading..." forever.
+_SINGLE_STRATEGY_TIMEOUT = 210.0
+_MULTI_STRATEGY_TIMEOUT = 930.0
+_PLATFORM_TIMEOUT = 240.0
 
 _SPECIAL_CHARS = [
     "_",
@@ -402,8 +410,9 @@ async def handle_song_selection_callback(
 
     filename = None
     try:
-        filename, title, performer, youtube_url, vid_id = (
-            await video_downloader.download_youtube_music(music_url)
+        filename, title, performer, youtube_url, vid_id = await asyncio.wait_for(
+            video_downloader.download_youtube_music(music_url),
+            timeout=_MULTI_STRATEGY_TIMEOUT,
         )
         if not filename or not os.path.exists(filename):
             await query.edit_message_text("❌ Failed to download track.")
@@ -411,6 +420,12 @@ async def handle_song_selection_callback(
         await _send_audio_from_callback(
             query, context, filename, title, performer, youtube_url, vid_id
         )
+    except asyncio.TimeoutError:
+        logger.error(f"song selection callback timed out for: {music_url}")
+        try:
+            await query.edit_message_text("❌ Download timed out. Please try again.")
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"song selection callback error: {e}", exc_info=True)
         try:
@@ -443,6 +458,14 @@ async def _resolve_and_download(
     if context.args:
         query_str = " ".join(context.args)
 
+        # A bare YouTube link passed as args (not a reply) — download directly
+        # instead of treating the URL text as a search query.
+        direct_youtube_url = find_youtube_url(query_str)
+        if direct_youtube_url:
+            return await _download_direct_youtube_url(
+                update, video_downloader, direct_youtube_url
+            )
+
         candidates = await video_downloader.fast_youtube_search(query_str, limit=5)
 
         if not candidates:
@@ -461,8 +484,11 @@ async def _resolve_and_download(
         filename = None
         try:
             filename, title, performer, youtube_url, video_id = (
-                await video_downloader._download_youtube_by_url(
-                    best_cand.get("webpage_url") or ""
+                await asyncio.wait_for(
+                    video_downloader._download_youtube_by_url(
+                        best_cand.get("webpage_url") or ""
+                    ),
+                    timeout=_SINGLE_STRATEGY_TIMEOUT,
                 )
             )
             if not filename or not os.path.exists(filename):
@@ -482,6 +508,15 @@ async def _resolve_and_download(
                 ),
                 filename,
             )
+        except asyncio.TimeoutError:
+            logger.error(f"song_command search download timed out for: {query_str}")
+            try:
+                await processing_msg.edit_text(
+                    "❌ Download timed out. Please try again."
+                )
+            except Exception:
+                pass
+            return None, None
         except Exception as e:
             logger.error(f"song_command search error: {e}", exc_info=True)
             try:
@@ -530,7 +565,10 @@ async def _resolve_and_download(
         filename = None
         try:
             filename, title, performer, youtube_url, video_id, error_reason = (
-                await video_downloader.download_music_platform_url(platform_url)
+                await asyncio.wait_for(
+                    video_downloader.download_music_platform_url(platform_url),
+                    timeout=_PLATFORM_TIMEOUT,
+                )
             )
             if not filename or not os.path.exists(filename):
                 msg = (
@@ -555,6 +593,13 @@ async def _resolve_and_download(
                 ),
                 filename,
             )
+        except asyncio.TimeoutError:
+            logger.error(f"song_command platform download timed out for: {platform_url}")
+            try:
+                await processing_msg.edit_text("❌ Download timed out. Please try again.")
+            except Exception:
+                pass
+            return None, None
         except Exception as e:
             logger.error(f"song_command platform error: {e}", exc_info=True)
             try:
@@ -576,6 +621,15 @@ async def _resolve_and_download(
         )
         return None, None
 
+    return await _download_direct_youtube_url(update, video_downloader, youtube_url)
+
+
+async def _download_direct_youtube_url(
+    update: Update,
+    video_downloader,
+    youtube_url: str,
+) -> tuple[Optional[dict], Optional[str]]:
+    """Download audio directly from a known YouTube URL (Modes A-direct & C)."""
     music_url = convert_to_youtube_music_url(youtube_url)
     if not music_url:
         await update.message.reply_text(
@@ -586,8 +640,11 @@ async def _resolve_and_download(
     processing_msg = await update.message.reply_text("⏳ Downloading audio…")
     filename = None
     try:
-        filename, title, performer, youtube_url, video_id = (
-            await video_downloader.download_youtube_music(music_url)
+        filename, title, performer, resolved_youtube_url, video_id = (
+            await asyncio.wait_for(
+                video_downloader.download_youtube_music(music_url),
+                timeout=_MULTI_STRATEGY_TIMEOUT,
+            )
         )
         if not filename or not os.path.exists(filename):
             await processing_msg.edit_text("❌ Failed to download audio.")
@@ -601,11 +658,18 @@ async def _resolve_and_download(
                 filename=filename,
                 title=title,
                 performer=performer,
-                youtube_url=youtube_url or music_url,
+                youtube_url=resolved_youtube_url or music_url,
                 video_id=video_id,
             ),
             filename,
         )
+    except asyncio.TimeoutError:
+        logger.error(f"song_command youtube download timed out for: {music_url}")
+        try:
+            await processing_msg.edit_text("❌ Download timed out. Please try again.")
+        except Exception:
+            pass
+        return None, None
     except Exception as e:
         logger.error(f"song_command youtube error: {e}", exc_info=True)
         try:
