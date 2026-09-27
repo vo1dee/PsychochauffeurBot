@@ -42,6 +42,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "🔗 **Посилання:**\n"
         "• Оптимізація AliExpress та обмежених доменів\n\n"
 
+        "📜 **Рекап:**\n"
+        "• `/recap on|off` — щоденний рекап чату (для адмінів)\n\n"
+
         "🔧 **Адмін:**\n"
         "• `/mute`, `/unmute`, `/speech`, `/random`, `/reaction`\n\n"
 
@@ -90,6 +93,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "🔗 **Обробка посилань:**\n"
         "• Оптимізація AliExpress\n"
         "• Модифікація для обмежених доменів\n\n"
+
+        "📜 **Щоденний рекап чату (для адмінів):**\n"
+        "• `/recap on [HH:MM]` — увімкнути рекап (за замовчуванням 09:30)\n"
+        "• `/recap off` — вимкнути рекап\n"
+        "• `/recap time HH:MM` — змінити час надсилання\n\n"
 
         "🔧 **Адмін команди (тільки для адміністраторів):**\n"
         "• `/mute <@user або id> <хвилини>` — заглушити користувача (макс. 1440 хв)\n"

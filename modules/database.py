@@ -3,7 +3,7 @@ import json
 import asyncio
 import logging
 from typing import Optional, List, Dict, Any, Union, Tuple, Callable, Awaitable
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
 
 import asyncpg
@@ -118,6 +118,15 @@ CREATE TABLE IF NOT EXISTS analysis_cache (
     result TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     PRIMARY KEY (chat_id, time_period, message_content_hash)
+);
+
+-- Create chat_recap_settings table (per-chat daily recap toggle/schedule)
+CREATE TABLE IF NOT EXISTS chat_recap_settings (
+    chat_id BIGINT PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    send_time VARCHAR(5) NOT NULL DEFAULT '09:30',
+    last_sent_date DATE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create indexes
@@ -761,6 +770,108 @@ class Database:
             await _mirror_d1("invalidate_analysis_cache", lambda: d1_client.invalidate_analysis_cache(
                 chat_id, time_period
             ))
+
+    # --- Daily chat recap settings ---
+
+    @classmethod
+    @database_operation("get_recap_settings")
+    async def get_recap_settings(cls, chat_id: ChatId) -> Optional[Dict[str, Any]]:
+        """Fetch a chat's recap settings, or None if it was never configured."""
+        pool = await cls.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT chat_id, enabled, send_time, last_sent_date
+                FROM chat_recap_settings
+                WHERE chat_id = $1
+                """,
+                chat_id
+            )
+            if row is None:
+                return None
+            return {
+                'chat_id': row['chat_id'],
+                'enabled': row['enabled'],
+                'send_time': row['send_time'],
+                'last_sent_date': row['last_sent_date'],
+            }
+
+    @classmethod
+    @database_operation("upsert_recap_settings")
+    async def upsert_recap_settings(
+        cls,
+        chat_id: ChatId,
+        enabled: Optional[bool] = None,
+        send_time: Optional[str] = None
+    ) -> None:
+        """
+        Create or update a chat's recap settings. Fields left as None are
+        preserved (an unset chat is created with the FALSE/'09:30' defaults).
+        """
+        pool = await cls.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO chat_recap_settings (chat_id, enabled, send_time)
+                VALUES ($1, COALESCE($2, FALSE), COALESCE($3, '09:30'))
+                ON CONFLICT (chat_id) DO UPDATE SET
+                    enabled = COALESCE($2, chat_recap_settings.enabled),
+                    send_time = COALESCE($3, chat_recap_settings.send_time),
+                    updated_at = NOW()
+                """,
+                chat_id, enabled, send_time
+            )
+
+    @classmethod
+    @database_operation("get_enabled_recap_chats")
+    async def get_enabled_recap_chats(cls) -> List[Dict[str, Any]]:
+        """Return settings rows for every chat that has the daily recap enabled."""
+        pool = await cls.get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT chat_id, send_time, last_sent_date
+                FROM chat_recap_settings
+                WHERE enabled = TRUE
+                """
+            )
+            return [
+                {
+                    'chat_id': row['chat_id'],
+                    'send_time': row['send_time'],
+                    'last_sent_date': row['last_sent_date'],
+                }
+                for row in rows
+            ]
+
+    @classmethod
+    @database_operation("mark_recap_sent")
+    async def mark_recap_sent(cls, chat_id: ChatId, sent_date: date) -> None:
+        """Record that a recap was sent for a chat on the given (Kyiv) date."""
+        pool = await cls.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE chat_recap_settings
+                SET last_sent_date = $2, updated_at = NOW()
+                WHERE chat_id = $1
+                """,
+                chat_id, sent_date
+            )
+
+    @classmethod
+    @database_operation("get_chat_info")
+    async def get_chat_info(cls, chat_id: ChatId) -> Optional[Dict[str, str]]:
+        """Return the stored {'title', 'chat_type'} for a chat, or None if unknown."""
+        pool = await cls.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT title, chat_type FROM chats WHERE chat_id = $1",
+                chat_id
+            )
+            if row is None:
+                return None
+            return {'title': row['title'], 'chat_type': row['chat_type']}
 
     # New optimized query methods
     @classmethod

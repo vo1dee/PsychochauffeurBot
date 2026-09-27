@@ -359,12 +359,27 @@ class BotApplication(ServiceInterface):
             # Get handler registry service
             handler_registry = self.service_registry.get_service('handler_registry')
             await handler_registry.register_all_handlers(self.telegram_app)
-            
+
             logger.info("All specialized handlers registered successfully")
-            
+
         except Exception as e:
             logger.error(f"Failed to register specialized handlers: {e}")
             raise
+
+        self._schedule_recap_job()
+
+    def _schedule_recap_job(self) -> None:
+        """Schedule the recurring daily-recap job. Called once during initialize()."""
+        try:
+            from modules.recap import recap_tick
+            job_queue = getattr(self.telegram_app, 'job_queue', None)
+            if job_queue is None:
+                logger.warning("JobQueue is not available, daily recap will not run")
+                return
+            job_queue.run_repeating(recap_tick, interval=60, first=30, name="daily_recap")
+            logger.info("Daily recap job scheduled")
+        except Exception as e:
+            logger.error(f"Failed to schedule daily recap job: {e}")
             
 
             
