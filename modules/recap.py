@@ -188,22 +188,59 @@ async def generate_recap(
     return f"{header}\n\n{body}"
 
 
-async def send_recap(bot: Any, chat_id: int, text: str) -> None:
-    """Send a recap to a chat, splitting long text and falling back to plain text on bad HTML."""
+async def send_recap(bot: Any, chat_id: int, text: str, pin: bool = True) -> None:
+    """
+    Send a recap to a chat, splitting long text and falling back to plain text
+    on bad HTML. Afterwards, silently pins the first sent message (no
+    notification), unpinning whichever recap message was pinned before it.
+    """
+    sent_messages = []
     for chunk in _split_recap(text):
+        message = await _send_recap_chunk(bot, chat_id, chunk)
+        if message is not None:
+            sent_messages.append(message)
+
+    if pin and sent_messages:
+        await _pin_recap_message(bot, chat_id, sent_messages[0])
+
+
+async def _send_recap_chunk(bot: Any, chat_id: int, chunk: str) -> Optional[Any]:
+    """Send one chunk, falling back to plain text if the HTML is rejected. Returns the sent Message, or None on failure."""
+    try:
+        return await bot.send_message(chat_id, chunk, parse_mode=ParseMode.HTML)
+    except BadRequest as e:
+        error_logger.warning(
+            f"Recap: HTML send failed for chat {chat_id}, retrying as plain text: {e}"
+        )
+        plain = re.sub(r"<[^>]+>", "", chunk)
         try:
-            await bot.send_message(chat_id, chunk, parse_mode=ParseMode.HTML)
-        except BadRequest as e:
-            error_logger.warning(
-                f"Recap: HTML send failed for chat {chat_id}, retrying as plain text: {e}"
-            )
-            plain = re.sub(r"<[^>]+>", "", chunk)
+            return await bot.send_message(chat_id, plain)
+        except Exception as e2:
+            error_logger.error(f"Recap: plain-text fallback also failed for chat {chat_id}: {e2}")
+            return None
+    except Exception as e:
+        error_logger.error(f"Recap: failed to send to chat {chat_id}: {e}")
+        return None
+
+
+async def _pin_recap_message(bot: Any, chat_id: int, message: Any) -> None:
+    """Pin the given recap message without notifying, unpinning the previous recap pin first."""
+    try:
+        settings = await Database.get_recap_settings(chat_id)
+        previous_message_id = (settings or {}).get('last_pinned_message_id')
+        if previous_message_id and previous_message_id != message.message_id:
             try:
-                await bot.send_message(chat_id, plain)
-            except Exception as e2:
-                error_logger.error(f"Recap: plain-text fallback also failed for chat {chat_id}: {e2}")
-        except Exception as e:
-            error_logger.error(f"Recap: failed to send to chat {chat_id}: {e}")
+                await bot.unpin_chat_message(chat_id, message_id=previous_message_id)
+            except Exception as e:
+                error_logger.warning(
+                    f"Recap: failed to unpin previous recap message {previous_message_id} "
+                    f"in chat {chat_id}: {e}"
+                )
+
+        await bot.pin_chat_message(chat_id, message.message_id, disable_notification=True)
+        await Database.set_recap_pinned_message(chat_id, message.message_id)
+    except Exception as e:
+        error_logger.error(f"Recap: failed to pin recap message in chat {chat_id}: {e}")
 
 
 def _parse_send_time(send_time: Optional[str]) -> Tuple[int, int]:
@@ -243,12 +280,18 @@ async def recap_tick(context: CallbackContext[Any, Any, Any, Any]) -> None:
             if (now.hour, now.minute) < (send_hour, send_minute):
                 continue
 
-            # Mark as sent before generating, so a slow LLM call spanning
-            # ticks (or an overlapping run) can't send the same chat twice.
+            # Atomically claim today for this chat before generating, so a
+            # slow LLM call spanning ticks, an overlapping run, or even a
+            # second bot instance sharing this database can't send the same
+            # chat's recap twice: only the caller that flips last_sent_date
+            # proceeds, everyone else sees claimed=False and skips.
             try:
-                await Database.mark_recap_sent(chat_id, today)
+                claimed = await Database.mark_recap_sent(chat_id, today)
             except Exception as e:
                 error_logger.error(f"Recap tick: failed to mark chat {chat_id} as sent: {e}")
+                continue
+
+            if not claimed:
                 continue
 
             try:
