@@ -430,6 +430,55 @@ async def get_messages_for_chat_single_date(chat_id: int, target_date: Union[dat
         logger.error(f"Error in get_messages_for_chat_single_date: {str(e)}", exc_info=True)
         raise
 
+async def get_messages_for_recap(
+    chat_id: int, target_date: date
+) -> List[Tuple[datetime, Optional[str], Optional[str], str]]:
+    """
+    Fetch human, non-command messages from chat_id for a specific Kyiv-local
+    calendar date, for building a daily recap.
+
+    Args:
+        chat_id: The chat ID to fetch messages from
+        target_date: The Kyiv-local date to fetch messages for
+
+    Returns:
+        List of tuples containing (local timestamp, username, first_name, text),
+        oldest first. Bot messages, commands and GPT replies are excluded.
+    """
+    local_tz = pytz.timezone('Europe/Kyiv')
+    local_start = local_tz.localize(datetime.combine(target_date, time.min))
+    local_end = local_tz.localize(datetime.combine(target_date + timedelta(days=1), time.min))
+
+    start_naive = local_start.astimezone(pytz.UTC).replace(tzinfo=None)
+    end_naive = local_end.astimezone(pytz.UTC).replace(tzinfo=None)
+
+    pool = await Database.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT m.timestamp, u.username, u.first_name, m.text
+            FROM messages m
+            LEFT JOIN users u ON m.user_id = u.user_id
+            WHERE m.chat_id = $1
+              AND m.timestamp >= $2
+              AND m.timestamp < $3
+              AND m.is_command = FALSE
+              AND m.is_gpt_reply = FALSE
+              AND COALESCE(u.is_bot, FALSE) = FALSE
+              AND m.text IS NOT NULL
+              AND m.text <> ''
+            ORDER BY m.timestamp ASC
+        """, chat_id, start_naive, end_naive)
+
+        return [
+            (
+                row['timestamp'].replace(tzinfo=pytz.UTC).astimezone(local_tz),
+                row['username'],
+                row['first_name'],
+                row['text']
+            )
+            for row in rows
+        ]
+
 async def get_user_chat_stats(chat_id: int, user_id: int) -> Dict[str, Any]:
     """
     Get message statistics for a specific user in a chat.

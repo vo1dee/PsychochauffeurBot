@@ -110,6 +110,7 @@ class HandlerRegistry(ServiceInterface):
         from modules.handlers.speech_commands import speech_command
         from modules.handlers.random_commands import random_command
         from modules.handlers.reaction_commands import reaction_command
+        from modules.handlers.recap_commands import recap_command
         from modules.handlers.message_handlers import (
             handle_message,
             handle_photo_analysis,
@@ -206,6 +207,11 @@ class HandlerRegistry(ServiceInterface):
         # Register reaction commands
         self.command_processor.register_text_command(
             "reaction", reaction_command, "Toggle emoji reactions", admin_only=True
+        )
+
+        # Register daily recap command (admin-only, off by default in every chat)
+        self.command_processor.register_text_command(
+            "recap", recap_command, "Toggle daily chat recap", admin_only=True
         )
 
         # Register config menu commands (/settings is an alias of /config;

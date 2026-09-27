@@ -29,6 +29,7 @@ class CommandCategory(Enum):
     GPT = "gpt"
     UTILITY = "utility"
     SPEECH = "speech"
+    RECAP = "recap"
     ADMIN = "admin"
 
 
@@ -199,6 +200,7 @@ class CommandRegistry(ServiceInterface):
         await self.register_gpt_commands()
         await self.register_utility_commands()
         await self.register_speech_commands()
+        await self.register_recap_commands()
 
         logger.info(
             f"Registered {len(self._commands)} commands across {len(CommandCategory)} categories"
@@ -532,6 +534,24 @@ class CommandRegistry(ServiceInterface):
         )
 
         logger.info("Registered speech commands")
+
+    async def register_recap_commands(self) -> None:
+        """Register the daily chat recap command."""
+        from modules.handlers.recap_commands import recap_command
+
+        self.register_command(
+            CommandInfo(
+                name="recap",
+                description="Toggle the daily chat recap on/off",
+                category=CommandCategory.RECAP,
+                handler_func=recap_command,
+                admin_only=True,
+                usage="/recap <on|off|time HH:MM>",
+                examples=["/recap on", "/recap off", "/recap time 09:30"],
+            )
+        )
+
+        logger.info("Registered recap commands")
 
     def get_command_list(self) -> List[CommandInfo]:
         """Get list of all registered commands."""
