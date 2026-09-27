@@ -154,41 +154,24 @@ class TestSendRecap:
 
 @pytest.mark.asyncio
 class TestPinRecapMessage:
-    async def test_pins_and_records_when_nothing_pinned_before(self) -> None:
+    async def test_pins_message_silently_and_records_it(self) -> None:
         bot = MagicMock()
         bot.pin_chat_message = AsyncMock()
-        bot.unpin_chat_message = AsyncMock()
         message = MagicMock(message_id=42)
-        with patch.object(recap.Database, "get_recap_settings", new=AsyncMock(return_value=None)), \
-             patch.object(recap.Database, "set_recap_pinned_message", new=AsyncMock()) as mock_set:
+        with patch.object(recap.Database, "set_recap_pinned_message", new=AsyncMock()) as mock_set:
             await recap._pin_recap_message(bot, 1, message)
 
-        bot.unpin_chat_message.assert_not_called()
         bot.pin_chat_message.assert_awaited_once_with(1, 42, disable_notification=True)
         mock_set.assert_awaited_once_with(1, 42)
 
-    async def test_unpins_previous_recap_before_pinning_new_one(self) -> None:
+    async def test_leaves_earlier_recap_pins_in_place(self) -> None:
+        # Pinning a new recap must never unpin an earlier one — pins are meant
+        # to accumulate into a browsable history in the chat.
         bot = MagicMock()
         bot.pin_chat_message = AsyncMock()
         bot.unpin_chat_message = AsyncMock()
         message = MagicMock(message_id=99)
-        with patch.object(recap.Database, "get_recap_settings", new=AsyncMock(
-                 return_value={"last_pinned_message_id": 42})), \
-             patch.object(recap.Database, "set_recap_pinned_message", new=AsyncMock()) as mock_set:
-            await recap._pin_recap_message(bot, 1, message)
-
-        bot.unpin_chat_message.assert_awaited_once_with(1, message_id=42)
-        bot.pin_chat_message.assert_awaited_once_with(1, 99, disable_notification=True)
-        mock_set.assert_awaited_once_with(1, 99)
-
-    async def test_skips_unpin_when_same_message_already_pinned(self) -> None:
-        bot = MagicMock()
-        bot.pin_chat_message = AsyncMock()
-        bot.unpin_chat_message = AsyncMock()
-        message = MagicMock(message_id=42)
-        with patch.object(recap.Database, "get_recap_settings", new=AsyncMock(
-                 return_value={"last_pinned_message_id": 42})), \
-             patch.object(recap.Database, "set_recap_pinned_message", new=AsyncMock()):
+        with patch.object(recap.Database, "set_recap_pinned_message", new=AsyncMock()):
             await recap._pin_recap_message(bot, 1, message)
 
         bot.unpin_chat_message.assert_not_called()
@@ -197,7 +180,7 @@ class TestPinRecapMessage:
         bot = MagicMock()
         bot.pin_chat_message = AsyncMock(side_effect=RuntimeError("bot lacks rights"))
         message = MagicMock(message_id=42)
-        with patch.object(recap.Database, "get_recap_settings", new=AsyncMock(return_value=None)):
+        with patch.object(recap.Database, "set_recap_pinned_message", new=AsyncMock()):
             await recap._pin_recap_message(bot, 1, message)  # must not raise
 
 

@@ -192,7 +192,7 @@ async def send_recap(bot: Any, chat_id: int, text: str, pin: bool = True) -> Non
     """
     Send a recap to a chat, splitting long text and falling back to plain text
     on bad HTML. Afterwards, silently pins the first sent message (no
-    notification), unpinning whichever recap message was pinned before it.
+    notification); earlier recap pins are left in place, building a history.
     """
     sent_messages = []
     for chunk in _split_recap(text):
@@ -224,19 +224,12 @@ async def _send_recap_chunk(bot: Any, chat_id: int, chunk: str) -> Optional[Any]
 
 
 async def _pin_recap_message(bot: Any, chat_id: int, message: Any) -> None:
-    """Pin the given recap message without notifying, unpinning the previous recap pin first."""
+    """
+    Pin the given recap message without notifying. Earlier recap pins are left
+    in place (not unpinned), so the chat's pinned-messages list builds up into
+    a browsable history of past recaps.
+    """
     try:
-        settings = await Database.get_recap_settings(chat_id)
-        previous_message_id = (settings or {}).get('last_pinned_message_id')
-        if previous_message_id and previous_message_id != message.message_id:
-            try:
-                await bot.unpin_chat_message(chat_id, message_id=previous_message_id)
-            except Exception as e:
-                error_logger.warning(
-                    f"Recap: failed to unpin previous recap message {previous_message_id} "
-                    f"in chat {chat_id}: {e}"
-                )
-
         await bot.pin_chat_message(chat_id, message.message_id, disable_notification=True)
         await Database.set_recap_pinned_message(chat_id, message.message_id)
     except Exception as e:
