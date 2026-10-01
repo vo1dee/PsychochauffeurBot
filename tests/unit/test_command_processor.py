@@ -287,7 +287,27 @@ class TestTextCommandHandler:
         with patch.object(handler, 'can_execute', return_value=False):
             await handler.handle(mock_update, mock_context)
             mock_update.message.reply_text.assert_called_once_with(
-                "❌ You don't have permission to use this command."
+                "❌ Недостатньо прав для цієї команди."
+            )
+
+    @pytest.mark.asyncio
+    async def test_text_command_handler_admin_only_denied_message(self, mock_update, mock_context):
+        """Non-admins get a message that names the admin restriction."""
+        async def test_handler(update, context):
+            return "success"
+
+        metadata = CommandMetadata(
+            name="test",
+            description="Test",
+            command_type=CommandType.TEXT_COMMAND,
+            admin_only=True,
+        )
+        handler = TextCommandHandler(metadata, test_handler)
+
+        with patch.object(handler, 'can_execute', return_value=False):
+            await handler.handle(mock_update, mock_context)
+            mock_update.message.reply_text.assert_called_once_with(
+                "❌ Ця команда доступна лише адміністраторам чату."
             )
 
 
