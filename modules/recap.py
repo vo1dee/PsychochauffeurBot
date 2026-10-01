@@ -19,7 +19,7 @@ from config_v2.compat import get_shared_config_manager
 from modules.chat_analysis import get_messages_for_recap
 from modules.database import Database
 from modules.const import KYIV_TZ
-from modules.gpt import client, get_system_prompt, GPT_MODEL_TEXT
+from modules.gpt import client, get_system_prompt
 from modules.logger import general_logger, error_logger
 
 import os
@@ -32,8 +32,9 @@ DEFAULT_RECAP_TIME = "09:30"
 
 # Cap on how much chat text is sent to the LLM in one go (characters).
 RECAP_MAX_INPUT_CHARS = 120_000
-RECAP_MAX_TOKENS = 2500
-RECAP_TEMPERATURE = 0.7
+RECAP_MAX_TOKENS = 6000
+RECAP_TEMPERATURE = float(os.getenv('RECAP_TEMPERATURE', '0.3'))
+RECAP_MODEL = os.getenv('RECAP_MODEL', 'openai/gpt-6-sol')
 
 # Telegram messages are capped at 4096 chars; leave headroom for HTML tags.
 RECAP_CHUNK_LIMIT = 4000
@@ -124,7 +125,8 @@ def _split_recap(text: str, max_len: int = RECAP_CHUNK_LIMIT) -> List[str]:
 async def generate_recap(
     chat_id: int,
     target_date: date,
-    min_messages: int = RECAP_MIN_MESSAGES
+    min_messages: int = RECAP_MIN_MESSAGES,
+    model: Optional[str] = None,
 ) -> Optional[str]:
     """
     Build the previous day's recap text (HTML, header included) for a chat.
@@ -168,7 +170,7 @@ async def generate_recap(
 
     try:
         response = await client.chat.completions.create(
-            model=GPT_MODEL_TEXT,
+            model=model or RECAP_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": input_text},
