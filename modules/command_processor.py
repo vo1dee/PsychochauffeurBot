@@ -80,6 +80,18 @@ class BaseCommandHandler(ABC):
         
         return True
     
+    def denial_message(self, update: Update) -> str:
+        """Explain why can_execute rejected the command (user-facing, Ukrainian)."""
+        chat = update.effective_chat
+        in_private = bool(chat and chat.type == 'private')
+        if self.metadata.private_only and not in_private:
+            return "❌ Ця команда доступна лише в приватному чаті з ботом."
+        if self.metadata.group_only and in_private:
+            return "❌ Ця команда доступна лише в групах."
+        if self.metadata.admin_only:
+            return "❌ Ця команда доступна лише адміністраторам чату."
+        return "❌ Недостатньо прав для цієї команди."
+
     async def _is_admin(self, update: Update, context: CallbackContext[Any, Any, Any, Any]) -> bool:
         """Check if user is admin."""
         chat = update.effective_chat
@@ -109,7 +121,7 @@ class TextCommandHandler(BaseCommandHandler):
         """Handle the text command."""
         if not await self.can_execute(update, context):
             if update.message:
-                await update.message.reply_text("❌ Error occurred. This has been reported to the developer.")
+                await update.message.reply_text(self.denial_message(update))
             return
 
         if self.metadata.chat_action is None:
