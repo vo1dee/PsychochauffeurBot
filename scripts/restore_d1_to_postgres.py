@@ -25,7 +25,6 @@ import os
 import shutil
 import sqlite3
 import sys
-import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
@@ -142,14 +141,46 @@ TABLES: dict[str, dict[str, Callable[[Any], Any]]] = {
 SEQUENCES = {"messages": "internal_message_id", "bot_events": "id"}
 
 
-def open_snapshot(path: Path, workdir: Path) -> Path:
-    """Return a SQLite file for ``path``, building one from a ``.sql`` export if needed."""
-    if path.suffix == ".sql":
-        sqlite_path = workdir / (path.stem + ".sqlite3")
-        with sqlite3.connect(sqlite_path) as connection:
-            connection.executescript(path.read_text(encoding="utf-8"))
+def open_snapshot(path: Path) -> Path:
+    """Return a SQLite file for ``path``, building one next to a ``.sql`` export if needed.
+
+    The export is replayed one statement at a time so memory stays flat even for
+    multi-hundred-megabyte dumps on small hosts.
+    """
+    if path.suffix != ".sql":
+        return path
+    sqlite_path = path.with_suffix(".sqlite3")
+    if sqlite_path.exists():
+        print(f"Using existing {sqlite_path}")
         return sqlite_path
-    return path
+    temporary = sqlite_path.with_suffix(".sqlite3.tmp")
+    temporary.unlink(missing_ok=True)
+    print(f"Building {sqlite_path} from {path} ...")
+    try:
+        with sqlite3.connect(temporary) as connection, path.open(encoding="utf-8") as dump:
+            connection.execute("PRAGMA journal_mode = OFF")
+            connection.execute("PRAGMA synchronous = OFF")
+            connection.execute("BEGIN")
+            statement = ""
+            count = 0
+            for line in dump:
+                statement += line
+                if sqlite3.complete_statement(statement):
+                    stripped = statement.strip().rstrip(";").strip().upper()
+                    # The export manages its own transaction/pragma state; we wrap everything in one.
+                    if stripped not in {"BEGIN TRANSACTION", "COMMIT", "PRAGMA DEFER_FOREIGN_KEYS = ON",
+                                        "PRAGMA DEFER_FOREIGN_KEYS = OFF"}:
+                        connection.execute(statement)
+                    statement = ""
+                    count += 1
+                    if count % 50000 == 0:
+                        print(f"  {count:,} statements")
+            connection.execute("COMMIT")
+        temporary.replace(sqlite_path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return sqlite_path
 
 
 def iter_batches(connection: sqlite3.Connection, table: str, columns: list[str]) -> Iterator[list[tuple]]:
@@ -287,23 +318,22 @@ async def main() -> None:
     if not args.data_snapshot and not args.config_snapshot:
         parser.error("pass --export, --data-snapshot and/or --config-snapshot")
 
-    with tempfile.TemporaryDirectory() as workdir:
-        if args.data_snapshot and not args.skip_data:
-            from modules.database import CREATE_TABLES_SQL
+    if args.data_snapshot and not args.skip_data:
+        from modules.database import CREATE_TABLES_SQL
 
-            report = await restore_data(open_snapshot(args.data_snapshot, Path(workdir)), CREATE_TABLES_SQL)
-            mismatched = [table for table, counts in report.items() if counts["postgres"] < counts["d1"]]
-            manifest = args.backup_dir / "restore-manifest.json"
-            manifest.parent.mkdir(parents=True, exist_ok=True)
-            manifest.write_text(
-                json.dumps(report, indent=2, default=default_serializer) + "\n", encoding="utf-8"
-            )
-            print(f"Wrote {manifest}")
-            if mismatched:
-                print(f"WARNING: PostgreSQL has fewer rows than D1 for: {', '.join(mismatched)}")
-                sys.exit(1)
-        if args.config_snapshot:
-            restore_config(open_snapshot(args.config_snapshot, Path(workdir)), args.config_db, args.overwrite_config)
+        report = await restore_data(open_snapshot(args.data_snapshot), CREATE_TABLES_SQL)
+        mismatched = [table for table, counts in report.items() if counts["postgres"] < counts["d1"]]
+        manifest = args.backup_dir / "restore-manifest.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(
+            json.dumps(report, indent=2, default=default_serializer) + "\n", encoding="utf-8"
+        )
+        print(f"Wrote {manifest}")
+        if mismatched:
+            print(f"WARNING: PostgreSQL has fewer rows than D1 for: {', '.join(mismatched)}")
+            sys.exit(1)
+    if args.config_snapshot:
+        restore_config(open_snapshot(args.config_snapshot), args.config_db, args.overwrite_config)
 
 
 if __name__ == "__main__":
