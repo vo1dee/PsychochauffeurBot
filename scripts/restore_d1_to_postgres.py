@@ -12,6 +12,10 @@ The PostgreSQL schema is created with the bot's own DDL, rows are inserted with
 ``ON CONFLICT DO NOTHING`` (safe to re-run), and BIGSERIAL sequences are advanced
 past the restored IDs. Neither D1 nor an existing config database is modified
 unless ``--overwrite-config`` is given.
+
+Text that was stored in D1 as UTF-8 mis-decoded as Windows-1252 (mojibake such as
+``Ñ€ÐµÐ¶Ð¸Ð¼`` for ``режим``) is repaired on the way in; pass ``--no-fix-encoding``
+to copy it verbatim.
 """
 
 import argparse
@@ -63,6 +67,36 @@ def to_json_text(value: Any) -> Optional[str]:
 
 def identity(value: Any) -> Any:
     return value
+
+
+# Bytes 0x80-0x9F that Windows-1252 leaves undefined survive mis-decoding as U+0080-U+009F.
+_MOJIBAKE_MARKERS = ("Ð", "Ñ", "Ò", "Ó", "Ã", "â€", "ðŸ")
+
+
+def fix_mojibake(value: Any) -> Any:
+    """Undo UTF-8 text that was decoded as Windows-1252 (e.g. 'Ñ€ÐµÐ¶Ð¸Ð¼' -> 'режим').
+
+    Strings that do not round-trip cleanly (already-correct Cyrillic, plain ASCII,
+    genuinely Latin text) are returned unchanged.
+    """
+    if not isinstance(value, str) or value.isascii() or not any(m in value for m in _MOJIBAKE_MARKERS):
+        return value
+    raw = bytearray()
+    for char in value:
+        try:
+            raw += char.encode("cp1252")
+        except UnicodeEncodeError:
+            if ord(char) > 0xFF:
+                return value
+            raw.append(ord(char))
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return value
+
+
+FIX_ENCODING = True
+FIXED_COUNTS: dict[str, int] = {}
 
 
 # Column -> converter, in PostgreSQL insert order (parents before children).
@@ -122,6 +156,14 @@ def iter_batches(connection: sqlite3.Connection, table: str, columns: list[str])
     converters = [TABLES[table][column] for column in columns]
     cursor = connection.execute(f"SELECT {', '.join(columns)} FROM {table}")
     while rows := cursor.fetchmany(BATCH_SIZE):
+        if FIX_ENCODING:
+            repaired = []
+            for row in rows:
+                fixed = tuple(fix_mojibake(value) for value in row)
+                if fixed != row:
+                    FIXED_COUNTS[table] = FIXED_COUNTS.get(table, 0) + 1
+                repaired.append(fixed)
+            rows = repaired
         yield [tuple(convert(value) for convert, value in zip(converters, row)) for row in rows]
 
 
@@ -156,8 +198,12 @@ async def restore_data(snapshot: Path, schema_sql: str) -> dict[str, dict[str, i
                     )
                 inserted = int(status.split()[-1])
                 pg_count = await pg.fetchval(f"SELECT COUNT(*) FROM {table}")
-                report[table] = {"d1": d1_count, "inserted": inserted, "postgres": pg_count}
-                print(f"{table:15} d1={d1_count:>9,} inserted={inserted:>9,} postgres={pg_count:>9,}")
+                fixed = FIXED_COUNTS.get(table, 0)
+                report[table] = {"d1": d1_count, "inserted": inserted, "postgres": pg_count, "encoding_fixed": fixed}
+                print(
+                    f"{table:15} d1={d1_count:>9,} inserted={inserted:>9,} postgres={pg_count:>9,} "
+                    f"encoding_fixed={fixed:>9,}"
+                )
 
         for table, column in SEQUENCES.items():
             await pg.execute(
@@ -182,6 +228,18 @@ def restore_config(snapshot: Path, target: Path, overwrite: bool) -> None:
         target.unlink()
     with sqlite3.connect(snapshot) as source, sqlite3.connect(target) as destination:
         source.backup(destination)
+        if FIX_ENCODING:
+            for table in CONFIG_TABLES:
+                columns = [row[1] for row in destination.execute(f"PRAGMA table_info({table})")]
+                fixed = 0
+                for row in destination.execute(f"SELECT rowid, {', '.join(columns)} FROM {table}").fetchall():
+                    repaired = tuple(fix_mojibake(value) for value in row[1:])
+                    if repaired != tuple(row[1:]):
+                        assignments = ", ".join(f"{column} = ?" for column in columns)
+                        destination.execute(f"UPDATE {table} SET {assignments} WHERE rowid = ?", (*repaired, row[0]))
+                        fixed += 1
+                if fixed:
+                    print(f"config.{table:13} encoding_fixed={fixed:,}")
         for table in CONFIG_TABLES:
             count = destination.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             print(f"config.{table:13} rows={count:,}")
@@ -207,7 +265,14 @@ async def main() -> None:
     )
     parser.add_argument("--overwrite-config", action="store_true")
     parser.add_argument("--skip-data", action="store_true")
+    parser.add_argument(
+        "--no-fix-encoding",
+        action="store_true",
+        help="Do not repair UTF-8 text that was mis-decoded as Windows-1252 in D1",
+    )
     args = parser.parse_args()
+    global FIX_ENCODING
+    FIX_ENCODING = not args.no_fix_encoding
 
     if args.export:
         args.backup_dir.mkdir(parents=True, exist_ok=True)
