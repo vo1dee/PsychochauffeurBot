@@ -814,7 +814,7 @@ class Database:
         """
         pool = await cls.get_pool()
         async with pool.acquire() as conn:
-            await conn.execute(
+            row = await conn.fetchrow(
                 """
                 INSERT INTO chat_recap_settings (chat_id, enabled, send_time)
                 VALUES ($1, COALESCE($2, FALSE), COALESCE($3, '09:30'))
@@ -822,9 +822,11 @@ class Database:
                     enabled = COALESCE($2, chat_recap_settings.enabled),
                     send_time = COALESCE($3, chat_recap_settings.send_time),
                     updated_at = NOW()
+                RETURNING chat_id, enabled, send_time, last_sent_date, last_pinned_message_id, updated_at
                 """,
                 chat_id, enabled, send_time
             )
+        await cls._mirror_recap_settings("upsert_recap_settings", row)
 
     @classmethod
     @database_operation("get_enabled_recap_chats")
@@ -868,11 +870,14 @@ class Database:
                 SET last_sent_date = $2, updated_at = NOW()
                 WHERE chat_id = $1
                   AND (last_sent_date IS NULL OR last_sent_date < $2)
-                RETURNING chat_id
+                RETURNING chat_id, enabled, send_time, last_sent_date, last_pinned_message_id, updated_at
                 """,
                 chat_id, sent_date
             )
-            return row is not None
+        if row is None:
+            return False
+        await cls._mirror_recap_settings("mark_recap_sent", row)
+        return True
 
     @classmethod
     @database_operation("set_recap_pinned_message")
@@ -880,16 +885,25 @@ class Database:
         """Record which message is currently pinned as the chat's recap (or clear it with None)."""
         pool = await cls.get_pool()
         async with pool.acquire() as conn:
-            await conn.execute(
+            row = await conn.fetchrow(
                 """
                 INSERT INTO chat_recap_settings (chat_id, last_pinned_message_id)
                 VALUES ($1, $2)
                 ON CONFLICT (chat_id) DO UPDATE SET
                     last_pinned_message_id = $2,
                     updated_at = NOW()
+                RETURNING chat_id, enabled, send_time, last_sent_date, last_pinned_message_id, updated_at
                 """,
                 chat_id, message_id
             )
+        await cls._mirror_recap_settings("set_recap_pinned_message", row)
+
+    @classmethod
+    async def _mirror_recap_settings(cls, operation: str, row: Optional[Any]) -> None:
+        """Copy the chat's full recap settings row to D1 after a PostgreSQL write."""
+        d1_client = await get_d1_api_client()
+        if d1_client and row is not None:
+            await _mirror_d1(operation, lambda: d1_client.save_recap_settings(dict(row)))
 
     @classmethod
     @database_operation("get_chat_info")

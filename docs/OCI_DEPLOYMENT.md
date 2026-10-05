@@ -101,7 +101,8 @@ The bot will start on an empty schema in the meantime, which is harmless because
 restored rows are merged in.
 
 Known gaps:
-- `chat_recap_settings` is not mirrored to D1, so chats that used `/recap on` must re-enable it.
+- `chat_recap_settings` is mirrored to D1 since migration `0003`. Exports taken before that
+  have no recap table, so chats that used `/recap on` must re-enable it after such a restore.
 - The D1 config database holds the one-time import from `migrate_to_d1.py`, not live config changes.
 - Per-chat JSON configs under `config/private|group` were only on the old host; they
   regenerate from `config/global/global_config.json` defaults.

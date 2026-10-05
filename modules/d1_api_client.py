@@ -135,6 +135,22 @@ class D1ApiClient:
             "/v1/data/cache/delete", {"chat_id": chat_id, "time_period": time_period}
         )
 
+    async def save_recap_settings(self, row: Dict[str, Any]) -> None:
+        """Overwrite a chat's recap settings with the current PostgreSQL row."""
+        last_sent = row.get("last_sent_date")
+        updated_at = row.get("updated_at")
+        await self._post(
+            "/v1/data/recap/upsert",
+            {
+                "chat_id": row["chat_id"],
+                "enabled": bool(row["enabled"]),
+                "send_time": row["send_time"],
+                "last_sent_date": last_sent.isoformat() if last_sent is not None else None,
+                "last_pinned_message_id": row.get("last_pinned_message_id"),
+                "updated_at": serialize_datetime(updated_at) if updated_at is not None else None,
+            },
+        )
+
     async def record_event(
         self, event_type: str, chat_id: int, user_id: Optional[int]
     ) -> None:

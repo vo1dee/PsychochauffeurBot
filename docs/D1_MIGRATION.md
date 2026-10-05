@@ -21,7 +21,11 @@ separate because both legacy stores have a different `chats` table.
 2. Import each generated SQL file using `wrangler d1 execute ... --remote --file`.
 3. Enable `D1_DUAL_WRITE=true` on the bot. Set `D1_DUAL_WRITE_REQUIRED=true`
    only after initial reconciliation is clean.
-4. Compare row counts and sampled messages/configuration before migrating the
+4. After deploying migration `0003_chat_recap_settings`, copy existing recap
+   settings once: `python scripts/backfill_recap_settings_to_d1.py` (on the OCI
+   host: `docker compose -f docker-compose.prod.yml exec bot python scripts/backfill_recap_settings_to_d1.py`).
+   Later changes are dual-written automatically.
+5. Compare row counts and sampled messages/configuration before migrating the
    remaining read-only PostgreSQL query callers to typed Worker endpoints.
 
 ## Local backups and development

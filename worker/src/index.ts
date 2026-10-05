@@ -94,6 +94,21 @@ async function dataOperation(path: string, body: JsonRecord, db: D1Database): Pr
       : await db.prepare("DELETE FROM analysis_cache WHERE chat_id = ? AND time_period = ?").bind(chatId, period).run();
     return { deleted: result.meta.changes };
   }
+  if (path === "/v1/data/recap/upsert") {
+    // The bot sends the full PostgreSQL row after every change; an out-of-order older row is ignored.
+    const sendTime = stringValue(body.send_time, "send_time");
+    if (sendTime === null || !/^([01]\d|2[0-3]):[0-5]\d$/.test(sendTime)) throw new Error("send_time must be HH:MM");
+    const lastSentDate = stringValue(body.last_sent_date, "last_sent_date", false);
+    if (lastSentDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(lastSentDate)) throw new Error("last_sent_date must be YYYY-MM-DD");
+    await db.prepare(`INSERT INTO chat_recap_settings (chat_id, enabled, send_time, last_sent_date, last_pinned_message_id, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET enabled = excluded.enabled, send_time = excluded.send_time,
+      last_sent_date = excluded.last_sent_date, last_pinned_message_id = excluded.last_pinned_message_id, updated_at = excluded.updated_at
+      WHERE julianday(excluded.updated_at) >= julianday(chat_recap_settings.updated_at)`).bind(
+      integerValue(body.chat_id, "chat_id"), booleanValue(body.enabled, "enabled"), sendTime, lastSentDate,
+      integerValue(body.last_pinned_message_id, "last_pinned_message_id", false),
+      isoTimestamp(body.updated_at, "updated_at", false) ?? new Date().toISOString()).run();
+    return { ok: true };
+  }
   if (path === "/v1/data/messages/recent") {
     const limit = integerValue(body.limit, "limit");
     if (limit === null || limit < 1 || limit > 200) throw new Error("limit must be between 1 and 200");

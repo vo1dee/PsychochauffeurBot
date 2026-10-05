@@ -64,6 +64,10 @@ def to_json_text(value: Any) -> Optional[str]:
     return str(value)
 
 
+def to_date(value: Any) -> Optional[date]:
+    return None if value in (None, "") else date.fromisoformat(str(value)[:10])
+
+
 def identity(value: Any) -> Any:
     return value
 
@@ -136,6 +140,14 @@ TABLES: dict[str, dict[str, Callable[[Any], Any]]] = {
         "chat_id": identity,
         "user_id": identity,
         "timestamp": to_timestamp,
+    },
+    "chat_recap_settings": {
+        "chat_id": identity,
+        "enabled": to_bool,
+        "send_time": identity,
+        "last_sent_date": to_date,
+        "last_pinned_message_id": identity,
+        "updated_at": to_timestamp,
     },
 }
 SEQUENCES = {"messages": "internal_message_id", "bot_events": "id"}
@@ -213,6 +225,9 @@ async def restore_data(snapshot: Path, schema_sql: str) -> dict[str, dict[str, i
         with sqlite3.connect(snapshot) as source:
             for table, spec in TABLES.items():
                 available = {row[1] for row in source.execute(f"PRAGMA table_info({table})")}
+                if not available:
+                    print(f"{table:15} not in this D1 export; skipped")
+                    continue
                 columns = [column for column in spec if column in available]
                 d1_count = source.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                 staging = f"restore_{table}"
