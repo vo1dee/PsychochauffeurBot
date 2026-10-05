@@ -1,3 +1,4 @@
+# LEGACY: production now runs via Docker Compose on OCI (see docs/OCI_DEPLOYMENT.md).
 [Unit]
 Description=PsychoChauffeur Telegram Bot
 After=network.target postgresql.service docker.service

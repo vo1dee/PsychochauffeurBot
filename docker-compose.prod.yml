@@ -1,0 +1,52 @@
+# Production stack for the OCI host. Deployed by .github/workflows/deploy.yml.
+# Secrets live only in the untracked .env next to this file.
+name: psychochauffeur
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ${DB_NAME:-telegram_bot}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+    # Only reachable from the host itself (for restore scripts / psql), never publicly.
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-telegram_bot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  bot:
+    image: ghcr.io/vo1dee/psychochauffeurbot:${IMAGE_TAG:-latest}
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+      - ./downloads:/app/downloads
+      - ./data:/app/data
+      - ./config/global:/app/config/global
+      - ./config/private:/app/config/private
+      - ./config/group:/app/config/group
+      - ./config/backups:/app/config/backups
+      - ./config/archive:/app/config/archive
+      - ./cookies.txt:/app/cookies.txt
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  postgres_data:

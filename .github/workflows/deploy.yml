@@ -1,0 +1,191 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Existing image tag to (re)deploy, e.g. sha-abc1234. Empty = build this commit."
+        required: false
+        default: ""
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ci-{0}', github.ref) || 'deploy-prod' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/vo1dee/psychochauffeurbot
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Syntax check
+        run: python -m compileall -q main.py modules config config_v2 scripts
+      - name: Fatal lint errors
+        run: flake8 --count --select=E9,F63,F7,F82 --show-source main.py modules config config_v2 scripts
+      - name: Import smoke test
+        run: python -c "import main"
+
+  tests:
+    # Report-only until the pre-existing test failures are fixed; then drop
+    # continue-on-error and add this job to `build.needs`.
+    name: Test suite (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pytest -c pytest-ci.ini -q -o addopts="" --continue-on-collection-errors
+
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      worker: ${{ steps.filter.outputs.worker }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            worker:
+              - 'worker/**'
+
+  build:
+    name: Build image
+    needs: checks
+    if: github.event_name != 'workflow_dispatch' || inputs.image_tag == ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tag
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Both architectures so the image runs on Ampere (arm64) or x86 OCI shapes.
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          build-args: GIT_SHA=${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-worker:
+    name: Deploy D1 Worker
+    needs: [checks, changes]
+    if: github.event_name == 'push' && needs.changes.outputs.worker == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+        working-directory: worker
+      - name: Apply D1 migrations and deploy Worker
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler d1 migrations apply DATA_DB --remote
+          npx wrangler d1 migrations apply CONFIG_DB --remote
+          npx wrangler deploy
+
+  deploy:
+    name: Deploy to OCI
+    needs: [build, deploy-worker]
+    # Run after a successful build (or for a manual redeploy of an existing tag);
+    # deploy-worker is skipped when worker/ did not change.
+    if: >-
+      always() && github.event_name != 'pull_request' &&
+      (needs.build.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.image_tag != '')) &&
+      needs.deploy-worker.result != 'failure' && needs.deploy-worker.result != 'cancelled'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE_TAG: ${{ inputs.image_tag || needs.build.outputs.tag }}
+      SSH_TARGET: ${{ secrets.OCI_USER }}@${{ secrets.OCI_HOST }}
+      SSH_PORT: ${{ secrets.OCI_SSH_PORT || '22' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        env:
+          OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
+          OCI_KNOWN_HOSTS: ${{ secrets.OCI_KNOWN_HOSTS }}
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$OCI_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if [ -n "$OCI_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$OCI_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::OCI_KNOWN_HOSTS not set; trusting the host key on first use"
+            ssh-keyscan -p "$SSH_PORT" "$OCI_HOST" > ~/.ssh/known_hosts
+          fi
+          printf 'Host oci\n  HostName %s\n  User %s\n  Port %s\n  IdentityFile ~/.ssh/id_deploy\n  ServerAliveInterval 30\n' \
+            "$OCI_HOST" "${{ secrets.OCI_USER }}" "$SSH_PORT" > ~/.ssh/config
+      - name: Upload compose file
+        run: scp docker-compose.prod.yml oci:psychochauffeurbot/docker-compose.prod.yml
+      - name: Deploy ${{ env.IMAGE_TAG }}
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Pass variables through stdin so the token never appears in the remote process list.
+          { printf 'export IMAGE_TAG=%q GHCR_USER=%q GHCR_TOKEN=%q\n' "$IMAGE_TAG" "$GHCR_USER" "$GHCR_TOKEN"
+            cat scripts/deploy_oci.sh; } | ssh oci bash -s
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          [ -n "$DISCORD_WEBHOOK_URL" ] || exit 0
+          curl -fsS -H 'Content-Type: application/json' \
+            -d "{\"content\":\"❌ PsychochauffeurBot deploy of \`$IMAGE_TAG\` failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}" \
+            "$DISCORD_WEBHOOK_URL"

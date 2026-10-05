@@ -1,5 +1,9 @@
 # Bot Service Management Guide
 
+> **Legacy:** production now runs on Oracle OCI with Docker Compose and deploys
+> automatically from `main`. See [OCI_DEPLOYMENT.md](OCI_DEPLOYMENT.md). The systemd
+> setup below applies only to the old bare-metal host.
+
 The PsychoChauffeur bot is now set up as a systemd service that runs in the background.
 
 ## Quick Commands

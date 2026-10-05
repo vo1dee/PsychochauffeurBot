@@ -1,6 +1,34 @@
 # Git
 .git
 .gitignore
+.github
+
+# Secrets and runtime state: mounted from the host, never baked into the image
+.env
+*.env
+.dev.vars*
+cookies.txt
+.cookies.txt
+.reddit_cookies.txt
+data/
+logs/
+downloads/
+config/private/
+config/group/
+config/private_chats/
+config/group_chats/
+config/chat_config/
+config/backups/
+config/archive/
+config_backup_*/
+
+# Not needed at runtime
+tests/
+archive/
+worker/
+docs/
+python-web-screenshots/*
+.claude/
 
 # Python
 __pycache__
@@ -8,7 +36,6 @@ __pycache__
 *.pyo
 *.pyd
 .Python
-env
 pip-log.txt
 pip-delete-this-directory.txt
 .tox
@@ -19,7 +46,6 @@ nosetests.xml
 coverage.xml
 *.cover
 *.log
-.git
 .mypy_cache
 .pytest_cache
 .hypothesis
@@ -27,10 +53,9 @@ coverage.xml
 # Virtual environments
 .venv
 venv/
+newenv/
 ENV/
 env/
-.env.local
-.env.*.local
 
 # IDE
 .vscode/
@@ -48,16 +73,11 @@ env/
 ehthumbs.db
 Thumbs.db
 
-# Project specific
-logs/
+# Local databases
 *.db
 *.sqlite
 *.sqlite3
-
-# Docker
-Dockerfile
-docker-compose.yml
-.dockerignore
+*.dump
 
 # Documentation
 *.md

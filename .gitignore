@@ -84,6 +84,8 @@ Desktop.ini
 ### Development ###
 # Local development scripts
 *.sh
+!scripts/deploy_oci.sh
+!scripts/oci_bootstrap.sh
 start_bot.sh
 !restart_bot.sh
 
