@@ -155,3 +155,4 @@ node_modules/
 wrangler-account.json
 worker-configuration.d.ts
 *.tsbuildinfo
+.claude/worktrees/
