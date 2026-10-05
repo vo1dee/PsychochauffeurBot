@@ -152,8 +152,23 @@ jobs:
       SSH_TARGET: ${{ secrets.OCI_USER }}@${{ secrets.OCI_HOST }}
       SSH_PORT: ${{ secrets.OCI_SSH_PORT || '22' }}
     steps:
+      - name: Check deploy secrets
+        id: cfg
+        env:
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
+        run: |
+          if [ -n "$OCI_HOST" ] && [ -n "$OCI_USER" ] && [ -n "$OCI_SSH_KEY" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::OCI_HOST, OCI_USER or OCI_SSH_KEY is not set; skipping deploy (image was still published)."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
+        if: steps.cfg.outputs.ok == 'true'
       - name: Configure SSH
+        if: steps.cfg.outputs.ok == 'true'
         env:
           OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
           OCI_KNOWN_HOSTS: ${{ secrets.OCI_KNOWN_HOSTS }}
@@ -171,8 +186,10 @@ jobs:
           printf 'Host oci\n  HostName %s\n  User %s\n  Port %s\n  IdentityFile ~/.ssh/id_deploy\n  ServerAliveInterval 30\n' \
             "$OCI_HOST" "${{ secrets.OCI_USER }}" "$SSH_PORT" > ~/.ssh/config
       - name: Upload compose file
+        if: steps.cfg.outputs.ok == 'true'
         run: scp docker-compose.prod.yml oci:psychochauffeurbot/docker-compose.prod.yml
       - name: Deploy ${{ env.IMAGE_TAG }}
+        if: steps.cfg.outputs.ok == 'true'
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -181,7 +198,7 @@ jobs:
           { printf 'export IMAGE_TAG=%q GHCR_USER=%q GHCR_TOKEN=%q\n' "$IMAGE_TAG" "$GHCR_USER" "$GHCR_TOKEN"
             cat scripts/deploy_oci.sh; } | ssh oci bash -s
       - name: Notify Discord on failure
-        if: failure()
+        if: failure() && steps.cfg.outputs.ok == 'true'
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
