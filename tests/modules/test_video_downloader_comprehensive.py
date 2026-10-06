@@ -169,6 +169,8 @@ class TestVideoDownloaderYtDlpIntegration:
     async def test_tiktok_download_subprocess_execution(self):
         """Test TikTok download subprocess execution with correct arguments."""
         test_url = "https://www.tiktok.com/@user/video/123456789"
+        # Skip the one-off impersonation probe so only the download subprocess runs
+        self.downloader._impersonation_available = True
         
         with patch('asyncio.create_subprocess_exec') as mock_subprocess:
             # Mock successful download
@@ -195,8 +197,28 @@ class TestVideoDownloaderYtDlpIntegration:
                         assert call_args[1] == test_url
                         assert '-f' in call_args
                         assert '-o' in call_args
+                        assert '--impersonate' in call_args
                         # Don't assert on --no-warnings as it may not be present
     
+    @async_test(timeout=15.0)
+    async def test_tiktok_download_drops_impersonate_when_unavailable(self):
+        """Without curl_cffi yt-dlp aborts on --impersonate, so it must be dropped."""
+        test_url = "https://www.tiktok.com/@user/video/123456789"
+        self.downloader._impersonation_available = False
+
+        with patch('asyncio.create_subprocess_exec') as mock_subprocess:
+            mock_process = AsyncMock()
+            mock_process.communicate.return_value = (b"", b"")
+            mock_process.returncode = 0
+            mock_subprocess.return_value = mock_process
+
+            await self.downloader._download_tiktok_ytdlp(test_url)
+
+            call_args = mock_subprocess.call_args_list[0][0]
+            assert call_args[1] == test_url
+            assert '--impersonate' not in call_args
+            assert 'chrome' not in call_args
+
     @async_test(timeout=15.0)
     async def test_subprocess_timeout_handling(self):
         """Test subprocess timeout handling."""

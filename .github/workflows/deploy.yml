@@ -206,3 +206,42 @@ jobs:
           curl -fsS -H 'Content-Type: application/json' \
             -d "{\"content\":\"❌ PsychochauffeurBot deploy of \`$IMAGE_TAG\` failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}" \
             "$DISCORD_WEBHOOK_URL"
+      - name: Notify Telegram
+        if: always() && steps.cfg.outputs.ok == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          # Same format as the bot's ERROR_CHANNEL_ID: "<chat_id>" or "<chat_id>:<topic_id>"
+          TELEGRAM_CHAT: ${{ secrets.ERROR_CHANNEL_ID }}
+          JOB_STATUS: ${{ job.status }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT" ]; then
+            echo "::notice::TELEGRAM_BOT_TOKEN or ERROR_CHANNEL_ID is not set; skipping Telegram notification."
+            exit 0
+          fi
+          chat_id="${TELEGRAM_CHAT%%:*}"
+          topic_id=""
+          [ "$chat_id" != "$TELEGRAM_CHAT" ] && topic_id="${TELEGRAM_CHAT#*:}"
+          case "$JOB_STATUS" in
+            success)   header="🚢 Deploy Succeeded"; status="Deployed" ;;
+            cancelled) header="⚠️ Deploy Cancelled"; status="Cancelled" ;;
+            *)         header="❌ Deploy Failed";    status="Failed (rolled back if possible)" ;;
+          esac
+          esc() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+          subject="$(printf '%s' "${COMMIT_MSG:-manual redeploy}" | head -n1 | cut -c1-200 | esc)"
+          text="<b>${header}</b>
+
+          <b>Time:</b> <code>$(TZ=Europe/Kyiv date '+%Y-%m-%d %H:%M:%S %Z')</code>
+          <b>Status:</b> <code>${status}</code>
+          <b>Image:</b> <code>${IMAGE_TAG}</code>
+          <b>Commit:</b> <a href=\"${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}\">${GITHUB_SHA::7}</a> ${subject}
+          <b>By:</b> $(printf '%s' "$ACTOR" | esc)
+
+          <a href=\"${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\">Workflow run</a>"
+          payload="$(jq -n --arg chat "$chat_id" --arg topic "$topic_id" --arg text "$text" \
+            '{chat_id: $chat, text: $text, parse_mode: "HTML", disable_web_page_preview: true}
+             + (if $topic != "" then {message_thread_id: ($topic | tonumber)} else {} end)')"
+          curl -fsS -o /dev/null -H 'Content-Type: application/json' -d "$payload" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            || echo "::warning::Failed to send Telegram deploy notification"

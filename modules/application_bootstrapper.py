@@ -284,7 +284,7 @@ class ApplicationBootstrapper:
         logger.info("Checking for yt-dlp updates...")
         try:
             process = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "pip", "install", "yt-dlp", "--upgrade", "--quiet",
+                sys.executable, "-m", "pip", "install", "yt-dlp[default,curl-cffi]", "--upgrade", "--quiet",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
