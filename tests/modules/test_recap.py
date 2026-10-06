@@ -8,17 +8,17 @@ from modules import recap
 
 
 class TestFormatRecapHeader:
-    def test_same_month(self) -> None:
+    def test_single_day(self) -> None:
         header = recap.format_recap_header("Гурт", date(2026, 9, 27))
-        assert header == "📜 <b>РЕКАП Гурт | 26 → 27 вересня</b>"
+        assert header == "📜 <b>РЕКАП Гурт | 27 вересня</b>"
 
-    def test_cross_month_boundary(self) -> None:
+    def test_first_day_of_month(self) -> None:
         header = recap.format_recap_header("Гурт", date(2026, 10, 1))
-        assert header == "📜 <b>РЕКАП Гурт | 30 вересня → 1 жовтня</b>"
+        assert header == "📜 <b>РЕКАП Гурт | 1 жовтня</b>"
 
     def test_no_title(self) -> None:
         header = recap.format_recap_header(None, date(2026, 9, 27))
-        assert header == "📜 <b>РЕКАП | 26 → 27 вересня</b>"
+        assert header == "📜 <b>РЕКАП | 27 вересня</b>"
 
 
 class TestSplitRecap:

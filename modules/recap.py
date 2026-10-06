@@ -51,18 +51,10 @@ _tick_lock = asyncio.Lock()
 
 
 def format_recap_header(chat_title: Optional[str], target_date: date) -> str:
-    """Build the '📜 РЕКАП ... | D → D місяць' header for a recap."""
-    prev_day = target_date - timedelta(days=1)
+    """Build the '📜 РЕКАП ... | D місяць' header for the day the recap covers."""
     month = UKRAINIAN_MONTHS_GENITIVE[target_date.month]
-
-    if prev_day.month == target_date.month:
-        date_part = f"{prev_day.day} → {target_date.day} {month}"
-    else:
-        prev_month = UKRAINIAN_MONTHS_GENITIVE[prev_day.month]
-        date_part = f"{prev_day.day} {prev_month} → {target_date.day} {month}"
-
     title_part = f" {chat_title}" if chat_title else ""
-    return f"📜 <b>РЕКАП{title_part} | {date_part}</b>"
+    return f"📜 <b>РЕКАП{title_part} | {target_date.day} {month}</b>"
 
 
 def _format_sender(username: Optional[str], first_name: Optional[str]) -> str:
