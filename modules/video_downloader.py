@@ -213,6 +213,8 @@ class VideoDownloader:
         self._video_work_semaphore = asyncio.Semaphore(3)
 
         self.yt_dlp_path = self._get_yt_dlp_path()
+        # Lazily probed: whether yt-dlp can impersonate browsers (needs curl_cffi)
+        self._impersonation_available: Optional[bool] = None
 
         # Service configuration - use environment variables with fallback
         self.service_url = os.getenv("YTDL_SERVICE_URL", "https://ytdl.vo1dee.com")
@@ -3817,6 +3819,31 @@ class VideoDownloader:
                 f"yt-dlp verification failed: {e}. The application will rely on the service."
             )
 
+    async def _can_impersonate(self) -> bool:
+        """Check (once) whether yt-dlp has a usable Chrome impersonate target."""
+        if self._impersonation_available is None:
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    self.yt_dlp_path,
+                    "--list-impersonate-targets",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=30)
+                self._impersonation_available = any(
+                    line.lower().startswith("chrome") and "unavailable" not in line.lower()
+                    for line in stdout.decode(errors="replace").splitlines()
+                )
+            except Exception as e:
+                error_logger.warning(f"Could not probe yt-dlp impersonate targets: {e}")
+                self._impersonation_available = False
+            if not self._impersonation_available:
+                error_logger.warning(
+                    "yt-dlp browser impersonation unavailable (is curl_cffi installed?); "
+                    "downloading without --impersonate"
+                )
+        return self._impersonation_available
+
     def _init_download_path(self) -> None:
         """Initialize the download directory."""
         try:
@@ -3987,7 +4014,13 @@ class VideoDownloader:
 
         # Add extra arguments if specified
         if config.extra_args:
-            yt_dlp_args.extend(config.extra_args)
+            extra_args = list(config.extra_args)
+            if "--impersonate" in extra_args and not await self._can_impersonate():
+                # yt-dlp aborts outright when the impersonate target is missing,
+                # so fall back to a plain request rather than failing every download.
+                idx = extra_args.index("--impersonate")
+                del extra_args[idx : idx + 2]
+            yt_dlp_args.extend(extra_args)
 
         # Add headers if specified
         if config.headers:
