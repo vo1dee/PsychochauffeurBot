@@ -3,6 +3,14 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # Docs/tests-only pushes don't change the running bot, so skip the redeploy.
+    # A push touching any other file still deploys; PR checks are unaffected.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'archive/**'
+      - 'tests/**'
+      - '.claude/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
