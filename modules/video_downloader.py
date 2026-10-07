@@ -774,8 +774,15 @@ class VideoDownloader:
             f"   Type: {'Shorts' if is_shorts else 'Clips' if is_clips else 'Regular'}"
         )
 
-        # Define strategies in order of preference (Android client works best based on testing)
+        # Define strategies in order of preference. yt-dlp's own client selection
+        # (with a JS runtime available to solve challenges) is the most reliable;
+        # the forced-client strategies are kept as fallbacks.
         strategies = [
+            {
+                "name": "yt-dlp default clients",
+                "format": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "args": [],
+            },
             {
                 "name": "Android client with simple formats",
                 "format": "18/22/best[ext=mp4]/best",
@@ -1046,11 +1053,17 @@ class VideoDownloader:
                 title = await self._get_video_title(url)
                 return output_path, title
             else:
-                stderr_text = stderr.decode()
+                stderr_text = stderr.decode(errors="replace")
                 error_logger.warning(
                     f"   ❌ Process failed (code {process.returncode})"
                 )
-                error_logger.warning(f"   Error: {stderr_text[:200]}...")
+                # The actionable "ERROR:" lines come last; the head is warnings.
+                error_lines = [
+                    line for line in stderr_text.splitlines() if "ERROR" in line
+                ]
+                error_logger.warning(
+                    f"   Error: {' | '.join(error_lines[-3:]) or stderr_text[-500:]}"
+                )
                 if "there is no video in this post" in stderr_text.lower():
                     return "__no_video__", None
                 return None, None

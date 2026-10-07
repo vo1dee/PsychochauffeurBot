@@ -21,6 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Deno: yt-dlp needs a JavaScript runtime to solve YouTube's player challenges;
+# without it YouTube returns no usable formats and every download fails.
+COPY --from=denoland/deno:bin-2.9.7 /deno /usr/local/bin/deno
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install -r requirements.txt
