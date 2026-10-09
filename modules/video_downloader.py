@@ -1419,6 +1419,8 @@ class VideoDownloader:
                     return await self._resolve_spotify(session, resolved_url)
                 elif "music.apple.com" in url_lower:
                     return await self._resolve_apple_music(session, resolved_url)
+                elif self._is_shazam_url(resolved_url):
+                    return await self._resolve_shazam(session, resolved_url)
         except Exception as e:
             error_logger.error(f"resolve_streaming_url error for {url}: {e}")
 
@@ -2184,6 +2186,102 @@ class VideoDownloader:
         return None, None, None
 
     @staticmethod
+    def _is_shazam_url(url: str) -> bool:
+        from modules.const import MusicPlatforms
+
+        hostname = (urlparse(url).hostname or "").lower()
+        return hostname == MusicPlatforms.SHAZAM_DOMAIN or hostname.endswith(
+            f".{MusicPlatforms.SHAZAM_DOMAIN}"
+        )
+
+    async def _lookup_itunes_track(
+        self, session: aiohttp.ClientSession, adam_id: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """Look up a track by Apple Music (adam) id via the public iTunes API."""
+        try:
+            async with session.get(
+                "https://itunes.apple.com/lookup",
+                params={"id": adam_id, "entity": "song"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    return None, None, None
+                data = await response.json(content_type=None)
+        except Exception as e:
+            general_logger.warning(f"iTunes lookup failed for {adam_id}: {e}")
+            return None, None, None
+
+        for item in data.get("results") or []:
+            title = item.get("trackName")
+            if item.get("wrapperType") == "track" and title:
+                duration_ms = item.get("trackTimeMillis")
+                duration_s = int(duration_ms / 1000) if duration_ms else None
+                return title, item.get("artistName"), duration_s
+        return None, None, None
+
+    async def _resolve_shazam(
+        self, session: aiohttp.ClientSession, url: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """Resolve Shazam track metadata.
+
+        The shazam.com HTML is not usable: it serves the same cached page for
+        every track id, so scraping it yields the wrong song. Use the JSON
+        discovery API for /track/<shazam id> links and the iTunes lookup for
+        /song/<apple music id> links.
+        """
+        match = re.search(r"/(track|song)/(\d+)", urlparse(url).path)
+        if not match:
+            general_logger.warning(f"Unrecognised Shazam URL: {url}")
+            return None, None, None
+        kind, item_id = match.groups()
+
+        if kind == "song":
+            title, artist, duration_s = await self._lookup_itunes_track(
+                session, item_id
+            )
+            if title:
+                general_logger.info(f"Shazam resolved (iTunes): '{artist} - {title}'")
+            return title, artist, duration_s
+
+        try:
+            async with session.get(
+                f"https://amp.shazam.com/discovery/v5/en/US/web/-/track/{item_id}",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                # Unknown track ids come back as 204 with an empty body.
+                if response.status != 200:
+                    general_logger.warning(
+                        f"Shazam API returned {response.status} for {url}"
+                    )
+                    return None, None, None
+                data = await response.json(content_type=None)
+        except Exception as e:
+            general_logger.warning(f"Shazam API request failed for {url}: {e}")
+            return None, None, None
+
+        title = data.get("title")
+        artist = data.get("subtitle")
+        if not title:
+            return None, None, None
+
+        # Shazam has no track length; the linked Apple Music id does, and a
+        # duration makes the YouTube match far more reliable.
+        duration_s = None
+        adam_id = next(
+            (
+                action.get("id")
+                for action in (data.get("hub") or {}).get("actions") or []
+                if action.get("type") == "applemusicplay" and action.get("id")
+            ),
+            None,
+        )
+        if adam_id:
+            _, _, duration_s = await self._lookup_itunes_track(session, adam_id)
+
+        general_logger.info(f"Shazam resolved: '{artist} - {title}'")
+        return title, artist, duration_s
+
+    @staticmethod
     def _pick_best_youtube_candidate(
         candidates: list,
         expected_title: str,
@@ -2450,7 +2548,7 @@ class VideoDownloader:
         """Download audio from a streaming platform URL.
 
         For SoundCloud: downloads directly via yt-dlp.
-        For Spotify/Deezer/Apple Music: resolves metadata, then searches YouTube.
+        For Spotify/Deezer/Apple Music/Shazam: resolves metadata, then searches YouTube.
 
         Returns:
             (filename, display_title, performer, webpage_url, video_id, error_reason)
@@ -2517,7 +2615,7 @@ class VideoDownloader:
                 error_logger.error(f"SoundCloud download error: {e}")
             return None, None, None, None, None, None
 
-        # Spotify / Deezer / Apple Music: resolve metadata then search YouTube
+        # Spotify / Deezer / Apple Music / Shazam: resolve metadata then search YouTube
         title, artist, duration_s = await self.resolve_streaming_url(url)
         if not title:
             error_logger.error(f"❌ Could not resolve metadata for music URL: {url}")
@@ -2571,7 +2669,9 @@ class VideoDownloader:
         music_url = None
         for url in urls:
             normalized_url = await self.normalize_music_platform_url(url)
-            if self._is_music_platform_url(normalized_url):
+            if self._is_music_platform_url(
+                normalized_url
+            ) and not self._is_shazam_url(normalized_url):
                 music_url = normalized_url
                 break
 
@@ -2698,6 +2798,8 @@ class VideoDownloader:
                     return "Apple Music"
                 if "soundcloud" in host:
                     return "SoundCloud"
+                if "shazam" in host:
+                    return "Shazam"
                 return "Original"
 
             username = "Unknown"
@@ -4323,7 +4425,9 @@ def setup_video_handlers(
     # Add music platform auto-download handler
     from modules.const import MusicPlatforms
 
-    music_pattern = "|".join(re.escape(d) for d in MusicPlatforms.PLATFORM_DOMAINS)
+    music_pattern = "|".join(
+        re.escape(d) for d in MusicPlatforms.AUTO_DOWNLOAD_DOMAINS
+    )
     application.add_handler(
         MessageHandler(
             filters.TEXT & filters.Regex(music_pattern),
@@ -4333,7 +4437,7 @@ def setup_video_handlers(
         group=1,
     )
     general_logger.info(
-        f"Music platform handler registered for: {', '.join(MusicPlatforms.PLATFORM_DOMAINS)}"
+        f"Music platform handler registered for: {', '.join(MusicPlatforms.AUTO_DOWNLOAD_DOMAINS)}"
     )
 
     # Add inline query handler for YouTube Music, TikTok, cat photos, and song search

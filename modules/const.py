@@ -87,7 +87,8 @@ class VideoPlatforms:
 class MusicPlatforms:
     """Supported music streaming platforms for auto-download."""
 
-    PLATFORM_DOMAINS = [
+    # Posting a link from one of these in chat auto-downloads the track.
+    AUTO_DOWNLOAD_DOMAINS = [
         "open.spotify.com",
         "spotify.com",
         "deezer.com",
@@ -96,6 +97,11 @@ class MusicPlatforms:
     ]
 
     SOUNDCLOUD_DOMAIN = "soundcloud.com"
+    SHAZAM_DOMAIN = "shazam.com"
+
+    # Everything /song understands. Shazam is /song-only: a Shazam link
+    # posted in chat is not auto-downloaded.
+    PLATFORM_DOMAINS = AUTO_DOWNLOAD_DOMAINS + [SHAZAM_DOMAIN]
 
 
 class InstagramConfig:

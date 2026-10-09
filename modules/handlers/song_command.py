@@ -4,6 +4,8 @@ Song command handler.
 Supports three modes:
   1. /song artist - song           → search YouTube, download, send
   2. /song (reply to platform URL) → resolve metadata, search YouTube, download, send
+     (also /song <platform URL>; platforms: Spotify, Deezer, Apple Music,
+     SoundCloud, Shazam)
   3. /song (reply to YouTube URL)  → download directly (legacy behaviour)
 """
 
@@ -90,6 +92,8 @@ def platform_label_from_url(url: str) -> str:
         return "Apple Music"
     if "soundcloud" in host:
         return "SoundCloud"
+    if "shazam" in host:
+        return "Shazam"
     return "Original"
 
 
@@ -466,6 +470,15 @@ async def _resolve_and_download(
                 update, video_downloader, direct_youtube_url
             )
 
+        # Same for a streaming platform link (Spotify, Shazam, …) passed as args.
+        direct_platform_url = next(
+            (u for u in extract_urls(query_str) if is_music_platform_url(u)), None
+        )
+        if direct_platform_url:
+            return await _download_platform_url(
+                update, video_downloader, direct_platform_url
+            )
+
         candidates = await video_downloader.fast_youtube_search(query_str, limit=5)
 
         if not candidates:
@@ -536,7 +549,7 @@ async def _resolve_and_download(
         await update.message.reply_text(
             "Usage:\n"
             "• `/song Artist \\- Song Name` — search for a track\n"
-            "• Reply to a Spotify/Deezer/Apple Music/SoundCloud link with `/song`\n"
+            "• Reply to a Spotify/Deezer/Apple Music/SoundCloud/Shazam link with `/song`\n"
             "• Reply to a YouTube link with `/song`",
             parse_mode="MarkdownV2",
         )
@@ -561,57 +574,7 @@ async def _resolve_and_download(
                 break
 
     if platform_url:
-        processing_msg = await update.message.reply_text("⏳ Resolving track…")
-        filename = None
-        try:
-            filename, title, performer, youtube_url, video_id, error_reason = (
-                await asyncio.wait_for(
-                    video_downloader.download_music_platform_url(platform_url),
-                    timeout=_PLATFORM_TIMEOUT,
-                )
-            )
-            if not filename or not os.path.exists(filename):
-                msg = (
-                    f"❌ {error_reason}"
-                    if error_reason
-                    else "❌ Failed to download track."
-                )
-                await processing_msg.edit_text(msg)
-                return None, None
-            try:
-                await processing_msg.delete()
-            except Exception:
-                pass
-            return (
-                dict(
-                    filename=filename,
-                    title=title,
-                    performer=performer,
-                    youtube_url=youtube_url,
-                    platform_url=platform_url,
-                    video_id=video_id,
-                ),
-                filename,
-            )
-        except asyncio.TimeoutError:
-            logger.error(f"song_command platform download timed out for: {platform_url}")
-            try:
-                await processing_msg.edit_text("❌ Download timed out. Please try again.")
-            except Exception:
-                pass
-            return None, None
-        except Exception as e:
-            logger.error(f"song_command platform error: {e}", exc_info=True)
-            try:
-                await processing_msg.edit_text(f"❌ Error: {str(e)[:100]}")
-            except Exception:
-                pass
-            if filename and os.path.exists(filename):
-                try:
-                    os.remove(filename)
-                except Exception:
-                    pass
-            return None, None
+        return await _download_platform_url(update, video_downloader, platform_url)
 
     # Mode C: YouTube URL (existing behaviour)
     youtube_url = find_youtube_url(reply_text)
@@ -622,6 +585,65 @@ async def _resolve_and_download(
         return None, None
 
     return await _download_direct_youtube_url(update, video_downloader, youtube_url)
+
+
+async def _download_platform_url(
+    update: Update,
+    video_downloader,
+    platform_url: str,
+) -> tuple[Optional[dict], Optional[str]]:
+    """Resolve a streaming platform URL to a track and download it (Mode B)."""
+    processing_msg = await update.message.reply_text("⏳ Resolving track…")
+    filename = None
+    try:
+        filename, title, performer, youtube_url, video_id, error_reason = (
+            await asyncio.wait_for(
+                video_downloader.download_music_platform_url(platform_url),
+                timeout=_PLATFORM_TIMEOUT,
+            )
+        )
+        if not filename or not os.path.exists(filename):
+            msg = (
+                f"❌ {error_reason}"
+                if error_reason
+                else "❌ Failed to download track."
+            )
+            await processing_msg.edit_text(msg)
+            return None, None
+        try:
+            await processing_msg.delete()
+        except Exception:
+            pass
+        return (
+            dict(
+                filename=filename,
+                title=title,
+                performer=performer,
+                youtube_url=youtube_url,
+                platform_url=platform_url,
+                video_id=video_id,
+            ),
+            filename,
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"song_command platform download timed out for: {platform_url}")
+        try:
+            await processing_msg.edit_text("❌ Download timed out. Please try again.")
+        except Exception:
+            pass
+        return None, None
+    except Exception as e:
+        logger.error(f"song_command platform error: {e}", exc_info=True)
+        try:
+            await processing_msg.edit_text(f"❌ Error: {str(e)[:100]}")
+        except Exception:
+            pass
+        if filename and os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except Exception:
+                pass
+        return None, None
 
 
 async def _download_direct_youtube_url(
