@@ -10,6 +10,7 @@ import html as html_lib
 import uuid
 import shutil
 import subprocess
+import time
 from urllib.parse import urljoin, urlparse, parse_qs, unquote
 from typing import Optional, Tuple, List, Dict, Any, Callable, TypedDict, cast
 from asyncio import Semaphore
@@ -51,6 +52,8 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 YTDL_SERVICE_API_KEY = os.getenv("YTDL_SERVICE_API_KEY")
+# How long a /health answer about audio-only support is trusted (seconds).
+_SERVICE_AUDIO_CHECK_TTL = 300.0
 
 
 class DownloadStrategy(TypedDict):
@@ -221,6 +224,8 @@ class VideoDownloader:
         self.api_key = os.getenv("YTDL_SERVICE_API_KEY")
         self.max_retries = int(os.getenv("YTDL_MAX_RETRIES", "3"))
         self.retry_delay = int(os.getenv("YTDL_RETRY_DELAY", "1"))
+        self._service_audio_checked_at = float("-inf")
+        self._service_audio_supported = False
 
         # Log service configuration
         error_logger.info(f"Service URL: {self.service_url}")
@@ -1242,6 +1247,128 @@ class VideoDownloader:
                 pass
             raise
 
+    async def _service_supports_audio(self) -> bool:
+        """Whether the download service advertises audio-only downloads.
+
+        Older service versions ignore `audio_only` and return a video, so the
+        capability is read from /health first. Cached for a few minutes.
+        """
+        if not self.service_url or not self.api_key:
+            return False
+
+        now = time.monotonic()
+        if now - self._service_audio_checked_at < _SERVICE_AUDIO_CHECK_TTL:
+            return self._service_audio_supported
+
+        supported = False
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    urljoin(self.service_url, "health"),
+                    headers={"X-API-Key": self.api_key},
+                    timeout=aiohttp.ClientTimeout(total=8),
+                    ssl=False,
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json(content_type=None)
+                        supported = bool(
+                            (data.get("capabilities") or {}).get("audio_only")
+                        )
+        except Exception as e:
+            general_logger.warning(f"Service audio capability check failed: {e}")
+
+        self._service_audio_checked_at = now
+        self._service_audio_supported = supported
+        return supported
+
+    async def _download_audio_from_service(
+        self, url_or_query: str
+    ) -> Tuple[
+        Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]
+    ]:
+        """Download a track as MP3 through the download service.
+
+        YouTube blocks datacenter IPs ("Sign in to confirm you're not a bot"),
+        so audio goes through the service, which runs elsewhere, before local
+        yt-dlp is tried.
+
+        Returns:
+            (filename, display_title, performer, webpage_url, video_id) or 5-tuple of None
+        """
+        failed = (None, None, None, None, None)
+        if not await self._service_supports_audio():
+            return failed
+
+        headers = {"X-API-Key": self.api_key}
+        local_file = None
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    urljoin(self.service_url, "download"),
+                    json={"url": url_or_query, "audio_only": True},
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=150),
+                    ssl=False,
+                ) as response:
+                    if response.status != 200:
+                        general_logger.warning(
+                            f"Service audio download returned {response.status} for: {url_or_query}"
+                        )
+                        return failed
+                    data = await response.json(content_type=None)
+
+                service_file = os.path.basename(data.get("file_path") or "")
+                if (
+                    not data.get("success")
+                    or not data.get("audio_only")
+                    or not service_file
+                ):
+                    general_logger.warning(
+                        f"Service audio download failed for {url_or_query}: "
+                        f"{data.get('error', 'unexpected response')}"
+                    )
+                    return failed
+
+                os.makedirs(MUSIC_DIR, exist_ok=True)
+                local_file = os.path.join(MUSIC_DIR, service_file)
+                async with session.get(
+                    urljoin(self.service_url, f"files/{service_file}"),
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=120),
+                    ssl=False,
+                ) as file_response:
+                    if file_response.status != 200:
+                        general_logger.warning(
+                            f"Service audio file fetch returned {file_response.status}"
+                        )
+                        return failed
+                    with open(local_file, "wb") as f:
+                        async for chunk in file_response.content.iter_chunked(65536):
+                            f.write(chunk)
+
+            meta = {
+                "id": data.get("video_id"),
+                "artist": data.get("artist"),
+                "track": data.get("track"),
+                "title": data.get("title"),
+                "uploader": data.get("uploader"),
+                "duration": data.get("duration"),
+                "webpage_url": data.get("webpage_url"),
+            }
+            display_title, performer, webpage_url = self._compose_display_title(meta)
+            general_logger.info(f"Track downloaded via service: {display_title}")
+            return local_file, display_title, performer, webpage_url, meta["id"] or ""
+        except Exception as e:
+            general_logger.warning(
+                f"Service audio download error for {url_or_query}: {e!r}"
+            )
+            if local_file and os.path.exists(local_file):
+                try:
+                    os.remove(local_file)
+                except OSError:
+                    pass
+            return failed
+
     async def download_youtube_music(
         self, url: str
     ) -> Tuple[
@@ -1253,6 +1380,12 @@ class VideoDownloader:
             (filename, display_title, performer, webpage_url, video_id) or (None, None, None, None, None)
         """
         error_logger.info(f"🎵 Starting YouTube Music download for: {url}")
+
+        filename, display_title, performer, webpage_url, video_id = (
+            await self._download_audio_from_service(url)
+        )
+        if filename:
+            return filename, display_title, performer, webpage_url or url, video_id
 
         os.makedirs(MUSIC_DIR, exist_ok=True)
 
@@ -2410,6 +2543,10 @@ class VideoDownloader:
         Returns:
             (filename, display_title, performer, webpage_url, video_id) or 5-tuple of None
         """
+        service_result = await self._download_audio_from_service(url_or_query)
+        if service_result[0]:
+            return service_result
+
         os.makedirs(MUSIC_DIR, exist_ok=True)
         output_template = os.path.join(MUSIC_DIR, "%(title)s.%(ext)s")
 
@@ -2944,11 +3081,13 @@ class VideoDownloader:
         if os.path.exists(deno_path):
             env["PATH"] = f"{deno_path}:{env.get('PATH', '')}"
 
+        # Flat search: listing results needs no per-video extraction, which is
+        # slower and is what YouTube blocks on datacenter IPs. Flat entries
+        # carry no artist/track, only title/uploader/duration.
         cmd = [
             self.yt_dlp_path,
             search_query,
-            "--skip-download",
-            "--no-playlist",
+            "--flat-playlist",
             "--no-check-certificate",
             "--socket-timeout",
             "10",
