@@ -146,6 +146,140 @@ class TestVideoDownloader(unittest.TestCase):
         self.assertEqual(artist, "IGORRR")
         self.assertIsNone(duration)
 
+    @staticmethod
+    def _shazam_session(responses):
+        """Mock aiohttp session answering by URL substring: {needle: (status, payload)}."""
+
+        class MockResponse:
+            def __init__(self, status, payload):
+                self.status = status
+                self._payload = payload
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def json(self, content_type=None):
+                return self._payload
+
+        class MockSession:
+            def __init__(self):
+                self.requested = []
+
+            def get(self, url, *args, **kwargs):
+                self.requested.append(url)
+                for needle, (status, payload) in responses.items():
+                    if needle in url:
+                        return MockResponse(status, payload)
+                return MockResponse(404, None)
+
+        return MockSession()
+
+    def test_shazam_is_song_only_platform(self):
+        """Shazam links are recognised, but excluded from chat auto-download."""
+        from modules.const import MusicPlatforms
+
+        url = "https://www.shazam.com/track/40001020/poppin-them-thangs?referrer=share"
+        self.assertTrue(self.video_downloader._is_music_platform_url(url))
+        self.assertTrue(self.video_downloader._is_shazam_url(url))
+        self.assertFalse(
+            self.video_downloader._is_shazam_url("https://notshazam.com/track/1")
+        )
+        self.assertNotIn("shazam.com", MusicPlatforms.AUTO_DOWNLOAD_DOMAINS)
+
+    def test_resolve_shazam_track_uses_api_and_itunes_duration(self):
+        """/track/<id> links resolve via the Shazam API, duration via iTunes."""
+        session = self._shazam_session(
+            {
+                "amp.shazam.com": (
+                    200,
+                    {
+                        "title": "Poppin' Them Thangs",
+                        "subtitle": "G-Unit",
+                        "hub": {
+                            "actions": [
+                                {"type": "applemusicplay", "id": "1444177186"},
+                                {"type": "uri", "uri": "https://example.com/a.m4a"},
+                            ]
+                        },
+                    },
+                ),
+                "itunes.apple.com": (
+                    200,
+                    {
+                        "results": [
+                            {
+                                "wrapperType": "track",
+                                "trackName": "Poppin' Them Thangs",
+                                "artistName": "G-Unit",
+                                "trackTimeMillis": 240800,
+                            }
+                        ]
+                    },
+                ),
+            }
+        )
+
+        result = asyncio.run(
+            self.video_downloader._resolve_shazam(
+                session,
+                "https://www.shazam.com/track/40001020/poppin-them-thangs?referrer=share",
+            )
+        )
+        self.assertEqual(result, ("Poppin' Them Thangs", "G-Unit", 240))
+        self.assertTrue(session.requested[0].endswith("/track/40001020"))
+
+    def test_resolve_shazam_track_without_duration(self):
+        """A failed iTunes lookup must not lose the Shazam title/artist."""
+        session = self._shazam_session(
+            {"amp.shazam.com": (200, {"title": "DtMF", "subtitle": "Bad Bunny"})}
+        )
+        result = asyncio.run(
+            self.video_downloader._resolve_shazam(
+                session, "https://www.shazam.com/uk-ua/track/808381470/dtmf"
+            )
+        )
+        self.assertEqual(result, ("DtMF", "Bad Bunny", None))
+
+    def test_resolve_shazam_song_link_uses_itunes(self):
+        """/song/<apple music id> links resolve via the iTunes lookup API."""
+        session = self._shazam_session(
+            {
+                "itunes.apple.com": (
+                    200,
+                    {
+                        "results": [
+                            {
+                                "wrapperType": "track",
+                                "trackName": "DtMF",
+                                "artistName": "Bad Bunny",
+                                "trackTimeMillis": 237117,
+                            }
+                        ]
+                    },
+                )
+            }
+        )
+        result = asyncio.run(
+            self.video_downloader._resolve_shazam(
+                session, "https://www.shazam.com/song/1787023936/dtmf"
+            )
+        )
+        self.assertEqual(result, ("DtMF", "Bad Bunny", 237))
+        self.assertEqual(len(session.requested), 1)
+
+    def test_resolve_shazam_unknown_track(self):
+        """Unknown ids (204) and non-track URLs resolve to nothing."""
+        session = self._shazam_session({"amp.shazam.com": (204, None)})
+        for url in (
+            "https://www.shazam.com/track/99999999999/nothing",
+            "https://www.shazam.com/charts/top-200/world",
+        ):
+            result = asyncio.run(self.video_downloader._resolve_shazam(session, url))
+            self.assertEqual(result, (None, None, None))
+
     def test_resolve_spotify_falls_back_to_oembed_when_scrape_empty(self):
         """Should still return oEmbed metadata if scraping cannot resolve title."""
 
