@@ -280,6 +280,147 @@ class TestVideoDownloader(unittest.TestCase):
             result = asyncio.run(self.video_downloader._resolve_shazam(session, url))
             self.assertEqual(result, (None, None, None))
 
+    @staticmethod
+    def _service_session_factory(health, download=None, file_bytes=b"mp3-bytes"):
+        """Build a fake aiohttp.ClientSession class for the download service.
+
+        Returns (factory, calls); calls collects (method, url, json) tuples.
+        """
+        calls = []
+
+        class Content:
+            async def iter_chunked(self, size):
+                yield file_bytes
+
+        class MockResponse:
+            def __init__(self, status, payload=None):
+                self.status = status
+                self._payload = payload
+                self.content = Content()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def json(self, content_type=None):
+                return self._payload
+
+        class MockSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def get(self, url, **kwargs):
+                calls.append(("GET", url, None))
+                if url.endswith("/health"):
+                    return MockResponse(200, health)
+                return MockResponse(200)
+
+            def post(self, url, json=None, **kwargs):
+                calls.append(("POST", url, json))
+                return MockResponse(200, download)
+
+        return MockSession, calls
+
+    def _configure_service(self):
+        self.video_downloader.service_url = "https://ytdl.example.com"
+        self.video_downloader.api_key = "key"
+
+    def test_service_audio_download_success(self):
+        """Audio goes through the service when it advertises audio_only."""
+        self._configure_service()
+        factory, calls = self._service_session_factory(
+            health={"capabilities": {"audio_only": True}},
+            download={
+                "success": True,
+                "audio_only": True,
+                "file_path": "abc12345.mp3",
+                "title": "G-Unit - Poppin' Them Thangs (Explicit Version)",
+                "uploader": "GUnitVEVO",
+                "duration": 248,
+                "video_id": "lc0zKB88XPM",
+                "webpage_url": "https://www.youtube.com/watch?v=lc0zKB88XPM",
+            },
+        )
+        with tempfile.TemporaryDirectory() as music_dir, patch(
+            "modules.video_downloader.MUSIC_DIR", music_dir
+        ), patch("modules.video_downloader.aiohttp.ClientSession", factory):
+            filename, title, performer, webpage_url, video_id = asyncio.run(
+                self.video_downloader._download_youtube_by_url(
+                    "https://www.youtube.com/watch?v=lc0zKB88XPM"
+                )
+            )
+            self.assertEqual(filename, os.path.join(music_dir, "abc12345.mp3"))
+            with open(filename, "rb") as f:
+                self.assertEqual(f.read(), b"mp3-bytes")
+
+        self.assertIn("Poppin' Them Thangs", title)
+        self.assertEqual(webpage_url, "https://www.youtube.com/watch?v=lc0zKB88XPM")
+        self.assertEqual(video_id, "lc0zKB88XPM")
+        post = next(c for c in calls if c[0] == "POST")
+        self.assertEqual(post[1], "https://ytdl.example.com/download")
+        self.assertTrue(post[2]["audio_only"])
+        self.assertIn(("GET", "https://ytdl.example.com/files/abc12345.mp3", None), calls)
+
+    def test_service_audio_skipped_when_capability_missing(self):
+        """An older service (no capability flag) must not be sent audio requests."""
+        self._configure_service()
+        factory, calls = self._service_session_factory(health={"status": "healthy"})
+        with patch("modules.video_downloader.aiohttp.ClientSession", factory):
+            result = asyncio.run(
+                self.video_downloader._download_audio_from_service("ytsearch1:x")
+            )
+            # Second call uses the cached answer instead of asking /health again.
+            asyncio.run(
+                self.video_downloader._download_audio_from_service("ytsearch1:x")
+            )
+        self.assertEqual(result, (None, None, None, None, None))
+        self.assertEqual([c[0] for c in calls], ["GET"])
+
+    def test_service_audio_rejects_video_response(self):
+        """A response without the audio_only marker is treated as a failure."""
+        self._configure_service()
+        factory, calls = self._service_session_factory(
+            health={"capabilities": {"audio_only": True}},
+            download={"success": True, "file_path": "abc12345.mp4", "title": "x"},
+        )
+        with patch("modules.video_downloader.aiohttp.ClientSession", factory):
+            result = asyncio.run(
+                self.video_downloader._download_audio_from_service("ytsearch1:x")
+            )
+        self.assertEqual(result, (None, None, None, None, None))
+        self.assertFalse(any("/files/" in c[1] for c in calls))
+
+    def test_download_by_url_falls_back_to_local_ytdlp(self):
+        """When the service cannot do audio, local yt-dlp is still used."""
+        self.video_downloader._download_audio_from_service = AsyncMock(
+            return_value=(None, None, None, None, None)
+        )
+        self.video_downloader._run_yt_dlp_subprocess = AsyncMock(
+            return_value=(1, b"", b"ERROR: nope")
+        )
+        result = asyncio.run(
+            self.video_downloader._download_youtube_by_url("ytsearch1:x")
+        )
+        self.assertEqual(result, (None, None, None, None, None))
+        self.video_downloader._run_yt_dlp_subprocess.assert_awaited_once()
+
+    def test_fast_youtube_search_is_flat(self):
+        """Search must not extract each result (blocked on datacenter IPs)."""
+        line = json.dumps({"id": "abc", "title": "T", "uploader": "U", "duration": 10})
+        self.video_downloader._run_yt_dlp_subprocess = AsyncMock(
+            return_value=(0, line.encode(), b"")
+        )
+        results = asyncio.run(self.video_downloader.fast_youtube_search("q", limit=3))
+        cmd = self.video_downloader._run_yt_dlp_subprocess.await_args.args[0]
+        self.assertIn("--flat-playlist", cmd)
+        self.assertNotIn("--skip-download", cmd)
+        self.assertEqual(results[0]["id"], "abc")
+
     def test_resolve_spotify_falls_back_to_oembed_when_scrape_empty(self):
         """Should still return oEmbed metadata if scraping cannot resolve title."""
 
