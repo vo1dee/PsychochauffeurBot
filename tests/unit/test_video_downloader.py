@@ -285,8 +285,10 @@ class TestVideoDownloader(unittest.TestCase):
         """Build a fake aiohttp.ClientSession class for the download service.
 
         Returns (factory, calls); calls collects (method, url, json) tuples.
+        `download` may be a list to answer successive POSTs differently.
         """
         calls = []
+        downloads = list(download) if isinstance(download, list) else None
 
         class Content:
             async def iter_chunked(self, size):
@@ -322,6 +324,8 @@ class TestVideoDownloader(unittest.TestCase):
 
             def post(self, url, json=None, **kwargs):
                 calls.append(("POST", url, json))
+                if downloads is not None:
+                    return MockResponse(200, downloads.pop(0))
                 return MockResponse(200, download)
 
         return MockSession, calls
@@ -394,6 +398,86 @@ class TestVideoDownloader(unittest.TestCase):
             )
         self.assertEqual(result, (None, None, None, None, None))
         self.assertFalse(any("/files/" in c[1] for c in calls))
+
+    def test_service_audio_retries_when_no_formats(self):
+        """A transient "format not available" answer gets one more attempt."""
+        self._configure_service()
+        self.video_downloader.retry_delay = 0
+        factory, calls = self._service_session_factory(
+            health={"capabilities": {"audio_only": True}},
+            download=[
+                {
+                    "success": False,
+                    "audio_only": True,
+                    "error": "Audio download failed: ERROR: [youtube] x: "
+                    "Requested format is not available. Use --list-formats",
+                },
+                {
+                    "success": True,
+                    "audio_only": True,
+                    "file_path": "abc12345.mp3",
+                    "title": "Song",
+                    "video_id": "x",
+                },
+            ],
+        )
+        with tempfile.TemporaryDirectory() as music_dir, patch(
+            "modules.video_downloader.MUSIC_DIR", music_dir
+        ), patch("modules.video_downloader.aiohttp.ClientSession", factory):
+            filename, *_ = asyncio.run(
+                self.video_downloader._download_audio_from_service(
+                    "https://music.youtube.com/watch?v=x"
+                )
+            )
+            self.assertEqual(filename, os.path.join(music_dir, "abc12345.mp3"))
+        self.assertEqual(sum(1 for c in calls if c[0] == "POST"), 2)
+
+    def test_service_audio_does_not_retry_other_errors(self):
+        """Errors other than missing formats fail without another attempt."""
+        self._configure_service()
+        self.video_downloader.retry_delay = 0
+        factory, calls = self._service_session_factory(
+            health={"capabilities": {"audio_only": True}},
+            download={
+                "success": False,
+                "audio_only": True,
+                "error": "Audio download failed: ERROR: Video unavailable",
+            },
+        )
+        with patch("modules.video_downloader.aiohttp.ClientSession", factory):
+            result = asyncio.run(
+                self.video_downloader._download_audio_from_service("ytsearch1:x")
+            )
+        self.assertEqual(result, (None, None, None, None, None))
+        self.assertEqual(sum(1 for c in calls if c[0] == "POST"), 1)
+
+    def test_youtube_music_failure_reports_last_error(self):
+        """The final error names yt-dlp's last ERROR line; default client goes first."""
+        self.video_downloader._download_audio_from_service = AsyncMock(
+            return_value=(None, None, None, None, None)
+        )
+        self.video_downloader._run_yt_dlp_subprocess = AsyncMock(
+            return_value=(
+                1,
+                b"",
+                b"WARNING: [youtube] x: some warning\n"
+                b"ERROR: [youtube] x: Requested format is not available.\n",
+            )
+        )
+        with tempfile.TemporaryDirectory() as music_dir, patch(
+            "modules.video_downloader.MUSIC_DIR", music_dir
+        ), patch("modules.video_downloader.error_logger") as log:
+            result = asyncio.run(
+                self.video_downloader.download_youtube_music(
+                    "https://music.youtube.com/watch?v=x"
+                )
+            )
+        self.assertEqual(result, (None, None, None, None, None))
+        first_cmd = self.video_downloader._run_yt_dlp_subprocess.await_args_list[0][0][0]
+        self.assertNotIn("--extractor-args", first_cmd)
+        final = log.error.call_args_list[-1][0][0]
+        self.assertIn("All YouTube Music strategies failed", final)
+        self.assertIn("ERROR: [youtube] x: Requested format is not available.", final)
 
     def test_download_by_url_falls_back_to_local_ytdlp(self):
         """When the service cannot do audio, local yt-dlp is still used."""
