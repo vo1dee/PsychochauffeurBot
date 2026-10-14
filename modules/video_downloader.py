@@ -54,6 +54,9 @@ load_dotenv()
 YTDL_SERVICE_API_KEY = os.getenv("YTDL_SERVICE_API_KEY")
 # How long a /health answer about audio-only support is trusted (seconds).
 _SERVICE_AUDIO_CHECK_TTL = 300.0
+# Service audio requests are retried once when YouTube returns no formats.
+_SERVICE_AUDIO_ATTEMPTS = 2
+_FORMAT_UNAVAILABLE = "Requested format is not available"
 
 
 class DownloadStrategy(TypedDict):
@@ -1303,19 +1306,34 @@ class VideoDownloader:
         local_file = None
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    urljoin(self.service_url, "download"),
-                    json={"url": url_or_query, "audio_only": True},
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=150),
-                    ssl=False,
-                ) as response:
-                    if response.status != 200:
-                        general_logger.warning(
-                            f"Service audio download returned {response.status} for: {url_or_query}"
+                for attempt in range(1, _SERVICE_AUDIO_ATTEMPTS + 1):
+                    async with session.post(
+                        urljoin(self.service_url, "download"),
+                        json={"url": url_or_query, "audio_only": True},
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=150),
+                        ssl=False,
+                    ) as response:
+                        if response.status != 200:
+                            general_logger.warning(
+                                f"Service audio download returned {response.status} for: {url_or_query}"
+                            )
+                            return failed
+                        data = await response.json(content_type=None)
+
+                    # YouTube sometimes answers a session with thumbnails only;
+                    # a fresh request a moment later usually gets real formats.
+                    if (
+                        not data.get("success")
+                        and _FORMAT_UNAVAILABLE in (data.get("error") or "")
+                        and attempt < _SERVICE_AUDIO_ATTEMPTS
+                    ):
+                        general_logger.info(
+                            f"Service reported no formats for {url_or_query}, retrying"
                         )
-                        return failed
-                    data = await response.json(content_type=None)
+                        await asyncio.sleep(self.retry_delay)
+                        continue
+                    break
 
                 service_file = os.path.basename(data.get("file_path") or "")
                 if (
@@ -1369,6 +1387,15 @@ class VideoDownloader:
                     pass
             return failed
 
+    @staticmethod
+    def _last_yt_dlp_error(stderr_text: str) -> str:
+        """Return yt-dlp's final ERROR line (warnings come before it), or ''."""
+        lines = [l.strip() for l in stderr_text.splitlines() if l.strip()]
+        for line in reversed(lines):
+            if line.startswith("ERROR:"):
+                return line[:300]
+        return lines[-1][:300] if lines else ""
+
     async def download_youtube_music(
         self, url: str
     ) -> Tuple[
@@ -1411,13 +1438,16 @@ class VideoDownloader:
         cookies_args = ["--cookies", yt_cookies_path] if has_yt_cookies else []
 
         # Strategies ordered by reliability:
-        # iOS/Android clients don't require PO tokens.
+        # yt-dlp's default client selection tracks YouTube changes and gets
+        # proper audio-only formats. iOS/web_safari now need a GVS PO token and
+        # only return thumbnails without one, so they are not tried.
+        # Android still yields a muxed low-quality format when SABR hides the rest.
         # HLS is a fallback when HTTPS formats get 403.
         strategies = [
             {
-                "name": "iOS client (bestaudio)",
+                "name": "Default (bestaudio)",
                 "format": "bestaudio/best",
-                "args": ["--extractor-args", "youtube:player_client=ios"],
+                "args": [],
             },
             {
                 "name": "Android client (bestaudio)",
@@ -1429,18 +1459,9 @@ class VideoDownloader:
                 "format": "best[protocol=m3u8_native]/best[protocol=m3u8]",
                 "args": [],
             },
-            {
-                "name": "Web Safari client",
-                "format": "bestaudio/best",
-                "args": ["--extractor-args", "youtube:player_client=web_safari"],
-            },
-            {
-                "name": "Default (bestaudio)",
-                "format": "bestaudio/best",
-                "args": [],
-            },
         ]
 
+        last_error = ""
         for i, strategy in enumerate(strategies, 1):
             error_logger.info(f"📋 Strategy {i}/{len(strategies)}: {strategy['name']}")
 
@@ -1519,13 +1540,21 @@ class VideoDownloader:
                     )
                     if stderr_text:
                         error_logger.warning(f"   Error: {stderr_text[:200]}...")
+                    last_error = self._last_yt_dlp_error(stderr_text) or (
+                        f"exit code {returncode}"
+                    )
 
             except asyncio.TimeoutError:
                 error_logger.warning(f"   ⏰ Strategy '{strategy['name']}' timed out")
+                last_error = "timed out"
             except Exception as e:
                 error_logger.error(f"   ❌ Strategy '{strategy['name']}' error: {e}")
+                last_error = str(e)
 
-        error_logger.error(f"❌ All YouTube Music strategies failed for {url}")
+        error_logger.error(
+            f"❌ All YouTube Music strategies failed for {url}"
+            f" (last error: {last_error or 'unknown'})"
+        )
         return None, None, None, None, None
 
     async def resolve_streaming_url(
