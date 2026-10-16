@@ -1,121 +1,88 @@
 # Bot Service Management Guide
 
-> **Legacy:** production now runs on Oracle OCI with Docker Compose and deploys
-> automatically from `main`. See [OCI_DEPLOYMENT.md](OCI_DEPLOYMENT.md). The systemd
-> setup below applies only to the old bare-metal host.
+Production runs on the Oracle OCI host under Docker Compose (`docker-compose.prod.yml`) and
+deploys automatically from `main` via `.github/workflows/deploy.yml` → `scripts/deploy_oci.sh`.
+See [OCI_DEPLOYMENT.md](OCI_DEPLOYMENT.md) for setup and deployment details.
 
-The PsychoChauffeur bot is now set up as a systemd service that runs in the background.
+There is no `psychochauffeur-bot.service` systemd unit anymore; `systemctl` / `journalctl`
+commands for it will fail with "Unit psychochauffeur-bot.service not found".
 
 ## Quick Commands
 
-### Using the helper script (recommended):
+Run these on the OCI host from `~/psychochauffeurbot`:
+
 ```bash
-cd /root/psychochauffeurbot
-./scripts/bot_service.sh start    # Start the bot
-./scripts/bot_service.sh stop     # Stop the bot
-./scripts/bot_service.sh restart   # Restart the bot
-./scripts/bot_service.sh status    # Check status
-./scripts/bot_service.sh logs      # View live logs
-./scripts/bot_service.sh enable    # Enable auto-start on boot
-./scripts/bot_service.sh disable   # Disable auto-start on boot
+cd ~/psychochauffeurbot
+
+./restart_bot.sh                                                                  # Restart / pick up .env changes
+docker compose -f docker-compose.prod.yml stop bot                                # Stop
+IMAGE_TAG=$(cat .last_good_tag) docker compose -f docker-compose.prod.yml up -d bot  # Start
+docker compose -f docker-compose.prod.yml ps                                      # Status (bot + postgres)
+docker compose -f docker-compose.prod.yml logs -f bot                             # Live logs
 ```
 
-### Using systemctl directly:
-```bash
-sudo systemctl start psychochauffeur-bot      # Start
-sudo systemctl stop psychochauffeur-bot       # Stop
-sudo systemctl restart psychochauffeur-bot    # Restart
-sudo systemctl status psychochauffeur-bot     # Status
-sudo journalctl -u psychochauffeur-bot -f     # Live logs
-sudo systemctl enable psychochauffeur-bot     # Enable on boot
-sudo systemctl disable psychochauffeur-bot    # Disable on boot
-```
+`./restart_bot.sh` recreates the `bot` container using the image tag in `.last_good_tag`
+(the tag `scripts/deploy_oci.sh` last deployed successfully), so changes to `.env` are re-read.
+
+Always pass `IMAGE_TAG=$(cat .last_good_tag)` when starting the bot by hand; without it Compose
+falls back to the `latest` image tag.
 
 ## Service Details
 
-- **Service Name**: `psychochauffeur-bot`
-- **Service File**: `/etc/systemd/system/psychochauffeur-bot.service`
-- **Working Directory**: `/root/psychochauffeurbot`
-- **Python**: Uses venv at `/root/psychochauffeurbot/venv/bin/python3`
-- **Auto-restart**: Enabled (restarts automatically if it crashes)
-- **Auto-start on boot**: Enabled (starts when system boots)
-
-## Starting the Bot
-
-To start the bot service:
-```bash
-./scripts/bot_service.sh start
-```
-
-Or:
-```bash
-sudo systemctl start psychochauffeur-bot
-```
+- **Compose file**: `~/psychochauffeurbot/docker-compose.prod.yml`
+- **Services**: `bot` (image `ghcr.io/vo1dee/psychochauffeurbot:${IMAGE_TAG}`) and `postgres`
+- **Deployed tag**: `~/psychochauffeurbot/.last_good_tag`
+- **Environment**: `~/psychochauffeurbot/.env` (untracked; loaded via `env_file`)
+- **Auto-restart / start on boot**: `restart: unless-stopped` — containers come back after a
+  crash or a reboot unless they were stopped explicitly
 
 ## Checking Status
 
 ```bash
-./scripts/bot_service.sh status
+docker compose -f docker-compose.prod.yml ps bot
 ```
 
-You should see:
-- `Active: active (running)` - Bot is running
-- `Active: inactive (dead)` - Bot is stopped
+`STATUS` shows `Up …` when the bot is running. A `Restarting` status means it is crash-looping;
+check the logs.
 
 ## Viewing Logs
 
-### Live logs (follow):
 ```bash
-./scripts/bot_service.sh logs
+# Live logs (follow)
+docker compose -f docker-compose.prod.yml logs -f bot
+
+# Last 100 lines
+docker compose -f docker-compose.prod.yml logs --tail=100 bot
+
+# Last 24 hours
+docker compose -f docker-compose.prod.yml logs --since 24h bot
 ```
 
-### Last 100 lines:
-```bash
-sudo journalctl -u psychochauffeur-bot -n 100
-```
-
-### Logs since boot:
-```bash
-sudo journalctl -u psychochauffeur-bot -b
-```
-
-### Logs for today:
-```bash
-sudo journalctl -u psychochauffeur-bot --since today
-```
+Application log files are also written to `~/psychochauffeurbot/logs/` (bind-mounted into the
+container).
 
 ## Troubleshooting
 
-### Service won't start
-1. Check logs: `sudo journalctl -u psychochauffeur-bot -n 50`
-2. Verify Docker is running: `docker ps | grep postgres`
-3. Check .env file exists: `ls -la /root/psychochauffeurbot/.env`
-4. Verify Python venv: `ls -la /root/psychochauffeurbot/venv/bin/python3`
+### Bot won't start
+1. Check logs: `docker compose -f docker-compose.prod.yml logs --tail=50 bot`
+2. Check postgres is healthy: `docker compose -f docker-compose.prod.yml ps postgres`
+3. Check the .env file exists: `ls -la ~/psychochauffeurbot/.env`
+4. Check the deployed tag: `cat ~/psychochauffeurbot/.last_good_tag`
 
-### Service keeps restarting
-1. Check logs for errors: `sudo journalctl -u psychochauffeur-bot -n 100`
+### Bot keeps restarting
+1. Check logs for errors: `docker compose -f docker-compose.prod.yml logs --tail=100 bot`
 2. Verify database connection
-3. Check TELEGRAM_BOT_TOKEN in .env
+3. Check `TELEGRAM_BOT_TOKEN` in `.env`, then `./restart_bot.sh`
 
-### Service is running but bot doesn't respond
-1. Check bot logs: `sudo journalctl -u psychochauffeur-bot -f`
-2. Verify bot token is correct
+### Bot is running but doesn't respond
+1. Follow bot logs: `docker compose -f docker-compose.prod.yml logs -f bot`
+2. Verify the bot token is correct
 3. Check network connectivity
 
-## Service Configuration
+## Changing Configuration
 
-The service file is located at:
-- `/etc/systemd/system/psychochauffeur-bot.service`
-
-To edit it:
-```bash
-sudo nano /etc/systemd/system/psychochauffeur-bot.service
-sudo systemctl daemon-reload  # Reload after editing
-```
-
-## Notes
-
-- The service automatically restarts if it crashes (RestartSec=10)
-- Logs are sent to systemd journal (view with `journalctl`)
-- The service waits for Docker and network to be ready before starting
-- Environment variables are loaded from `/root/psychochauffeurbot/.env`
+- **Environment variables**: edit `~/psychochauffeurbot/.env`, then run `./restart_bot.sh`.
+- **Container definition** (volumes, logging, services): change `docker-compose.prod.yml` in
+  the repository and merge to `main`; the deploy workflow applies it.
+- **Deploying a specific image by hand**: `IMAGE_TAG=sha-abc1234 ./scripts/deploy_oci.sh`
+  (rolls back to the previous tag automatically if the new one fails to stay up).
