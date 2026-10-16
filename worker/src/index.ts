@@ -1,4 +1,6 @@
-export interface Env {
+import { handleWebApp, type WebAppEnv } from "./webapp";
+
+export interface Env extends WebAppEnv {
   DATA_DB: D1Database;
   CONFIG_DB: D1Database;
   D1_API_TOKEN: string;
@@ -129,6 +131,8 @@ async function dataOperation(path: string, body: JsonRecord, db: D1Database): Pr
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const webApp = await handleWebApp(request, env);
+    if (webApp) return webApp;
     if (request.method !== "POST") return response({ error: "Not found" }, 404);
     if (!authorized(request, env)) return response({ error: "Unauthorized" }, 401);
     try {
