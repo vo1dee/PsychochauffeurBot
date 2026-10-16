@@ -15,13 +15,32 @@ const PAGE = `<!doctype html>
 <title>Погода</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
+  /* Fallback palette for when Telegram doesn't provide theme params (e.g. a plain browser). */
   :root {
-    --bg: var(--tg-theme-bg-color, #ffffff);
-    --text: var(--tg-theme-text-color, #111111);
-    --hint: var(--tg-theme-hint-color, #888888);
-    --card: var(--tg-theme-secondary-bg-color, #f2f2f5);
-    --accent: var(--tg-theme-button-color, #2481cc);
-    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --fb-bg: #ffffff; --fb-text: #111111; --fb-hint: #888888;
+    --fb-card: #f2f2f5; --fb-accent: #2481cc; --fb-accent-text: #ffffff;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --fb-bg: #17212b; --fb-text: #f5f5f5; --fb-hint: #708499;
+      --fb-card: #232e3c; --fb-accent: #5288c1; --fb-accent-text: #ffffff;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --fb-bg: #17212b; --fb-text: #f5f5f5; --fb-hint: #708499;
+    --fb-card: #232e3c; --fb-accent: #5288c1; --fb-accent-text: #ffffff;
+    color-scheme: dark;
+  }
+  /* Telegram's theme params (set by telegram-web-app.js) win over the fallbacks. */
+  :root {
+    --bg: var(--tg-theme-bg-color, var(--fb-bg));
+    --text: var(--tg-theme-text-color, var(--fb-text));
+    --hint: var(--tg-theme-hint-color, var(--fb-hint));
+    --card: var(--tg-theme-secondary-bg-color, var(--fb-card));
+    --accent: var(--tg-theme-button-color, var(--fb-accent));
+    --accent-text: var(--tg-theme-button-text-color, var(--fb-accent-text));
   }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 16px; background: var(--bg); color: var(--text);
@@ -64,7 +83,19 @@ const PAGE = `<!doctype html>
   const tg = window.Telegram && window.Telegram.WebApp;
   const user = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
 
+  // Inside Telegram follow its light/dark mode; in a plain browser the CSS media query decides.
+  function applyTheme() {
+    if (!tg || !tg.initData) return;
+    document.documentElement.dataset.theme = tg.colorScheme;
+    try {
+      tg.setHeaderColor("bg_color");
+      tg.setBackgroundColor("bg_color");
+    } catch (e) { /* older Telegram clients */ }
+  }
+
   if (tg) {
+    applyTheme();
+    tg.onEvent("themeChanged", applyTheme);
     tg.ready();
     tg.expand();
     tg.MainButton.setText("Закрити");

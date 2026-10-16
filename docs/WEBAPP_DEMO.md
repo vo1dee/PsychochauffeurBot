@@ -5,7 +5,8 @@ It is served by the existing Cloudflare worker (`worker/`), so it gets HTTPS for
 
 ## What it shows
 
-- Greeting from `Telegram.WebApp.initDataUnsafe.user`, Telegram theme colours, platform.
+- Greeting from `Telegram.WebApp.initDataUnsafe.user`, platform.
+- Light/dark theme: follows Telegram's theme inside the app and the system setting in a browser.
 - City search + current weather and 3-day forecast (Open-Meteo, no API key).
 - Telegram `MainButton` ("Закрити") and haptic feedback.
 - "🔐 Перевірка initData" section: the page sends `initData` to `POST /webapp/verify`,
@@ -27,7 +28,8 @@ It is served by the existing Cloudflare worker (`worker/`), so it gets HTTPS for
    `https://psychochauffeur-d1-api.<your-subdomain>.workers.dev/webapp`.
 2. **(Optional) enable server-side verification:**
    `cd worker && npx wrangler secret put TELEGRAM_BOT_TOKEN`
-3. **Bot env:** set `WEBAPP_URL` to the page URL above and restart the bot.
+3. **Bot env:** set `WEBAPP_URL` to the page URL above in `~/psychochauffeurbot/.env` on the host,
+   then run `./restart_bot.sh` there (it recreates the container so `.env` is re-read).
 4. **Try it:** send `/webapp` to the bot in a private chat and tap "🌤 Відкрити погоду".
 
 ### Groups

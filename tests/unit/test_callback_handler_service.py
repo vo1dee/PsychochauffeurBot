@@ -118,6 +118,19 @@ class TestCallbackHandlerService:
         )
         
     @pytest.mark.asyncio
+    async def test_handle_weather_details_callback(self, callback_service, mock_update, mock_context):
+        """Weather details are answered once, as a private alert (no pre-answer)."""
+        mock_update.callback_query.data = "wx:h:2:-9:3:n"
+
+        await callback_service.handle_callback_query(mock_update, mock_context)
+
+        mock_update.callback_query.answer.assert_called_once()
+        args, kwargs = mock_update.callback_query.answer.call_args
+        assert kwargs == {"show_alert": True}
+        assert "Середній (2/6)" in args[0]
+        mock_update.callback_query.edit_message_text.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_handle_speech_recognition_callback(self, callback_service, mock_update, mock_context):
         """Test handling speech recognition callback."""
         mock_update.callback_query.data = "speechrec_abcd1234"
@@ -427,6 +440,9 @@ class TestCallbackHandlerService:
         patterns = callback_service.get_supported_callback_patterns()
         
         expected_patterns = {
+            r"^cfg:",
+            r"^wx:",
+            r"^song_select:[a-zA-Z0-9_-]+$",
             r"^speechrec_",
             r"^lang_", 
             r"^test_callback$",
