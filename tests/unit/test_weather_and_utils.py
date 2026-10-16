@@ -258,6 +258,48 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         update.message.reply_text.assert_called_once()
         sent_message.edit_text.assert_called_once()
 
+    @patch('modules.weather.save_user_location')
+    def test_weather_command_collapses_headache_explanation(self, mock_save_location: Any) -> None:
+        """Test headache explanation is HTML-escaped inside an expandable blockquote."""
+        from modules.weather import HeadacheRiskAssessment
+
+        update = MagicMock(spec=Update)
+        update.effective_user = MagicMock()
+        update.effective_user.id = 123
+        update.effective_chat = MagicMock()
+        update.effective_chat.id = 456
+
+        context = MagicMock(spec=CallbackContext)
+        context.args = ["Odesa"]
+
+        weather_cmd = WeatherCommandHandler()
+        mock_weather_data = MagicMock()
+        mock_weather_data.format_message_raw = AsyncMock(return_value="Weather <Odesa>")
+        mock_weather_data.get_clothing_advice = AsyncMock(
+            return_value=WeatherCommand(temperature=10, feels_like=8, description="хмарно", clothing_advice="Куртка & шарф")
+        )
+        mock_weather_data.get_headache_risk = AsyncMock(return_value=HeadacheRiskAssessment(
+            risk_level="Середній", risk_score=2, pressure_trend=None, air_quality=None,
+            k_index=None, explanation="Тиск < норми & вітер",
+        ))
+        weather_cmd.weather_api.fetch_weather = AsyncMock(return_value=mock_weather_data)  # type: ignore
+
+        sent_message = MagicMock()
+        sent_message.edit_text = AsyncMock()
+        update.message = MagicMock()
+        update.message.reply_text = AsyncMock(return_value=sent_message)
+
+        asyncio.run(weather_cmd(update, context))
+
+        sent_message.edit_text.assert_called_once()
+        args, kwargs = sent_message.edit_text.call_args
+        text = args[0]
+        self.assertEqual(kwargs.get("parse_mode"), "HTML")
+        self.assertIn("Weather &lt;Odesa&gt;", text)
+        self.assertIn("Куртка &amp; шарф", text)
+        self.assertIn("🧠 Ризик мігрені: 🟡 Середній", text)
+        self.assertIn("<blockquote expandable>Тиск &lt; норми &amp; вітер</blockquote>", text)
+
 # Additional tests for core utilities
     def test_remove_links(self) -> None:
         """Test removing URLs from text."""

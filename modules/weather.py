@@ -1,11 +1,13 @@
 """Weather module for fetching and displaying weather information."""
 
 import asyncio
+import html
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple, Any
 import time
 import httpx
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import CallbackContext
 
 from modules.utils import (
@@ -480,7 +482,7 @@ class WeatherCommandHandler:
                     return_exceptions=True,
                 )
 
-                full_message = raw_message
+                full_message = html.escape(raw_message)
 
                 # Append pressure trend detail if available
                 if isinstance(headache, HeadacheRiskAssessment) and headache.pressure_trend:
@@ -500,17 +502,21 @@ class WeatherCommandHandler:
 
                 # Clothing advice
                 if isinstance(clothing, WeatherCommand) and clothing.clothing_advice:
-                    full_message += f"\n\n👕 {clothing.clothing_advice}"
+                    full_message += f"\n\n👕 {html.escape(clothing.clothing_advice)}"
 
                 # Headache risk
                 if isinstance(headache, HeadacheRiskAssessment):
                     emoji = _RISK_EMOJIS.get(headache.risk_level, "⚪")
                     risk_line = f"\n\n🧠 Ризик мігрені: {emoji} {headache.risk_level}"
                     if headache.explanation:
-                        risk_line += f"\n{headache.explanation}"
+                        # Collapsed by default to keep the message short
+                        risk_line += (
+                            f"\n<blockquote expandable>"
+                            f"{html.escape(headache.explanation.strip())}</blockquote>"
+                        )
                     full_message += risk_line
 
-                await sent_message.edit_text(full_message)
+                await sent_message.edit_text(full_message, parse_mode=ParseMode.HTML)
 
             except Exception as e:
                 error_logger.error(f"Error fetching weather advice: {e}")
