@@ -66,9 +66,9 @@ tail -n 100 logs/error.log | grep -E "(ERROR|CRITICAL)"
 
 **Solution 1: Restart the Bot**
 ```bash
-# If running as systemd service
-sudo systemctl restart psychochauffeur-bot
-sudo systemctl status psychochauffeur-bot
+# Production: on the OCI host, from ~/psychochauffeurbot
+./restart_bot.sh
+docker compose -f docker-compose.prod.yml ps bot
 
 # If running manually
 pkill -f "python.*main.py"
@@ -134,8 +134,8 @@ except Exception as e:
 
 #### Diagnostic Steps
 ```bash
-# 1. Check database service status
-sudo systemctl status postgresql
+# 1. Check database service status (production, from ~/psychochauffeurbot)
+docker compose -f docker-compose.prod.yml ps postgres
 
 # 2. Test direct connection
 psql -h $DB_HOST -U $DB_USER -d $DB_NAME -c "SELECT version();"
@@ -159,8 +159,9 @@ sudo tail -f /var/log/postgresql/postgresql-*.log
 
 **Solution 1: Restart Database Service**
 ```bash
-sudo systemctl restart postgresql
-sudo systemctl status postgresql
+# Production: on the OCI host, from ~/psychochauffeurbot
+docker compose -f docker-compose.prod.yml restart postgres
+docker compose -f docker-compose.prod.yml ps postgres
 ```
 
 **Solution 2: Fix Connection Parameters**
@@ -241,10 +242,10 @@ print(f'After GC: {len(gc.get_objects())}')
 
 **Solution 1: Restart Application**
 ```bash
-# Graceful restart
-sudo systemctl restart psychochauffeur-bot
+# Graceful restart (on the OCI host, from ~/psychochauffeurbot)
+./restart_bot.sh
 
-# Force restart if needed
+# Force restart if needed (local development)
 pkill -9 -f "python.*main.py"
 python main.py
 ```
@@ -620,8 +621,8 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 
 ### Complete System Recovery
 ```bash
-# 1. Stop all services
-sudo systemctl stop psychochauffeur-bot
+# 1. Stop the bot (on the OCI host, from ~/psychochauffeurbot)
+docker compose -f docker-compose.prod.yml stop bot
 
 # 2. Backup current state
 tar -czf emergency_backup_$(date +%Y%m%d_%H%M%S).tar.gz \
@@ -630,8 +631,8 @@ tar -czf emergency_backup_$(date +%Y%m%d_%H%M%S).tar.gz \
 # 3. Restore from known good backup
 # (Follow backup restoration procedures)
 
-# 4. Start services
-sudo systemctl start psychochauffeur-bot
+# 4. Start the bot
+IMAGE_TAG=$(cat .last_good_tag) docker compose -f docker-compose.prod.yml up -d bot
 
 # 5. Verify functionality
 python scripts/health_check.py --comprehensive

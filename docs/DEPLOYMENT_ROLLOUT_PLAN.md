@@ -101,29 +101,17 @@ pip install gunicorn supervisor
 
 ### Service Configuration
 
-#### Systemd Service File
-```ini
-# /etc/systemd/system/psychochauffeur-bot.service
-[Unit]
-Description=PsychoChauffeur Telegram Bot
-After=network.target postgresql.service redis.service
-Wants=postgresql.service redis.service
+#### Docker Compose Service
+The bot runs as the `bot` service in `docker-compose.prod.yml` (alongside `postgres`), with
+`restart: unless-stopped`. It is deployed by `scripts/deploy_oci.sh`, which records the
+deployed image tag in `.last_good_tag`. See [OCI_DEPLOYMENT.md](OCI_DEPLOYMENT.md).
 
-[Service]
-Type=simple
-User=psychochauffeur
-Group=psychochauffeur
-WorkingDirectory=/opt/psychochauffeur-bot
-Environment=PATH=/opt/psychochauffeur-bot/.venv/bin
-ExecStart=/opt/psychochauffeur-bot/.venv/bin/python main.py
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
+```bash
+# On the OCI host, from ~/psychochauffeurbot
+./restart_bot.sh                                                          # Restart / pick up .env changes
+docker compose -f docker-compose.prod.yml stop bot                                 # Stop
+IMAGE_TAG=$(cat .last_good_tag) docker compose -f docker-compose.prod.yml up -d bot   # Start
+docker compose -f docker-compose.prod.yml logs -f bot                              # Live logs
 ```
 
 #### Nginx Configuration
@@ -228,22 +216,22 @@ python -m pytest tests/ -v
 
 #### 2. Deployment Phase (10 minutes)
 ```bash
-# 1. Stop current service
-sudo systemctl stop psychochauffeur-bot
+# On the OCI host, from ~/psychochauffeurbot
+# 1. Note the currently deployed tag (needed for rollback)
+cat .last_good_tag
 
-# 2. Deploy new version
-git fetch origin
-git checkout v1.2.3
-pip install -r requirements.txt --upgrade
+# 2. Deploy the new image (pulls it, starts it, records it in .last_good_tag on success,
+#    and rolls back to the previous tag if it fails to stay up)
+IMAGE_TAG=sha-abc1234 ./scripts/deploy_oci.sh
 
 # 3. Run database migrations
-python scripts/migrate_db.py --up
+docker compose -f docker-compose.prod.yml exec bot python scripts/migrate_db.py --up
 
 # 4. Update configuration
-python scripts/generate_global_config.py --update
+docker compose -f docker-compose.prod.yml exec bot python scripts/generate_global_config.py --update
 
-# 5. Start service
-sudo systemctl start psychochauffeur-bot
+# 5. Restart so the bot picks up migrations/config
+./restart_bot.sh
 ```
 
 #### 3. Validation Phase (10 minutes)
@@ -294,23 +282,21 @@ echo "$(date): Deployed v1.2.3 successfully" >> /var/log/deployments.log
 
 #### 1. Immediate Rollback (< 5 minutes)
 ```bash
+# On the OCI host, from ~/psychochauffeurbot
 # 1. Stop current service
-sudo systemctl stop psychochauffeur-bot
+docker compose -f docker-compose.prod.yml stop bot
 
-# 2. Restore previous version
+# 2. Restore configuration if it changed
 BACKUP_PATH="/opt/backups/psychochauffeur-bot/$(ls -t /opt/backups/psychochauffeur-bot/ | head -1)"
-cd /opt/psychochauffeur-bot
-tar -xzf "$BACKUP_PATH/application.tar.gz"
-
-# 3. Restore configuration
 cp "$BACKUP_PATH/env_backup" .env
 cp -r "$BACKUP_PATH/config_backup/"* config/
 
-# 4. Start service
-sudo systemctl start psychochauffeur-bot
+# 3. Redeploy the previous image tag (updates .last_good_tag)
+IMAGE_TAG=<previous-tag> ./scripts/deploy_oci.sh
 
-# 5. Verify rollback
-python scripts/health_check.py
+# 4. Verify rollback
+docker compose -f docker-compose.prod.yml ps bot
+docker compose -f docker-compose.prod.yml logs --tail=50 bot
 ```
 
 #### 2. Database Rollback (if needed)

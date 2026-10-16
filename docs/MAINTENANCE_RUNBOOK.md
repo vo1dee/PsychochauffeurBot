@@ -286,47 +286,36 @@ python scripts/migrate_db.py --analyze-queries
 - [ ] Notify users if needed
 
 #### 2. Update Process
+Merges to `main` are deployed automatically by `.github/workflows/deploy.yml`, which runs
+`scripts/deploy_oci.sh` on the OCI host. To deploy a specific image by hand:
+
 ```bash
-# 1. Stop the application
-sudo systemctl stop psychochauffeur-bot
+# On the OCI host, from ~/psychochauffeurbot
+cd ~/psychochauffeurbot
 
-# 2. Backup current version
-cp -r /opt/psychochauffeur-bot /opt/psychochauffeur-bot.backup
+# 1. Note the currently deployed tag (needed for rollback)
+cat .last_good_tag
 
-# 3. Pull latest changes
-cd /opt/psychochauffeur-bot
-git pull origin main
+# 2. Deploy the new image (pulls it, starts it, and on success records it in .last_good_tag;
+#    if it fails to stay up, the script rolls back to the previous tag)
+IMAGE_TAG=sha-abc1234 ./scripts/deploy_oci.sh
 
-# 4. Update dependencies
-pip install -r requirements.txt
-
-# 5. Run database migrations
-python scripts/migrate_db.py
-
-# 6. Run tests
-python -m pytest tests/ -v
-
-# 7. Start the application
-sudo systemctl start psychochauffeur-bot
-
-# 8. Verify functionality
-python scripts/health_check.py
+# 3. Check status and logs
+docker compose -f docker-compose.prod.yml ps bot
+docker compose -f docker-compose.prod.yml logs -f bot
 ```
 
 #### 3. Rollback Process
 ```bash
-# 1. Stop the application
-sudo systemctl stop psychochauffeur-bot
+# On the OCI host, from ~/psychochauffeurbot
+# 1. Stop the bot
+docker compose -f docker-compose.prod.yml stop bot
 
-# 2. Restore backup
-rm -rf /opt/psychochauffeur-bot
-mv /opt/psychochauffeur-bot.backup /opt/psychochauffeur-bot
-
-# 3. Restore database if needed
+# 2. Restore database if needed
 # (Follow database backup restoration procedure)
 
-# 4. Start the application
-sudo systemctl start psychochauffeur-bot
+# 3. Redeploy the previous image tag (updates .last_good_tag)
+IMAGE_TAG=<previous-tag> ./scripts/deploy_oci.sh
 ```
 
 ### Database Maintenance
@@ -363,17 +352,16 @@ pg_restore --list backup_weekly_$(date +%Y%m%d).dump
 #### Log Rotation Configuration
 ```bash
 # /etc/logrotate.d/psychochauffeur-bot
-/opt/psychochauffeur-bot/logs/*.log {
+# Use the absolute path of ~/psychochauffeurbot/logs (bind-mounted into the bot container);
+# copytruncate avoids restarting the container
+/home/<deploy-user>/psychochauffeurbot/logs/*.log {
     daily
     rotate 30
     compress
     delaycompress
     missingok
     notifempty
-    create 644 psychochauffeur psychochauffeur
-    postrotate
-        systemctl reload psychochauffeur-bot
-    endscript
+    copytruncate
 }
 ```
 
@@ -401,8 +389,8 @@ grep "slow_query" logs/general.log | tail -20
 
 2. **Initial Response**
    ```bash
-   # Quick restart attempt
-   sudo systemctl restart psychochauffeur-bot
+   # Quick restart attempt (on the OCI host, from ~/psychochauffeurbot)
+   ./restart_bot.sh
    
    # Check immediate status
    python scripts/health_check.py
