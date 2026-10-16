@@ -288,7 +288,7 @@ python scripts/migrate_db.py --analyze-queries
 #### 2. Update Process
 ```bash
 # 1. Stop the application
-sudo systemctl stop psychochauffeur-bot
+cd ~/psychochauffeurbot && docker compose -f docker-compose.prod.yml stop bot
 
 # 2. Backup current version
 cp -r /opt/psychochauffeur-bot /opt/psychochauffeur-bot.backup
@@ -307,7 +307,7 @@ python scripts/migrate_db.py
 python -m pytest tests/ -v
 
 # 7. Start the application
-sudo systemctl start psychochauffeur-bot
+cd ~/psychochauffeurbot && IMAGE_TAG=$(cat .last_good_tag) docker compose -f docker-compose.prod.yml up -d bot
 
 # 8. Verify functionality
 python scripts/health_check.py
@@ -316,7 +316,7 @@ python scripts/health_check.py
 #### 3. Rollback Process
 ```bash
 # 1. Stop the application
-sudo systemctl stop psychochauffeur-bot
+cd ~/psychochauffeurbot && docker compose -f docker-compose.prod.yml stop bot
 
 # 2. Restore backup
 rm -rf /opt/psychochauffeur-bot
@@ -326,7 +326,7 @@ mv /opt/psychochauffeur-bot.backup /opt/psychochauffeur-bot
 # (Follow database backup restoration procedure)
 
 # 4. Start the application
-sudo systemctl start psychochauffeur-bot
+cd ~/psychochauffeurbot && IMAGE_TAG=$(cat .last_good_tag) docker compose -f docker-compose.prod.yml up -d bot
 ```
 
 ### Database Maintenance
@@ -361,19 +361,25 @@ pg_restore --list backup_weekly_$(date +%Y%m%d).dump
 ### Log Management
 
 #### Log Rotation Configuration
+Container stdout/stderr is rotated by Docker's `json-file` driver
+(`max-size: 20m`, `max-file: 5` in `docker-compose.prod.yml`). View it with:
+```bash
+cd ~/psychochauffeurbot && docker compose -f docker-compose.prod.yml logs -f bot
+```
+
+The application log files in `~/psychochauffeurbot/logs/` (mounted into the
+container) can be rotated with logrotate's `copytruncate`, which needs no reload:
 ```bash
 # /etc/logrotate.d/psychochauffeur-bot
-/opt/psychochauffeur-bot/logs/*.log {
+# logrotate does not expand ~: use the absolute path of the deployment dir.
+/path/to/psychochauffeurbot/logs/*.log {
     daily
     rotate 30
     compress
     delaycompress
     missingok
     notifempty
-    create 644 psychochauffeur psychochauffeur
-    postrotate
-        systemctl reload psychochauffeur-bot
-    endscript
+    copytruncate
 }
 ```
 
@@ -402,7 +408,7 @@ grep "slow_query" logs/general.log | tail -20
 2. **Initial Response**
    ```bash
    # Quick restart attempt
-   sudo systemctl restart psychochauffeur-bot
+   cd ~/psychochauffeurbot && ./restart_bot.sh
    
    # Check immediate status
    python scripts/health_check.py

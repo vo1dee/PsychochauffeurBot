@@ -587,7 +587,7 @@ cp -r config/ config_backup_$(date +%Y%m%d)/
 python scripts/generate_global_config.py --reset
 
 # Restart the bot
-sudo systemctl restart psychochauffeur-bot
+cd ~/psychochauffeurbot && ./restart_bot.sh
 ```
 
 ## Emergency Recovery Procedures
@@ -596,7 +596,7 @@ sudo systemctl restart psychochauffeur-bot
 
 ```bash
 # 1. Stop the bot
-sudo systemctl stop psychochauffeur-bot
+cd ~/psychochauffeurbot && docker compose -f docker-compose.prod.yml stop bot
 
 # 2. Backup current state
 tar -czf command_fixes_backup_$(date +%Y%m%d_%H%M%S).tar.gz \
@@ -637,7 +637,7 @@ except ImportError as e:
 "
 
 # 5. Start the bot
-sudo systemctl start psychochauffeur-bot
+cd ~/psychochauffeurbot && IMAGE_TAG=$(cat .last_good_tag) docker compose -f docker-compose.prod.yml up -d bot
 
 # 6. Verify functionality
 python -c "
@@ -667,7 +667,7 @@ cp modules/handlers/gpt_commands.py modules/handlers/gpt_commands_backup.py
 # Edit modules/handler_registry.py to use original analyze_command instead of enhanced_analyze_command
 
 # 3. Restart the bot
-sudo systemctl restart psychochauffeur-bot
+cd ~/psychochauffeurbot && ./restart_bot.sh
 
 # 4. Monitor for stability
 tail -f logs/general.log | grep -E "(analyze|flares)"

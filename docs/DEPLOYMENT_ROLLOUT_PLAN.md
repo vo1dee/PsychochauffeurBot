@@ -101,29 +101,17 @@ pip install gunicorn supervisor
 
 ### Service Configuration
 
-#### Systemd Service File
-```ini
-# /etc/systemd/system/psychochauffeur-bot.service
-[Unit]
-Description=PsychoChauffeur Telegram Bot
-After=network.target postgresql.service redis.service
-Wants=postgresql.service redis.service
+#### Docker Compose Service
+Production runs the bot as the `bot` service in `docker-compose.prod.yml`
+(alongside `postgres`), deployed to `~/psychochauffeurbot` on the OCI host by
+`scripts/deploy_oci.sh` from `.github/workflows/deploy.yml`. There is no systemd
+unit. Run these from `~/psychochauffeurbot`:
 
-[Service]
-Type=simple
-User=psychochauffeur
-Group=psychochauffeur
-WorkingDirectory=/opt/psychochauffeur-bot
-Environment=PATH=/opt/psychochauffeur-bot/.venv/bin
-ExecStart=/opt/psychochauffeur-bot/.venv/bin/python main.py
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
+```bash
+./restart_bot.sh                                                        # Restart / pick up .env changes
+docker compose -f docker-compose.prod.yml stop bot                      # Stop
+IMAGE_TAG=$(cat .last_good_tag) docker compose -f docker-compose.prod.yml up -d bot   # Start
+docker compose -f docker-compose.prod.yml logs -f bot                   # Live logs
 ```
 
 #### Nginx Configuration
@@ -229,7 +217,7 @@ python -m pytest tests/ -v
 #### 2. Deployment Phase (10 minutes)
 ```bash
 # 1. Stop current service
-sudo systemctl stop psychochauffeur-bot
+cd ~/psychochauffeurbot && docker compose -f docker-compose.prod.yml stop bot
 
 # 2. Deploy new version
 git fetch origin
@@ -243,7 +231,7 @@ python scripts/migrate_db.py --up
 python scripts/generate_global_config.py --update
 
 # 5. Start service
-sudo systemctl start psychochauffeur-bot
+cd ~/psychochauffeurbot && IMAGE_TAG=$(cat .last_good_tag) docker compose -f docker-compose.prod.yml up -d bot
 ```
 
 #### 3. Validation Phase (10 minutes)
@@ -295,7 +283,7 @@ echo "$(date): Deployed v1.2.3 successfully" >> /var/log/deployments.log
 #### 1. Immediate Rollback (< 5 minutes)
 ```bash
 # 1. Stop current service
-sudo systemctl stop psychochauffeur-bot
+cd ~/psychochauffeurbot && docker compose -f docker-compose.prod.yml stop bot
 
 # 2. Restore previous version
 BACKUP_PATH="/opt/backups/psychochauffeur-bot/$(ls -t /opt/backups/psychochauffeur-bot/ | head -1)"
@@ -307,7 +295,7 @@ cp "$BACKUP_PATH/env_backup" .env
 cp -r "$BACKUP_PATH/config_backup/"* config/
 
 # 4. Start service
-sudo systemctl start psychochauffeur-bot
+cd ~/psychochauffeurbot && IMAGE_TAG=$(cat .last_good_tag) docker compose -f docker-compose.prod.yml up -d bot
 
 # 5. Verify rollback
 python scripts/health_check.py
