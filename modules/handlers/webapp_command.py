@@ -15,7 +15,15 @@ from telegram.ext import ContextTypes
 
 
 def _webapp_url() -> str:
-    return os.getenv("WEBAPP_URL", "").strip()
+    """Return WEBAPP_URL forced to https, since Telegram rejects any other scheme."""
+    url = os.getenv("WEBAPP_URL", "").strip()
+    if not url:
+        return ""
+    if url.startswith("http://"):
+        url = url[len("http://"):]
+    elif url.startswith("https://"):
+        return url
+    return f"https://{url.lstrip('/')}"
 
 
 def _webapp_short_name() -> str:

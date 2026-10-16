@@ -28,7 +28,7 @@ It is served by the existing Cloudflare worker (`worker/`), so it gets HTTPS for
    `https://psychochauffeur-d1-api.<your-subdomain>.workers.dev/webapp`.
 2. **(Optional) enable server-side verification:**
    `cd worker && npx wrangler secret put TELEGRAM_BOT_TOKEN`
-3. **Bot env:** set `WEBAPP_URL` to the page URL above in `~/psychochauffeurbot/.env` on the host,
+3. **Bot env:** set `WEBAPP_URL` to the page URL above (must be https; a missing scheme is prefixed with `https://`) in `~/psychochauffeurbot/.env` on the host,
    then run `./restart_bot.sh` there (it recreates the container so `.env` is re-read).
 4. **Try it:** send `/webapp` to the bot in a private chat and tap "🌤 Відкрити погоду".
 

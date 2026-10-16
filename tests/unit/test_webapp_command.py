@@ -45,6 +45,15 @@ async def test_private_chat_uses_web_app_button() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("raw", ["example.workers.dev/webapp", "http://example.workers.dev/webapp"])
+async def test_url_is_forced_to_https(raw: str) -> None:
+    update = _make_update(ChatType.PRIVATE)
+    with patch.dict("os.environ", {"WEBAPP_URL": raw}):
+        await webapp_command(update, _make_context())
+    assert _button(update).web_app.url == "https://example.workers.dev/webapp"
+
+
+@pytest.mark.asyncio
 async def test_group_uses_direct_link_when_short_name_set() -> None:
     update = _make_update(ChatType.SUPERGROUP)
     env = {"WEBAPP_URL": "https://example.workers.dev/webapp", "WEBAPP_SHORT_NAME": "weather"}
