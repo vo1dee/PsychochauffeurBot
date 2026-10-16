@@ -1,7 +1,7 @@
+import { getLocation, HOME_CHAT_ID, normalizeCity, setLocation } from "./locations";
 import { handleWebApp, type WebAppEnv } from "./webapp";
 
 export interface Env extends WebAppEnv {
-  DATA_DB: D1Database;
   CONFIG_DB: D1Database;
   D1_API_TOKEN: string;
 }
@@ -95,6 +95,14 @@ async function dataOperation(path: string, body: JsonRecord, db: D1Database): Pr
       ? await db.prepare("DELETE FROM analysis_cache WHERE chat_id = ?").bind(chatId).run()
       : await db.prepare("DELETE FROM analysis_cache WHERE chat_id = ? AND time_period = ?").bind(chatId, period).run();
     return { deleted: result.meta.changes };
+  }
+  if (path === "/v1/data/location/set") {
+    await setLocation(db, integerValue(body.user_id, "user_id") as number, integerValue(body.chat_id, "chat_id", false) ?? HOME_CHAT_ID,
+      normalizeCity(body.city), isoTimestamp(body.updated_at, "updated_at", false) ?? undefined);
+    return { ok: true };
+  }
+  if (path === "/v1/data/location/get") {
+    return { city: await getLocation(db, integerValue(body.user_id, "user_id") as number, integerValue(body.chat_id, "chat_id", false)) };
   }
   if (path === "/v1/data/recap/upsert") {
     // The bot sends the full PostgreSQL row after every change; an out-of-order older row is ignored.

@@ -43,3 +43,30 @@ Telegram rejects `web_app` inline buttons in groups. To open the app from a grou
 Without a short name it links to the bot's private chat instead.
 
 You can also attach the app to the chat **menu button** via BotFather (`/mybots` → Bot Settings → Menu Button).
+
+## Saved locations
+
+`/weather` and the Mini App share one saved city per user, stored in D1 (`user_locations`,
+migration `worker/migrations/data/0004_user_locations.sql`):
+
+- **Home city** (`chat_id = 0`) is updated by every successful `/weather <city>` and by
+  "Зберегти …" in the Mini App. The Mini App opens on it.
+- **Group override**: `/weather <city>` in a group also remembers that city for you in that group.
+- `/weather` with no city uses the group override, then the home city.
+
+The bot reaches D1 through the Worker API (`D1_API_URL` / `D1_API_TOKEN`, see
+`modules/user_locations.py`); when D1 is not configured or fails it falls back to
+`data/user_locations.csv`. The Mini App uses `POST /webapp/location` and
+`POST /webapp/location/save`, authenticated by verified `initData` (needs the
+`TELEGRAM_BOT_TOKEN` worker secret).
+
+### Importing the old CSV
+
+1. Copy the old file into the deployment's `data/` folder (mounted into the container), e.g.
+   `scp old-host:~/psychochauffeurbot/data/user_locations.csv ~/psychochauffeurbot/data/user_locations_old.csv`
+2. Preview, then import (safe to re-run; it never overwrites a city saved more recently):
+   ```bash
+   cd ~/psychochauffeurbot
+   docker compose -f docker-compose.prod.yml exec bot python scripts/import_user_locations.py data/user_locations_old.csv --dry-run
+   docker compose -f docker-compose.prod.yml exec bot python scripts/import_user_locations.py data/user_locations_old.csv
+   ```

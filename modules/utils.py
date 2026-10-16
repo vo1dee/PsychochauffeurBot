@@ -1374,7 +1374,7 @@ def ensure_city_data_file() -> None:
         
         # Create the user_locations.csv file with headers
         with open(city_data_path, 'w', encoding='utf-8') as f:
-            f.write("city_name,country_code\n")  # Add headers or initial data
+            f.write("user_id,city,timestamp,chat_id\n")
         logging.info(f"Created city data file: {city_data_path}")
     else:
         logging.info(f"City data file already exists: {city_data_path}")

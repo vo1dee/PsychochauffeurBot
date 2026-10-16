@@ -15,13 +15,12 @@ from modules.utils import (
     get_weather_emoji,
     get_city_translation,
     get_feels_like_emoji,
-    get_last_used_city,
     get_humidity_emoji
 )
 from config_v2.compat import get_shared_config_manager
 from modules.const import Config
 from modules.logger import error_logger, general_logger
-from modules.file_manager import save_user_location
+from modules.user_locations import get_last_used_city, save_user_location
 from modules.gpt import gpt_response
 
 # Cache expiration time in seconds (10 minutes)
@@ -499,14 +498,12 @@ class WeatherCommandHandler:
         try:
             if context.args:
                 city = " ".join(context.args)
-                if user_id is not None:
-                    save_user_location(user_id, city, chat_id)
             else:
-                city = get_last_used_city(user_id if user_id is not None else 0, chat_id) or ""
+                city = await get_last_used_city(user_id if user_id is not None else 0, chat_id) or ""
                 if not city:
                     if update.message:
                         await update.message.reply_text(
-                            "Будь ласка, вкажіть назву міста або задайте його спочатку."
+                            "Будь ласка, вкажіть назву міста: /weather Київ (або збережіть його в /webapp)."
                         )
                     return
 
@@ -515,6 +512,13 @@ class WeatherCommandHandler:
                 if update.message:
                     await update.message.reply_text("Не вдалося отримати дані про погоду.")
                 return
+
+            # Remember the city only once it is known to work
+            if context.args and user_id is not None:
+                try:
+                    await save_user_location(user_id, city, chat_id)
+                except Exception as e:
+                    error_logger.error(f"Failed to save weather location: {e}")
 
             # Apply the chat's display units preference (config: weather.units)
             try:

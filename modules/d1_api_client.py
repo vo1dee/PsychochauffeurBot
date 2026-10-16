@@ -151,6 +151,35 @@ class D1ApiClient:
             },
         )
 
+    async def set_user_location(
+        self,
+        user_id: int,
+        city: str,
+        chat_id: int = 0,
+        updated_at: Optional[datetime] = None,
+    ) -> None:
+        """Save a /weather city; chat_id 0 is the user's home city.
+
+        An older updated_at never overwrites a newer saved value.
+        """
+        await self._post(
+            "/v1/data/location/set",
+            {
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "city": city,
+                "updated_at": serialize_datetime(updated_at) if updated_at is not None else None,
+            },
+        )
+
+    async def get_user_location(self, user_id: int, chat_id: Optional[int] = None) -> Optional[str]:
+        """Return the chat override, else the home city, else None."""
+        data = await self._post(
+            "/v1/data/location/get", {"user_id": user_id, "chat_id": chat_id}
+        )
+        city = data.get("city")
+        return city if isinstance(city, str) else None
+
     async def record_event(
         self, event_type: str, chat_id: int, user_id: Optional[int]
     ) -> None:
@@ -165,10 +194,14 @@ _client: Optional[D1ApiClient] = None
 _client_lock = asyncio.Lock()
 
 
-async def get_d1_api_client() -> Optional[D1ApiClient]:
-    """Return the configured shared D1 client, if dual-write is enabled."""
+async def get_d1_api_client(require_dual_write: bool = True) -> Optional[D1ApiClient]:
+    """Return the configured shared D1 client.
+
+    By default only when dual-write is enabled; data that lives only in D1
+    (e.g. saved locations) passes require_dual_write=False.
+    """
     global _client
-    if os.getenv("D1_DUAL_WRITE", "false").lower() not in {"1", "true", "yes"}:
+    if require_dual_write and os.getenv("D1_DUAL_WRITE", "false").lower() not in {"1", "true", "yes"}:
         return None
     if _client is None:
         async with _client_lock:

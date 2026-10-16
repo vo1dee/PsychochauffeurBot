@@ -1,7 +1,11 @@
 // Demo Telegram Mini App: a small weather page served at GET /webapp.
-// POST /webapp/verify checks Telegram initData server-side (HMAC with the bot token).
+// POST /webapp/verify checks Telegram initData server-side (HMAC with the bot token);
+// POST /webapp/location[/save] read and write the user's home city (shared with /weather).
+
+import { getLocation, HOME_CHAT_ID, normalizeCity, setLocation } from "./locations";
 
 export interface WebAppEnv {
+  DATA_DB: D1Database;
   TELEGRAM_BOT_TOKEN?: string;
 }
 
@@ -60,6 +64,8 @@ const PAGE = `<!doctype html>
   .days { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
   .days .icon { font-size: 26px; }
   details summary { cursor: pointer; }
+  .saved { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .saved button { padding: 8px 12px; font-size: 15px; }
   pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; margin: 8px 0 0; }
 </style>
 </head>
@@ -68,11 +74,16 @@ const PAGE = `<!doctype html>
   <div class="hint" id="env"></div>
 
   <form id="search">
-    <input id="city" placeholder="Місто" value="Київ" autocomplete="off">
+    <input id="city" placeholder="Місто" autocomplete="off">
     <button type="submit">Знайти</button>
   </form>
 
   <div id="result"><div class="hint">Завантаження…</div></div>
+
+  <div class="card saved" id="saved" hidden>
+    <span id="saved-text"></span>
+    <button type="button" id="save" hidden></button>
+  </div>
 
   <details class="card">
     <summary>🔐 Перевірка initData на сервері</summary>
@@ -124,7 +135,46 @@ const PAGE = `<!doctype html>
     return node;
   }
 
-  async function load(name) {
+  const DEFAULT_CITY = "Київ";
+  const signedIn = Boolean(tg && tg.initData);
+  let savedCity = null;   // the user's home city, shared with /weather
+  let shownCity = null;   // the city currently on screen
+  let savedAlias = null;  // geocoded name of savedCity (e.g. "Львів" for a bot-saved "Lviv")
+
+  async function api(path, payload) {
+    const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify(Object.assign({ initData: tg.initData }, payload)) });
+    return res.json();
+  }
+
+  function renderSaved() {
+    const box = document.getElementById("saved");
+    const button = document.getElementById("save");
+    if (!signedIn) { box.hidden = true; return; }
+    box.hidden = false;
+    document.getElementById("saved-text").textContent = savedCity ? "⭐ Ваше місто: " + savedCity : "⭐ Місто не збережено";
+    button.hidden = !shownCity || shownCity === savedCity || shownCity === savedAlias;
+    button.textContent = "Зберегти " + shownCity;
+  }
+
+  async function saveCity() {
+    const button = document.getElementById("save");
+    button.disabled = true;
+    try {
+      const data = await api("/webapp/location/save", { city: shownCity });
+      if (!data.ok) throw new Error(data.reason || "не вдалося зберегти");
+      savedCity = data.city;
+      savedAlias = null;
+      if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    } catch (e) {
+      tg.showAlert ? tg.showAlert("Помилка: " + e.message) : alert(e.message);
+    } finally {
+      button.disabled = false;
+      renderSaved();
+    }
+  }
+
+  async function load(name, isSaved) {
     const result = document.getElementById("result");
     result.replaceChildren(el("div", "hint", "Завантаження…"));
     try {
@@ -137,6 +187,7 @@ const PAGE = `<!doctype html>
         daily: "weather_code,temperature_2m_max,temperature_2m_min",
       });
       const w = await fetch("https://api.open-meteo.com/v1/forecast?" + params).then(r => r.json());
+      if (isSaved) savedAlias = place.name;
       render(place, w);
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
     } catch (e) {
@@ -174,6 +225,9 @@ const PAGE = `<!doctype html>
     });
 
     document.getElementById("result").replaceChildren(now, days);
+    shownCity = place.name;
+    document.getElementById("city").value = place.name;
+    renderSaved();
   }
 
   async function verify() {
@@ -193,7 +247,19 @@ const PAGE = `<!doctype html>
     const name = document.getElementById("city").value.trim();
     if (name) load(name);
   });
-  load("Київ");
+  document.getElementById("save").addEventListener("click", saveCity);
+
+  async function start() {
+    if (signedIn) {
+      try {
+        const data = await api("/webapp/location", {});
+        if (data.ok) savedCity = data.city;
+      } catch (e) { /* fall back to the default city */ }
+    }
+    if (savedCity) load(savedCity, true);
+    else load(DEFAULT_CITY);
+  }
+  start();
   verify();
 </script>
 </body>
@@ -227,22 +293,56 @@ export async function verifyInitData(initData: string, botToken: string, nowSeco
   return { ok: true, user: user ? JSON.parse(user) : null };
 }
 
+type InitDataUser = { id: number };
+
+async function readJson(request: Request): Promise<Record<string, unknown>> {
+  const body: unknown = await request.json();
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("JSON object required");
+  return body as Record<string, unknown>;
+}
+
+// Verifies initData from the request body; returns the Telegram user or an error Response.
+async function authenticate(body: Record<string, unknown>, env: WebAppEnv): Promise<InitDataUser | Response> {
+  if (!env.TELEGRAM_BOT_TOKEN) return Response.json({ ok: false, reason: "TELEGRAM_BOT_TOKEN secret is not set on the worker" }, { status: 503 });
+  if (typeof body.initData !== "string") return Response.json({ ok: false, reason: "initData must be a string" }, { status: 400 });
+  const result = await verifyInitData(body.initData, env.TELEGRAM_BOT_TOKEN);
+  const user = result.user as { id?: unknown } | null | undefined;
+  if (!result.ok || !user || typeof user.id !== "number") return Response.json({ ok: false, reason: result.reason ?? "user missing" }, { status: 401 });
+  return { id: user.id };
+}
+
 // Returns a Response for /webapp routes, or null so the caller handles the request.
 export async function handleWebApp(request: Request, env: WebAppEnv): Promise<Response | null> {
   const path = new URL(request.url).pathname;
   if (request.method === "GET" && path === "/webapp") {
     return new Response(PAGE, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   }
-  if (request.method === "POST" && path === "/webapp/verify") {
-    if (!env.TELEGRAM_BOT_TOKEN) return Response.json({ ok: false, reason: "TELEGRAM_BOT_TOKEN secret is not set on the worker" });
-    try {
-      const body = (await request.json()) as { initData?: unknown };
-      if (typeof body.initData !== "string") return Response.json({ ok: false, reason: "initData must be a string" }, { status: 400 });
-      const result = await verifyInitData(body.initData, env.TELEGRAM_BOT_TOKEN);
-      return Response.json(result, { status: result.ok ? 200 : 401 });
-    } catch {
-      return Response.json({ ok: false, reason: "invalid request" }, { status: 400 });
-    }
+  if (request.method !== "POST" || !["/webapp/verify", "/webapp/location", "/webapp/location/save"].includes(path)) return null;
+
+  let body: Record<string, unknown>;
+  try {
+    body = await readJson(request);
+  } catch {
+    return Response.json({ ok: false, reason: "invalid request" }, { status: 400 });
   }
-  return null;
+  if (path === "/webapp/verify") {
+    if (!env.TELEGRAM_BOT_TOKEN) return Response.json({ ok: false, reason: "TELEGRAM_BOT_TOKEN secret is not set on the worker" });
+    if (typeof body.initData !== "string") return Response.json({ ok: false, reason: "initData must be a string" }, { status: 400 });
+    const result = await verifyInitData(body.initData, env.TELEGRAM_BOT_TOKEN);
+    return Response.json(result, { status: result.ok ? 200 : 401 });
+  }
+
+  const user = await authenticate(body, env);
+  if (user instanceof Response) return user;
+  if (path === "/webapp/location") {
+    return Response.json({ ok: true, city: await getLocation(env.DATA_DB, user.id, null) });
+  }
+  let city: string;
+  try {
+    city = normalizeCity(body.city);
+  } catch (error) {
+    return Response.json({ ok: false, reason: error instanceof Error ? error.message : "invalid city" }, { status: 400 });
+  }
+  await setLocation(env.DATA_DB, user.id, HOME_CHAT_ID, city);
+  return Response.json({ ok: true, city });
 }
