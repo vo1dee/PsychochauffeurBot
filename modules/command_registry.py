@@ -339,6 +339,7 @@ class CommandRegistry(ServiceInterface):
         from modules.handlers.song_command import song_command, short_command
         from modules.weather import WeatherCommandHandler
         from modules.geomagnetic import GeomagneticCommandHandler
+        from modules.handlers.webapp_command import webapp_command
 
         # Cat command
         self.register_command(
@@ -398,6 +399,19 @@ class CommandRegistry(ServiceInterface):
                 handler_func=weather_handler,
                 usage="/weather <city>",
                 examples=["/weather London", "/weather New York"],
+            )
+        )
+
+        # Demo weather Mini App
+        self.register_command(
+            CommandInfo(
+                name="webapp",
+                description="Open the demo weather Web App",
+                category=CommandCategory.UTILITY,
+                handler_func=webapp_command,
+                usage="/webapp",
+                examples=["/webapp"],
+                chat_action=None,
             )
         )
 
