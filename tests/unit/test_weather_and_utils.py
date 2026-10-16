@@ -299,6 +299,40 @@ class TestBot(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Куртка &amp; шарф", text)
         self.assertIn("🧠 Ризик мігрені: 🟡 Середній", text)
         self.assertIn("<blockquote expandable>Тиск &lt; норми &amp; вітер</blockquote>", text)
+        button = kwargs["reply_markup"].inline_keyboard[0][0]
+        self.assertEqual(button.callback_data, "wx:h:2:n:n:n")
+
+    def test_headache_details_callback_roundtrip(self) -> None:
+        """Test the private details popup text built from callback data."""
+        from modules.weather import (
+            AirQualityData, HeadacheRiskAssessment, PressureTrend,
+            build_headache_details_callback, format_headache_details,
+        )
+        headache = HeadacheRiskAssessment(
+            risk_level="Високий", risk_score=4,
+            pressure_trend=PressureTrend(current_hpa=1010, forecast_hpa=995, delta_hpa=-15.4),
+            air_quality=AirQualityData(aqi=3, pm2_5=20, no2=10, o3=50),
+            k_index=7, explanation="",
+        )
+        data = build_headache_details_callback(headache)
+        self.assertEqual(data, "wx:h:4:-15:3:7")
+        self.assertLessEqual(len(data.encode()), 64)
+
+        text = format_headache_details(data)
+        assert text is not None
+        self.assertIn("Високий (4/6)", text)
+        self.assertIn("↓ 15 гПа за 3 год (+2)", text)
+        self.assertIn("Помірна (AQI 3/5) (+1)", text)
+        self.assertIn("K=7 (+2)", text)
+        self.assertLessEqual(len(text), 200)
+
+        # Pressure just under a threshold must not earn points the score didn't count
+        headache.pressure_trend = PressureTrend(current_hpa=1010, forecast_hpa=1002, delta_hpa=-7.6)
+        self.assertIn("↓ 7 гПа за 3 год\n", format_headache_details(build_headache_details_callback(headache)) or "")
+
+        self.assertIsNone(format_headache_details("wx:h:1:2"))
+        self.assertIsNone(format_headache_details("wx:h:a:b:c:d"))
+        self.assertIsNone(format_headache_details("other:1:2:3:4"))
 
 # Additional tests for core utilities
     def test_remove_links(self) -> None:

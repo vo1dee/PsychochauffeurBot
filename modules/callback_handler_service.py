@@ -70,6 +70,7 @@ class CallbackHandlerService(ServiceInterface):
         # which would otherwise swallow some cfg payloads.
         self._callback_handlers: Dict[str, Callable[[Update, CallbackContext[Any, Any, Any, Any]], Awaitable[None]]] = {
             r"^cfg:": self._handle_config_callback,
+            r"^wx:": self._handle_weather_callback,
             r"^speechrec_": self._handle_speech_recognition_callback,
             r"^lang_": self._handle_language_selection_callback,
             r"^test_callback$": self._handle_test_callback,
@@ -141,7 +142,8 @@ class CallbackHandlerService(ServiceInterface):
         # /config callbacks answer the query themselves (they use the answer
         # text for toasts like "saved" / "admins only") — a pre-answer here
         # would make those toasts silently disappear.
-        if not callback_data or not callback_data.startswith("cfg:"):
+        # The same goes for /weather details, which answer with a private alert.
+        if not callback_data or not callback_data.startswith(("cfg:", "wx:")):
             await query.answer()
 
         if not callback_data:
@@ -193,6 +195,15 @@ class CallbackHandlerService(ServiceInterface):
         """Delegate /config menu buttons to the config commands handler."""
         from modules.handlers.config_commands import handle_config_callback
         await handle_config_callback(update, context)
+
+    async def _handle_weather_callback(
+        self,
+        update: Update,
+        context: CallbackContext[Any, Any, Any, Any],
+    ) -> None:
+        """Delegate /weather details buttons to the weather module."""
+        from modules.weather import handle_weather_details_callback
+        await handle_weather_details_callback(update, context)
 
     async def _handle_speech_recognition_callback(
         self, 

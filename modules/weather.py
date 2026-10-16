@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Tuple, Any
 import time
 import httpx
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import CallbackContext
 
@@ -29,6 +29,11 @@ CACHE_EXPIRATION = 600
 
 _AQI_LABELS = {1: "Добра", 2: "Прийнятна", 3: "Помірна", 4: "Погана", 5: "Дуже погана"}
 _RISK_EMOJIS = {"Низький": "🟢", "Середній": "🟡", "Високий": "🔴"}
+
+# Callback data for the private "details" popup: wx:h:<score>:<delta>:<aqi>:<k>,
+# with "n" for a missing value. Stateless, so it keeps working after restarts.
+WEATHER_DETAILS_CALLBACK_PREFIX = "wx:h:"
+_ALERT_MAX_CHARS = 200  # Telegram limit for callback query alert text
 
 
 @dataclass
@@ -225,6 +230,59 @@ def _risk_level_from_score(score: int) -> str:
     elif score <= 3:
         return "Середній"
     return "Високий"
+
+
+def build_headache_details_callback(headache: HeadacheRiskAssessment) -> str:
+    """Encode the headache factors into callback data (fits the 64-byte limit)."""
+    # Truncate (not round) so integer thresholds give the same points as the risk score
+    delta = int(headache.pressure_trend.delta_hpa) if headache.pressure_trend else None
+    aqi = headache.air_quality.aqi if headache.air_quality else None
+    values = [headache.risk_score, delta, aqi, headache.k_index]
+    return WEATHER_DETAILS_CALLBACK_PREFIX + ":".join("n" if v is None else str(v) for v in values)
+
+
+def format_headache_details(callback_data: str) -> Optional[str]:
+    """Build the popup text from callback data, or None if the data is malformed."""
+    if not callback_data.startswith(WEATHER_DETAILS_CALLBACK_PREFIX):
+        return None
+    parts = callback_data[len(WEATHER_DETAILS_CALLBACK_PREFIX):].split(":")
+    if len(parts) != 4:
+        return None
+    try:
+        score, delta, aqi, k_index = (None if p == "n" else int(p) for p in parts)
+    except ValueError:
+        return None
+    if score is None:
+        return None
+
+    def points(value: int, medium: int, high: int) -> str:
+        return " (+2)" if value >= high else " (+1)" if value >= medium else ""
+
+    level = _risk_level_from_score(score)
+    lines = [f"🧠 Ризик мігрені: {level} ({score}/6)"]
+    if delta is not None:
+        arrow = "↓" if delta < 0 else "↑" if delta > 0 else "→"
+        lines.append(f"📊 Тиск: {arrow} {abs(delta)} гПа за 3 год{points(abs(delta), 8, 15)}")
+    else:
+        lines.append("📊 Тиск: немає прогнозу")
+    if aqi is not None:
+        lines.append(f"💨 Повітря: {_AQI_LABELS.get(aqi, 'невідома')} (AQI {aqi}/5){points(aqi, 3, 4)}")
+    else:
+        lines.append("💨 Повітря: немає даних")
+    if k_index is not None:
+        lines.append(f"🧲 Геомагнітна активність: K={k_index}{points(k_index, 4, 6)}")
+    else:
+        lines.append("🧲 Геомагнітна активність: немає даних")
+    return "\n".join(lines)[:_ALERT_MAX_CHARS]
+
+
+async def handle_weather_details_callback(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> None:
+    """Show headache risk factors as an alert visible only to the user who tapped."""
+    query = update.callback_query
+    if not query:
+        return
+    text = format_headache_details(query.data or "")
+    await query.answer(text or "Дані недоступні.", show_alert=True)
 
 
 async def _get_headache_explanation(
@@ -491,15 +549,6 @@ class WeatherCommandHandler:
                         arrow = "↓" if trend.delta_hpa < 0 else "↑"
                         full_message += f" ({arrow} {abs(trend.delta_hpa):.0f} гПа/3год)"
 
-                # Append AQI line
-                if isinstance(headache, HeadacheRiskAssessment) and headache.air_quality:
-                    aq = headache.air_quality
-                    aqi_label = _AQI_LABELS.get(aq.aqi, "Невідома")
-                    full_message += (
-                        f"\n💨 Повітря: {aqi_label} (AQI {aq.aqi}/5)"
-                        f" | PM2.5: {aq.pm2_5:.0f}, NO2: {aq.no2:.0f}, O3: {aq.o3:.0f} мкг/м³"
-                    )
-
                 # Clothing advice
                 if isinstance(clothing, WeatherCommand) and clothing.clothing_advice:
                     full_message += f"\n\n👕 {html.escape(clothing.clothing_advice)}"
@@ -516,7 +565,15 @@ class WeatherCommandHandler:
                         )
                     full_message += risk_line
 
-                await sent_message.edit_text(full_message, parse_mode=ParseMode.HTML)
+                # Air quality and the risk breakdown live in a popup only the tapper sees
+                reply_markup = None
+                if isinstance(headache, HeadacheRiskAssessment):
+                    reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(
+                        "🧠 Деталі (бачите лише ви)",
+                        callback_data=build_headache_details_callback(headache),
+                    )]])
+
+                await sent_message.edit_text(full_message, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
             except Exception as e:
                 error_logger.error(f"Error fetching weather advice: {e}")
