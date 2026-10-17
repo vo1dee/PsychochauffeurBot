@@ -47,38 +47,55 @@ class TestSplitRecap:
 
 class TestBuildInputText:
     def test_username_preferred_over_first_name(self) -> None:
-        rows = [(datetime(2026, 9, 26, 12, 0), "someuser", "Ім'я", "привіт")]
+        rows = [(datetime(2026, 9, 26, 12, 0), 1, "someuser", "Ім'я", "привіт")]
         text = recap._build_input_text(rows)
-        assert text == "[12:00] @someuser: привіт"
+        assert text == "[12:00] #1 @someuser: привіт"
 
     def test_falls_back_to_first_name(self) -> None:
-        rows = [(datetime(2026, 9, 26, 12, 0), None, "Ім'я", "привіт")]
+        rows = [(datetime(2026, 9, 26, 12, 0), 1, None, "Ім'я", "привіт")]
         text = recap._build_input_text(rows)
-        assert text == "[12:00] Ім'я: привіт"
+        assert text == "[12:00] #1 Ім'я: привіт"
 
     def test_truncates_to_most_recent(self) -> None:
         rows = [
-            (datetime(2026, 9, 26, h, 0), "u", None, "x" * 100)
+            (datetime(2026, 9, 26, h, 0), 1, "u", None, "x" * 100)
             for h in range(10)
         ]
         with patch.object(recap, "RECAP_MAX_INPUT_CHARS", 250):
             text = recap._build_input_text(rows)
         # Only the most recent lines should survive, in chronological order.
-        assert text.endswith("[09:00] @u: " + "x" * 100)
+        assert text.endswith("[09:00] #1 @u: " + "x" * 100)
         assert "[00:00]" not in text
+
+
+class TestLinkQuotes:
+    def test_markers_become_numbered_links(self) -> None:
+        body = "<blockquote>раз [[msg:10]]</blockquote>\n<blockquote>два [[msg:20]]</blockquote>"
+        result = recap._link_quotes(body, {10, 20})
+        assert '<blockquote>раз <a href="https://t.me/psychochauffeur/10">[1]</a></blockquote>' in result
+        assert '<blockquote>два <a href="https://t.me/psychochauffeur/20">[2]</a></blockquote>' in result
+
+    def test_repeated_id_reuses_number(self) -> None:
+        result = recap._link_quotes("a [[msg:10]] b [[msg:20]] c [[msg:10]]", {10, 20})
+        assert result.count(">[1]<") == 2
+        assert result.count(">[2]<") == 1
+
+    def test_unknown_id_dropped(self) -> None:
+        result = recap._link_quotes("<blockquote>вигадка [[msg:999]]</blockquote>", {10})
+        assert result == "<blockquote>вигадка</blockquote>"
 
 
 @pytest.mark.asyncio
 class TestGenerateRecap:
     async def test_below_threshold_returns_none(self) -> None:
         with patch.object(recap, "get_messages_for_recap", new=AsyncMock(return_value=[
-            (datetime(2026, 9, 26, 12, 0), "u", None, "hi")
+            (datetime(2026, 9, 26, 12, 0), 1, "u", None, "hi")
         ])):
             result = await recap.generate_recap(123, date(2026, 9, 26), min_messages=5)
         assert result is None
 
     async def test_now_bypasses_threshold(self) -> None:
-        rows = [(datetime(2026, 9, 26, 12, 0), "u", None, "hi")]
+        rows = [(datetime(2026, 9, 26, 12, 0), 1, "u", None, "hi")]
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value={
             "choices": [{"message": {"content": "Тіло рекапу"}}]
@@ -96,7 +113,7 @@ class TestGenerateRecap:
         assert "РЕКАП" in result
 
     async def test_llm_failure_returns_none(self) -> None:
-        rows = [(datetime(2026, 9, 26, 12, 0), "u", None, "hi")] * 25
+        rows = [(datetime(2026, 9, 26, 12, 0), 1, "u", None, "hi")] * 25
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("boom"))
         mock_config_manager = MagicMock()

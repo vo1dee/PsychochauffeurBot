@@ -432,7 +432,7 @@ async def get_messages_for_chat_single_date(chat_id: int, target_date: Union[dat
 
 async def get_messages_for_recap(
     chat_id: int, target_date: date
-) -> List[Tuple[datetime, Optional[str], Optional[str], str]]:
+) -> List[Tuple[datetime, int, Optional[str], Optional[str], str]]:
     """
     Fetch human, non-command messages from chat_id for a specific Kyiv-local
     calendar date, for building a daily recap.
@@ -442,8 +442,8 @@ async def get_messages_for_recap(
         target_date: The Kyiv-local date to fetch messages for
 
     Returns:
-        List of tuples containing (local timestamp, username, first_name, text),
-        oldest first. Bot messages, commands and GPT replies are excluded.
+        List of tuples containing (local timestamp, message_id, username,
+        first_name, text), oldest first. Bot messages, commands and GPT replies are excluded.
     """
     local_tz = pytz.timezone('Europe/Kyiv')
     local_start = local_tz.localize(datetime.combine(target_date, time.min))
@@ -455,7 +455,7 @@ async def get_messages_for_recap(
     pool = await Database.get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT m.timestamp, u.username, u.first_name, m.text
+            SELECT m.timestamp, m.message_id, u.username, u.first_name, m.text
             FROM messages m
             LEFT JOIN users u ON m.user_id = u.user_id
             WHERE m.chat_id = $1
@@ -472,6 +472,7 @@ async def get_messages_for_recap(
         return [
             (
                 row['timestamp'].replace(tzinfo=pytz.UTC).astimezone(local_tz),
+                row['message_id'],
                 row['username'],
                 row['first_name'],
                 row['text']

@@ -7,9 +7,10 @@ for the command surface and modules.bot_application for the job wiring.
 """
 
 import asyncio
+import html
 import re
 from datetime import date, datetime, timedelta
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
@@ -35,6 +36,12 @@ RECAP_MAX_INPUT_CHARS = 120_000
 RECAP_MAX_TOKENS = 6000
 RECAP_TEMPERATURE = float(os.getenv('RECAP_TEMPERATURE', '0.3'))
 RECAP_MODEL = os.getenv('RECAP_MODEL', 'openai/gpt-6-sol')
+
+# Quotes in the recap link back to the original message: {RECAP_LINK_BASE}/{message_id}.
+RECAP_LINK_BASE = os.getenv('RECAP_LINK_BASE', 'https://t.me/psychochauffeur').rstrip('/')
+
+# The LLM marks each quote with [[msg:ID]]; code turns these into numbered links.
+_QUOTE_REF_RE = re.compile(r"\[\[\s*msg\s*:\s*#?(\d+)\s*\]\]")
 
 # Telegram messages are capped at 4096 chars; leave headroom for HTML tags.
 RECAP_CHUNK_LIMIT = 4000
@@ -64,11 +71,11 @@ def _format_sender(username: Optional[str], first_name: Optional[str]) -> str:
 
 
 def _build_input_text(
-    rows: List[Tuple[datetime, Optional[str], Optional[str], str]]
+    rows: List[Tuple[datetime, int, Optional[str], Optional[str], str]]
 ) -> str:
     lines = [
-        f"[{ts.strftime('%H:%M')}] {_format_sender(username, first_name)}: {text}"
-        for ts, username, first_name, text in rows
+        f"[{ts.strftime('%H:%M')}] #{message_id} {_format_sender(username, first_name)}: {text}"
+        for ts, message_id, username, first_name, text in rows
     ]
     text = "\n".join(lines)
     if len(text) <= RECAP_MAX_INPUT_CHARS:
@@ -84,6 +91,27 @@ def _build_input_text(
         kept.append(line)
     kept.reverse()
     return "\n".join(kept)
+
+
+def _link_quotes(body: str, valid_ids: Set[int]) -> str:
+    """
+    Replace the LLM's [[msg:ID]] markers with numbered links ([1], [2], ...)
+    to the original messages. Markers pointing at ids that weren't in the
+    input (hallucinated) are dropped; a repeated id reuses its number.
+    """
+    numbers: Dict[int, int] = {}
+
+    def _replace(match: "re.Match[str]") -> str:
+        message_id = int(match.group(1))
+        if message_id not in valid_ids:
+            return ""
+        number = numbers.setdefault(message_id, len(numbers) + 1)
+        url = html.escape(f"{RECAP_LINK_BASE}/{message_id}", quote=True)
+        return f'<a href="{url}">[{number}]</a>'
+
+    linked = _QUOTE_REF_RE.sub(_replace, body)
+    # Tidy the space left before a dropped marker or a closing tag.
+    return re.sub(r"[ \t]+(</blockquote>|\n|$)", r"\1", linked)
 
 
 def _split_recap(text: str, max_len: int = RECAP_CHUNK_LIMIT) -> List[str]:
@@ -178,6 +206,8 @@ async def generate_recap(
     if not body:
         return None
 
+    body = _link_quotes(body, {row[1] for row in rows})
+
     header = format_recap_header(chat_title, target_date)
     return f"{header}\n\n{body}"
 
@@ -206,7 +236,9 @@ async def _send_recap_chunk(bot: Any, chat_id: int, chunk: str) -> Optional[Any]
         error_logger.warning(
             f"Recap: HTML send failed for chat {chat_id}, retrying as plain text: {e}"
         )
-        plain = re.sub(r"<[^>]+>", "", chunk)
+        # Keep quote links usable as "[1] https://..." once tags are stripped.
+        plain = re.sub(r'<a href="([^"]+)">([^<]*)</a>', lambda m: f"{m.group(2)} {html.unescape(m.group(1))}", chunk)
+        plain = re.sub(r"<[^>]+>", "", plain)
         try:
             return await bot.send_message(chat_id, plain)
         except Exception as e2:
