@@ -430,24 +430,31 @@ async def get_messages_for_chat_single_date(chat_id: int, target_date: Union[dat
         logger.error(f"Error in get_messages_for_chat_single_date: {str(e)}", exc_info=True)
         raise
 
+# Recap "days" start at this Kyiv-local hour rather than midnight, so late-night
+# conversations that run past 00:00 stay in the same recap.
+RECAP_DAY_START_HOUR = 2
+
+
 async def get_messages_for_recap(
     chat_id: int, target_date: date
 ) -> List[Tuple[datetime, int, Optional[str], Optional[str], str]]:
     """
-    Fetch human, non-command messages from chat_id for a specific Kyiv-local
-    calendar date, for building a daily recap.
+    Fetch human, non-command messages from chat_id for a Kyiv-local recap day,
+    for building a daily recap. A recap day runs from RECAP_DAY_START_HOUR on
+    target_date to RECAP_DAY_START_HOUR on the following date.
 
     Args:
         chat_id: The chat ID to fetch messages from
-        target_date: The Kyiv-local date to fetch messages for
+        target_date: The Kyiv-local date the recap day starts on
 
     Returns:
         List of tuples containing (local timestamp, message_id, username,
         first_name, text), oldest first. Bot messages, commands and GPT replies are excluded.
     """
     local_tz = pytz.timezone('Europe/Kyiv')
-    local_start = local_tz.localize(datetime.combine(target_date, time.min))
-    local_end = local_tz.localize(datetime.combine(target_date + timedelta(days=1), time.min))
+    day_start = time(hour=RECAP_DAY_START_HOUR)
+    local_start = local_tz.localize(datetime.combine(target_date, day_start))
+    local_end = local_tz.localize(datetime.combine(target_date + timedelta(days=1), day_start))
 
     start_naive = local_start.astimezone(pytz.UTC).replace(tzinfo=None)
     end_naive = local_end.astimezone(pytz.UTC).replace(tzinfo=None)
