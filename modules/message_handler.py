@@ -1,3 +1,4 @@
+import os
 from telegram import Update, Message
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, MessageHandler, filters, Application
@@ -13,6 +14,10 @@ from .gpt import gpt_response
 from .const import Stickers
 from .logger import error_logger, general_logger
 from .chat_streamer import chat_streamer
+
+# TinyURL link shortening is disabled by default for all chats.
+# Set URL_SHORTENING_ENABLED=true to turn it back on.
+URL_SHORTENING_ENABLED = os.getenv('URL_SHORTENING_ENABLED', 'false').lower() in {'1', 'true', 'yes'}
 
 async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -55,7 +60,7 @@ async def handle_message_logging(update: Update, context: ContextTypes.DEFAULT_T
             # --- End reaction logic ---
 
             # --- URL shortening logic ---
-            if update.message.text:
+            if URL_SHORTENING_ENABLED and update.message.text:
                 urls = extract_urls(update.message.text)
                 url_map = {}
                 for url in urls:
