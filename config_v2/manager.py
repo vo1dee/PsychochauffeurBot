@@ -17,6 +17,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Optional, TypeVar, Type
@@ -93,6 +94,9 @@ class ConfigManager:
 
         # Prune rows for settings that were removed from the schema
         await _instance._cleanup_removed_settings()
+
+        # Drop stored copies of defaults that were since changed in the schema
+        await _instance._retire_stale_defaults()
 
         logger.info("ConfigManager v2 initialized")
         return _instance
@@ -353,6 +357,45 @@ class ConfigManager:
         for module, key in self._REMOVED_KEYS:
             for row in await self.db.find_rows(module, key):
                 await self.delete_override(row["chat_id"], module, key)
+
+    # Old schema defaults that were copied into the DB (by _ensure_global_defaults or the
+    # JSON migration) and would otherwise shadow the new defaults forever:
+    # (module, key, {leaf: old_value}). The first leaf marks the blob as a stale copy;
+    # only then are the listed leaves still equal to their old value removed.
+    _STALE_DEFAULTS: tuple[tuple[str, str, dict[str, Any]], ...] = (
+        ("gpt", "command", {
+            "system_prompt": (
+                "You are a helpful assistant. Respond to user commands in a clear "
+                "and concise manner. If the user's request appears to be in Russian, "
+                "respond in Ukrainian instead. Do not reply in Russian under any "
+                "circumstance. You answer like a helpfull assistant and stick to the "
+                "point of the conversation. Keep your responses concise and relevant "
+                "to the conversation."
+            ),
+            "max_tokens": 1500,
+        }),
+        ("gpt", "mention", {
+            "system_prompt": (
+                "You are a helpful assistant who responds to mentions in group chats. "
+                "Keep your responses concise and relevant to the conversation. "
+                "If the user's request appears to be in Russian, respond in Ukrainian "
+                "instead. Do not reply in Russian under any circumstance."
+            ),
+        }),
+    )
+
+    async def _retire_stale_defaults(self) -> None:
+        """Remove (and audit) stored values equal to retired schema defaults. Idempotent."""
+        for module, key, leaves in self._STALE_DEFAULTS:
+            marker, marker_old = next(iter(leaves.items()))
+            for row in await self.db.find_rows(module, key):
+                blob = json.loads(row["value"])
+                if not isinstance(blob, dict) or blob.get(marker) != marker_old:
+                    continue
+                for leaf, old_value in leaves.items():
+                    if blob.get(leaf) == old_value:
+                        await self.reset_leaf(row["chat_id"], module, f"{key}.{leaf}")
+                logger.info("Retired stale %s.%s defaults for chat %s", module, key, row["chat_id"])
 
     async def _ensure_global_defaults(self) -> None:
         """Populate global defaults for any module that has no values yet."""
