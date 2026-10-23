@@ -65,8 +65,16 @@ DEFAULT_PROMPTS = {
         Keep descriptions factual and objective.
     """,
     "gpt_summary": "Summarize the given text concisely while preserving key information.",
-    "command": "You are a helpful assistant.",
-    "mention": "You are a helpful assistant who responds to mentions in group chats.",
+    "command": """You are a helpful assistant answering one-off questions.
+    Give a concise, direct answer: 1-3 short sentences or a brief list.
+    Skip preambles, disclaimers and follow-up questions unless the user explicitly asks for detail.
+    If the user's request appears to be in Russian, respond in Ukrainian instead.""",
+    "mention": """You are a helpful assistant taking part in a group chat conversation.
+    Messages from chat members are prefixed with the author's name ("Name: text").
+    Follow the conversation thread: earlier turns are the replies that led to the current message,
+    so keep track of what was already said and answer the latest message in that context.
+    Keep replies natural and conversational, and do not prefix your own reply with a name.
+    If the user's request appears to be in Russian, respond in Ukrainian instead.""",
     "private": "You are a helpful assistant for private conversations.",
     "random": """You are a friendly assistant who occasionally joins conversations in group chats. 
     IMPORTANT: Always read and understand the conversation context before responding. 
@@ -397,15 +405,80 @@ async def analyze_image(
         return "Error analyzing image."
 
 
+# Response types that keep a running conversation (reply threads + recent chat context)
+CONVERSATION_TYPES = {"mention", "private"}
+# Maximum number of reply-chain messages followed back from the current message
+MAX_THREAD_DEPTH = 12
+
+
+def _strip_bot_username(text: str, bot_username: Optional[str]) -> str:
+    """Remove the bot's @username from a message text."""
+    if bot_username:
+        text = text.replace(f"@{bot_username}", "")
+    return text.strip()
+
+
+def _format_history_entry(entry: Dict[str, Any], bot_username: Optional[str]) -> Dict[str, str]:
+    """Convert a chat history entry into a GPT message, prefixing user messages with the author."""
+    text = _strip_bot_username(str(entry.get("text", "")), bot_username)
+    if not entry.get("is_user"):
+        return {"role": "assistant", "content": text}
+    author = entry.get("author")
+    return {"role": "user", "content": f"{author}: {text}" if author else text}
+
+
+def _build_reply_thread(update: Update, chat_history: List[Dict[str, Any]], bot_id: Optional[int]) -> List[Dict[str, Any]]:
+    """
+    Follow the reply chain of the current message back through the chat history.
+
+    Returns history entries oldest first. Telegram only includes the directly replied-to
+    message in an update, so older links of the chain come from the stored history.
+    """
+    message = update.message
+    reply = message.reply_to_message if message else None
+    if not reply:
+        return []
+
+    by_id = {entry.get("message_id"): entry for entry in chat_history if entry.get("message_id") is not None}
+    thread: List[Dict[str, Any]] = []
+
+    entry = by_id.get(reply.message_id)
+    if entry is None:
+        # Replied-to message is not in history (e.g. after a restart): use what Telegram sent
+        reply_text = reply.text or reply.caption
+        if not reply_text:
+            return []
+        is_bot = bool(reply.from_user and bot_id is not None and reply.from_user.id == bot_id)
+        author = None
+        if reply.from_user and not is_bot:
+            author = reply.from_user.first_name or reply.from_user.username
+        return [{"text": reply_text, "is_user": not is_bot, "author": author, "message_id": reply.message_id}]
+
+    seen = set()
+    while entry is not None and len(thread) < MAX_THREAD_DEPTH and entry.get("message_id") not in seen:
+        seen.add(entry.get("message_id"))
+        thread.append(entry)
+        entry = by_id.get(entry.get("reply_to_message_id"))
+
+    thread.reverse()
+    return thread
+
+
 async def get_context_messages(update: Update, context: CallbackContext[Any, Any, Any, Any], response_type: str = "command") -> List[Dict[str, str]]:
     """
     Get context messages for GPT response.
-    
+
+    - "command" (/ask): no chat history, only the message the command replies to (if any),
+      so answers stay short and focused on the question.
+    - "mention"/"private": a conversation - recent chat messages as background plus the
+      reply thread leading to the current message as proper user/assistant turns.
+    - "random": the last few chat messages.
+
     Args:
         update: Telegram update object
         context: Telegram callback context
         response_type: Type of response (command, mention, random, etc.)
-        
+
     Returns:
         List[Dict[str, str]]: List of message dictionaries for context
     """
@@ -418,6 +491,16 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
 
     try:
         if not update.message or not update.message.text:
+            return messages
+
+        if response_type == "command":
+            reply = update.message.reply_to_message
+            reply_text = (reply.text or reply.caption) if reply else None
+            if reply_text:
+                messages.append({
+                    "role": "user",
+                    "content": f"The question refers to this message:\n{reply_text}"
+                })
             return messages
 
         # Get chat configuration
@@ -447,15 +530,42 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
         # Get previous messages from the global chat history manager
         from modules.utils import chat_history_manager
         chat_history = chat_history_manager.get_history(update.effective_chat.id) if update.effective_chat else []
-        
-        # Add up to context_messages_count previous messages (excluding current message)
-        for msg in chat_history[-context_messages_count:]:
-            if msg.get('text'):
-                messages.append({
-                    "role": "user" if msg.get('is_user') else "assistant",
-                    "content": msg['text']
-                })
-        
+
+        if response_type not in CONVERSATION_TYPES:
+            # Add up to context_messages_count previous messages
+            for msg in chat_history[-context_messages_count:]:
+                if msg.get('text'):
+                    messages.append({
+                        "role": "user" if msg.get('is_user') else "assistant",
+                        "content": msg['text']
+                    })
+            return messages
+
+        bot = getattr(context, "bot", None)
+        bot_username = getattr(bot, "username", None) if bot else None
+        bot_id = getattr(bot, "id", None) if bot else None
+        thread = _build_reply_thread(update, chat_history, bot_id)
+
+        # Recent chat messages (excluding the current message and the thread) as background
+        skip_ids = {entry.get("message_id") for entry in thread}
+        skip_ids.add(update.message.message_id)
+        recent = [
+            msg for msg in chat_history
+            if msg.get('text') and (msg.get("message_id") is None or msg.get("message_id") not in skip_ids)
+        ][-context_messages_count:]
+        if recent:
+            lines = []
+            for msg in recent:
+                formatted = _format_history_entry(msg, bot_username)
+                speaker = "You" if formatted["role"] == "assistant" else None
+                lines.append(f"{speaker}: {formatted['content']}" if speaker else formatted["content"])
+            messages.append({
+                "role": "system",
+                "content": "Recent messages in the chat, for background only:\n" + "\n".join(lines)
+            })
+
+        messages.extend(_format_history_entry(entry, bot_username) for entry in thread if entry.get("text"))
+
     except Exception as e:
         from modules.logger import error_logger
         error_logger.error(f"Error getting context messages: {e}")
@@ -603,10 +713,15 @@ async def gpt_response(
         
         # Add the current message
         current_message = message_text_override or (update.message.text if update.message else "")
+        if response_type in CONVERSATION_TYPES and update.effective_chat and update.effective_chat.type != "private":
+            # In group conversations, tell the model who is talking
+            author = (update.effective_user.first_name or update.effective_user.username) if update.effective_user else None
+            if author:
+                current_message = f"{author}: {current_message}"
         current_user_message = {"role": "user", "content": current_message or ""}
         
-        # If message_text_override is provided, replace the last user message in context
-        if message_text_override and context_messages:
+        # Random responses: the current message is already the last history entry, so replace it
+        if response_type == "random" and message_text_override and context_messages:
             for i in range(len(context_messages)-1, -1, -1):
                 if context_messages[i]["role"] == "user":
                     context_messages[i]["content"] = message_text_override
@@ -656,18 +771,22 @@ async def gpt_response(
         if return_text:
             return str(response_text) if response_text else None
         else:
-            # Store bot response in chat history for context
+            sent_message = None
+            if update.message:
+                sent_message = await update.message.reply_text(response_text, parse_mode="Markdown")
+
+            # Store bot response in chat history for context; is_gpt lets replies to it continue the conversation
             from modules.utils import chat_history_manager
             if update.effective_chat:
                 chat_history_manager.add_message(update.effective_chat.id, {
                     'text': response_text,
                     'is_user': False,
+                    'is_gpt': True,
                     'user_id': None,
+                    'message_id': getattr(sent_message, 'message_id', None),
+                    'reply_to_message_id': update.message.message_id if update.message else None,
                     'timestamp': update.message.date if update.message else None
                 })
-            
-            if update.message:
-                await update.message.reply_text(response_text, parse_mode="Markdown")
             return None
         
     except Exception as e:
@@ -685,6 +804,21 @@ async def ask_gpt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if not prompt:
         prompt = "Привіт! Як я можу вам допомогти?"
+
+    # Commands are not stored by the message handler; keep the question in history so that
+    # replying to the answer can continue the conversation with it as context
+    from modules.utils import chat_history_manager
+    if update.message and update.effective_chat:
+        user = update.message.from_user
+        chat_history_manager.add_message(update.effective_chat.id, {
+            'text': prompt,
+            'is_user': True,
+            'user_id': user.id if user else None,
+            'author': (user.first_name or user.username) if user else None,
+            'message_id': update.message.message_id,
+            'reply_to_message_id': None,
+            'timestamp': update.message.date
+        })
 
     await gpt_response(update, context, response_type="command", message_text_override=prompt)
 

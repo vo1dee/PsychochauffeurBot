@@ -172,6 +172,25 @@ class TestLeafOpsAndAudit:
         sources = {r[7] for r in await _audit_rows(mgr)}
         assert "system" in sources
 
+    @pytest.mark.asyncio
+    async def test_retire_stale_defaults_only_drops_old_copies(self, mgr):
+        old_command = dict(ConfigManager._STALE_DEFAULTS[0][2], model="custom-model", temperature=0.6)
+        await mgr.db.set_value("global", "gpt", "command", old_command)
+        await mgr.db.set_value("-1", "gpt", "command", {"system_prompt": "Own prompt", "max_tokens": 1500})
+        await mgr._retire_stale_defaults()
+        await mgr._retire_stale_defaults()  # idempotent
+
+        defaults = MODULE_REGISTRY["gpt"]().command
+        assert await mgr.db.get_value("global", "gpt", "command") == {"model": "custom-model", "temperature": 0.6}
+        resolved = await mgr.get_resolved_raw("-2", "gpt")
+        assert resolved["command"]["system_prompt"] == defaults.system_prompt
+        assert resolved["command"]["max_tokens"] == defaults.max_tokens
+        assert resolved["command"]["model"] == "custom-model"
+        # A chat's own prompt is not a stale copy, so its max_tokens stays too
+        assert await mgr.db.get_value("-1", "gpt", "command") == {"system_prompt": "Own prompt", "max_tokens": 1500}
+        retired = [r for r in await _audit_rows(mgr) if r[1] == "gpt" and r[4] is None]
+        assert {r[2] for r in retired} == {"command.system_prompt", "command.max_tokens"}
+
 
 # ---------------------------------------------------------------------------
 # /config UI

@@ -255,6 +255,8 @@ class MessageCounter:
 class ChatHistoryManager:
     """Manages chat history for context in GPT responses."""
     chat_histories: Dict[int, List[Dict[str, Any]]]
+    MAX_HISTORY = 200
+
     def __init__(self) -> None:
         self.chat_histories = {}  # chat_id -> list of messages
 
@@ -265,13 +267,22 @@ class ChatHistoryManager:
         
         self.chat_histories[chat_id].append(message)
         
-        # Keep only the last 50 messages to prevent memory issues
-        if len(self.chat_histories[chat_id]) > 50:
-            self.chat_histories[chat_id] = self.chat_histories[chat_id][-50:]
+        # Keep only the last MAX_HISTORY messages to prevent memory issues
+        if len(self.chat_histories[chat_id]) > self.MAX_HISTORY:
+            self.chat_histories[chat_id] = self.chat_histories[chat_id][-self.MAX_HISTORY:]
 
     def get_history(self, chat_id: int) -> List[Dict[str, Any]]:
         """Get chat history for a specific chat."""
         return self.chat_histories.get(chat_id, [])
+
+    def find_message(self, chat_id: int, message_id: Optional[int]) -> Optional[Dict[str, Any]]:
+        """Find a stored message by its Telegram message_id."""
+        if message_id is None:
+            return None
+        for message in reversed(self.chat_histories.get(chat_id, [])):
+            if message.get("message_id") == message_id:
+                return message
+        return None
 
     def clear_history(self, chat_id: int) -> None:
         """Clear chat history for a specific chat."""

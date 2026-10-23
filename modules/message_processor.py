@@ -60,8 +60,24 @@ def needs_gpt_response(update: Update, context: CallbackContext[Any, Any, Any, A
     # Check if it's a private chat message that needs private response
     if is_private_chat and not (contains_video_platform or contains_modified_domain):
         return True, 'private'
-    
+
+    # Replying to one of the bot's GPT answers continues the conversation
+    if is_reply_to_bot_gpt_message(update, context):
+        return True, 'mention'
+
     return False, ''
+
+def is_reply_to_bot_gpt_message(update: Update, context: CallbackContext[Any, Any, Any, Any]) -> bool:
+    """Return whether the message replies to a GPT answer previously sent by the bot."""
+    message = update.message
+    reply = message.reply_to_message if message else None
+    if not reply or not reply.from_user or not update.effective_chat:
+        return False
+    if reply.from_user.id != context.bot.id:
+        return False
+    from modules.utils import chat_history_manager
+    stored = chat_history_manager.find_message(update.effective_chat.id, reply.message_id)
+    return bool(stored and stored.get("is_gpt"))
 
 def update_message_history(user_id: int, message_text: str) -> None:
     """
