@@ -3,6 +3,7 @@
 # Standard library imports
 import asyncio
 import os
+import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Union
 import base64
@@ -384,7 +385,7 @@ async def analyze_image(
             temperature=0.2
         )
         
-        description = response["choices"][0]["message"]["content"].strip()
+        description = sanitize_response_text(response["choices"][0]["message"]["content"])
         
         # Log the description if update is provided
         if update and update.effective_chat:
@@ -419,6 +420,39 @@ async def analyze_image(
 CONVERSATION_TYPES = {"mention", "private"}
 # Maximum number of reply-chain messages followed back from the current message
 MAX_THREAD_DEPTH = 12
+
+
+# CJK scripts (Han, kana, Hangul) the model occasionally leaks into non-CJK replies, e.g. "警告"
+_CJK_CHARS = (
+    "\u2e80-\u2fdf\u3040-\u30ff\u3100-\u312f\u3190-\u31ff\u3400-\u4dbf"
+    "\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\uff66-\uff9f\U00020000-\U0003134f"
+)
+_CJK_RUN_RE = re.compile(f"(?P<pre>[ \\t]*)[{_CJK_CHARS}]+(?P<post>[ \\t]*)")
+_CJK_CHAR_RE = re.compile(f"[{_CJK_CHARS}]")
+# Invisible formatting characters: zero-width spaces, BOM, bidi marks/embeddings/isolates.
+# The zero-width joiner (U+200D) is kept because emoji sequences rely on it.
+_INVISIBLE_RE = re.compile("[\u200b\u200c\u200e\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]")
+# Control characters other than tab and newline
+_CONTROL_RE = re.compile("[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def sanitize_response_text(text: str) -> str:
+    """Remove stray characters from a model reply: invisible/control characters and
+    CJK fragments leaked into a reply that is otherwise written in another script."""
+    if not text:
+        return text
+    text = _INVISIBLE_RE.sub("", text.replace("\r\n", "\n"))
+    text = _CONTROL_RE.sub("", text)
+
+    cjk_count = len(_CJK_CHAR_RE.findall(text))
+    if cjk_count:
+        letter_count = sum(1 for ch in text if ch.isalpha())
+        # Only strip CJK when it is a minority of the letters; a CJK-language reply is left intact
+        if cjk_count * 2 < letter_count:
+            text = _CJK_RUN_RE.sub(
+                lambda m: " " if m.group("pre") and m.group("post") else "", text
+            )
+    return text.strip()
 
 
 def _strip_bot_username(text: str, bot_username: Optional[str]) -> str:
@@ -815,6 +849,7 @@ async def gpt_response(
                 temperature=temperature
             )
             response_text = (response["choices"][0]["message"].get("content") or "").strip()
+        response_text = sanitize_response_text(response_text)
         
         # Check if response is too long for Telegram
         if len(response_text) > MAX_TELEGRAM_MESSAGE_LENGTH:
@@ -1038,7 +1073,7 @@ async def gpt_summary_function(messages: List[str]) -> str:
         )
 
         # Extract the summary from the response
-        summary = response["choices"][0]["message"]["content"].strip()
+        summary = sanitize_response_text(response["choices"][0]["message"]["content"])
         return str(summary) if summary else "No summary available"
     except Exception as e:
         error_logger.error(f"Error in GPT summarization: {e}")
