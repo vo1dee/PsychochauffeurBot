@@ -30,6 +30,12 @@ from modules.diagnostics import run_api_diagnostics
 from modules.logger import general_logger, error_logger, get_daily_log_path, chat_logger
 from modules.error_handler import ErrorHandler, ErrorCategory, ErrorSeverity
 from config_v2.compat import get_shared_config_manager
+from modules.weather_tool import (
+    WEATHER_TOOL,
+    WEATHER_TOOL_RULES,
+    WEATHER_TOOL_RESPONSE_TYPES,
+    execute_tool_call,
+)
 
 from modules.chat_analysis import (
     get_messages_for_chat_today,
@@ -121,6 +127,9 @@ TIMEOUT_CONFIG = httpx.Timeout(connect=15.0, read=60.0, write=30.0, pool=10.0)
 # Retry configuration for transient errors
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 2.0  # seconds
+
+# Max model turns that may request tool calls before forcing a plain answer
+MAX_TOOL_ROUNDS = 3
 
 # OpenRouter specific settings (from first implementation)
 USE_OPENROUTER = bool(Config.OPENROUTER_BASE_URL)  # Only use if defined
@@ -654,6 +663,61 @@ async def check_api_health() -> bool:
         return False
 
 
+async def _complete_with_tools(
+    model: str,
+    messages: List[Dict[str, Any]],
+    max_tokens: int,
+    temperature: float,
+) -> str:
+    """Run a chat completion that may call the get_weather tool, returning the final text."""
+    final_kwargs: Dict[str, Any] = {}
+    for _ in range(MAX_TOOL_ROUNDS):
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                tools=[WEATHER_TOOL],
+            )
+        except httpx.HTTPStatusError as e:
+            # Some models/providers reject the tools parameter; answer without it.
+            if e.response is not None and e.response.status_code == 400:
+                error_logger.warning(f"Model {model} rejected tools, retrying without them: {e}")
+                break
+            raise
+
+        message = response["choices"][0]["message"]
+        tool_calls = message.get("tool_calls") or []
+        if not tool_calls:
+            return (message.get("content") or "").strip()
+
+        messages.append({
+            "role": "assistant",
+            "content": message.get("content"),
+            "tool_calls": tool_calls,
+        })
+        for tool_call in tool_calls:
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.get("id"),
+                "content": await execute_tool_call(tool_call),
+            })
+    else:
+        # Out of tool rounds: tools stay declared (the history references them)
+        # but the model must answer from the results it already has.
+        final_kwargs = {"tools": [WEATHER_TOOL], "tool_choice": "none"}
+
+    response = await client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        **final_kwargs,
+    )
+    return (response["choices"][0]["message"].get("content") or "").strip()
+
+
 async def gpt_response(
     update: Update, 
     context: CallbackContext[Any, Any, Any, Any], 
@@ -739,16 +803,18 @@ async def gpt_response(
             *context_messages
         ]
         
-        # Call GPT API
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature
-        )
-        
-        # Get response text
-        response_text = response["choices"][0]["message"]["content"].strip()
+        # Call GPT API (with the weather tool for conversational response types)
+        if effective_response_type in WEATHER_TOOL_RESPONSE_TYPES:
+            messages[0]["content"] = f"{system_prompt}\n\n{WEATHER_TOOL_RULES}"
+            response_text = await _complete_with_tools(model, messages, max_tokens, temperature)
+        else:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            response_text = (response["choices"][0]["message"].get("content") or "").strip()
         
         # Check if response is too long for Telegram
         if len(response_text) > MAX_TELEGRAM_MESSAGE_LENGTH:
