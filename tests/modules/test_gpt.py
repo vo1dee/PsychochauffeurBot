@@ -2311,3 +2311,24 @@ class TestErrorContextAndLogging:
             assert call_args[1]["error"] == test_error  # Error should be passed as keyword argument
             assert call_args[1]["update"] == mock_update
             assert call_args[1]["propagate"] == True
+
+class TestSanitizeResponseText:
+    """Tests for stripping stray characters from model replies."""
+
+    def test_removes_cjk_leaked_into_ukrainian(self):
+        text = "Перевіряйте попередження KNMI для актуальних штормових警告."
+        assert gpt.sanitize_response_text(text) == "Перевіряйте попередження KNMI для актуальних штормових."
+
+    def test_collapses_spaces_around_removed_cjk(self):
+        assert gpt.sanitize_response_text("сильний 警告 вітер") == "сильний вітер"
+
+    def test_keeps_reply_written_in_cjk(self):
+        text = "今天天气很好，风很大。"
+        assert gpt.sanitize_response_text(text) == text
+
+    def test_removes_invisible_and_control_characters(self):
+        assert gpt.sanitize_response_text("a​b⁨c\x07d﻿") == "abcd"
+
+    def test_keeps_emoji_and_formatting(self):
+        text = "- 🌡️ Температура: 11.8°C\n- 👨‍👩‍👧 *жирний*\n\tвідступ"
+        assert gpt.sanitize_response_text(text) == text
