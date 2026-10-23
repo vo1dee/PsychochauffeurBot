@@ -337,6 +337,7 @@ class WeatherAPI:
         self.cache: Dict[str, Tuple[WeatherData, float]] = {}
         self._forecast_cache: Dict[Tuple[float, float], Tuple[PressureTrend, float]] = {}
         self._aq_cache: Dict[Tuple[float, float], Tuple[AirQualityData, float]] = {}
+        self._city_forecast_cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
         self.api_key = Config.OPENWEATHER_API_KEY
         if self.api_key and len(self.api_key) > 4:
             general_logger.info(f"WeatherAPI initialized with key ending in '...{self.api_key[-4:]}'")
@@ -482,6 +483,35 @@ class WeatherAPI:
             return aq
         except Exception as e:
             error_logger.error(f"Error fetching air quality: {e}")
+            return None
+
+    async def fetch_forecast(self, city: str) -> Optional[Dict[str, Any]]:
+        """Fetch the 5-day / 3-hour forecast for a city.
+
+        Returns the raw OpenWeatherMap payload: ``city`` (name, country, timezone
+        offset in seconds) and ``list`` of 3-hour entries.
+        """
+        cached = self._city_forecast_cache.get(city)
+        if cached and (time.time() - cached[1]) < CACHE_EXPIRATION:
+            return cached[0]
+
+        translated_city = await get_city_translation(city)
+        params = {
+            "q": translated_city,
+            "appid": self.api_key,
+            "units": "metric",
+            "lang": "uk",
+        }
+        try:
+            response = await self.client.get(self.FORECAST_URL, params=params)
+            data = response.json()
+            if str(data.get("cod")) != "200" or not data.get("list"):
+                error_logger.error(f"Forecast API error response for {translated_city}: {data}")
+                return None
+            self._city_forecast_cache[city] = (data, time.time())
+            return dict(data)
+        except Exception as e:
+            error_logger.error(f"Error fetching forecast for {translated_city}: {e}")
             return None
 
 

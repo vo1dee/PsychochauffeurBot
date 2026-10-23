@@ -1,6 +1,7 @@
 """Tests for the get_weather GPT tool and the tool-calling loop in modules.gpt."""
 
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -69,6 +70,71 @@ async def test_execute_tool_call_rejects_unknown_tool_and_bad_args():
     assert "Unknown tool" in json.loads(unknown)["error"]
     bad = await weather_tool.execute_tool_call({"function": {"name": "get_weather", "arguments": "{oops"}})
     assert json.loads(bad)["error"] == "Invalid tool arguments."
+
+
+def _forecast_payload(tz_offset=7200):
+    """Forecast with 3-hour entries spanning today through the day after tomorrow (city-local)."""
+    offset = timedelta(seconds=tz_offset)
+    tomorrow = (datetime.now(timezone.utc) + offset).date() + timedelta(days=1)
+    tomorrow_midnight_utc = datetime.combine(tomorrow, datetime.min.time(), timezone.utc) - offset
+
+    def entry(hours, temp, weather_id=500, desc="дощ", wind=5.0, gust=None, rain=0.0, pop=0.0):
+        item = {
+            "dt": int((tomorrow_midnight_utc + timedelta(hours=hours)).timestamp()),
+            "main": {"temp": temp},
+            "weather": [{"id": weather_id, "description": desc}],
+            "wind": {"speed": wind, **({"gust": gust} if gust is not None else {})},
+            "pop": pop,
+        }
+        if rain:
+            item["rain"] = {"3h": rain}
+        return item
+
+    return {
+        "city": {"name": "Chernihiv", "country": "UA", "timezone": tz_offset},
+        "list": [
+            entry(-3, 30.0),  # today, 21:00 local
+            entry(0, 8.0, desc="хмарно", wind=3.0),
+            entry(12, 14.6, weather_id=211, desc="гроза", wind=8.5, gust=15.0, rain=3.2, pop=0.8),
+            entry(21, 9.0, rain=1.1, pop=0.4),
+            entry(24, -5.0),  # day after tomorrow, 00:00 local
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_forecast_summarises_tomorrow_only(weather_api):
+    weather_api.fetch_forecast = AsyncMock(return_value=_forecast_payload())
+    result = json.loads(await weather_tool.execute_tool_call(
+        {"function": {"name": "get_weather", "arguments": json.dumps({"city": "Чернігів", "days_ahead": 1})}}
+    ))
+
+    weather_api.fetch_forecast.assert_awaited_once_with("Чернігів")
+    weather_api.fetch_weather.assert_not_awaited()
+    assert result["days_ahead"] == 1
+    assert (result["temperature_min_c"], result["temperature_max_c"]) == (8.0, 14.6)
+    assert [t["time"] for t in result["timeline"]] == ["00:00", "12:00", "21:00"]
+    assert result["descriptions"] == ["хмарно", "гроза", "дощ"]
+    assert result["wind_speed_max_ms"] == 8.5
+    assert result["wind_gust_max_ms"] == 15.0
+    assert result["rain_total_mm"] == 4.3
+    assert result["precipitation_probability_max_pct"] == 80
+    assert result["thunderstorm_expected"] is True
+
+
+@pytest.mark.asyncio
+async def test_forecast_beyond_available_data_reports_error(weather_api):
+    weather_api.fetch_forecast = AsyncMock(return_value=_forecast_payload())
+    result = await weather_tool.get_forecast_tool_result("Chernihiv", 4)
+    assert "only covers" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_call_rejects_out_of_range_days(weather_api):
+    out = await weather_tool.execute_tool_call(
+        {"function": {"name": "get_weather", "arguments": json.dumps({"city": "Kyiv", "days_ahead": 9})}}
+    )
+    assert "between 0 and 5" in json.loads(out)["error"]
 
 
 @pytest.mark.asyncio
