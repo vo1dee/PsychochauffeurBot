@@ -110,6 +110,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "text": message_text,
             "is_user": True,
             "user_id": user_id,
+            "author": update.message.from_user.first_name
+            or update.message.from_user.username,
+            "message_id": update.message.message_id,
+            "reply_to_message_id": (
+                update.message.reply_to_message.message_id
+                if update.message.reply_to_message
+                else None
+            ),
             "timestamp": update.message.date,
         },
     )
