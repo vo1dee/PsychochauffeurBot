@@ -91,6 +91,10 @@ class WeatherData:
     # thresholds, GPT prompts and risk scores keep working; conversion to °F
     # happens at formatting time.
     units: str = "metric"
+    wind_speed: float = 0.0        # m/s
+    wind_gust: Optional[float] = None  # m/s
+    rain_1h: float = 0.0           # mm over the last hour
+    snow_1h: float = 0.0           # mm over the last hour
 
     def _display_temp(self, celsius: float) -> str:
         if self.units == "imperial":
@@ -395,6 +399,10 @@ class WeatherAPI:
                 lon=coord.get("lon", 0.0),
                 timezone_offset=data.get("timezone", 0),
                 local_time=data.get("dt", 0),
+                wind_speed=data.get("wind", {}).get("speed", 0.0),
+                wind_gust=data.get("wind", {}).get("gust"),
+                rain_1h=data.get("rain", {}).get("1h", 0.0),
+                snow_1h=data.get("snow", {}).get("1h", 0.0),
             )
 
             self.cache[city] = (weather_data, time.time())
