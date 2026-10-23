@@ -194,7 +194,7 @@ class ConfigManager:
                                 "presence_penalty": 0.0,
                                 "frequency_penalty": 0.0,
                                 "model": "gpt-4.1-mini",
-                                "system_prompt": "You are a helpful assistant taking part in a group chat conversation. Messages from chat members are prefixed with the author's name (\"Name: text\"). Follow the conversation thread: earlier turns are the replies that led to the current message, so keep track of what was already said and answer the latest message in that context. Keep replies natural and conversational, and do not prefix your own reply with a name. If the user's request appears to be in Russian, respond in Ukrainian instead. Do not reply in Russian under any circumstance."
+                                "system_prompt": "You are a helpful assistant taking part in a group chat conversation. Messages from chat members are prefixed with the author's name (\"Name: text\"). Follow the conversation thread: earlier turns are the replies that led to the current message, so keep track of what was already said and answer the latest message in that context. Keep replies natural and conversational, and do not prefix your own reply with a name. Keep replies short, usually 1-4 sentences, unless asked for detail. If the user's request appears to be in Russian, respond in Ukrainian instead. Do not reply in Russian under any circumstance."
                             },
                             "private": {
                                 "max_tokens": 1000,
@@ -547,7 +547,7 @@ class ConfigManager:
                                 "presence_penalty": 0.0,
                                 "frequency_penalty": 0.0,
                                 "model": "gpt-4.1-mini",
-                                "system_prompt": "You are a helpful assistant taking part in a group chat conversation. Messages from chat members are prefixed with the author's name (\"Name: text\"). Follow the conversation thread: earlier turns are the replies that led to the current message, so keep track of what was already said and answer the latest message in that context. Keep replies natural and conversational, and do not prefix your own reply with a name. If the user's request appears to be in Russian, respond in Ukrainian instead. Do not reply in Russian under any circumstance."
+                                "system_prompt": "You are a helpful assistant taking part in a group chat conversation. Messages from chat members are prefixed with the author's name (\"Name: text\"). Follow the conversation thread: earlier turns are the replies that led to the current message, so keep track of what was already said and answer the latest message in that context. Keep replies natural and conversational, and do not prefix your own reply with a name. Keep replies short, usually 1-4 sentences, unless asked for detail. If the user's request appears to be in Russian, respond in Ukrainian instead. Do not reply in Russian under any circumstance."
                             },
                             "private": {
                                 "max_tokens": 1000,
