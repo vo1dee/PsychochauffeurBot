@@ -57,6 +57,8 @@ _SERVICE_AUDIO_CHECK_TTL = 300.0
 # Service audio requests are retried once when YouTube returns no formats.
 _SERVICE_AUDIO_ATTEMPTS = 2
 _FORMAT_UNAVAILABLE = "Requested format is not available"
+# /health normally answers in ~3s; a slower answer means a busy service, not a dead one.
+_SERVICE_HEALTH_TIMEOUT = 10
 
 
 class DownloadStrategy(TypedDict):
@@ -401,7 +403,7 @@ class VideoDownloader:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    health_url, headers=headers, timeout=5, ssl=False
+                    health_url, headers=headers, timeout=_SERVICE_HEALTH_TIMEOUT, ssl=False
                 ) as response:
                     if response.status == 200:
                         try:
@@ -436,9 +438,12 @@ class VideoDownloader:
             )
             return False
         except asyncio.TimeoutError:
-            error_logger.error(f"❌ Service health check - timeout after 5 seconds")
-            error_logger.error(f"   Service may be overloaded or network is slow")
-            return False
+            # Direct yt-dlp is bot-blocked by YouTube from the server, so the service is the
+            # only path that works: try it anyway instead of giving up on a slow /health.
+            error_logger.warning(
+                f"⚠️ Service health check - timeout after {_SERVICE_HEALTH_TIMEOUT} seconds, trying the service anyway"
+            )
+            return True
         except Exception as e:
             error_logger.error(f"❌ Service health check - unexpected error: {e}")
             return False
@@ -3986,6 +3991,24 @@ class VideoDownloader:
 
         # Send error feedback to user
         await send_error_feedback(update=update, stickers=self.ERROR_STICKERS)
+
+        # Record the failure in chat history so GPT replies know the download did not work
+        if update and update.effective_chat:
+            from modules.utils import chat_history_manager
+
+            chat_history_manager.add_message(
+                update.effective_chat.id,
+                {
+                    "text": f"[Video download failed for {url}; replied with an error sticker instead of the video]",
+                    "is_user": False,
+                    "user_id": None,
+                    "message_id": None,
+                    "reply_to_message_id": (
+                        update.message.message_id if update.message else None
+                    ),
+                    "timestamp": update.message.date if update.message else None,
+                },
+            )
 
     async def _handle_processing_error(
         self, update: Update, error: Exception, message_text: str

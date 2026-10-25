@@ -1040,7 +1040,8 @@ class TestPromptEngineering:
             
             system_message = messages[0]
             assert system_message["role"] == "system"
-            assert system_message["content"] == custom_system_prompt
+            assert system_message["content"].startswith(custom_system_prompt)
+            assert gpt.LANGUAGE_RULE in system_message["content"]
     
     @pytest.mark.asyncio
     async def test_context_message_ordering(self, sample_config_data):
