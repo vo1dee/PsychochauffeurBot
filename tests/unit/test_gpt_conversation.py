@@ -117,3 +117,38 @@ def test_reply_to_non_gpt_bot_message_is_ignored(history):
     update = make_update("thanks", 5, reply_to=make_reply(3, "Modified link", from_id=BOT_ID))
 
     assert needs_gpt_response(update, make_context(), "thanks") == (False, "")
+
+
+@pytest.mark.asyncio
+async def test_private_context_includes_failed_download_note(history):
+    from modules.video_downloader import VideoDownloader
+
+    link_update = make_update("https://youtube.com/shorts/abc", 1, chat_type="private")
+    link_update.effective_chat.id = CHAT_ID
+    add(history, 1, "https://youtube.com/shorts/abc")
+    downloader = VideoDownloader.__new__(VideoDownloader)
+    downloader.supported_platforms = []
+    downloader.ERROR_STICKERS = ["sticker"]
+    with patch("modules.error_handler.send_error_feedback", new=AsyncMock()):
+        await downloader._handle_download_error(link_update, "https://youtube.com/shorts/abc")
+
+    update = make_update("Ясно", 3, chat_type="private")
+    messages = await get_context_messages(update, make_context(), "private")
+
+    assert "Video download failed for https://youtube.com/shorts/abc" in messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_private_reply_always_gets_language_rule(history):
+    from modules import gpt
+
+    update = make_update("Ясно", 1, chat_type="private")
+    update.message.reply_text = AsyncMock()
+    complete = AsyncMock(return_value="Ок")
+    with patch("modules.gpt.get_system_prompt", new=AsyncMock(return_value="You are a helpful assistant.")), \
+            patch("modules.gpt._complete_with_tools", new=complete):
+        await gpt.gpt_response(update, make_context(), response_type="private")
+
+    system_prompt = complete.call_args.args[1][0]["content"]
+    assert system_prompt.startswith("You are a helpful assistant.")
+    assert gpt.LANGUAGE_RULE in system_prompt

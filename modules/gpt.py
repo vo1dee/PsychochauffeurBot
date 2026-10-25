@@ -83,7 +83,9 @@ DEFAULT_PROMPTS = {
     Keep replies natural and conversational, and do not prefix your own reply with a name.
     Keep replies short, usually 1-4 sentences, unless asked for detail.
     If the user's request appears to be in Russian, respond in Ukrainian instead.""",
-    "private": "You are a helpful assistant for private conversations.",
+    "private": """You are a helpful assistant for private conversations.
+    If the user's request appears to be in Russian, respond in Ukrainian instead.
+    Do not reply in Russian under any circumstance.""",
     "random": """You are a friendly assistant who occasionally joins conversations in group chats. 
     IMPORTANT: Always read and understand the conversation context before responding. 
     Reference specific topics, themes, or details from the ongoing discussion. 
@@ -418,6 +420,15 @@ async def analyze_image(
 
 # Response types that keep a running conversation (reply threads + recent chat context)
 CONVERSATION_TYPES = {"mention", "private"}
+# Response types that reply to users directly; LANGUAGE_RULE is always appended to their
+# system prompt so that a chat or global config prompt cannot drop it
+USER_FACING_TYPES = {"command", "mention", "private", "random"}
+LANGUAGE_RULE = (
+    "Language: reply in Ukrainian by default. Short or ambiguous messages that read the same "
+    "in Ukrainian and Russian (e.g. \"Ясно\", \"Ок\", \"Да\") count as Ukrainian. "
+    "If the user writes in Russian, reply in Ukrainian. Use another language only when the "
+    "user clearly writes in it and it is not Russian. Never reply in Russian."
+)
 # Maximum number of reply-chain messages followed back from the current message
 MAX_THREAD_DEPTH = 12
 
@@ -837,9 +848,12 @@ async def gpt_response(
             *context_messages
         ]
         
+        if effective_response_type in USER_FACING_TYPES:
+            messages[0]["content"] = f"{messages[0]['content']}\n\n{LANGUAGE_RULE}"
+
         # Call GPT API (with the weather tool for conversational response types)
         if effective_response_type in WEATHER_TOOL_RESPONSE_TYPES:
-            messages[0]["content"] = f"{system_prompt}\n\n{WEATHER_TOOL_RULES}"
+            messages[0]["content"] = f"{messages[0]['content']}\n\n{WEATHER_TOOL_RULES}"
             response_text = await _complete_with_tools(model, messages, max_tokens, temperature)
         else:
             response = await client.chat.completions.create(
