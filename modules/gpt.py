@@ -429,6 +429,15 @@ LANGUAGE_RULE = (
     "If the user writes in Russian, reply in Ukrainian. Use another language only when the "
     "user clearly writes in it and it is not Russian. Never reply in Russian."
 )
+# Appended to user-facing prompts alongside LANGUAGE_RULE: the chats are adult friend groups,
+# and the model otherwise refuses harmless questions about swear words
+CONTENT_RULE = (
+    "Content: you are talking to adults in an informal chat. Profanity, slang, crude humor "
+    "and questions about rude or vulgar words (their meaning, origin, translation into "
+    "another language, pronunciation) are fine: answer them factually and directly, "
+    "without refusing, moralizing or adding warnings. When translating, give the word in "
+    "the target script plus a transliteration."
+)
 # Maximum number of reply-chain messages followed back from the current message
 MAX_THREAD_DEPTH = 12
 
@@ -443,19 +452,25 @@ _CJK_CHAR_RE = re.compile(f"[{_CJK_CHARS}]")
 # Invisible formatting characters: zero-width spaces, BOM, bidi marks/embeddings/isolates.
 # The zero-width joiner (U+200D) is kept because emoji sequences rely on it.
 _INVISIBLE_RE = re.compile("[\u200b\u200c\u200e\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]")
+# A request for a CJK language, so CJK in the reply is intended, e.g. "як китайською ..."
+_CJK_LANGUAGE_RE = re.compile(
+    r"китай|японськ|японс|корейськ|корейс|ієрогл|иерогл|chinese|mandarin|cantonese|japanese|korean|kanji|hanzi|hangul",
+    re.IGNORECASE,
+)
 # Control characters other than tab and newline
 _CONTROL_RE = re.compile("[\x00-\x08\x0b-\x1f\x7f]")
 
 
-def sanitize_response_text(text: str) -> str:
+def sanitize_response_text(text: str, keep_cjk: bool = False) -> str:
     """Remove stray characters from a model reply: invisible/control characters and
-    CJK fragments leaked into a reply that is otherwise written in another script."""
+    CJK fragments leaked into a reply that is otherwise written in another script.
+    keep_cjk leaves CJK intact when the user asked for it (e.g. a Chinese translation)."""
     if not text:
         return text
     text = _INVISIBLE_RE.sub("", text.replace("\r\n", "\n"))
     text = _CONTROL_RE.sub("", text)
 
-    cjk_count = len(_CJK_CHAR_RE.findall(text))
+    cjk_count = 0 if keep_cjk else len(_CJK_CHAR_RE.findall(text))
     if cjk_count:
         letter_count = sum(1 for ch in text if ch.isalpha())
         # Only strip CJK when it is a minority of the letters; a CJK-language reply is left intact
@@ -464,6 +479,17 @@ def sanitize_response_text(text: str) -> str:
                 lambda m: " " if m.group("pre") and m.group("post") else "", text
             )
     return text.strip()
+
+
+def _asks_for_cjk(messages: List[Dict[str, Any]]) -> bool:
+    """Whether the user side of the conversation mentions a CJK language or contains CJK text."""
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+        content = str(message.get("content") or "")
+        if _CJK_LANGUAGE_RE.search(content) or _CJK_CHAR_RE.search(content):
+            return True
+    return False
 
 
 def _strip_bot_username(text: str, bot_username: Optional[str]) -> str:
@@ -849,7 +875,7 @@ async def gpt_response(
         ]
         
         if effective_response_type in USER_FACING_TYPES:
-            messages[0]["content"] = f"{messages[0]['content']}\n\n{LANGUAGE_RULE}"
+            messages[0]["content"] = f"{messages[0]['content']}\n\n{LANGUAGE_RULE}\n\n{CONTENT_RULE}"
 
         # Call GPT API (with the weather tool for conversational response types)
         if effective_response_type in WEATHER_TOOL_RESPONSE_TYPES:
@@ -863,7 +889,7 @@ async def gpt_response(
                 temperature=temperature
             )
             response_text = (response["choices"][0]["message"].get("content") or "").strip()
-        response_text = sanitize_response_text(response_text)
+        response_text = sanitize_response_text(response_text, keep_cjk=_asks_for_cjk(messages))
         
         # Check if response is too long for Telegram
         if len(response_text) > MAX_TELEGRAM_MESSAGE_LENGTH:
@@ -919,7 +945,12 @@ async def ask_gpt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             prompt = command_parts[1]
 
     if not prompt:
-        prompt = "Привіт! Як я можу вам допомогти?"
+        reply = update.message.reply_to_message if update.message else None
+        if reply and (reply.text or reply.caption):
+            # A bare /ask sent as a reply asks about the replied-to message
+            prompt = "Дай відповідь на це повідомлення."
+        else:
+            prompt = "Привіт! Як я можу вам допомогти?"
 
     # Commands are not stored by the message handler; keep the question in history so that
     # replying to the answer can continue the conversation with it as context
