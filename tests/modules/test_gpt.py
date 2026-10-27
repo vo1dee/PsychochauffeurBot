@@ -2333,3 +2333,29 @@ class TestSanitizeResponseText:
     def test_keeps_emoji_and_formatting(self):
         text = "- 🌡️ Температура: 11.8°C\n- 👨‍👩‍👧 *жирний*\n\tвідступ"
         assert gpt.sanitize_response_text(text) == text
+
+    def test_keeps_cjk_when_requested(self):
+        text = "Китайською це 鸡巴 (jība)."
+        assert gpt.sanitize_response_text(text, keep_cjk=True) == text
+
+
+class TestAsksForCjk:
+    """Tests for detecting that the user wants a CJK-language answer."""
+
+    def test_detects_language_name_in_replied_message(self):
+        messages = [
+            {"role": "system", "content": "Відповідай китайською, якщо треба."},
+            {"role": "user", "content": "The question refers to this message:\nЦікаво як китайською хуй"},
+            {"role": "user", "content": "Дай відповідь на це повідомлення."},
+        ]
+        assert gpt._asks_for_cjk(messages)
+
+    def test_detects_cjk_text_from_user(self):
+        assert gpt._asks_for_cjk([{"role": "user", "content": "що означає 警告?"}])
+
+    def test_ignores_system_and_unrelated_messages(self):
+        messages = [
+            {"role": "system", "content": "Chinese characters must not leak."},
+            {"role": "user", "content": "яка погода в Києві?"},
+        ]
+        assert not gpt._asks_for_cjk(messages)
