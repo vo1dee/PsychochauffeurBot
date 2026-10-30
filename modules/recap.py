@@ -12,6 +12,7 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import httpx
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import CallbackContext
@@ -35,7 +36,7 @@ DEFAULT_RECAP_TIME = "09:30"
 RECAP_MAX_INPUT_CHARS = 120_000
 RECAP_MAX_TOKENS = 6000
 RECAP_TEMPERATURE = float(os.getenv('RECAP_TEMPERATURE', '0.3'))
-RECAP_MODEL = os.getenv('RECAP_MODEL', 'openai/gpt-6-sol')
+RECAP_MODEL = os.getenv('RECAP_MODEL', 'openai/gpt-6.1-terra')
 
 # Quotes in the recap link back to the original message: {RECAP_LINK_BASE}/{message_id}.
 RECAP_LINK_BASE = os.getenv('RECAP_LINK_BASE', 'https://t.me/psychochauffeur').rstrip('/')
@@ -199,6 +200,13 @@ async def generate_recap(
             temperature=RECAP_TEMPERATURE,
         )
         body = response["choices"][0]["message"]["content"].strip()
+    except httpx.HTTPStatusError as e:
+        # OpenRouter puts the actual reason (moderation flag, key limit, region) in the body.
+        detail = e.response.text[:500] if e.response is not None else ""
+        error_logger.error(
+            f"Recap: LLM call failed for chat {chat_id} (model {model or RECAP_MODEL}): {e}\nResponse: {detail}"
+        )
+        return None
     except Exception as e:
         error_logger.error(f"Recap: LLM call failed for chat {chat_id}: {e}")
         return None
