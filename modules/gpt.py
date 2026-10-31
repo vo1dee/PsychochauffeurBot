@@ -161,7 +161,7 @@ class OpenAIAsyncClient:
             def __init__(self, outer: 'OpenAIAsyncClient.Chat') -> None:
                 self.outer = outer
 
-            async def create(self, model: str, messages: List[Dict[str, Any]], max_tokens: int, temperature: float, **kwargs: Any) -> Dict[str, Any]:
+            async def create(self, model: str, messages: List[Dict[str, Any]], max_tokens: int, temperature: float, timeout: Optional[httpx.Timeout] = None, **kwargs: Any) -> Dict[str, Any]:
                 payload = {
                     "model": model,
                     "messages": messages,
@@ -170,11 +170,12 @@ class OpenAIAsyncClient:
                 }
                 payload.update(kwargs)
                 url = f"{self.outer.outer.base_url}/chat/completions"
+                request_options = {"timeout": timeout} if timeout else {}
 
                 last_exception = None
                 for attempt in range(MAX_RETRIES):
                     try:
-                        response = await self.outer.outer._client.post(url, headers=self.outer.outer.headers, json=payload)
+                        response = await self.outer.outer._client.post(url, headers=self.outer.outer.headers, json=payload, **request_options)
                         response.raise_for_status()
                         result = response.json()
                         return dict(result) if isinstance(result, dict) else {}

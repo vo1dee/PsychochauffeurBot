@@ -17,7 +17,9 @@ from telegram.ext import ContextTypes
 from modules.const import KYIV_TZ
 from modules.database import Database
 from modules.handlers.speech_commands import is_admin
-from modules.recap import DEFAULT_RECAP_TIME, generate_recap, send_recap
+from modules.recap import DEFAULT_RECAP_TIME, RecapError, generate_recap, send_recap
+
+RECAP_NOW_MAX_DAYS = 7
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +81,20 @@ async def recap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"🕒 Час рекапу змінено на {args[1]} (Київ).")
 
     elif subcommand == "now":
-        # Hidden: not listed in USAGE_TEXT or help. Generates yesterday's
-        # recap immediately regardless of the on/off toggle or send time.
+        # Hidden: not listed in USAGE_TEXT or help. Generates a recap of the
+        # last N days (default: yesterday only, as /recap now N) immediately,
+        # regardless of the on/off toggle or send time.
+        days = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
+        if not 1 <= days <= RECAP_NOW_MAX_DAYS:
+            await update.message.reply_text(f"❌ Кількість днів має бути від 1 до {RECAP_NOW_MAX_DAYS}.")
+            return
         yesterday = (datetime.now(KYIV_TZ) - timedelta(days=1)).date()
         status_msg = await update.message.reply_text("🔄 Генерую рекап...")
-        text = await generate_recap(chat_id, yesterday, min_messages=1)
+        try:
+            text = await generate_recap(chat_id, yesterday, min_messages=1, days=days)
+        except RecapError:
+            await status_msg.edit_text("❌ Не вдалося згенерувати рекап. Спробуйте пізніше.")
+            return
         if not text:
             await status_msg.edit_text("За вчора в чаті не було повідомлень для рекапу.")
             return

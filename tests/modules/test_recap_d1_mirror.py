@@ -48,8 +48,9 @@ def d1_client() -> MagicMock:
         lambda: Database.upsert_recap_settings(ROW["chat_id"], enabled=True),
         lambda: Database.set_recap_pinned_message(ROW["chat_id"], 42),
         lambda: Database.mark_recap_sent(ROW["chat_id"], date(2026, 10, 5)),
+        lambda: Database.release_recap_claim(ROW["chat_id"], date(2026, 10, 5)),
     ],
-    ids=["upsert", "pin", "mark_sent"],
+    ids=["upsert", "pin", "mark_sent", "release_claim"],
 )
 async def test_recap_writes_mirror_returned_row(call, d1_client: MagicMock) -> None:  # type: ignore[no-untyped-def]
     pool, fetchrow = _pool_returning(ROW)

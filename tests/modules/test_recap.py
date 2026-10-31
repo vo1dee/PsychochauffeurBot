@@ -16,6 +16,14 @@ class TestFormatRecapHeader:
         header = recap.format_recap_header("Гурт", date(2026, 10, 1))
         assert header == "📜 <b>РЕКАП Гурт | 1 жовтня</b>"
 
+    def test_two_days_same_month(self) -> None:
+        header = recap.format_recap_header("Чат", date(2026, 10, 30), days=2)
+        assert "| 29–30 жовтня</b>" in header
+
+    def test_range_across_months(self) -> None:
+        header = recap.format_recap_header("Чат", date(2026, 11, 1), days=2)
+        assert "| 31 жовтня – 1 листопада</b>" in header
+
     def test_no_title(self) -> None:
         header = recap.format_recap_header(None, date(2026, 9, 27))
         assert header == "📜 <b>РЕКАП | 27 вересня</b>"
@@ -112,7 +120,30 @@ class TestGenerateRecap:
         assert "Тіло рекапу" in result
         assert "РЕКАП" in result
 
-    async def test_llm_failure_returns_none(self) -> None:
+    async def test_multiple_days_fetched_oldest_first(self) -> None:
+        fetch = AsyncMock(side_effect=[
+            [(datetime(2026, 10, 29, 12, 0), 1, "u", None, "day one")],
+            [(datetime(2026, 10, 30, 12, 0), 2, "u", None, "day two")],
+        ])
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value={
+            "choices": [{"message": {"content": "Тіло"}}]
+        })
+        mock_config_manager = MagicMock()
+        mock_config_manager.get_config = AsyncMock(return_value={})
+        with patch.object(recap, "get_messages_for_recap", new=fetch), \
+             patch.object(recap.Database, "get_chat_info", new=AsyncMock(return_value={"title": "Чат"})), \
+             patch.object(recap, "get_shared_config_manager", new=MagicMock(return_value=mock_config_manager)), \
+             patch.object(recap, "get_system_prompt", new=AsyncMock(return_value="prompt")), \
+             patch.object(recap, "client", new=mock_client):
+            result = await recap.generate_recap(123, date(2026, 10, 30), min_messages=1, days=2)
+
+        assert [call.args[1] for call in fetch.await_args_list] == [date(2026, 10, 29), date(2026, 10, 30)]
+        user_message = mock_client.chat.completions.create.await_args.kwargs["messages"][1]["content"]
+        assert user_message.index("[29.10 12:00]") < user_message.index("[30.10 12:00]")
+        assert result is not None and "29–30 жовтня" in result
+
+    async def test_llm_failure_raises(self) -> None:
         rows = [(datetime(2026, 9, 26, 12, 0), 1, "u", None, "hi")] * 25
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("boom"))
@@ -123,8 +154,8 @@ class TestGenerateRecap:
              patch.object(recap, "get_shared_config_manager", new=MagicMock(return_value=mock_config_manager)), \
              patch.object(recap, "get_system_prompt", new=AsyncMock(return_value="prompt")), \
              patch.object(recap, "client", new=mock_client):
-            result = await recap.generate_recap(123, date(2026, 9, 26))
-        assert result is None
+            with pytest.raises(recap.RecapError):
+                await recap.generate_recap(123, date(2026, 9, 26))
 
 
 @pytest.mark.asyncio
@@ -165,8 +196,9 @@ class TestSendRecap:
         bot = MagicMock()
         bot.send_message = AsyncMock(side_effect=RuntimeError("network down"))
         with patch.object(recap, "_pin_recap_message", new=AsyncMock()) as mock_pin:
-            await recap.send_recap(bot, 1, "short text")
+            delivered = await recap.send_recap(bot, 1, "short text")
         mock_pin.assert_not_called()
+        assert delivered is False
 
 
 @pytest.mark.asyncio
@@ -274,3 +306,70 @@ class TestRecapTick:
 
         mock_generate.assert_not_called()
         mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+class TestRecapRetry:
+    ROW = {"chat_id": 1, "send_time": "09:00", "last_sent_date": None}
+
+    @pytest.fixture(autouse=True)
+    def clear_retries(self):  # type: ignore[no-untyped-def]
+        recap._pending_retries.clear()
+        yield
+        recap._pending_retries.clear()
+
+    async def _tick(self, now: datetime, generate: AsyncMock, send: AsyncMock, release: AsyncMock) -> None:
+        context = MagicMock()
+        with patch.object(recap.Database, "get_enabled_recap_chats", new=AsyncMock(return_value=[self.ROW])), \
+             patch.object(recap, "datetime") as mock_dt, \
+             patch.object(recap.Database, "mark_recap_sent", new=AsyncMock(return_value=True)), \
+             patch.object(recap.Database, "release_recap_claim", new=release), \
+             patch.object(recap, "generate_recap", new=generate), \
+             patch.object(recap, "send_recap", new=send):
+            mock_dt.now.return_value = now
+            await recap.recap_tick(context)
+
+    async def test_failure_releases_claim_and_waits_before_retrying(self) -> None:
+        generate = AsyncMock(side_effect=recap.RecapError("boom"))
+        release = AsyncMock()
+
+        await self._tick(datetime(2026, 9, 27, 9, 30), generate, AsyncMock(), release)
+        release.assert_awaited_once_with(1, date(2026, 9, 27))
+
+        await self._tick(datetime(2026, 9, 27, 9, 31), generate, AsyncMock(), release)
+        assert generate.await_count == 1
+
+        await self._tick(datetime(2026, 9, 27, 9, 45), generate, AsyncMock(), release)
+        assert generate.await_count == 2
+
+    async def test_gives_up_after_max_attempts(self) -> None:
+        generate = AsyncMock(side_effect=recap.RecapError("boom"))
+        release = AsyncMock()
+
+        for minute in (0, 15, 30):
+            await self._tick(datetime(2026, 9, 27, 10, minute), generate, AsyncMock(), release)
+
+        # The final failure keeps the claim; in production that stops the ticks.
+        assert release.await_count == recap.RECAP_MAX_ATTEMPTS - 1
+
+    async def test_quiet_day_keeps_claim(self) -> None:
+        release = AsyncMock()
+        await self._tick(datetime(2026, 9, 27, 9, 30), AsyncMock(return_value=None), AsyncMock(), release)
+        release.assert_not_called()
+
+    async def test_undelivered_recap_is_retried(self) -> None:
+        release = AsyncMock()
+        await self._tick(
+            datetime(2026, 9, 27, 9, 30), AsyncMock(return_value="text"), AsyncMock(return_value=False), release
+        )
+        release.assert_awaited_once()
+
+    async def test_success_clears_retry_state(self) -> None:
+        release = AsyncMock()
+        await self._tick(
+            datetime(2026, 9, 27, 9, 30), AsyncMock(side_effect=recap.RecapError("boom")), AsyncMock(), release
+        )
+        await self._tick(
+            datetime(2026, 9, 27, 9, 45), AsyncMock(return_value="text"), AsyncMock(return_value=True), release
+        )
+        assert recap._pending_retries == {}

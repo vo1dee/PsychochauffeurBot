@@ -10,7 +10,7 @@ import asyncio
 import html
 import re
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
 
 import httpx
 from telegram.constants import ParseMode
@@ -37,6 +37,12 @@ RECAP_MAX_INPUT_CHARS = 120_000
 RECAP_MAX_TOKENS = 6000
 RECAP_TEMPERATURE = float(os.getenv('RECAP_TEMPERATURE', '0.3'))
 RECAP_MODEL = os.getenv('RECAP_MODEL', 'openai/gpt-6.1-terra')
+# A full day of chat can take a reasoning model minutes to digest.
+RECAP_LLM_TIMEOUT = httpx.Timeout(connect=15.0, read=300.0, write=30.0, pool=10.0)
+
+# How many times a failed daily recap is tried in total, and the wait between tries.
+RECAP_MAX_ATTEMPTS = int(os.getenv('RECAP_MAX_ATTEMPTS', '3'))
+RECAP_RETRY_DELAY = timedelta(minutes=int(os.getenv('RECAP_RETRY_DELAY_MINUTES', '15')))
 
 # Quotes in the recap link back to the original message: {RECAP_LINK_BASE}/{message_id}.
 RECAP_LINK_BASE = os.getenv('RECAP_LINK_BASE', 'https://t.me/psychochauffeur').rstrip('/')
@@ -58,11 +64,33 @@ UKRAINIAN_MONTHS_GENITIVE = {
 _tick_lock = asyncio.Lock()
 
 
-def format_recap_header(chat_title: Optional[str], target_date: date) -> str:
-    """Build the '📜 РЕКАП ... | D місяць' header for the day the recap covers."""
+class RecapError(Exception):
+    """A recap could not be produced or delivered (as opposed to a quiet day)."""
+
+
+class _RecapRetry(NamedTuple):
+    day: date
+    failures: int
+    not_before: datetime
+
+
+# Failed daily recaps waiting for another try, by chat id. Lost on restart,
+# which at worst grants a chat a few more attempts.
+_pending_retries: Dict[int, _RecapRetry] = {}
+
+
+def format_recap_header(chat_title: Optional[str], target_date: date, days: int = 1) -> str:
+    """Build the '📜 РЕКАП ... | D місяць' header for the day(s) the recap covers."""
     month = UKRAINIAN_MONTHS_GENITIVE[target_date.month]
     title_part = f" {chat_title}" if chat_title else ""
-    return f"📜 <b>РЕКАП{title_part} | {target_date.day} {month}</b>"
+    period = f"{target_date.day} {month}"
+    if days > 1:
+        first_day = target_date - timedelta(days=days - 1)
+        if first_day.month == target_date.month:
+            period = f"{first_day.day}–{period}"
+        else:
+            period = f"{first_day.day} {UKRAINIAN_MONTHS_GENITIVE[first_day.month]} – {period}"
+    return f"📜 <b>РЕКАП{title_part} | {period}</b>"
 
 
 def _format_sender(username: Optional[str], first_name: Optional[str]) -> str:
@@ -72,10 +100,11 @@ def _format_sender(username: Optional[str], first_name: Optional[str]) -> str:
 
 
 def _build_input_text(
-    rows: List[Tuple[datetime, int, Optional[str], Optional[str], str]]
+    rows: List[Tuple[datetime, int, Optional[str], Optional[str], str]],
+    time_format: str = '%H:%M',
 ) -> str:
     lines = [
-        f"[{ts.strftime('%H:%M')}] #{message_id} {_format_sender(username, first_name)}: {text}"
+        f"[{ts.strftime(time_format)}] #{message_id} {_format_sender(username, first_name)}: {text}"
         for ts, message_id, username, first_name, text in rows
     ]
     text = "\n".join(lines)
@@ -148,18 +177,22 @@ async def generate_recap(
     target_date: date,
     min_messages: int = RECAP_MIN_MESSAGES,
     model: Optional[str] = None,
+    days: int = 1,
 ) -> Optional[str]:
     """
-    Build the previous day's recap text (HTML, header included) for a chat.
+    Build the recap text (HTML, header included) for a chat, covering the
+    given number of days ending on target_date.
 
-    Returns None when the day had fewer than min_messages qualifying messages,
-    or when the LLM call fails.
+    Returns None when the period had fewer than min_messages qualifying messages.
+    Raises RecapError when the recap could not be generated.
     """
     try:
-        rows = await get_messages_for_recap(chat_id, target_date)
+        rows = []
+        for offset in range(days - 1, -1, -1):
+            rows.extend(await get_messages_for_recap(chat_id, target_date - timedelta(days=offset)))
     except Exception as e:
         error_logger.error(f"Recap: failed to fetch messages for chat {chat_id}: {e}")
-        return None
+        raise RecapError(f"could not fetch messages: {e}") from e
 
     if len(rows) < min_messages:
         general_logger.info(
@@ -168,7 +201,7 @@ async def generate_recap(
         )
         return None
 
-    input_text = _build_input_text(rows)
+    input_text = _build_input_text(rows, '%d.%m %H:%M' if days > 1 else '%H:%M')
 
     chat_info = None
     try:
@@ -198,6 +231,7 @@ async def generate_recap(
             ],
             max_tokens=RECAP_MAX_TOKENS,
             temperature=RECAP_TEMPERATURE,
+            timeout=RECAP_LLM_TIMEOUT,
         )
         body = response["choices"][0]["message"]["content"].strip()
     except httpx.HTTPStatusError as e:
@@ -206,25 +240,28 @@ async def generate_recap(
         error_logger.error(
             f"Recap: LLM call failed for chat {chat_id} (model {model or RECAP_MODEL}): {e}\nResponse: {detail}"
         )
-        return None
+        raise RecapError(f"LLM call failed: {e}") from e
     except Exception as e:
-        error_logger.error(f"Recap: LLM call failed for chat {chat_id}: {e}")
-        return None
+        # str() of an httpx timeout is empty, so always include the type.
+        error_logger.error(f"Recap: LLM call failed for chat {chat_id}: {type(e).__name__}: {e}")
+        raise RecapError(f"LLM call failed: {type(e).__name__}: {e}") from e
 
     if not body:
-        return None
+        raise RecapError("LLM returned an empty recap")
 
     body = _link_quotes(body, {row[1] for row in rows})
 
-    header = format_recap_header(chat_title, target_date)
+    header = format_recap_header(chat_title, target_date, days)
     return f"{header}\n\n{body}"
 
 
-async def send_recap(bot: Any, chat_id: int, text: str, pin: bool = True) -> None:
+async def send_recap(bot: Any, chat_id: int, text: str, pin: bool = True) -> bool:
     """
     Send a recap to a chat, splitting long text and falling back to plain text
     on bad HTML. Afterwards, silently pins the first sent message (no
     notification); earlier recap pins are left in place, building a history.
+
+    Returns True if at least one chunk reached the chat.
     """
     sent_messages = []
     for chunk in _split_recap(text):
@@ -234,6 +271,8 @@ async def send_recap(bot: Any, chat_id: int, text: str, pin: bool = True) -> Non
 
     if pin and sent_messages:
         await _pin_recap_message(bot, chat_id, sent_messages[0])
+
+    return bool(sent_messages)
 
 
 async def _send_recap_chunk(bot: Any, chat_id: int, chunk: str) -> Optional[Any]:
@@ -278,10 +317,31 @@ def _parse_send_time(send_time: Optional[str]) -> Tuple[int, int]:
         return 9, 30
 
 
+async def _handle_recap_failure(chat_id: int, today: date, now: datetime) -> None:
+    """Release today's claim so a later tick retries, until attempts run out."""
+    retry = _pending_retries.get(chat_id)
+    failures = (retry.failures if retry and retry.day == today else 0) + 1
+
+    if failures >= RECAP_MAX_ATTEMPTS:
+        _pending_retries.pop(chat_id, None)
+        error_logger.error(f"Recap: giving up on chat {chat_id} for {today} after {failures} attempts")
+        return
+
+    _pending_retries[chat_id] = _RecapRetry(today, failures, now + RECAP_RETRY_DELAY)
+    try:
+        await Database.release_recap_claim(chat_id, today)
+    except Exception as e:
+        _pending_retries.pop(chat_id, None)
+        error_logger.error(f"Recap: failed to release claim for chat {chat_id}, not retrying: {e}")
+        return
+    general_logger.info(f"Recap: attempt {failures}/{RECAP_MAX_ATTEMPTS} failed for chat {chat_id}, will retry")
+
+
 async def recap_tick(context: CallbackContext[Any, Any, Any, Any]) -> None:
     """
     JobQueue callback, run every ~60s. Sends yesterday's recap to each enabled
-    chat once per day, at or after that chat's configured send time.
+    chat once per day, at or after that chat's configured send time. A failed
+    recap is retried up to RECAP_MAX_ATTEMPTS times, RECAP_RETRY_DELAY apart.
     """
     if _tick_lock.locked():
         return
@@ -307,6 +367,10 @@ async def recap_tick(context: CallbackContext[Any, Any, Any, Any]) -> None:
             if (now.hour, now.minute) < (send_hour, send_minute):
                 continue
 
+            retry = _pending_retries.get(chat_id)
+            if retry and retry.day == today and now < retry.not_before:
+                continue
+
             # Atomically claim today for this chat before generating, so a
             # slow LLM call spanning ticks, an overlapping run, or even a
             # second bot instance sharing this database can't send the same
@@ -324,9 +388,13 @@ async def recap_tick(context: CallbackContext[Any, Any, Any, Any]) -> None:
             try:
                 text = await generate_recap(chat_id, yesterday)
                 if text:
-                    await send_recap(context.bot, chat_id, text)
+                    # A partly delivered recap counts as sent: retrying would repeat it.
+                    if not await send_recap(context.bot, chat_id, text):
+                        raise RecapError("no part of the recap could be sent")
                     general_logger.info(f"Recap sent for chat {chat_id}")
                 else:
                     general_logger.info(f"Recap skipped for chat {chat_id} (below activity threshold)")
+                _pending_retries.pop(chat_id, None)
             except Exception as e:
                 error_logger.error(f"Recap tick: failed to generate/send recap for chat {chat_id}: {e}")
+                await _handle_recap_failure(chat_id, today, now)

@@ -153,6 +153,49 @@ async def test_recap_now_generates_and_sends() -> None:
 
 
 @pytest.mark.asyncio
+async def test_recap_now_accepts_day_count() -> None:
+    update, context = _make_update_context(["now", "2"])
+    status_message = MagicMock()
+    status_message.delete = AsyncMock()
+    update.message.reply_text = AsyncMock(return_value=status_message)
+
+    with patch("modules.handlers.recap_commands.is_admin", new=AsyncMock(return_value=True)), \
+         patch.object(recap_commands, "generate_recap", new=AsyncMock(return_value="body")) as mock_generate, \
+         patch.object(recap_commands, "send_recap", new=AsyncMock()):
+        await recap_commands.recap_command(update, context)
+
+    assert mock_generate.await_args.kwargs.get("days") == 2
+
+
+@pytest.mark.asyncio
+async def test_recap_now_rejects_too_many_days() -> None:
+    update, context = _make_update_context(["now", "30"])
+    update.message.reply_text = AsyncMock()
+
+    with patch("modules.handlers.recap_commands.is_admin", new=AsyncMock(return_value=True)), \
+         patch.object(recap_commands, "generate_recap", new=AsyncMock()) as mock_generate:
+        await recap_commands.recap_command(update, context)
+
+    mock_generate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_recap_now_generation_failure() -> None:
+    update, context = _make_update_context(["now"])
+    status_message = MagicMock()
+    status_message.edit_text = AsyncMock()
+    update.message.reply_text = AsyncMock(return_value=status_message)
+
+    with patch("modules.handlers.recap_commands.is_admin", new=AsyncMock(return_value=True)), \
+         patch.object(recap_commands, "generate_recap", new=AsyncMock(side_effect=recap_commands.RecapError("boom"))), \
+         patch.object(recap_commands, "send_recap", new=AsyncMock()) as mock_send:
+        await recap_commands.recap_command(update, context)
+
+    assert "Не вдалося" in status_message.edit_text.await_args.args[0]
+    mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_recap_now_no_messages() -> None:
     update, context = _make_update_context(["now"])
     status_message = MagicMock()

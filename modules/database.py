@@ -880,6 +880,25 @@ class Database:
         return True
 
     @classmethod
+    @database_operation("release_recap_claim")
+    async def release_recap_claim(cls, chat_id: ChatId, sent_date: date) -> None:
+        """Undo mark_recap_sent for a failed recap, so the chat can be claimed again."""
+        pool = await cls.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE chat_recap_settings
+                SET last_sent_date = NULL, updated_at = NOW()
+                WHERE chat_id = $1
+                  AND last_sent_date = $2
+                RETURNING chat_id, enabled, send_time, last_sent_date, last_pinned_message_id, updated_at
+                """,
+                chat_id, sent_date
+            )
+        if row is not None:
+            await cls._mirror_recap_settings("release_recap_claim", row)
+
+    @classmethod
     @database_operation("set_recap_pinned_message")
     async def set_recap_pinned_message(cls, chat_id: ChatId, message_id: Optional[int]) -> None:
         """Record which message is currently pinned as the chat's recap (or clear it with None)."""
