@@ -403,7 +403,10 @@ class VideoDownloader:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    health_url, headers=headers, timeout=_SERVICE_HEALTH_TIMEOUT, ssl=False
+                    health_url,
+                    headers=headers,
+                    timeout=_SERVICE_HEALTH_TIMEOUT,
+                    ssl=False,
                 ) as response:
                     if response.status == 200:
                         try:
@@ -1983,6 +1986,14 @@ class VideoDownloader:
             general_logger.warning(f"Failed to follow Deezer redirect for {url}: {e}")
             final_url = url
 
+        collection_match = re.search(
+            r"deezer\.com/(?:\w{2}/)?(album|playlist)/(\d+)", final_url
+        )
+        if collection_match:
+            return await self._resolve_deezer_collection(
+                session, collection_match.group(1), collection_match.group(2)
+            )
+
         match = re.search(r"deezer\.com/(?:\w{2}/)?track/(\d+)", final_url)
         if not match:
             general_logger.warning(
@@ -2018,41 +2029,211 @@ class VideoDownloader:
 
         return None, None, None
 
+    async def _resolve_deezer_collection(
+        self, session: aiohttp.ClientSession, kind: str, collection_id: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """Resolve a Deezer album/playlist to its most popular track (by Deezer rank)."""
+        try:
+            async with session.get(
+                f"https://api.deezer.com/{kind}/{collection_id}/tracks",
+                params={"limit": 100},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    general_logger.warning(
+                        f"Deezer API returned {response.status} for {kind} {collection_id}"
+                    )
+                    return None, None, None
+                data = await response.json()
+        except Exception as e:
+            general_logger.warning(
+                f"Deezer API call failed for {kind} {collection_id}: {e}"
+            )
+            return None, None, None
+
+        tracks = [
+            t
+            for t in (data.get("data") or [])
+            if isinstance(t, dict) and t.get("title") and t.get("readable", True)
+        ]
+        if not tracks:
+            general_logger.warning(f"Deezer {kind} {collection_id} has no tracks")
+            return None, None, None
+
+        top = max(
+            tracks, key=lambda t: t.get("rank") if isinstance(t.get("rank"), int) else 0
+        )
+        title = top.get("title")
+        artist = (top.get("artist") or {}).get("name")
+        duration_s = top.get("duration")
+        general_logger.info(
+            f"Deezer {kind} {collection_id}: picked most popular track "
+            f"'{artist} - {title}' (rank {top.get('rank')}) of {len(tracks)}"
+        )
+        return title, artist, duration_s if isinstance(duration_s, int) else None
+
+    async def _fetch_spotify_embed_entity(
+        self, session: aiohttp.ClientSession, kind: str, entity_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch the entity JSON from a Spotify embed page (__NEXT_DATA__ blob)."""
+        embed_url = f"https://open.spotify.com/embed/{kind}/{entity_id}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html",
+        }
+        async with session.get(
+            embed_url,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as response:
+            if response.status != 200:
+                return None
+            html_text = await response.text()
+
+        match = re.search(
+            r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>\s*(\{.*?\})\s*</script>',
+            html_text,
+            re.DOTALL,
+        )
+        if not match:
+            return None
+
+        data = json.loads(match.group(1))
+        entity = (
+            data.get("props", {})
+            .get("pageProps", {})
+            .get("state", {})
+            .get("data", {})
+            .get("entity", {})
+        )
+        return entity or None
+
+    @staticmethod
+    def _normalize_track_title_for_match(title: str) -> str:
+        """Lowercase and strip bracketed suffixes / punctuation for cross-platform matching."""
+        title = re.sub(r"[\(\[].*?[\)\]]", "", title.casefold())
+        title = re.split(r"\s+-\s+", title)[0]
+        return re.sub(r"[^\w]+", "", title)
+
+    async def _deezer_track_ranks_for_album(
+        self, session: aiohttp.ClientSession, album_title: str, artist: Optional[str]
+    ) -> Dict[str, int]:
+        """Look up the matching Deezer album and return {normalized title: rank}."""
+        query = f"{artist} {album_title}" if artist else album_title
+        try:
+            async with session.get(
+                "https://api.deezer.com/search/album",
+                params={"q": query, "limit": 10},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    return {}
+                albums = (await response.json()).get("data") or []
+
+            wanted_title = self._normalize_track_title_for_match(album_title)
+            wanted_artist = (artist or "").split(",")[0].strip().casefold()
+            album_id = None
+            for album in albums:
+                if (
+                    self._normalize_track_title_for_match(album.get("title") or "")
+                    != wanted_title
+                ):
+                    continue
+                album_artist = (
+                    (album.get("artist") or {}).get("name") or ""
+                ).casefold()
+                if wanted_artist and wanted_artist not in album_artist:
+                    continue
+                album_id = album.get("id")
+                break
+            if not album_id:
+                return {}
+
+            async with session.get(
+                f"https://api.deezer.com/album/{album_id}/tracks",
+                params={"limit": 100},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    return {}
+                tracks = (await response.json()).get("data") or []
+        except Exception as e:
+            general_logger.warning(f"Deezer rank lookup failed for '{query}': {e}")
+            return {}
+
+        ranks: Dict[str, int] = {}
+        for t in tracks:
+            if (
+                isinstance(t, dict)
+                and t.get("title")
+                and isinstance(t.get("rank"), int)
+            ):
+                key = self._normalize_track_title_for_match(t["title"])
+                ranks[key] = max(ranks.get(key, 0), t["rank"])
+        return ranks
+
+    async def _resolve_spotify_collection(
+        self, session: aiohttp.ClientSession, kind: str, collection_id: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """Resolve a Spotify album/playlist to one track.
+
+        Albums: most popular track (popularity borrowed from Deezer rank), else random.
+        Playlists: random track (the embed page exposes no popularity).
+        """
+        try:
+            entity = await self._fetch_spotify_embed_entity(
+                session, kind, collection_id
+            )
+        except Exception as e:
+            general_logger.warning(
+                f"Spotify embed fetch failed for {kind} {collection_id}: {e}"
+            )
+            return None, None, None
+        if not entity:
+            return None, None, None
+
+        tracks = [
+            t
+            for t in (entity.get("trackList") or [])
+            if isinstance(t, dict) and t.get("title") and t.get("isPlayable", True)
+        ]
+        if not tracks:
+            general_logger.warning(f"Spotify {kind} {collection_id} has no tracks")
+            return None, None, None
+
+        chosen = None
+        how = "random"
+        if kind == "album" and entity.get("name"):
+            ranks = await self._deezer_track_ranks_for_album(
+                session, entity["name"], entity.get("subtitle")
+            )
+            ranked = [
+                (ranks[key], t)
+                for t in tracks
+                if (key := self._normalize_track_title_for_match(t["title"])) in ranks
+            ]
+            if ranked:
+                chosen = max(ranked, key=lambda pair: pair[0])[1]
+                how = "most popular (Deezer rank)"
+        if chosen is None:
+            chosen = random.choice(tracks)
+
+        title = self._normalize_spotify_title(chosen.get("title"))
+        artist = chosen.get("subtitle") or entity.get("subtitle")
+        duration_ms = chosen.get("duration")
+        duration_s = duration_ms // 1000 if isinstance(duration_ms, int) else None
+        general_logger.info(
+            f"Spotify {kind} {collection_id}: picked {how} track "
+            f"'{artist} - {title}' of {len(tracks)}"
+        )
+        return title, artist, duration_s
+
     async def _resolve_spotify_via_embed(
         self, session: aiohttp.ClientSession, track_id: str
     ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         """Resolve Spotify track metadata from the embed page __NEXT_DATA__ JSON blob."""
         try:
-            embed_url = f"https://open.spotify.com/embed/track/{track_id}"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "text/html",
-            }
-            async with session.get(
-                embed_url,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status != 200:
-                    return None, None, None
-                html_text = await response.text()
-
-            match = re.search(
-                r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>\s*(\{.*?\})\s*</script>',
-                html_text,
-                re.DOTALL,
-            )
-            if not match:
-                return None, None, None
-
-            data = json.loads(match.group(1))
-            entity = (
-                data.get("props", {})
-                .get("pageProps", {})
-                .get("state", {})
-                .get("data", {})
-                .get("entity", {})
-            )
+            entity = await self._fetch_spotify_embed_entity(session, "track", track_id)
             if not entity:
                 return None, None, None
 
@@ -2100,6 +2281,14 @@ class VideoDownloader:
         self, session: aiohttp.ClientSession, url: str
     ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         """Resolve Spotify track metadata via oEmbed with robust HTML/JSON-LD fallback."""
+        collection_match = re.search(
+            r"spotify\.com/(?:intl-[\w-]+/)?(album|playlist)/([A-Za-z0-9]+)", url
+        )
+        if collection_match:
+            return await self._resolve_spotify_collection(
+                session, collection_match.group(1), collection_match.group(2)
+            )
+
         api_title, api_artist, api_duration = (
             await self._resolve_spotify_track_via_open_api(session, url)
         )
@@ -2840,9 +3029,9 @@ class VideoDownloader:
         music_url = None
         for url in urls:
             normalized_url = await self.normalize_music_platform_url(url)
-            if self._is_music_platform_url(
+            if self._is_music_platform_url(normalized_url) and not self._is_shazam_url(
                 normalized_url
-            ) and not self._is_shazam_url(normalized_url):
+            ):
                 music_url = normalized_url
                 break
 
@@ -4137,7 +4326,8 @@ class VideoDownloader:
                 )
                 stdout, _ = await asyncio.wait_for(process.communicate(), timeout=30)
                 self._impersonation_available = any(
-                    line.lower().startswith("chrome") and "unavailable" not in line.lower()
+                    line.lower().startswith("chrome")
+                    and "unavailable" not in line.lower()
                     for line in stdout.decode(errors="replace").splitlines()
                 )
             except Exception as e:
@@ -4616,9 +4806,7 @@ def setup_video_handlers(
     # Add music platform auto-download handler
     from modules.const import MusicPlatforms
 
-    music_pattern = "|".join(
-        re.escape(d) for d in MusicPlatforms.AUTO_DOWNLOAD_DOMAINS
-    )
+    music_pattern = "|".join(re.escape(d) for d in MusicPlatforms.AUTO_DOWNLOAD_DOMAINS)
     application.add_handler(
         MessageHandler(
             filters.TEXT & filters.Regex(music_pattern),
