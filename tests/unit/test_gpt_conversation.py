@@ -152,3 +152,34 @@ async def test_private_reply_always_gets_language_rule(history):
     system_prompt = complete.call_args.args[1][0]["content"]
     assert system_prompt.startswith("You are a helpful assistant.")
     assert gpt.LANGUAGE_RULE in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_bare_ask_uses_latest_chat_messages(history):
+    for i in range(1, 13):
+        add(history, i, f"message {i}", author="Ivan")
+    update = make_update("/ask", 13)
+
+    messages = await get_context_messages(update, make_context(), "command", recent_chat=True)
+
+    assert len(messages) == 1
+    content = messages[0]["content"]
+    assert messages[0]["role"] == "system"
+    assert "Ivan: message 12" in content and "Ivan: message 3" in content
+    assert "message 2\n" not in content and not content.endswith("message 2")
+
+
+@pytest.mark.asyncio
+async def test_ask_chat_tool_pages_back_ten_at_a_time():
+    import json
+    from modules.gpt import _ask_chat_tool_handler
+
+    load_older = _ask_chat_tool_handler([f"m{i}" for i in range(25)])
+
+    first = json.loads(await load_older({}))
+    second = json.loads(await load_older({}))
+    third = json.loads(await load_older({}))
+
+    assert first == {"messages": [f"m{i}" for i in range(5, 15)], "has_more": True}
+    assert second == {"messages": [f"m{i}" for i in range(0, 5)], "has_more": False}
+    assert third == {"messages": [], "has_more": False}

@@ -2,10 +2,11 @@
 
 # Standard library imports
 import asyncio
+import json
 import os
 import re
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Callable, Awaitable, Tuple
 import base64
 from io import BytesIO
 import hashlib
@@ -441,6 +442,23 @@ CONTENT_RULE = (
 )
 # Maximum number of reply-chain messages followed back from the current message
 MAX_THREAD_DEPTH = 12
+# A bare /ask (no question, no reply) answers what the chat was just talking about:
+# the model sees this many recent messages at once and can page further back with a tool
+ASK_CHAT_PAGE_SIZE = 10
+ASK_CHAT_TOOL_NAME = "get_older_chat_messages"
+ASK_CHAT_PROMPT = "Дай відповідь на питання або тему з останніх повідомлень чату."
+ASK_CHAT_TOOL: Dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": ASK_CHAT_TOOL_NAME,
+        "description": (
+            f"Load the next {ASK_CHAT_PAGE_SIZE} older chat messages, before the ones you have "
+            "already seen. Call it only when the messages you have are not enough to tell what "
+            "the question or topic is."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
 
 
 # CJK scripts (Han, kana, Hangul) the model occasionally leaks into non-CJK replies, e.g. "警告"
@@ -509,6 +527,49 @@ def _format_history_entry(entry: Dict[str, Any], bot_username: Optional[str]) ->
     return {"role": "user", "content": f"{author}: {text}" if author else text}
 
 
+def _chat_history_lines(update: Update, bot_username: Optional[str]) -> List[str]:
+    """Recent chat messages (excluding the current one) as "Author: text" lines, oldest first."""
+    from modules.utils import chat_history_manager
+    if not update.effective_chat:
+        return []
+    current_id = update.message.message_id if update.message else None
+    lines = []
+    for msg in chat_history_manager.get_history(update.effective_chat.id):
+        if not msg.get("text") or (current_id is not None and msg.get("message_id") == current_id):
+            continue
+        formatted = _format_history_entry(msg, bot_username)
+        lines.append(f"You: {formatted['content']}" if formatted["role"] == "assistant" else formatted["content"])
+    return lines
+
+
+def _ask_chat_context_message(lines: List[str]) -> Dict[str, str]:
+    """System message with the latest chat page for a bare /ask."""
+    return {
+        "role": "system",
+        "content": (
+            "The user sent /ask without a question. Answer the question or topic from the "
+            "latest chat messages below (oldest first, \"You\" is you). It is most likely in "
+            "the last 1-3 messages; older ones are background. If these are not enough to tell "
+            f"what to answer, call {ASK_CHAT_TOOL_NAME} to load older messages.\n"
+            + "\n".join(lines[-ASK_CHAT_PAGE_SIZE:])
+        ),
+    }
+
+
+def _ask_chat_tool_handler(lines: List[str]) -> Callable[[Dict[str, Any]], Awaitable[str]]:
+    """Tool handler that pages back through lines, ASK_CHAT_PAGE_SIZE at a time, after the first page."""
+    seen = min(len(lines), ASK_CHAT_PAGE_SIZE)
+
+    async def load_older(_tool_call: Dict[str, Any]) -> str:
+        nonlocal seen
+        end = len(lines) - seen
+        page = lines[max(0, end - ASK_CHAT_PAGE_SIZE):end]
+        seen += len(page)
+        return json.dumps({"messages": page, "has_more": seen < len(lines)}, ensure_ascii=False)
+
+    return load_older
+
+
 def _build_reply_thread(update: Update, chat_history: List[Dict[str, Any]], bot_id: Optional[int]) -> List[Dict[str, Any]]:
     """
     Follow the reply chain of the current message back through the chat history.
@@ -546,12 +607,18 @@ def _build_reply_thread(update: Update, chat_history: List[Dict[str, Any]], bot_
     return thread
 
 
-async def get_context_messages(update: Update, context: CallbackContext[Any, Any, Any, Any], response_type: str = "command") -> List[Dict[str, str]]:
+async def get_context_messages(
+    update: Update,
+    context: CallbackContext[Any, Any, Any, Any],
+    response_type: str = "command",
+    recent_chat: bool = False,
+) -> List[Dict[str, str]]:
     """
     Get context messages for GPT response.
 
     - "command" (/ask): no chat history, only the message the command replies to (if any),
-      so answers stay short and focused on the question.
+      so answers stay short and focused on the question. With recent_chat (a bare /ask),
+      the latest chat messages instead, so the model can find the question there.
     - "mention"/"private": a conversation - recent chat messages as background plus the
       reply thread leading to the current message as proper user/assistant turns.
     - "random": the last few chat messages.
@@ -576,6 +643,12 @@ async def get_context_messages(update: Update, context: CallbackContext[Any, Any
             return messages
 
         if response_type == "command":
+            if recent_chat:
+                bot = getattr(context, "bot", None)
+                lines = _chat_history_lines(update, getattr(bot, "username", None) if bot else None)
+                if lines:
+                    messages.append(_ask_chat_context_message(lines))
+                return messages
             reply = update.message.reply_to_message
             reply_text = (reply.text or reply.caption) if reply else None
             if reply_text:
@@ -740,8 +813,12 @@ async def _complete_with_tools(
     messages: List[Dict[str, Any]],
     max_tokens: int,
     temperature: float,
+    extra_tools: Optional[Dict[str, Tuple[Dict[str, Any], Callable[[Dict[str, Any]], Awaitable[str]]]]] = None,
 ) -> str:
-    """Run a chat completion that may call the get_weather tool, returning the final text."""
+    """Run a chat completion that may call the get_weather tool (plus any extra_tools, given as
+    name -> (schema, handler)), returning the final text."""
+    extra_tools = extra_tools or {}
+    tools = [WEATHER_TOOL, *(schema for schema, _ in extra_tools.values())]
     final_kwargs: Dict[str, Any] = {}
     for _ in range(MAX_TOOL_ROUNDS):
         try:
@@ -750,7 +827,7 @@ async def _complete_with_tools(
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                tools=[WEATHER_TOOL],
+                tools=tools,
             )
         except httpx.HTTPStatusError as e:
             # Some models/providers reject the tools parameter; answer without it.
@@ -770,15 +847,16 @@ async def _complete_with_tools(
             "tool_calls": tool_calls,
         })
         for tool_call in tool_calls:
+            extra = extra_tools.get(tool_call.get("function", {}).get("name"))
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call.get("id"),
-                "content": await execute_tool_call(tool_call),
+                "content": await (extra[1](tool_call) if extra else execute_tool_call(tool_call)),
             })
     else:
         # Out of tool rounds: tools stay declared (the history references them)
         # but the model must answer from the results it already has.
-        final_kwargs = {"tools": [WEATHER_TOOL], "tool_choice": "none"}
+        final_kwargs = {"tools": tools, "tool_choice": "none"}
 
     response = await client.chat.completions.create(
         model=model,
@@ -797,11 +875,13 @@ async def gpt_response(
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
     message_text_override: Optional[str] = None,
-    return_text: bool = False
+    return_text: bool = False,
+    recent_chat: bool = False,
 ) -> Optional[str]:
     """
     Generate and send a GPT response based on the message context and configuration.
     If return_text is True, return the response as a string instead of sending it.
+    recent_chat (bare /ask): answer from the latest chat messages, paging back with a tool.
     """
     try:
         if not update.message or not (update.message.text or message_text_override):
@@ -846,7 +926,7 @@ async def gpt_response(
             message_text_override = message_text_override.replace(bot_username, "").strip()
 
         # Get context messages (previous conversation history)
-        context_messages = await get_context_messages(update, context, response_type)
+        context_messages = await get_context_messages(update, context, response_type, recent_chat=recent_chat)
         
         # Add the current message
         current_message = message_text_override or (update.message.text if update.message else "")
@@ -881,7 +961,12 @@ async def gpt_response(
         # Call GPT API (with the weather tool for conversational response types)
         if effective_response_type in WEATHER_TOOL_RESPONSE_TYPES:
             messages[0]["content"] = f"{messages[0]['content']}\n\n{WEATHER_TOOL_RULES}"
-            response_text = await _complete_with_tools(model, messages, max_tokens, temperature)
+            extra_tools = {}
+            if recent_chat:
+                lines = _chat_history_lines(update, context.bot.username if context.bot else None)
+                if len(lines) > ASK_CHAT_PAGE_SIZE:
+                    extra_tools[ASK_CHAT_TOOL_NAME] = (ASK_CHAT_TOOL, _ask_chat_tool_handler(lines))
+            response_text = await _complete_with_tools(model, messages, max_tokens, temperature, extra_tools)
         else:
             response = await client.chat.completions.create(
                 model=model,
@@ -945,18 +1030,27 @@ async def ask_gpt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if len(command_parts) > 1:
             prompt = command_parts[1]
 
+    recent_chat = False
     if not prompt:
+        from modules.utils import chat_history_manager
         reply = update.message.reply_to_message if update.message else None
         if reply and (reply.text or reply.caption):
             # A bare /ask sent as a reply asks about the replied-to message
             prompt = "Дай відповідь на це повідомлення."
+        elif update.effective_chat and any(
+            msg.get("text") for msg in chat_history_manager.get_history(update.effective_chat.id)
+        ):
+            # Otherwise it asks about what the chat was just talking about
+            prompt = ASK_CHAT_PROMPT
+            recent_chat = True
         else:
             prompt = "Привіт! Як я можу вам допомогти?"
 
     # Commands are not stored by the message handler; keep the question in history so that
     # replying to the answer can continue the conversation with it as context
+    # (not the stand-in prompt of a bare /ask, which would show up as chat for the next one)
     from modules.utils import chat_history_manager
-    if update.message and update.effective_chat:
+    if update.message and update.effective_chat and not recent_chat:
         user = update.message.from_user
         chat_history_manager.add_message(update.effective_chat.id, {
             'text': prompt,
@@ -968,7 +1062,7 @@ async def ask_gpt_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             'timestamp': update.message.date
         })
 
-    await gpt_response(update, context, response_type="command", message_text_override=prompt)
+    await gpt_response(update, context, response_type="command", message_text_override=prompt, recent_chat=recent_chat)
 
 
 async def answer_from_gpt(
