@@ -177,8 +177,8 @@ class TestVideoDownloader(unittest.TestCase):
 
         return MockSession()
 
-    def test_shazam_is_song_only_platform(self):
-        """Shazam links are recognised, but excluded from chat auto-download."""
+    def test_shazam_is_auto_download_platform(self):
+        """Shazam track links are recognised and auto-downloaded in chat."""
         from modules.const import MusicPlatforms
 
         url = "https://www.shazam.com/track/40001020/poppin-them-thangs?referrer=share"
@@ -187,7 +187,18 @@ class TestVideoDownloader(unittest.TestCase):
         self.assertFalse(
             self.video_downloader._is_shazam_url("https://notshazam.com/track/1")
         )
-        self.assertNotIn("shazam.com", MusicPlatforms.AUTO_DOWNLOAD_DOMAINS)
+        self.assertIn("shazam.com", MusicPlatforms.AUTO_DOWNLOAD_DOMAINS)
+        self.assertTrue(self.video_downloader._is_shazam_track_url(url))
+        self.assertTrue(
+            self.video_downloader._is_shazam_track_url(
+                "https://www.shazam.com/song/1787023936/dtmf"
+            )
+        )
+        self.assertFalse(
+            self.video_downloader._is_shazam_track_url(
+                "https://www.shazam.com/charts/top-200/world"
+            )
+        )
 
     def test_resolve_shazam_track_uses_api_and_itunes_duration(self):
         """/track/<id> links resolve via the Shazam API, duration via iTunes."""
