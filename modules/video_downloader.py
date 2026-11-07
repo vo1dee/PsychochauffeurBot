@@ -2550,6 +2550,10 @@ class VideoDownloader:
             f".{MusicPlatforms.SHAZAM_DOMAIN}"
         )
 
+    @staticmethod
+    def _is_shazam_track_url(url: str) -> bool:
+        return bool(re.search(r"/(track|song)/\d+", urlparse(url).path))
+
     async def _lookup_itunes_track(
         self, session: aiohttp.ClientSession, adam_id: str
     ) -> Tuple[Optional[str], Optional[str], Optional[int]]:
@@ -3029,11 +3033,15 @@ class VideoDownloader:
         music_url = None
         for url in urls:
             normalized_url = await self.normalize_music_platform_url(url)
-            if self._is_music_platform_url(normalized_url) and not self._is_shazam_url(
+            if not self._is_music_platform_url(normalized_url):
+                continue
+            # Only Shazam track/song pages resolve to a track; skip charts etc.
+            if self._is_shazam_url(normalized_url) and not self._is_shazam_track_url(
                 normalized_url
             ):
-                music_url = normalized_url
-                break
+                continue
+            music_url = normalized_url
+            break
 
         if not music_url:
             return

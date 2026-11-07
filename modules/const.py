@@ -94,14 +94,14 @@ class MusicPlatforms:
         "deezer.com",
         "music.apple.com",
         "soundcloud.com",
+        "shazam.com",
     ]
 
     SOUNDCLOUD_DOMAIN = "soundcloud.com"
     SHAZAM_DOMAIN = "shazam.com"
 
-    # Everything /song understands. Shazam is /song-only: a Shazam link
-    # posted in chat is not auto-downloaded.
-    PLATFORM_DOMAINS = AUTO_DOWNLOAD_DOMAINS + [SHAZAM_DOMAIN]
+    # Everything /song understands.
+    PLATFORM_DOMAINS = AUTO_DOWNLOAD_DOMAINS
 
 
 class InstagramConfig:
