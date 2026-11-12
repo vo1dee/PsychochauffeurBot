@@ -43,7 +43,7 @@ from modules.web_search_tool import (
     WEB_SEARCH_TOOL,
     WEB_SEARCH_TOOL_NAME,
     WEB_SEARCH_TOOL_RULES,
-    web_search_tool_handler,
+    make_web_search_handler,
 )
 
 from modules.chat_analysis import (
@@ -998,7 +998,7 @@ async def gpt_response(
             extra_tools = {}
             if WEB_SEARCH_ENABLED:
                 messages[0]["content"] = f"{messages[0]['content']}\n\n{WEB_SEARCH_TOOL_RULES}"
-                extra_tools[WEB_SEARCH_TOOL_NAME] = (WEB_SEARCH_TOOL, web_search_tool_handler)
+                extra_tools[WEB_SEARCH_TOOL_NAME] = (WEB_SEARCH_TOOL, make_web_search_handler())
             if recent_chat:
                 lines = _chat_history_lines(update, context.bot.username if context.bot else None)
                 if len(lines) > ASK_CHAT_PAGE_SIZE:

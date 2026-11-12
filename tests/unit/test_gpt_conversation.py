@@ -217,25 +217,42 @@ async def test_ask_gets_date_context_and_web_search_tool(history):
 
 
 @pytest.mark.asyncio
-async def test_web_search_tool_returns_summary_and_sources():
+async def test_web_search_returns_facts_snippets_and_pins_exa():
     import json
     from modules import web_search_tool
 
     create = AsyncMock(return_value={"choices": [{"message": {
-        "content": "Goes celebrates Sint-Maarten.",
+        "content": "- Goes celebrates Sint-Maarten [omroepzeeland.nl, 12 Nov 2026]",
         "annotations": [
-            {"type": "url_citation", "url_citation": {"url": "https://a.nl", "title": "A"}},
+            {"type": "url_citation", "url_citation": {
+                "url": "https://a.nl", "title": "A", "content": "Sint-Maarten  fireworks\n in Goes"}},
             {"type": "url_citation", "url_citation": {"url": "https://a.nl", "title": "A"}},
         ],
     }}]})
+    handler = web_search_tool.make_web_search_handler()
     with patch("modules.gpt.OpenAIAsyncClient.Chat.Completions.create", new=create):
-        result = json.loads(await web_search_tool.web_search_tool_handler(
-            {"function": {"arguments": json.dumps({"query": "Goes fireworks"})}}
+        result = json.loads(await handler(
+            {"function": {"arguments": json.dumps({"query": "Goes fireworks", "deep": True})}}
         ))
 
-    assert result == {
-        "query": "Goes fireworks",
-        "summary": "Goes celebrates Sint-Maarten.",
-        "sources": [{"title": "A", "url": "https://a.nl"}],
-    }
-    assert create.call_args.kwargs["plugins"][0]["id"] == "web"
+    assert result["facts"].startswith("- Goes celebrates Sint-Maarten")
+    assert result["sources"] == [{"title": "A", "url": "https://a.nl", "snippet": "Sint-Maarten fireworks in Goes"}]
+    plugin = create.call_args.kwargs["plugins"][0]
+    assert plugin["id"] == "web" and plugin["engine"] == "exa"
+    assert plugin["mode"] == web_search_tool.WEB_SEARCH_DEEP_MODE
+    assert create.call_args.kwargs["temperature"] == 0
+
+
+@pytest.mark.asyncio
+async def test_web_search_handler_enforces_per_request_budget():
+    import json
+    from modules import web_search_tool
+
+    search = AsyncMock(return_value={"facts": "x", "sources": []})
+    handler = web_search_tool.make_web_search_handler(max_searches=2)
+    call = {"function": {"arguments": json.dumps({"query": "q"})}}
+    with patch("modules.web_search_tool.web_search", new=search):
+        results = [json.loads(await handler(call)) for _ in range(3)]
+
+    assert search.await_count == 2
+    assert "error" in results[2]
