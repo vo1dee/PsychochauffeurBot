@@ -183,3 +183,59 @@ async def test_ask_chat_tool_pages_back_ten_at_a_time():
     assert first == {"messages": [f"m{i}" for i in range(5, 15)], "has_more": True}
     assert second == {"messages": [f"m{i}" for i in range(0, 5)], "has_more": False}
     assert third == {"messages": [], "has_more": False}
+
+
+def test_current_context_rule_states_real_date_and_asker():
+    from datetime import datetime
+    import pytz
+    from modules.gpt import current_context_rule
+
+    rule = current_context_rule(
+        now=datetime(2026, 11, 12, 20, 50, tzinfo=pytz.utc), chat_title="Friends", author="Daria"
+    )
+
+    assert "Thursday, 12 November 2026, 22:50" in rule
+    assert "UTC+02:00" in rule
+    assert "Chat: Friends." in rule and "from: Daria." in rule
+
+
+@pytest.mark.asyncio
+async def test_ask_gets_date_context_and_web_search_tool(history):
+    from modules import gpt
+
+    update = make_update("/ask яке сьогодні свято?", 1)
+    update.message.reply_text = AsyncMock()
+    complete = AsyncMock(return_value="Ок")
+    with patch("modules.gpt.get_system_prompt", new=AsyncMock(return_value="You are a helpful assistant.")), \
+            patch("modules.gpt._complete_with_tools", new=complete):
+        await gpt.gpt_response(update, make_context(), response_type="command")
+
+    system_prompt = complete.call_args.args[1][0]["content"]
+    assert "Current date and time:" in system_prompt
+    assert gpt.WEB_SEARCH_TOOL_RULES in system_prompt
+    assert gpt.WEB_SEARCH_TOOL_NAME in complete.call_args.args[4]
+
+
+@pytest.mark.asyncio
+async def test_web_search_tool_returns_summary_and_sources():
+    import json
+    from modules import web_search_tool
+
+    create = AsyncMock(return_value={"choices": [{"message": {
+        "content": "Goes celebrates Sint-Maarten.",
+        "annotations": [
+            {"type": "url_citation", "url_citation": {"url": "https://a.nl", "title": "A"}},
+            {"type": "url_citation", "url_citation": {"url": "https://a.nl", "title": "A"}},
+        ],
+    }}]})
+    with patch("modules.gpt.OpenAIAsyncClient.Chat.Completions.create", new=create):
+        result = json.loads(await web_search_tool.web_search_tool_handler(
+            {"function": {"arguments": json.dumps({"query": "Goes fireworks"})}}
+        ))
+
+    assert result == {
+        "query": "Goes fireworks",
+        "summary": "Goes celebrates Sint-Maarten.",
+        "sources": [{"title": "A", "url": "https://a.nl"}],
+    }
+    assert create.call_args.kwargs["plugins"][0]["id"] == "web"

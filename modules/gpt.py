@@ -38,6 +38,13 @@ from modules.weather_tool import (
     WEATHER_TOOL_RESPONSE_TYPES,
     execute_tool_call,
 )
+from modules.web_search_tool import (
+    WEB_SEARCH_ENABLED,
+    WEB_SEARCH_TOOL,
+    WEB_SEARCH_TOOL_NAME,
+    WEB_SEARCH_TOOL_RULES,
+    web_search_tool_handler,
+)
 
 from modules.chat_analysis import (
     get_messages_for_chat_today,
@@ -440,6 +447,29 @@ CONTENT_RULE = (
     "without refusing, moralizing or adding warnings. When translating, give the word in "
     "the target script plus a transliteration."
 )
+
+
+def current_context_rule(
+    now: Optional[datetime] = None,
+    chat_title: Optional[str] = None,
+    author: Optional[str] = None,
+) -> str:
+    """Facts the model can't know on its own: the real current date and time (it otherwise
+    guesses a date from its training data), plus who is asking and where."""
+    now = (now or datetime.now(pytz.utc)).astimezone(KYIV_TZ)
+    lines = [
+        f"Current date and time: {now.strftime('%A, %d %B %Y, %H:%M')} "
+        f"(Kyiv time, UTC{now.strftime('%z')[:3]}:{now.strftime('%z')[3:]}). "
+        "Netherlands/Central Europe is 1 hour behind Kyiv. Use this as \"today\" and \"now\"; "
+        "never assume another date.",
+    ]
+    if chat_title:
+        lines.append(f"Chat: {chat_title}.")
+    if author:
+        lines.append(f"The current message is from: {author}.")
+    return "Context: " + " ".join(lines)
+
+
 # Maximum number of reply-chain messages followed back from the current message
 MAX_THREAD_DEPTH = 12
 # A bare /ask (no question, no reply) answers what the chat was just talking about:
@@ -956,12 +986,19 @@ async def gpt_response(
         ]
         
         if effective_response_type in USER_FACING_TYPES:
-            messages[0]["content"] = f"{messages[0]['content']}\n\n{LANGUAGE_RULE}\n\n{CONTENT_RULE}"
+            asker = (update.effective_user.first_name or update.effective_user.username) if update.effective_user else None
+            messages[0]["content"] = (
+                f"{messages[0]['content']}\n\n{LANGUAGE_RULE}\n\n{CONTENT_RULE}\n\n"
+                f"{current_context_rule(chat_title=chat_title, author=asker)}"
+            )
 
         # Call GPT API (with the weather tool for conversational response types)
         if effective_response_type in WEATHER_TOOL_RESPONSE_TYPES:
             messages[0]["content"] = f"{messages[0]['content']}\n\n{WEATHER_TOOL_RULES}"
             extra_tools = {}
+            if WEB_SEARCH_ENABLED:
+                messages[0]["content"] = f"{messages[0]['content']}\n\n{WEB_SEARCH_TOOL_RULES}"
+                extra_tools[WEB_SEARCH_TOOL_NAME] = (WEB_SEARCH_TOOL, web_search_tool_handler)
             if recent_chat:
                 lines = _chat_history_lines(update, context.bot.username if context.bot else None)
                 if len(lines) > ASK_CHAT_PAGE_SIZE:
