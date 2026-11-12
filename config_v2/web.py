@@ -7,15 +7,19 @@ Forms are generated dynamically from Pydantic schema metadata.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import ipaddress
 import json
 import logging
 import os
+import secrets
 from datetime import datetime
 from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
@@ -32,6 +36,57 @@ STATIC_DIR = Path(__file__).parent / "static"
 app = FastAPI(title="Bot Config")
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# ---------------------------------------------------------------------------
+# Auth: HTTP Basic with CONFIG_WEB_USER / CONFIG_WEB_PASSWORD. Without a password set,
+# only requests from the machine itself (loopback) are allowed.
+# ---------------------------------------------------------------------------
+AUTH_REALM = "Bot Config"
+
+
+def _auth_credentials() -> tuple[str, str]:
+    return os.getenv("CONFIG_WEB_USER", "admin"), os.getenv("CONFIG_WEB_PASSWORD", "")
+
+
+def _is_loopback(host: str | None) -> bool:
+    try:
+        return host is not None and ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _basic_auth_ok(header: str | None, user: str, password: str) -> bool:
+    if not header or not header.lower().startswith("basic "):
+        return False
+    try:
+        decoded = base64.b64decode(header[6:].strip(), validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return False
+    given_user, sep, given_password = decoded.partition(":")
+    # Compare both parts every time so a wrong user and a wrong password take the same time
+    user_ok = secrets.compare_digest(given_user.encode(), user.encode())
+    password_ok = secrets.compare_digest(given_password.encode(), password.encode())
+    return bool(sep) and user_ok and password_ok
+
+
+@app.middleware("http")
+async def require_auth(request: Request, call_next):
+    user, password = _auth_credentials()
+    if not password:
+        if _is_loopback(request.client.host if request.client else None):
+            return await call_next(request)
+        return PlainTextResponse(
+            "Config UI is locked: set CONFIG_WEB_PASSWORD to allow access from other machines.",
+            status_code=403,
+        )
+    if _basic_auth_ok(request.headers.get("authorization"), user, password):
+        return await call_next(request)
+    return PlainTextResponse(
+        "Authentication required.",
+        status_code=401,
+        headers={"WWW-Authenticate": f'Basic realm="{AUTH_REALM}", charset="UTF-8"'},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -557,4 +612,8 @@ async def start_background(
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
     logger.info("Config web UI v2 started on http://%s:%s", host, port)
+    if not _auth_credentials()[1]:
+        logger.warning(
+            "CONFIG_WEB_PASSWORD is not set: the config web UI only accepts requests from localhost."
+        )
     return task
