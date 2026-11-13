@@ -217,7 +217,7 @@ async def dashboard(request: Request):
     """Main dashboard — list of chats + global config link."""
     mgr = config_manager()
     chats = await mgr.db.get_chats()
-    return templates.TemplateResponse("dashboard.html", {
+    return templates.TemplateResponse(request, "dashboard.html", {
         "request": request,
         "chats": chats,
         "modules": list(MODULE_REGISTRY.keys()),
@@ -258,7 +258,7 @@ async def edit_config(request: Request, chat_id: str):
             "mode": mode,
         })
 
-    return templates.TemplateResponse("edit_config.html", {
+    return templates.TemplateResponse(request, "edit_config.html", {
         "request": request,
         "chat_id": chat_id,
         "chat": chat,
@@ -401,7 +401,7 @@ async def admin_page(
         logger.error("Admin page query failed: %s", e, exc_info=True)
         ctx["db_error"] = str(e)
 
-    return templates.TemplateResponse("admin.html", ctx)
+    return templates.TemplateResponse(request, "admin.html", ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +446,7 @@ async def analytics_page(request: Request, days: int = 30):
     # Error log parsing is file-based — works even if the DB is down
     ctx["errors"] = stats.parse_error_log(days=days)
 
-    return templates.TemplateResponse("analytics.html", ctx)
+    return templates.TemplateResponse(request, "analytics.html", ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -457,7 +457,7 @@ async def backups_page(request: Request):
     mgr = config_manager()
     backups = await mgr.list_backups()
     chats = await mgr.db.get_chats()
-    return templates.TemplateResponse("backups.html", {
+    return templates.TemplateResponse(request, "backups.html", {
         "request": request,
         "backups": backups,
         "chats": chats,
