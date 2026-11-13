@@ -31,6 +31,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Config web UI (config_v2/web.py). Requires CONFIG_WEB_PASSWORD in .env for non-localhost access.
+    ports:
+      - "8080:8080"
     volumes:
       - ./logs:/app/logs
       - ./downloads:/app/downloads
