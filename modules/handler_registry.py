@@ -59,6 +59,10 @@ class HandlerRegistry(ServiceInterface):
 
         logger.info("Starting handler registration process...")
 
+        # Runs first for every update so all logs raised while handling it carry
+        # the chat/user/message context (group -100 precedes all other groups).
+        self._register_log_context(application)
+
         # Register message handlers first (group 0)
         await self._register_message_handlers(application)
 
@@ -345,6 +349,19 @@ class HandlerRegistry(ServiceInterface):
             )
             raise RuntimeError("Service registry is required for callback handling")
 
+    def _register_log_context(
+        self, application: Application[Any, Any, Any, Any, Any, Any]
+    ) -> None:
+        """Tag every update with log context and report unhandled handler errors."""
+        from telegram.ext import TypeHandler
+        from modules.logger import set_log_context_from_update
+
+        async def _set_context(update: object, context: CallbackContext) -> None:
+            set_log_context_from_update(update)
+
+        application.add_handler(TypeHandler(Update, _set_context), group=-100)
+        application.add_error_handler(_log_unhandled_error)
+
     async def _register_message_handlers(
         self, application: Application[Any, Any, Any, Any, Any, Any]
     ) -> None:
@@ -393,3 +410,26 @@ class HandlerRegistry(ServiceInterface):
         setup_video_handlers(
             application, extract_urls_func=extract_urls, config_manager=config_manager
         )
+
+
+async def _log_unhandled_error(update: object, context: CallbackContext) -> None:
+    """Application-level error handler: log with the originating chat/message context."""
+    from telegram.error import Conflict, NetworkError, BadRequest
+    from modules.logger import build_log_context_from_update
+
+    error = context.error
+    extra = build_log_context_from_update(update) if isinstance(update, Update) else {}
+    if isinstance(error, NetworkError) and not isinstance(error, BadRequest):
+        # Transient Telegram connectivity; PTB retries polling itself.
+        logger.warning("Transient Telegram network error: %s", error, extra=extra)
+        return
+    if isinstance(error, Conflict):
+        logger.error(
+            "Telegram polling conflict: another process is polling with this bot token "
+            "(a local run or a second container?). %s", error, extra=extra,
+        )
+        return
+    logging.getLogger("error").error(
+        "Unhandled exception while handling update: %s", error,
+        exc_info=error, extra=extra,
+    )

@@ -2,6 +2,8 @@ import os
 import sys
 import logging
 import asyncio
+import contextvars
+import re
 import html
 from logging.handlers import RotatingFileHandler, BaseRotatingHandler
 import threading
@@ -32,6 +34,113 @@ KYIV_TZ = pytz.timezone('Europe/Kyiv')
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
+
+# --- Per-update log context ---
+# Every incoming Telegram update sets this (see set_log_context_from_update), and
+# because python-telegram-bot runs each update in its own asyncio task, the value
+# is isolated per update and inherited by any task spawned while handling it.
+# LogContextFilter copies it onto every record so errors show which chat/message
+# triggered them even when the logging call itself passed no `extra`.
+_LOG_CONTEXT: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar(
+    "psychochauffeur_log_context", default=None
+)
+_MESSAGE_SNIPPET_LEN = 200
+
+
+def get_log_context() -> Dict[str, Any]:
+    """Return the chat/user/message context of the update being handled (may be empty)."""
+    return dict(_LOG_CONTEXT.get() or {})
+
+
+def set_log_context(**fields: Any) -> contextvars.Token[Optional[Dict[str, Any]]]:
+    """Merge fields into the current log context; returns a token for reset_log_context."""
+    merged = get_log_context()
+    merged.update({k: v for k, v in fields.items() if v is not None})
+    return _LOG_CONTEXT.set(merged)
+
+
+def reset_log_context(token: contextvars.Token[Optional[Dict[str, Any]]]) -> None:
+    """Restore the log context that was active before set_log_context()."""
+    _LOG_CONTEXT.reset(token)
+
+
+def build_log_context_from_update(update: Any) -> Dict[str, Any]:
+    """Extract chat, user and message identifiers from a Telegram Update (duck-typed)."""
+    ctx: Dict[str, Any] = {}
+    try:
+        chat = getattr(update, "effective_chat", None)
+        user = getattr(update, "effective_user", None)
+        message = getattr(update, "effective_message", None)
+        if chat is not None:
+            ctx["chat_id"] = chat.id
+            ctx["chat_type"] = getattr(chat, "type", None)
+            ctx["chattitle"] = (
+                getattr(chat, "title", None)
+                or getattr(chat, "full_name", None)
+                or f"Private_{chat.id}"
+            )
+        if user is not None:
+            ctx["user_id"] = user.id
+            ctx["username"] = (
+                f"@{user.username}" if getattr(user, "username", None)
+                else (getattr(user, "full_name", None) or str(user.id))
+            )
+        if message is not None:
+            ctx["message_id"] = getattr(message, "message_id", None)
+            text = getattr(message, "text", None) or getattr(message, "caption", None)
+            if isinstance(text, str) and text:
+                ctx["message_text"] = text[:_MESSAGE_SNIPPET_LEN]
+            elif getattr(message, "voice", None) is not None:
+                ctx["message_text"] = "<voice>"
+            elif getattr(message, "video_note", None) is not None:
+                ctx["message_text"] = "<video note>"
+            elif getattr(message, "photo", None):
+                ctx["message_text"] = "<photo>"
+        callback = getattr(update, "callback_query", None)
+        if callback is not None and getattr(callback, "data", None):
+            ctx["callback_data"] = str(callback.data)[:100]
+    except Exception:
+        # Context is best-effort; never let it break update handling.
+        pass
+    return {k: v for k, v in ctx.items() if v is not None}
+
+
+def set_log_context_from_update(update: Any) -> None:
+    """Replace the current log context with the identifiers of `update`."""
+    _LOG_CONTEXT.set(build_log_context_from_update(update))
+
+
+def message_link(chat_id: Any, message_id: Any) -> Optional[str]:
+    """Return a t.me link to a supergroup/channel message, if one can be built."""
+    try:
+        cid = str(chat_id)
+        if message_id is None or not cid.startswith("-100"):
+            return None
+        return f"https://t.me/c/{cid[4:]}/{int(message_id)}"
+    except (TypeError, ValueError):
+        return None
+
+
+class LogContextFilter(logging.Filter):
+    """Fill chat/user/message fields on a record from the per-update context.
+
+    Fields passed explicitly via `extra=` win; the context only fills gaps.
+    Attached to handlers (not loggers) so it also applies to records that
+    propagate from third-party loggers to the root handlers.
+    """
+
+    FIELDS = ("chat_id", "chat_type", "chattitle", "username", "user_id",
+              "message_id", "message_text", "callback_data")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        ctx = _LOG_CONTEXT.get()
+        if ctx:
+            for field in self.FIELDS:
+                current = getattr(record, field, None)
+                if (current is None or current in ("N/A", "Unknown", "-")) and field in ctx:
+                    setattr(record, field, ctx[field])
+        return True
+
 
 # --- Utility Functions ---
 def ensure_directories() -> bool:
@@ -152,6 +261,7 @@ class ChatContextFormatter(KyivTimezoneFormatter):
         record.chat_type = getattr(record, 'chat_type', 'N/A')
         record.chattitle = getattr(record, 'chattitle', 'Unknown')
         record.username = getattr(record, 'username', 'Unknown')
+        record.message_id = getattr(record, 'message_id', '-')
         # Let the parent class handle the actual formatting string
         return super().format(record)
 
@@ -342,6 +452,8 @@ class TelegramErrorHandler(logging.Handler):
     _loop: Optional[asyncio.AbstractEventLoop]
     _bot_instance: Optional[Bot]
     _start_lock: asyncio.Lock
+    DEDUP_WINDOW = 600.0  # seconds: identical errors inside this window are reported once
+
     def __init__(self, bot_token: str, channel_id: str, rate_limit: int = 2) -> None:
         super().__init__()
         # Parse channel_id to handle topic-based messages
@@ -361,6 +473,9 @@ class TelegramErrorHandler(logging.Handler):
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._bot_instance: Optional[Bot] = None
         self._start_lock = asyncio.Lock() # Protect against concurrent start attempts
+        # Duplicate suppression: key -> (first_seen_monotonic, suppressed_count)
+        self._recent: Dict[Tuple[str, int, str], Tuple[float, int]] = {}
+        self._suppressed_totals: Dict[Tuple[str, int, str], int] = {}
 
     async def _ensure_bot(self) -> None:
         """Creates the bot instance if it doesn't exist."""
@@ -373,8 +488,21 @@ class TelegramErrorHandler(logging.Handler):
                 print(f"ERROR: Failed to connect Telegram bot for error reporting: {e}", file=sys.stderr)
                 self._bot_instance = None
 
-    async def _send_message_async(self, text: str) -> None:
-        """Internal async sending logic with retries."""
+    async def _send(self, text: str, parse_mode: Optional[str]) -> None:
+        assert self._bot_instance is not None
+        kwargs: Dict[str, Any] = {
+            "chat_id": self.channel_id,
+            "text": text,
+            "disable_web_page_preview": True,
+        }
+        if parse_mode:
+            kwargs["parse_mode"] = parse_mode
+        if self.message_thread_id is not None:
+            kwargs["message_thread_id"] = self.message_thread_id
+        await self._bot_instance.send_message(**kwargs)
+
+    async def _send_message_async(self, text: str, plain_text: Optional[str] = None) -> None:
+        """Send an HTML report with retries; fall back to the untouched plain text."""
         # Re-create bot instance if it was lost (e.g. failed at startup)
         if not self._bot_instance:
             await self._ensure_bot()
@@ -387,100 +515,143 @@ class TelegramErrorHandler(logging.Handler):
 
         for attempt in range(max_retries):
             try:
-                # Ensure text is properly formatted and within limits
-                if len(text) > 4090:
-                    text = text[:4087] + "..."
-                
-                # Send message with proper parameters
-                if self.message_thread_id is not None:
-                    await self._bot_instance.send_message(
-                        chat_id=self.channel_id,
-                        text=text,
-                        parse_mode='MarkdownV2',
-                        message_thread_id=self.message_thread_id
-                    )
-                else:
-                    await self._bot_instance.send_message(
-                        chat_id=self.channel_id,
-                        text=text,
-                        parse_mode='MarkdownV2'
-                    )
-                return # Success
+                await self._send(text, 'HTML')
+                return  # Success
+            except BadRequest as e:
+                # A formatting problem will not fix itself on retry; go straight to plain text.
+                print(f"ERROR: Telegram rejected HTML error report: {e}", file=sys.stderr)
+                break
             except Exception as e:
                 error_msg = str(e).lower()
-                if "chat not found" in error_msg or "chat_id" in error_msg:
-                    print(f"ERROR: Telegram error channel not accessible. Disabling error notifications.", file=sys.stderr)
-                    # Disable this handler to prevent further attempts
+                if "chat not found" in error_msg:
+                    print("ERROR: Telegram error channel not accessible. Disabling error notifications.", file=sys.stderr)
                     self._bot_instance = None
                     return
                 print(f"ERROR: Attempt {attempt + 1} failed to send error to Telegram: {e}", file=sys.stderr)
-                if attempt == max_retries - 1:
-                    # Last attempt failed, try sending plain text
-                    try:
-                        # Strip Markdown formatting and escape special characters
-                        plain_text = text.replace('*', '').replace('_', '').replace('`', '').replace('[', '').replace(']', '')
-                        fallback_text = f"Fallback (Markdown failed):\n{plain_text[:3800]}"
-                        
-                        if self.message_thread_id is not None:
-                            await self._bot_instance.send_message(
-                                chat_id=self.channel_id,
-                                text=fallback_text,
-                                message_thread_id=self.message_thread_id
-                            )
-                        else:
-                            await self._bot_instance.send_message(
-                                chat_id=self.channel_id,
-                                text=fallback_text
-                            )
-                    except Exception as final_e:
-                        print(f"ERROR: Final fallback attempt to send error to Telegram failed: {final_e}", file=sys.stderr)
-                else:
-                    await asyncio.sleep(retry_delay * (attempt + 1)) # Exponential backoff
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay * (attempt + 1))
 
-    def format_error_message(self, record: logging.LogRecord) -> str:
-        """Formats the error message using Markdown V2."""
-        # Ensure attributes exist
-        chat_id = getattr(record, 'chat_id', 'N/A')
-        username = getattr(record, 'username', 'N/A')
-        chat_title = getattr(record, 'chattitle', 'N/A')
-
-        # Use the handler's formatter for the main message part
-        core_message = self.format(record) # Get formatted message string
-        
-        # Escape special characters for Markdown V2
-        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-        safe_message = core_message
-        for char in special_chars:
-            safe_message = safe_message.replace(char, f'\\{char}')
-
-        # Format timestamp using KyivTimezoneFormatter logic if possible
         try:
-            record_time_str = KyivTimezoneFormatter().formatTime(record)
+            fallback = plain_text if plain_text is not None else re.sub(r"<[^>]+>", "", html.unescape(text))
+            await self._send(fallback[:4000], None)
+        except Exception as final_e:
+            print(f"ERROR: Final fallback attempt to send error to Telegram failed: {final_e}", file=sys.stderr)
+
+    # --- Report content ---
+
+    @staticmethod
+    def _context_lines(record: logging.LogRecord) -> list[Tuple[str, str]]:
+        """Return (label, value) pairs describing the chat/message behind the error."""
+        def present(value: Any) -> bool:
+            return value not in (None, "", "-", "N/A", "Unknown")
+
+        chat_id = getattr(record, 'chat_id', None)
+        title = getattr(record, 'chattitle', None)
+        chat_type = getattr(record, 'chat_type', None)
+        user = getattr(record, 'username', None)
+        user_id = getattr(record, 'user_id', None)
+        message_id = getattr(record, 'message_id', None)
+        text = getattr(record, 'message_text', None)
+        callback = getattr(record, 'callback_data', None)
+
+        lines: list[Tuple[str, str]] = []
+        if present(chat_id) or present(title):
+            chat = str(title) if present(title) else ""
+            details = ", ".join(str(v) for v in (chat_id, chat_type) if present(v))
+            lines.append(("Chat", f"{chat} ({details})".strip() if details else chat))
+        if present(user) or present(user_id):
+            who = str(user) if present(user) else ""
+            if present(user_id) and str(user_id) not in who:
+                who = f"{who} ({user_id})".strip()
+            lines.append(("User", who))
+        if present(message_id):
+            link = message_link(chat_id, message_id)
+            lines.append(("Message", f"{message_id} {link}" if link else str(message_id)))
+        if present(text):
+            lines.append(("Text", str(text)))
+        if present(callback):
+            lines.append(("Callback", str(callback)))
+        return lines
+
+    def _record_time(self, record: logging.LogRecord) -> str:
+        try:
+            return KyivTimezoneFormatter().formatTime(record)
         except Exception:
-            record_time_str = datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
+            return datetime.now(KYIV_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
 
-        # Escape special characters in timestamp
-        safe_time = record_time_str
-        for char in special_chars:
-            safe_time = safe_time.replace(char, f'\\{char}')
+    def format_plain_message(self, record: logging.LogRecord, suppressed: int = 0) -> str:
+        """Plain-text version of the report, used when HTML is rejected."""
+        lines = [
+            "🚨 Error Report",
+            f"Time: {self._record_time(record)}",
+            f"Level: {record.levelname}",
+            f"Logger: {record.name}",
+            f"Location: {record.pathname}:{record.lineno} ({record.funcName})",
+        ]
+        context = self._context_lines(record)
+        lines += [f"{label}: {value}" for label, value in context] or ["Context: none (not tied to an update)"]
+        if suppressed:
+            lines.append(f"Similar errors suppressed since last report: {suppressed}")
+        lines += ["", self.format(record)]
+        return "\n".join(lines)[:4000]
 
-        # Inside a triple-backtick pre block only \ and ` need escaping
-        pre_content = core_message.replace('\\', '\\\\').replace('`', '\\`')
+    def format_error_message(self, record: logging.LogRecord, suppressed: int = 0) -> str:
+        """Format the report as Telegram HTML (only <, > and & need escaping)."""
+        esc = html.escape
+        context = self._context_lines(record)
+        parts = [
+            "🚨 <b>Error Report</b>",
+            "",
+            f"<b>Time:</b> <code>{esc(self._record_time(record))}</code>",
+            f"<b>Level:</b> <code>{esc(record.levelname)}</code>",
+            f"<b>Logger:</b> <code>{esc(record.name)}</code>",
+            f"<b>Location:</b> <code>{esc(f'{record.pathname}:{record.lineno}')}</code> "
+            f"(<code>{esc(record.funcName or '')}</code>)",
+        ]
+        if context:
+            for label, value in context:
+                parts.append(f"<b>{esc(label)}:</b> {esc(value)}")
+        else:
+            parts.append("<b>Context:</b> <i>none (not tied to an update)</i>")
+        if suppressed:
+            parts.append(f"<b>Similar errors suppressed since last report:</b> {suppressed}")
 
-        # Format the error message with proper Markdown V2 escaping
-        error_msg = (
-            "🚨 *Error Report*\n\n"
-            f"*Time:* `{safe_time}`\n"
-            f"*Level:* `{record.levelname}`\n"
-            f"*Logger:* `{record.name}`\n"
-            f"*Location:* `{record.pathname}:{record.lineno}`\n"
-            f"*Function:* `{record.funcName}`\n"
-            f"*Chat ID:* `{chat_id}`\n"
-            f"*Username:* `{username}`\n"
-            f"*Chat Title:* `{chat_title}`\n"
-            f"*Message:*\n```\n{pre_content}\n```"
-        )
-        return error_msg[:4090]
+        header = "\n".join(parts)
+        budget = 4000 - len(header) - 40
+        body = self.format(record)
+        if len(body) > budget:
+            # Keep the end of tracebacks: the actual exception is at the bottom.
+            body = "…" + body[-max(budget, 200):]
+        return f"{header}\n<b>Error:</b>\n<pre>{esc(body)}</pre>"
+
+    # --- Duplicate suppression ---
+
+    _NORMALIZE_RE = re.compile(r"https?://\S+|\d+")
+
+    def _dedup_key(self, record: logging.LogRecord) -> Tuple[str, int, str]:
+        exc = record.exc_info[1] if record.exc_info else None
+        exc_name = type(exc).__name__ if exc else ""
+        msg = self._NORMALIZE_RE.sub("#", record.getMessage().split("\n", 1)[0])[:120]
+        return (f"{record.name}:{exc_name}", record.lineno, msg)
+
+    def _should_send(self, record: logging.LogRecord) -> Tuple[bool, int]:
+        """Return (send?, suppressed_count) for identical errors within DEDUP_WINDOW."""
+        key = self._dedup_key(record)
+        now = time.monotonic()
+        # Drop stale entries so the dict cannot grow without bound.
+        for stale in [k for k, (ts, _) in self._recent.items() if now - ts > self.DEDUP_WINDOW]:
+            _, count = self._recent.pop(stale)
+            if count:
+                self._suppressed_totals[stale] = self._suppressed_totals.get(stale, 0) + count
+        if len(self._suppressed_totals) > 500:
+            self._suppressed_totals.clear()
+        if key in self._recent:
+            ts, count = self._recent[key]
+            self._recent[key] = (ts, count + 1)
+            return False, 0
+        self._recent[key] = (now, 0)
+        suppressed = self._suppressed_totals.pop(key, 0)
+        return True, suppressed
 
     async def _process_queue(self) -> None:
         """The core worker task that processes logs from the queue."""
@@ -493,7 +664,13 @@ class TelegramErrorHandler(logging.Handler):
                     self._queue.task_done()
                     break
 
-                formatted_msg = self.format_error_message(record)
+                send, suppressed = self._should_send(record)
+                if not send:
+                    self._queue.task_done()
+                    continue
+
+                formatted_msg = self.format_error_message(record, suppressed)
+                plain_msg = self.format_plain_message(record, suppressed)
 
                 # Rate limiting: wait until enough time has passed since last send
                 now = time.monotonic()
@@ -501,7 +678,7 @@ class TelegramErrorHandler(logging.Handler):
                 if elapsed < self.rate_limit:
                     await asyncio.sleep(self.rate_limit - elapsed)
 
-                await self._send_message_async(formatted_msg)
+                await self._send_message_async(formatted_msg, plain_msg)
                 self._last_sent_time = time.monotonic()
 
                 self._queue.task_done()
@@ -594,7 +771,7 @@ def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger
     # --- Formatters --- (Using the refined classes)
     # Define a unified format string that includes a placeholder for milliseconds
     log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    log_format_with_context = '%(asctime)s - %(name)s - %(levelname)s - Ctx:[%(chat_id)s][%(chat_type)s][%(chattitle)s][%(username)s] - %(message)s'
+    log_format_with_context = '%(asctime)s - %(name)s - %(levelname)s - Ctx:[%(chat_id)s][%(chat_type)s][%(chattitle)s][%(username)s][msg:%(message_id)s] - %(message)s'
     time_format = '%Y-%m-%d %H:%M:%S,%f %z'
 
     # Basic formatter with Kyiv time
@@ -672,6 +849,15 @@ def initialize_logging() -> Tuple[logging.Logger, logging.Logger, logging.Logger
     # Telegram handler added later in init_telegram_error_handler
     error_logger.propagate = False
 
+    # Fill chat/user/message fields from the per-update context on every handler.
+    context_filter = LogContextFilter()
+    context_handlers: Tuple[logging.Handler, ...] = (
+        console_handler, general_file_handler, analytics_file_handler,
+        chat_file_handler, daily_handler, error_file_handler,
+    )
+    for handler in context_handlers:
+        handler.addFilter(context_filter)
+
     # --- Suppress noisy library logs ---
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("telegram.ext").setLevel(logging.INFO) # Adjust as needed
@@ -723,6 +909,7 @@ async def init_telegram_error_handler(bot: Bot, error_channel_id: Optional[str] 
             channel_id=error_channel_id
         )
         telegram_handler.setLevel(logging.ERROR)  # Only send ERROR and above
+        telegram_handler.addFilter(LogContextFilter())
         telegram_handler.addFilter(TransientNetworkErrorFilter())
         await telegram_handler.start()
 
