@@ -29,16 +29,106 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+class _D1MirrorState:
+    """Circuit breaker for the D1 dual-write so one outage does not spam errors.
+
+    * Quota errors ("exceeded ... daily ... limit") pause mirroring until the
+      next midnight UTC, when Cloudflare resets the free-tier counters.
+    * Transient failures (network errors, 5xx) are retried once; repeated
+      failures pause mirroring for a few minutes and are reported once.
+    """
+
+    FAILURE_THRESHOLD = 5
+    FAILURE_PAUSE = timedelta(minutes=5)
+
+    def __init__(self) -> None:
+        self.paused_until: Optional[datetime] = None
+        self.pause_reason: str = ""
+        self.consecutive_failures = 0
+        self.skipped = 0
+
+    def is_paused(self) -> bool:
+        if self.paused_until is None:
+            return False
+        if datetime.now(pytz.utc) >= self.paused_until:
+            logger.info(
+                "D1 dual-write resuming after pause (%s); %d writes were skipped",
+                self.pause_reason, self.skipped,
+            )
+            self.paused_until = None
+            self.skipped = 0
+            self.consecutive_failures = 0
+            return False
+        self.skipped += 1
+        return True
+
+    def pause(self, until: datetime, reason: str) -> None:
+        self.paused_until = until
+        self.pause_reason = reason
+        self.skipped = 0
+
+
+_d1_state = _D1MirrorState()
+
+
+def _is_d1_quota_error(error: Exception) -> bool:
+    text = str(error).lower()
+    return "exceeded" in text and "limit" in text
+
+
+def _is_d1_transient_error(error: Exception) -> bool:
+    text = str(error)
+    return isinstance(error.__cause__, Exception) or "request failed" in text or any(
+        f"returned {code}" in text for code in (500, 502, 503, 504, 520, 522, 524)
+    )
+
+
 async def _mirror_d1(operation: str, action: Callable[[], Awaitable[None]]) -> None:
-    """Mirror a successful PostgreSQL write to D1 during the migration window."""
+    """Mirror a successful PostgreSQL write to D1 during the migration window.
+
+    PostgreSQL stays the source of truth, so D1 failures never fail the caller
+    unless D1_DUAL_WRITE_REQUIRED is set.
+    """
     if not await get_d1_api_client():
         return
-    try:
-        await action()
-    except Exception as error:
-        logger.error("D1 dual-write failed for %s: %s", operation, error, exc_info=True)
-        if os.getenv("D1_DUAL_WRITE_REQUIRED", "false").lower() in {"1", "true", "yes"}:
-            raise
+    required = os.getenv("D1_DUAL_WRITE_REQUIRED", "false").lower() in {"1", "true", "yes"}
+    if _d1_state.is_paused() and not required:
+        return
+
+    for attempt in range(2):
+        try:
+            await action()
+            _d1_state.consecutive_failures = 0
+            return
+        except Exception as error:
+            if _is_d1_quota_error(error):
+                now = datetime.now(pytz.utc)
+                reset = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                _d1_state.pause(reset, "D1 quota exhausted")
+                logger.error(
+                    "D1 quota exhausted (%s); pausing dual-write until %s UTC. Postgres writes continue. %s",
+                    operation, reset.strftime("%Y-%m-%d %H:%M"), error,
+                )
+                if required:
+                    raise
+                return
+            if attempt == 0 and _is_d1_transient_error(error):
+                await asyncio.sleep(0.5)
+                continue
+            _d1_state.consecutive_failures += 1
+            if _d1_state.consecutive_failures >= _D1MirrorState.FAILURE_THRESHOLD:
+                until = datetime.now(pytz.utc) + _D1MirrorState.FAILURE_PAUSE
+                _d1_state.pause(until, f"{_d1_state.consecutive_failures} consecutive failures")
+                logger.error(
+                    "D1 dual-write failing repeatedly (last: %s: %s); pausing for %d minutes",
+                    operation, error, int(_D1MirrorState.FAILURE_PAUSE.total_seconds() // 60),
+                    exc_info=not _is_d1_transient_error(error),
+                )
+            else:
+                logger.warning("D1 dual-write failed for %s: %s", operation, error)
+            if required:
+                raise
+            return
 
 # Database connection configuration with type hints
 # Support both DATABASE_URL and individual environment variables
@@ -459,7 +549,9 @@ class Database:
         # Check cache first
         cached_chat = manager._cache_manager.get(cache_key)
         d1_client = await get_d1_api_client()
-        if cached_chat and cached_chat.get('title') == chat.title and not d1_client:
+        # Unchanged chats were already written to Postgres (and mirrored to D1) within
+        # the cache TTL; re-upserting on every message wasted D1 row reads/writes.
+        if cached_chat and cached_chat.get('title') == chat.title:
             manager._connection_stats['cache_hits'] += 1
             return
         
@@ -495,7 +587,7 @@ class Database:
         d1_client = await get_d1_api_client()
         if (cached_user and 
             cached_user.get('username') == user.username and
-            cached_user.get('first_name') == user.first_name and not d1_client):
+            cached_user.get('first_name') == user.first_name):
             manager._connection_stats['cache_hits'] += 1
             return
         

@@ -462,7 +462,8 @@ class BotApplication(ServiceInterface):
             if self.telegram_app.updater:
                 await self.telegram_app.updater.start_polling(
                     allowed_updates=Update.ALL_TYPES,
-                    drop_pending_updates=True
+                    drop_pending_updates=True,
+                    error_callback=_polling_error_callback,
                 )
             logger.info("Telegram polling started successfully")
         except Exception as polling_error:
@@ -942,3 +943,17 @@ class BotApplication(ServiceInterface):
         except Exception as e:
             logger.error(f"Failed to update handler registration: {e}")
             raise
+
+def _polling_error_callback(error: Exception) -> None:
+    """Log getUpdates failures concisely; PTB keeps retrying on its own."""
+    from telegram.error import Conflict, NetworkError, BadRequest
+
+    if isinstance(error, Conflict):
+        logger.error(
+            "Telegram polling conflict: another process is polling with this bot token "
+            "(local run or overlapping container?). Polling retries automatically. %s", error
+        )
+    elif isinstance(error, NetworkError) and not isinstance(error, BadRequest):
+        logger.warning("Transient error while polling Telegram: %s", error)
+    else:
+        logger.error("Exception happened while polling for updates: %s", error, exc_info=error)

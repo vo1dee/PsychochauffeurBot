@@ -255,51 +255,15 @@ class VideoDownloader:
                 # cap on the portrait height, with an uncapped h264 fallback.
                 format="best[ext=mp4][vcodec^=h264][acodec!=none][height<=1920]/best[ext=mp4][vcodec^=h264][acodec!=none]",
                 max_retries=3,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "DNT": "1",
-                    "Connection": "keep-alive",
-                    "Upgrade-Insecure-Requests": "1",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none",
-                    "Sec-Fetch-User": "?1",
-                    "Cache-Control": "max-age=0",
-                },
+                # No custom User-Agent/Sec-Fetch headers: --impersonate sends a matching
+                # browser TLS fingerprint and headers, and overriding them (an old Chrome
+                # UA plus page-navigation headers on the video request) made TikTok's
+                # CDN reject the media download with HTTP 403.
                 extra_args=[
                     "--merge-output-format",
                     "mp4",  # Ensure MP4 output
                     "--impersonate",
                     "chrome",  # Use browser impersonation to bypass bot detection
-                    "--extractor-args",
-                    "TikTok:api_hostname=vm.tiktok.com",
-                    "--add-header",
-                    "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "--add-header",
-                    "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                    "--add-header",
-                    "Accept-Language:en-US,en;q=0.9",
-                    "--add-header",
-                    "Accept-Encoding:gzip, deflate, br",
-                    "--add-header",
-                    "DNT:1",
-                    "--add-header",
-                    "Connection:keep-alive",
-                    "--add-header",
-                    "Upgrade-Insecure-Requests:1",
-                    "--add-header",
-                    "Sec-Fetch-Dest:document",
-                    "--add-header",
-                    "Sec-Fetch-Mode:navigate",
-                    "--add-header",
-                    "Sec-Fetch-Site:none",
-                    "--add-header",
-                    "Sec-Fetch-User:?1",
-                    "--add-header",
-                    "Cache-Control:max-age=0",
                 ],
             ),
             Platform.OTHER: DownloadConfig(
@@ -3623,6 +3587,7 @@ class VideoDownloader:
                     pass  # cleanup
 
     async def _get_video_title(self, url: str) -> str:
+        process: Optional[asyncio.subprocess.Process] = None
         try:
             # For YouTube Shorts, get both title and hashtags with better error handling
             if "youtube.com/shorts" in url.lower():
@@ -3723,8 +3688,15 @@ class VideoDownloader:
                 return title or "Video"
 
         except asyncio.TimeoutError:
-            error_logger.error(f"Title fetch timeout for URL: {url}")
-            return "Video from " + url.split("/")[-1]
+            # Not fatal: the video itself downloaded; fall back to a URL-based title.
+            error_logger.warning(f"Title fetch timeout for URL: {url}")
+            if process is not None and process.returncode is None:
+                try:
+                    process.kill()
+                    await process.wait()
+                except Exception:
+                    pass  # cleanup
+            return "Video from " + url.rstrip("/").split("/")[-1]
         except Exception as e:
             import traceback
 
@@ -4409,13 +4381,26 @@ class VideoDownloader:
         if not result or not result[0]:
             error_logger.info(f"yt-dlp failed for TikTok, trying tikwm fallback: {url}")
             result = await self._download_tiktok_tikwm(url)
+            if not result or not result[0]:
+                error_logger.error(f"TikTok download failed (yt-dlp and tikwm): {url}")
         elif result[0]:
-            # yt-dlp succeeded but its --get-title truncates TikTok titles; get full title from tikwm
+            # yt-dlp's --get-title truncates TikTok titles; get the full title from tikwm
             full_title = await self._get_tiktok_title_from_tikwm(url)
-            if full_title:
-                result = (result[0], full_title)
+            result = (result[0], full_title or result[1] or "TikTok Video")
 
         return result
+
+    def _tiktok_cookies_path(self) -> Optional[str]:
+        """Return a Netscape cookies file for TikTok if one is configured.
+
+        TIKTOK_COOKIES_FILE wins; otherwise data/tiktok_cookies.txt (data/ is a
+        mounted volume in production, so the file survives redeploys).
+        """
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        candidate = os.getenv("TIKTOK_COOKIES_FILE") or os.path.join(
+            project_root, "data", "tiktok_cookies.txt"
+        )
+        return candidate if os.path.isfile(candidate) else None
 
     async def _download_tiktok_tikwm(
         self, url: str
@@ -4429,7 +4414,7 @@ class VideoDownloader:
                     api_url, timeout=aiohttp.ClientTimeout(total=30)
                 ) as response:
                     if response.status != 200:
-                        error_logger.error(
+                        error_logger.warning(
                             f"tikwm API returned status {response.status}"
                         )
                         return None, None
@@ -4437,7 +4422,7 @@ class VideoDownloader:
                     data = await response.json()
 
                     if data.get("code") != 0:
-                        error_logger.error(
+                        error_logger.warning(
                             f"tikwm API error: {data.get('msg', 'Unknown error')}"
                         )
                         return None, None
@@ -4447,7 +4432,7 @@ class VideoDownloader:
                     title = video_data.get("title", "TikTok Video")
 
                     if not video_url:
-                        error_logger.error("tikwm API returned no video URL")
+                        error_logger.warning("tikwm API returned no video URL")
                         return None, None
 
                     # Download the video file
@@ -4458,7 +4443,7 @@ class VideoDownloader:
                         video_url, timeout=aiohttp.ClientTimeout(total=120)
                     ) as video_response:
                         if video_response.status != 200:
-                            error_logger.error(
+                            error_logger.warning(
                                 f"Failed to download video from tikwm URL: {video_response.status}"
                             )
                             return None, None
@@ -4474,14 +4459,14 @@ class VideoDownloader:
                         error_logger.info(f"✅ tikwm download successful: {title}")
                         return output_path, title
                     else:
-                        error_logger.error("tikwm download resulted in empty file")
+                        error_logger.warning("tikwm download resulted in empty file")
                         return None, None
 
         except asyncio.TimeoutError:
-            error_logger.error("tikwm API request timed out")
+            error_logger.warning("tikwm API request timed out")
             return None, None
         except Exception as e:
-            error_logger.error(f"tikwm download error: {e}")
+            error_logger.warning(f"tikwm download error: {e}")
             return None, None
 
     async def _download_generic(
@@ -4530,6 +4515,12 @@ class VideoDownloader:
         if config.headers:
             for key, value in config.headers.items():
                 yt_dlp_args.extend(["--add-header", f"{key}:{value}"])
+
+        if platform == Platform.TIKTOK:
+            cookies_file = self._tiktok_cookies_path()
+            if cookies_file:
+                # Logged-in cookies unlock age-restricted ("Log in for access") posts.
+                yt_dlp_args.extend(["--cookies", cookies_file])
 
         # Special handling for YouTube URLs - add comprehensive bot detection avoidance
         is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
@@ -4733,17 +4724,25 @@ class VideoDownloader:
             if process.returncode == 0:
                 if os.path.exists(output_template):
                     error_logger.info(f"Download successful: {output_template}")
+                    if platform == Platform.TIKTOK:
+                        # The caller fetches the full title from tikwm; yt-dlp's
+                        # --get-title truncates it and often times out on TikTok.
+                        return output_template, None
                     return output_template, await self._get_video_title(url)
                 else:
                     error_logger.warning(
                         f"Download completed but file not found: {output_template}"
                     )
             else:
-                stderr_text = stderr.decode()
-                error_logger.error(f"Download failed for {url}: {stderr_text}")
+                reason = _summarize_ytdlp_error(stderr.decode(errors="replace"))
+                # TikTok has a tikwm fallback, so a yt-dlp failure is not final there;
+                # the caller reports an error only if every strategy fails.
+                log = error_logger.warning if platform == Platform.TIKTOK else error_logger.error
+                log(f"yt-dlp download failed for {url}: {reason}")
 
         except (asyncio.TimeoutError, Exception) as e:
-            error_logger.error(f"Generic download error for {url}: {e}")
+            log = error_logger.warning if platform == Platform.TIKTOK else error_logger.error
+            log(f"Generic download error for {url}: {e!r}")
             if "process" in locals() and process.returncode is None:
                 try:
                     process.kill()
@@ -4768,6 +4767,16 @@ class VideoDownloader:
             if re.search(pattern, url, re.IGNORECASE):
                 return True
         return False
+
+
+def _summarize_ytdlp_error(stderr_text: str) -> str:
+    """Return the meaningful ERROR line(s) of yt-dlp stderr (drops WARNING noise)."""
+    lines = [line.strip() for line in stderr_text.splitlines() if line.strip()]
+    errors = [line for line in lines if line.startswith("ERROR")]
+    summary = " | ".join(errors or lines[-3:])
+    if "Log in for access" in summary or "--cookies" in summary:
+        summary += " [age-restricted: add data/tiktok_cookies.txt or TIKTOK_COOKIES_FILE]"
+    return summary[:1000] or "no output"
 
 
 def setup_video_handlers(
