@@ -183,7 +183,9 @@ class TestVideoDownloaderPhotoPosts:
     async def test_fetch_image_post_tiktok(self, downloader, tmp_path):
         async def fake_download(items, *args, **kwargs):
             for i, item in enumerate(items):
-                item.path = str(tmp_path / f"{i}.jpg")
+                path = tmp_path / f"{i}.jpg"
+                path.write_bytes(b"\xff\xd8\xff")
+                item.path = str(path)
 
         with patch.object(
             downloader, "_fetch_tikwm_data", AsyncMock(return_value=TIKWM_PHOTO)
