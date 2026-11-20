@@ -4551,16 +4551,17 @@ class VideoDownloader:
             return None
 
         videos = sum(1 for m in post.media if m.kind == "video")
-        error_logger.info(
-            f"📷 {post.platform} post with {len(post.media) - videos} photo(s) "
-            f"and {videos} video(s): {url}"
-        )
         await social_images.download_media(
             post.media, self.download_path, f"{post.platform}_media", referer
         )
         if not post.paths:
             error_logger.warning(f"No media could be downloaded for {url}")
             return None
+        total = sum(os.path.getsize(p) for p in post.paths)
+        general_logger.info(
+            f"📷 {post.platform} post: {len(post.paths)}/{len(post.media)} item(s) "
+            f"downloaded ({videos} video), {total / 1024 / 1024:.1f} MB total: {url}"
+        )
         return post
 
     def _register_post_audio(self, post: ImagePost, source_url: str) -> Optional[str]:
@@ -4606,6 +4607,7 @@ class VideoDownloader:
         if not items:
             return None
         timed_out = False
+        started = time.monotonic()
         audio_key = self._register_post_audio(post, source_url) if source_url else None
         audio_markup = (
             InlineKeyboardMarkup(
@@ -4635,8 +4637,12 @@ class VideoDownloader:
                         **timeouts,
                     )
                 except TimedOut:
-                    error_logger.warning(f"Telegram timed out sending {item.kind}; likely delivered")
+                    error_logger.warning(
+                        f"Telegram timed out sending {item.kind} after "
+                        f"{time.monotonic() - started:.0f}s; likely delivered"
+                    )
                     return "timed_out"
+            general_logger.info(f"📤 {item.kind} sent in {time.monotonic() - started:.1f}s")
             return "sent"
 
         first_message_id: Optional[int] = None
@@ -4667,7 +4673,8 @@ class VideoDownloader:
                     )
                 except TimedOut:
                     error_logger.warning(
-                        f"Telegram timed out sending album part {start // limit + 1}; likely delivered"
+                        f"Telegram timed out sending album part {start // limit + 1} after "
+                        f"{time.monotonic() - started:.0f}s; likely delivered"
                     )
                     timed_out = True
                     continue
@@ -4692,6 +4699,10 @@ class VideoDownloader:
                 )
             except TimedOut:
                 timed_out = True
+        general_logger.info(
+            f"📤 album of {len(items)} sent in {time.monotonic() - started:.1f}s"
+            + (" (with timeouts)" if timed_out else "")
+        )
         return "timed_out" if timed_out else "sent"
 
     async def handle_post_audio_callback(
