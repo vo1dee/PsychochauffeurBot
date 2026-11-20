@@ -141,6 +141,26 @@ class TestParsers:
         data, ext = social_images._normalize_image(buf.getvalue())
         assert ext == "jpg" and data[:3] == b"\xff\xd8\xff"
 
+    def test_normalize_image_shrinks_large_photos(self):
+        from io import BytesIO
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (4000, 3000), "blue").save(buf, format="PNG")
+        data, ext = social_images._normalize_image(buf.getvalue())
+        assert ext == "jpg"
+        with Image.open(BytesIO(data)) as img:
+            assert max(img.size) == 2560
+
+    def test_normalize_image_keeps_small_jpeg(self):
+        from io import BytesIO
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (800, 600), "green").save(buf, format="JPEG")
+        raw = buf.getvalue()
+        assert social_images._normalize_image(raw) == (raw, "jpg")
+
 
 @pytest.fixture
 def downloader(tmp_path):
@@ -163,7 +183,9 @@ class TestVideoDownloaderPhotoPosts:
     async def test_fetch_image_post_tiktok(self, downloader, tmp_path):
         async def fake_download(items, *args, **kwargs):
             for i, item in enumerate(items):
-                item.path = str(tmp_path / f"{i}.jpg")
+                path = tmp_path / f"{i}.jpg"
+                path.write_bytes(b"\xff\xd8\xff")
+                item.path = str(path)
 
         with patch.object(
             downloader, "_fetch_tikwm_data", AsyncMock(return_value=TIKWM_PHOTO)
@@ -199,7 +221,7 @@ class TestVideoDownloaderPhotoPosts:
         ok = await downloader.send_image_post(
             bot, 1, post, "cap", source_url="https://vt.tiktok.com/x/"
         )
-        assert ok
+        assert ok == "sent"
         assert bot.send_media_group.await_count == 2  # 10 + 2
         first_media = bot.send_media_group.await_args_list[0].kwargs["media"]
         assert len(first_media) == 10 and first_media[0].caption == "cap"
@@ -223,6 +245,39 @@ class TestVideoDownloaderPhotoPosts:
         assert await downloader.send_image_post(bot, 1, post, "cap", source_url="u")
         assert bot.send_photo.await_args.kwargs["reply_markup"] is not None
         bot.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_timeout_is_reported_not_raised(self, downloader, tmp_path):
+        from telegram.error import TimedOut
+
+        post = ImagePost(platform="x", media=_make_items(tmp_path, ["photo"] * 12))
+        bot = MagicMock()
+        bot.send_media_group = AsyncMock(
+            side_effect=[TimedOut(), [SimpleNamespace(message_id=2)]]
+        )
+        assert await downloader.send_image_post(bot, 1, post, "cap") == "timed_out"
+        assert bot.send_media_group.await_count == 2  # later parts still sent
+
+    @pytest.mark.asyncio
+    async def test_timeout_keeps_link_and_skips_video_fallback(self, downloader, tmp_path):
+        post = ImagePost(platform="tiktok", media=_make_items(tmp_path, ["photo"]))
+        message = MagicMock(reply_to_message=None)
+        message.delete = AsyncMock()
+        update = SimpleNamespace(
+            message=message,
+            effective_chat=SimpleNamespace(id=1, type="private"),
+            effective_user=SimpleNamespace(id=2, username="u", first_name="u"),
+        )
+        context = SimpleNamespace(bot=MagicMock())
+        context.bot.send_chat_action = AsyncMock()
+        with patch.object(
+            downloader, "fetch_image_post", AsyncMock(return_value=post)
+        ), patch.object(
+            downloader, "send_image_post", AsyncMock(return_value="timed_out")
+        ):
+            handled = await downloader._try_send_image_post(update, context, "https://vt.tiktok.com/x/")
+        assert handled is True
+        message.delete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_send_mixed_x_album(self, downloader, tmp_path):

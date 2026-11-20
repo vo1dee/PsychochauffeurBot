@@ -3883,8 +3883,8 @@ class VideoDownloader:
                     source_url=url,
                 )
             except Exception as e:
-                error_logger.error(f"Photo post sending error for {url}: {e}")
-                sent = False
+                error_logger.error(f"Photo post sending error for {url}: {e!r}", exc_info=True)
+                sent = None
             finally:
                 for path in post.paths:
                     try:
@@ -3893,6 +3893,10 @@ class VideoDownloader:
                         pass
         if not sent:
             return False
+        if sent == "timed_out":
+            # Probably delivered; keep the original link so nothing is lost,
+            # and don't fall back to the video pipeline (it would only error).
+            return True
 
         from modules.event_tracker import record_bot_event
 
@@ -4547,16 +4551,17 @@ class VideoDownloader:
             return None
 
         videos = sum(1 for m in post.media if m.kind == "video")
-        error_logger.info(
-            f"📷 {post.platform} post with {len(post.media) - videos} photo(s) "
-            f"and {videos} video(s): {url}"
-        )
         await social_images.download_media(
             post.media, self.download_path, f"{post.platform}_media", referer
         )
         if not post.paths:
             error_logger.warning(f"No media could be downloaded for {url}")
             return None
+        total = sum(os.path.getsize(p) for p in post.paths)
+        general_logger.info(
+            f"📷 {post.platform} post: {len(post.paths)}/{len(post.media)} item(s) "
+            f"downloaded ({videos} video), {total / 1024 / 1024:.1f} MB total: {url}"
+        )
         return post
 
     def _register_post_audio(self, post: ImagePost, source_url: str) -> Optional[str]:
@@ -4586,14 +4591,23 @@ class VideoDownloader:
         caption_entities: Optional[list] = None,
         reply_to_message_id: Optional[int] = None,
         source_url: Optional[str] = None,
-    ) -> bool:
-        """Send a photo post as a photo or album(s); offer the sound via a button."""
-        from telegram import InputMediaPhoto, InputMediaVideo
+    ) -> Optional[str]:
+        """Send a photo post as a photo or album(s); offer the sound via a button.
 
-        timeouts = dict(write_timeout=120, read_timeout=60, connect_timeout=30, pool_timeout=10)
+        Returns "sent", "timed_out" (Telegram did not answer in time — the media
+        was most likely delivered anyway, so callers must not treat it as a
+        failure or re-send), or None when nothing could be sent.
+        """
+        from telegram import InputMediaPhoto, InputMediaVideo
+        from telegram.error import TimedOut
+
+        # Albums of several photos/videos take Telegram a while to process.
+        timeouts = dict(write_timeout=180, read_timeout=120, connect_timeout=30, pool_timeout=30)
         items = post.downloaded
         if not items:
-            return False
+            return None
+        timed_out = False
+        started = time.monotonic()
         audio_key = self._register_post_audio(post, source_url) if source_url else None
         audio_markup = (
             InlineKeyboardMarkup(
@@ -4612,16 +4626,24 @@ class VideoDownloader:
             item = items[0]
             with open(item.path, "rb") as handle:  # type: ignore[arg-type]
                 send = bot.send_video if item.kind == "video" else bot.send_photo
-                await send(
-                    chat_id=chat_id,
-                    **{item.kind: handle},
-                    caption=caption,
-                    caption_entities=caption_entities,
-                    reply_markup=audio_markup,
-                    **reply_kwargs,
-                    **timeouts,
-                )
-            return True
+                try:
+                    await send(
+                        chat_id=chat_id,
+                        **{item.kind: handle},
+                        caption=caption,
+                        caption_entities=caption_entities,
+                        reply_markup=audio_markup,
+                        **reply_kwargs,
+                        **timeouts,
+                    )
+                except TimedOut:
+                    error_logger.warning(
+                        f"Telegram timed out sending {item.kind} after "
+                        f"{time.monotonic() - started:.0f}s; likely delivered"
+                    )
+                    return "timed_out"
+            general_logger.info(f"📤 {item.kind} sent in {time.monotonic() - started:.1f}s")
+            return "sent"
 
         first_message_id: Optional[int] = None
         limit = social_images.MEDIA_GROUP_LIMIT
@@ -4642,12 +4664,20 @@ class VideoDownloader:
                         if item.kind == "video"
                         else InputMediaPhoto(**kwargs)
                     )
-                sent = await bot.send_media_group(
-                    chat_id=chat_id,
-                    media=media,
-                    **(reply_kwargs if start == 0 else {}),
-                    **timeouts,
-                )
+                try:
+                    sent = await bot.send_media_group(
+                        chat_id=chat_id,
+                        media=media,
+                        **(reply_kwargs if start == 0 else {}),
+                        **timeouts,
+                    )
+                except TimedOut:
+                    error_logger.warning(
+                        f"Telegram timed out sending album part {start // limit + 1} after "
+                        f"{time.monotonic() - started:.0f}s; likely delivered"
+                    )
+                    timed_out = True
+                    continue
                 if first_message_id is None and sent:
                     first_message_id = sent[0].message_id
             finally:
@@ -4659,14 +4689,21 @@ class VideoDownloader:
             label = " — ".join(
                 x for x in (post.audio.performer, post.audio.title) if x  # type: ignore[union-attr]
             )
-            await bot.send_message(
-                chat_id=chat_id,
-                text=f"🎵 {label}" if label else "🎵 Звук із TikTok",
-                reply_markup=audio_markup,
-                reply_to_message_id=first_message_id,
-                allow_sending_without_reply=True,
-            )
-        return True
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=f"🎵 {label}" if label else "🎵 Звук із TikTok",
+                    reply_markup=audio_markup,
+                    reply_to_message_id=first_message_id,
+                    allow_sending_without_reply=True,
+                )
+            except TimedOut:
+                timed_out = True
+        general_logger.info(
+            f"📤 album of {len(items)} sent in {time.monotonic() - started:.1f}s"
+            + (" (with timeouts)" if timed_out else "")
+        )
+        return "timed_out" if timed_out else "sent"
 
     async def handle_post_audio_callback(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
