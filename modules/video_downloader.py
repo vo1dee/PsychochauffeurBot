@@ -35,6 +35,8 @@ from modules.const import (
     VIDEO_CACHE_PATH,
 )
 from modules.song_cache import SongCache
+from modules import social_images
+from modules.social_images import ImagePost
 from modules.video_cache import VideoCache
 from modules.utils import extract_urls
 from modules.logger import (
@@ -244,6 +246,12 @@ class VideoDownloader:
         # Song file_id cache (persists across restarts)
         self.song_cache = SongCache(SONG_CACHE_PATH)
         self.video_cache = VideoCache(VIDEO_CACHE_PATH)
+
+        # tikwm allows ~1 request/second; one TikTok link can need its data
+        # several times (photo check, title, fallback), so share one response.
+        self._tikwm_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        # Pending "send the sound" buttons for TikTok photo posts, by hash.
+        self._post_audio_requests: Dict[str, Dict[str, Any]] = {}
 
         # Platform-specific download configurations
         self.platform_configs = {
@@ -3797,6 +3805,12 @@ class VideoDownloader:
                             update, context, cached, source_url=url
                         ):
                             continue
+                    if not is_youtube_music and (
+                        self._get_platform(url) == Platform.TIKTOK
+                        or social_images.is_x_url(url)
+                    ):
+                        if await self._try_send_image_post(update, context, url):
+                            continue
                     async with _chat_action(update, context, ChatAction.UPLOAD_VIDEO):
                         if is_youtube_music:
                             # Handle YouTube Music - download as MP3
@@ -3841,6 +3855,57 @@ class VideoDownloader:
             await self._handle_processing_error(update, e, message_text)
         finally:
             await self._cleanup(processing_msg, filename, update)
+
+    async def _try_send_image_post(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str
+    ) -> bool:
+        """Send a TikTok/X photo post for a chat message. False if not a photo post."""
+        if not update.effective_chat:
+            return False
+        async with _chat_action(update, context, ChatAction.UPLOAD_PHOTO):
+            post = await self.fetch_image_post(url)
+            if not post:
+                return False
+            try:
+                caption, entities = self._build_media_caption(update, post.title, url)
+                reply_to = (
+                    update.message.reply_to_message.message_id
+                    if update.message and update.message.reply_to_message
+                    else None
+                )
+                sent = await self.send_image_post(
+                    context.bot,
+                    update.effective_chat.id,
+                    post,
+                    caption,
+                    entities,
+                    reply_to_message_id=reply_to,
+                    source_url=url,
+                )
+            except Exception as e:
+                error_logger.error(f"Photo post sending error for {url}: {e}")
+                sent = False
+            finally:
+                for path in post.paths:
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+        if not sent:
+            return False
+
+        from modules.event_tracker import record_bot_event
+
+        user_id = update.effective_user.id if update.effective_user else None
+        asyncio.ensure_future(
+            record_bot_event("video_download", update.effective_chat.id, user_id)
+        )
+        if update.message:
+            try:
+                await asyncio.wait_for(update.message.delete(), timeout=10)
+            except Exception as e:
+                error_logger.error(f"Failed to delete original message: {e}")
+        return True
 
     def _build_media_caption(
         self, update: Update, title: Optional[str], source_url: Optional[str]
@@ -4348,23 +4413,47 @@ class VideoDownloader:
         else:
             return Platform.OTHER
 
-    async def _get_tiktok_title_from_tikwm(self, url: str) -> Optional[str]:
-        """Fetch the full TikTok title from tikwm API (yt-dlp --get-title truncates it)."""
+    async def _fetch_tikwm_data(
+        self, url: str, force: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """Return the tikwm API payload for a TikTok URL (cached for 2 minutes)."""
+        now = time.monotonic()
+        cached = self._tikwm_cache.get(url)
+        if cached and not force and now - cached[0] < 120:
+            return cached[1]
         try:
-            api_url = f"https://www.tikwm.com/api/?url={url}"
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    api_url, timeout=aiohttp.ClientTimeout(total=15)
+                    "https://www.tikwm.com/api/",
+                    params={"url": url, "hd": "1"},
+                    timeout=aiohttp.ClientTimeout(total=15),
                 ) as response:
                     if response.status != 200:
+                        error_logger.warning(
+                            f"tikwm API returned status {response.status}"
+                        )
                         return None
-                    data = await response.json()
-                    if data.get("code") != 0:
-                        return None
-                    return data.get("data", {}).get("title")
+                    data = await response.json(content_type=None)
         except Exception as e:
-            error_logger.warning(f"Failed to fetch TikTok title from tikwm: {e}")
+            error_logger.warning(f"tikwm API request failed: {e!r}")
             return None
+        if not isinstance(data, dict) or data.get("code") != 0:
+            msg = data.get("msg") if isinstance(data, dict) else data
+            error_logger.warning(f"tikwm API error: {msg}")
+            return None
+        if len(self._tikwm_cache) > 200:
+            self._tikwm_cache = {
+                k: v for k, v in self._tikwm_cache.items() if now - v[0] < 120
+            }
+        self._tikwm_cache[url] = (now, data)
+        return data
+
+    async def _get_tiktok_title_from_tikwm(self, url: str) -> Optional[str]:
+        """Fetch the full TikTok title from tikwm API (yt-dlp --get-title truncates it)."""
+        data = await self._fetch_tikwm_data(url)
+        if not data:
+            return None
+        return (data.get("data") or {}).get("title")
 
     async def _download_tiktok_ytdlp(
         self, url: str
@@ -4406,68 +4495,239 @@ class VideoDownloader:
         self, url: str
     ) -> Tuple[Optional[str], Optional[str]]:
         """Download TikTok video using tikwm.com API as fallback."""
+        data = await self._fetch_tikwm_data(url)
+        if not data:
+            return None, None
+        video_data = data.get("data") or {}
+        if video_data.get("images"):
+            # Photo post: "play" is the background sound, not a video.
+            error_logger.info("tikwm: TikTok post is a photo slideshow, not a video")
+            return None, None
+        video_url = video_data.get("hdplay") or video_data.get("play")
+        title = video_data.get("title") or "TikTok Video"
+        if not video_url:
+            error_logger.warning("tikwm API returned no video URL")
+            return None, None
+
+        output_path = os.path.join(self.download_path, f"video_{uuid.uuid4()}.mp4")
+        if await social_images.download_file(video_url, output_path, timeout=120):
+            error_logger.info(f"✅ tikwm download successful: {title}")
+            return output_path, title
+        error_logger.warning("tikwm video download failed or produced an empty file")
+        if os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
+        return None, None
+
+    # ------------------------------------------------------------------
+    # Photo posts (TikTok slideshows, X image tweets)
+    # ------------------------------------------------------------------
+
+    async def fetch_image_post(self, url: str) -> Optional[ImagePost]:
+        """Resolve a TikTok/X link to a photo post and download its images.
+
+        Returns None when the link is not a photo post (e.g. it is a video),
+        so callers can fall through to the regular video pipeline.
+        """
+        post: Optional[ImagePost] = None
+        referer: Optional[str] = None
         try:
-            api_url = f"https://www.tikwm.com/api/?url={url}"
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    api_url, timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    if response.status != 200:
-                        error_logger.warning(
-                            f"tikwm API returned status {response.status}"
-                        )
-                        return None, None
-
-                    data = await response.json()
-
-                    if data.get("code") != 0:
-                        error_logger.warning(
-                            f"tikwm API error: {data.get('msg', 'Unknown error')}"
-                        )
-                        return None, None
-
-                    video_data = data.get("data", {})
-                    video_url = video_data.get("play")  # No watermark URL
-                    title = video_data.get("title", "TikTok Video")
-
-                    if not video_url:
-                        error_logger.warning("tikwm API returned no video URL")
-                        return None, None
-
-                    # Download the video file
-                    unique_filename = f"video_{uuid.uuid4()}.mp4"
-                    output_path = os.path.join(self.download_path, unique_filename)
-
-                    async with session.get(
-                        video_url, timeout=aiohttp.ClientTimeout(total=120)
-                    ) as video_response:
-                        if video_response.status != 200:
-                            error_logger.warning(
-                                f"Failed to download video from tikwm URL: {video_response.status}"
-                            )
-                            return None, None
-
-                        with open(output_path, "wb") as f:
-                            while True:
-                                chunk = await video_response.content.read(8192)
-                                if not chunk:
-                                    break
-                                f.write(chunk)
-
-                    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                        error_logger.info(f"✅ tikwm download successful: {title}")
-                        return output_path, title
-                    else:
-                        error_logger.warning("tikwm download resulted in empty file")
-                        return None, None
-
-        except asyncio.TimeoutError:
-            error_logger.warning("tikwm API request timed out")
-            return None, None
+            if self._get_platform(url) == Platform.TIKTOK:
+                data = await self._fetch_tikwm_data(url)
+                post = social_images.parse_tikwm_images(data) if data else None
+                referer = "https://www.tiktok.com/"
+            elif social_images.is_x_url(url):
+                post = await social_images.fetch_x_image_post(url)
         except Exception as e:
-            error_logger.warning(f"tikwm download error: {e}")
-            return None, None
+            error_logger.warning(f"Photo post lookup failed for {url}: {e!r}")
+            return None
+        if not post:
+            return None
+
+        error_logger.info(
+            f"📷 {post.platform} photo post with {len(post.image_urls)} image(s): {url}"
+        )
+        post.paths = await social_images.download_images(
+            post.image_urls, self.download_path, f"{post.platform}_photo", referer
+        )
+        if not post.paths:
+            error_logger.warning(f"No images could be downloaded for {url}")
+            return None
+        return post
+
+    def _register_post_audio(self, post: ImagePost, source_url: str) -> Optional[str]:
+        """Remember a post's sound so a button can fetch it later. Returns the key."""
+        if not post.audio:
+            return None
+        import hashlib
+
+        key = hashlib.md5(source_url.encode()).hexdigest()[:8]
+        if len(self._post_audio_requests) > 500:
+            for old_key in list(self._post_audio_requests)[:250]:
+                del self._post_audio_requests[old_key]
+        self._post_audio_requests[key] = {
+            "url": post.audio.url,
+            "title": post.audio.title,
+            "performer": post.audio.performer,
+            "source_url": source_url,
+        }
+        return key
+
+    async def send_image_post(
+        self,
+        bot: Any,
+        chat_id: int,
+        post: ImagePost,
+        caption: str,
+        caption_entities: Optional[list] = None,
+        reply_to_message_id: Optional[int] = None,
+        source_url: Optional[str] = None,
+    ) -> bool:
+        """Send a photo post as a photo or album(s); offer the sound via a button."""
+        from telegram import InputMediaPhoto
+
+        timeouts = dict(write_timeout=120, read_timeout=60, connect_timeout=30, pool_timeout=10)
+        paths = [p for p in post.paths if os.path.getsize(p) <= social_images.MAX_PHOTO_BYTES]
+        if not paths:
+            return False
+        audio_key = self._register_post_audio(post, source_url) if source_url else None
+        audio_markup = (
+            InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🎵 Завантажити звук", callback_data=f"ttaudio:{audio_key}")]]
+            )
+            if audio_key
+            else None
+        )
+        reply_kwargs = (
+            {"reply_to_message_id": reply_to_message_id, "allow_sending_without_reply": True}
+            if reply_to_message_id
+            else {}
+        )
+
+        if len(paths) == 1:
+            with open(paths[0], "rb") as photo:
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo,
+                    caption=caption,
+                    caption_entities=caption_entities,
+                    reply_markup=audio_markup,
+                    **reply_kwargs,
+                    **timeouts,
+                )
+            return True
+
+        first_message_id: Optional[int] = None
+        limit = social_images.MEDIA_GROUP_LIMIT
+        for start in range(0, len(paths), limit):
+            chunk = paths[start : start + limit]
+            handles = [open(p, "rb") for p in chunk]
+            try:
+                media = [
+                    InputMediaPhoto(
+                        media=h,
+                        caption=caption if start == 0 and i == 0 else None,
+                        caption_entities=caption_entities if start == 0 and i == 0 else None,
+                    )
+                    for i, h in enumerate(handles)
+                ]
+                sent = await bot.send_media_group(
+                    chat_id=chat_id,
+                    media=media,
+                    **(reply_kwargs if start == 0 else {}),
+                    **timeouts,
+                )
+                if first_message_id is None and sent:
+                    first_message_id = sent[0].message_id
+            finally:
+                for h in handles:
+                    h.close()
+
+        if audio_markup:
+            # Albums cannot carry buttons, so the sound gets its own small message.
+            label = " — ".join(
+                x for x in (post.audio.performer, post.audio.title) if x  # type: ignore[union-attr]
+            )
+            await bot.send_message(
+                chat_id=chat_id,
+                text=f"🎵 {label}" if label else "🎵 Звук із TikTok",
+                reply_markup=audio_markup,
+                reply_to_message_id=first_message_id,
+                allow_sending_without_reply=True,
+            )
+        return True
+
+    async def handle_post_audio_callback(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Send the sound of a TikTok photo post when its button is pressed."""
+        query = update.callback_query
+        if not query or not query.data or not query.message:
+            return
+        key = query.data.split(":", 1)[-1]
+        message = query.message
+        chat_id = message.chat_id
+        info = self._post_audio_requests.get(key)
+        if not info:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="❌ Кнопка застаріла — надішліть посилання ще раз.",
+                reply_to_message_id=message.message_id,
+                allow_sending_without_reply=True,
+            )
+            return
+
+        # A standalone button message (album case) is replaced by the audio;
+        # a single photo keeps its message and just loses the button.
+        is_button_message = not getattr(message, "photo", None)
+        reply_to = message.message_id
+        if is_button_message and getattr(message, "reply_to_message", None):
+            reply_to = message.reply_to_message.message_id
+
+        path = os.path.join(self.download_path, f"tiktok_sound_{uuid.uuid4().hex[:8]}.mp3")
+        try:
+            ok = await social_images.download_file(info["url"], path)
+            if not ok:
+                # tikwm media URLs expire; refresh once.
+                data = await self._fetch_tikwm_data(info["source_url"], force=True)
+                fresh = social_images.parse_tikwm_images(data) if data else None
+                if fresh and fresh.audio:
+                    info["url"] = fresh.audio.url
+                    ok = await social_images.download_file(info["url"], path)
+            if not ok:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ Не вдалося завантажити звук.",
+                    reply_to_message_id=reply_to,
+                    allow_sending_without_reply=True,
+                )
+                return
+            with open(path, "rb") as audio:
+                await context.bot.send_audio(
+                    chat_id=chat_id,
+                    audio=audio,
+                    title=info.get("title") or "TikTok sound",
+                    performer=info.get("performer"),
+                    reply_to_message_id=reply_to,
+                    allow_sending_without_reply=True,
+                    write_timeout=120,
+                    read_timeout=60,
+                )
+            try:
+                if is_button_message:
+                    await message.delete()
+                else:
+                    await message.edit_reply_markup(reply_markup=None)
+            except Exception as e:
+                error_logger.warning(f"Could not tidy up sound button: {e}")
+        finally:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
     async def _download_generic(
         self,
