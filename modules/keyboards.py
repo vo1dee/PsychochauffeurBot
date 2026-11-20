@@ -284,11 +284,15 @@ async def button_callback(
                             except OSError:
                                 pass
                     if hasattr(query.message, "edit_text"):
-                        await query.message.edit_text(
-                            "✅ Download complete!"
-                            if sent_ok
-                            else "❌ Could not send the media."
-                        )
+                        status = {
+                            "sent": "✅ Download complete!",
+                            # Telegram usually delivers despite the timeout.
+                            "timed_out": "✅ Sent (Telegram was slow to confirm).",
+                        }.get(sent_ok or "", "❌ Could not send the media.")
+                        try:
+                            await query.message.edit_text(status)
+                        except Exception as e:
+                            error_logger.warning(f"Could not update button message: {e!r}")
                     return
 
                 filename, title = await video_downloader.download_video(original_link)
@@ -314,7 +318,7 @@ async def button_callback(
                         )
                 return
             except Exception as e:
-                error_logger.error(f"Error in video download: {str(e)}")
+                error_logger.error(f"Error in video download: {e!r}", exc_info=True)
                 if hasattr(query.message, "edit_text"):
                     await query.message.edit_text(
                         "❌ An error occurred while downloading the video."

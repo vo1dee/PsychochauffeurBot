@@ -231,22 +231,38 @@ async def fetch_x_image_post(url: str) -> Optional[ImagePost]:
     return parse_vxtwitter(data) if data else None
 
 
+# Photos above this size/side are re-encoded before upload: Telegram downscales
+# photos to 2560px anyway, and smaller uploads avoid Bot API timeouts.
+_PHOTO_MAX_SIDE = 2560
+_PHOTO_REENCODE_BYTES = 2 * 1024 * 1024
+
+
 def _normalize_image(raw: bytes) -> tuple:
-    """Return (bytes, ext); converts formats Telegram photos dislike to JPEG."""
-    if raw[:3] == b"\xff\xd8\xff":
-        return raw, "jpg"
-    if raw[:8] == b"\x89PNG\r\n\x1a\n":
-        return raw, "png"
+    """Return (bytes, ext) ready for sendPhoto.
+
+    JPEG/PNG under the size and dimension caps pass through untouched; anything
+    else (WebP/HEIC, oversized, huge dimensions) is re-encoded as a JPEG of at
+    most 2560px on the long side.
+    """
+    is_jpeg = raw[:3] == b"\xff\xd8\xff"
+    is_png = raw[:8] == b"\x89PNG\r\n\x1a\n"
     try:
         from PIL import Image
 
         with Image.open(io.BytesIO(raw)) as img:
+            small_enough = (
+                max(img.size) <= _PHOTO_MAX_SIDE and len(raw) <= _PHOTO_REENCODE_BYTES
+            )
+            if (is_jpeg or is_png) and small_enough:
+                return raw, "jpg" if is_jpeg else "png"
+            img = img.convert("RGB")
+            img.thumbnail((_PHOTO_MAX_SIDE, _PHOTO_MAX_SIDE))
             out = io.BytesIO()
-            img.convert("RGB").save(out, format="JPEG", quality=92)
+            img.save(out, format="JPEG", quality=88, optimize=True)
             return out.getvalue(), "jpg"
-    except Exception as e:  # unknown format: let Telegram decide
+    except Exception as e:  # unknown format / no Pillow: let Telegram decide
         error_logger.warning(f"Image conversion failed, sending as-is: {e!r}")
-        return raw, "jpg"
+        return raw, "png" if is_png else "jpg"
 
 
 async def download_media(
