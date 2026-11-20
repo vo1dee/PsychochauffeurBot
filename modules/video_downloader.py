@@ -4546,14 +4546,16 @@ class VideoDownloader:
         if not post:
             return None
 
+        videos = sum(1 for m in post.media if m.kind == "video")
         error_logger.info(
-            f"📷 {post.platform} photo post with {len(post.image_urls)} image(s): {url}"
+            f"📷 {post.platform} post with {len(post.media) - videos} photo(s) "
+            f"and {videos} video(s): {url}"
         )
-        post.paths = await social_images.download_images(
-            post.image_urls, self.download_path, f"{post.platform}_photo", referer
+        await social_images.download_media(
+            post.media, self.download_path, f"{post.platform}_media", referer
         )
         if not post.paths:
-            error_logger.warning(f"No images could be downloaded for {url}")
+            error_logger.warning(f"No media could be downloaded for {url}")
             return None
         return post
 
@@ -4586,11 +4588,11 @@ class VideoDownloader:
         source_url: Optional[str] = None,
     ) -> bool:
         """Send a photo post as a photo or album(s); offer the sound via a button."""
-        from telegram import InputMediaPhoto
+        from telegram import InputMediaPhoto, InputMediaVideo
 
         timeouts = dict(write_timeout=120, read_timeout=60, connect_timeout=30, pool_timeout=10)
-        paths = [p for p in post.paths if os.path.getsize(p) <= social_images.MAX_PHOTO_BYTES]
-        if not paths:
+        items = post.downloaded
+        if not items:
             return False
         audio_key = self._register_post_audio(post, source_url) if source_url else None
         audio_markup = (
@@ -4606,11 +4608,13 @@ class VideoDownloader:
             else {}
         )
 
-        if len(paths) == 1:
-            with open(paths[0], "rb") as photo:
-                await bot.send_photo(
+        if len(items) == 1:
+            item = items[0]
+            with open(item.path, "rb") as handle:  # type: ignore[arg-type]
+                send = bot.send_video if item.kind == "video" else bot.send_photo
+                await send(
                     chat_id=chat_id,
-                    photo=photo,
+                    **{item.kind: handle},
                     caption=caption,
                     caption_entities=caption_entities,
                     reply_markup=audio_markup,
@@ -4621,18 +4625,23 @@ class VideoDownloader:
 
         first_message_id: Optional[int] = None
         limit = social_images.MEDIA_GROUP_LIMIT
-        for start in range(0, len(paths), limit):
-            chunk = paths[start : start + limit]
-            handles = [open(p, "rb") for p in chunk]
+        for start in range(0, len(items), limit):
+            chunk = items[start : start + limit]
+            handles = [open(m.path, "rb") for m in chunk]  # type: ignore[arg-type]
             try:
-                media = [
-                    InputMediaPhoto(
+                media = []
+                for i, (item, h) in enumerate(zip(chunk, handles)):
+                    first = start == 0 and i == 0
+                    kwargs = dict(
                         media=h,
-                        caption=caption if start == 0 and i == 0 else None,
-                        caption_entities=caption_entities if start == 0 and i == 0 else None,
+                        caption=caption if first else None,
+                        caption_entities=caption_entities if first else None,
                     )
-                    for i, h in enumerate(handles)
-                ]
+                    media.append(
+                        InputMediaVideo(supports_streaming=True, **kwargs)
+                        if item.kind == "video"
+                        else InputMediaPhoto(**kwargs)
+                    )
                 sent = await bot.send_media_group(
                     chat_id=chat_id,
                     media=media,

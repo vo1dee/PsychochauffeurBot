@@ -263,16 +263,18 @@ async def button_callback(
                         return
                     except BadRequest:
                         video_downloader.video_cache.evict(original_link)
-                # Photo-only tweets: yt-dlp finds no video there, so send the images.
+                # Tweets with photos (alone or mixed with videos) go out as one album;
+                # video-only tweets fall through to the yt-dlp download below.
                 post = await video_downloader.fetch_image_post(original_link)
                 if post:
                     try:
                         caption = (post.title or "")[:1000]
+                        icon = "📷" if len(post.image_urls) == len(post.media) else "📎"
                         sent_ok = await video_downloader.send_image_post(
                             context.bot,
                             chat_id,
                             post,
-                            f"📷 {caption}" if caption else "📷",
+                            f"{icon} {caption}" if caption else icon,
                             source_url=original_link,
                         )
                     finally:
@@ -285,7 +287,7 @@ async def button_callback(
                         await query.message.edit_text(
                             "✅ Download complete!"
                             if sent_ok
-                            else "❌ Could not send the images."
+                            else "❌ Could not send the media."
                         )
                     return
 

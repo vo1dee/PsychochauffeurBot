@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from modules import social_images
-from modules.social_images import ImagePost, PostAudio
+from modules.social_images import ImagePost, MediaItem, PostAudio
 from modules.video_downloader import VideoDownloader
 
 
@@ -66,13 +66,34 @@ class TestParsers:
         ]
         assert post.title == "look"
 
-    def test_fxtwitter_video_tweet_stays_on_video_path(self):
+    def test_fxtwitter_mixed_tweet_keeps_all_media_in_order(self):
         data = {
             "code": 200,
             "tweet": {
                 "media": {
-                    "photos": [{"url": "https://pbs.twimg.com/media/AAA.jpg"}],
-                    "videos": [{"url": "https://video.twimg.com/x.mp4"}],
+                    "all": [
+                        {"type": "video", "url": "https://video.twimg.com/v.mp4"},
+                        {"type": "photo", "url": "https://pbs.twimg.com/media/AAA.jpg"},
+                        {"type": "gif", "url": "https://video.twimg.com/g.mp4"},
+                    ],
+                }
+            },
+        }
+        post = social_images.parse_fxtwitter(data)
+        assert post is not None
+        assert [(m.kind, m.url) for m in post.media] == [
+            ("video", "https://video.twimg.com/v.mp4"),
+            ("photo", "https://pbs.twimg.com/media/AAA.jpg?name=large"),
+            ("video", "https://video.twimg.com/g.mp4"),
+        ]
+
+    def test_fxtwitter_video_only_tweet_stays_on_video_path(self):
+        data = {
+            "code": 200,
+            "tweet": {
+                "media": {
+                    "all": [{"type": "video", "url": "https://video.twimg.com/x.mp4"}],
+                    "videos": [{"type": "video", "url": "https://video.twimg.com/x.mp4"}],
                 }
             },
         }
@@ -89,6 +110,9 @@ class TestParsers:
         post = social_images.parse_vxtwitter(data)
         assert post and post.image_urls == ["https://pbs.twimg.com/media/CCC.jpg?name=large"]
         data["media_extended"].append({"type": "video", "url": "https://v"})
+        mixed = social_images.parse_vxtwitter(data)
+        assert mixed and [m.kind for m in mixed.media] == ["photo", "video"]
+        data["media_extended"].pop(0)
         assert social_images.parse_vxtwitter(data) is None
 
     @pytest.mark.parametrize(
@@ -125,26 +149,27 @@ def downloader(tmp_path):
     return vd
 
 
-def _make_files(tmp_path, n):
-    paths = []
-    for i in range(n):
-        p = tmp_path / f"img{i}.jpg"
+def _make_items(tmp_path, kinds):
+    items = []
+    for i, kind in enumerate(kinds):
+        p = tmp_path / f"m{i}.{'mp4' if kind == 'video' else 'jpg'}"
         p.write_bytes(b"\xff\xd8\xff" + b"0" * 10)
-        paths.append(str(p))
-    return paths
+        items.append(MediaItem(kind, f"https://cdn/{i}", path=str(p)))
+    return items
 
 
 class TestVideoDownloaderPhotoPosts:
     @pytest.mark.asyncio
     async def test_fetch_image_post_tiktok(self, downloader, tmp_path):
-        files = _make_files(tmp_path, 2)
+        async def fake_download(items, *args, **kwargs):
+            for i, item in enumerate(items):
+                item.path = str(tmp_path / f"{i}.jpg")
+
         with patch.object(
             downloader, "_fetch_tikwm_data", AsyncMock(return_value=TIKWM_PHOTO)
-        ), patch.object(
-            social_images, "download_images", AsyncMock(return_value=files)
-        ):
+        ), patch.object(social_images, "download_media", side_effect=fake_download):
             post = await downloader.fetch_image_post("https://vt.tiktok.com/ZSpErXFbh/")
-        assert post is not None and post.paths == files and post.audio
+        assert post is not None and len(post.paths) == 2 and post.audio
 
     @pytest.mark.asyncio
     async def test_fetch_image_post_tiktok_video_returns_none(self, downloader):
@@ -165,9 +190,8 @@ class TestVideoDownloaderPhotoPosts:
     async def test_send_album_with_sound_button(self, downloader, tmp_path):
         post = ImagePost(
             platform="tiktok",
-            image_urls=[],
+            media=_make_items(tmp_path, ["photo"] * 12),
             audio=PostAudio(url="https://cdn/s.mp3", title="t", performer="p"),
-            paths=_make_files(tmp_path, 12),
         )
         bot = MagicMock()
         bot.send_media_group = AsyncMock(return_value=[SimpleNamespace(message_id=77)])
@@ -190,9 +214,8 @@ class TestVideoDownloaderPhotoPosts:
     async def test_send_single_photo_attaches_button(self, downloader, tmp_path):
         post = ImagePost(
             platform="tiktok",
-            image_urls=[],
+            media=_make_items(tmp_path, ["photo"]),
             audio=PostAudio(url="https://cdn/s.mp3"),
-            paths=_make_files(tmp_path, 1),
         )
         bot = MagicMock()
         bot.send_photo = AsyncMock()
@@ -200,6 +223,32 @@ class TestVideoDownloaderPhotoPosts:
         assert await downloader.send_image_post(bot, 1, post, "cap", source_url="u")
         assert bot.send_photo.await_args.kwargs["reply_markup"] is not None
         bot.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_mixed_x_album(self, downloader, tmp_path):
+        from telegram import InputMediaPhoto, InputMediaVideo
+
+        items = _make_items(tmp_path, ["photo", "video", "photo"])
+        items.append(MediaItem("video", "https://cdn/failed"))  # download failed
+        post = ImagePost(platform="x", media=items)
+        bot = MagicMock()
+        bot.send_media_group = AsyncMock(return_value=[SimpleNamespace(message_id=1)])
+        bot.send_message = AsyncMock()
+        assert await downloader.send_image_post(bot, 1, post, "cap", source_url="u")
+        media = bot.send_media_group.await_args.kwargs["media"]
+        assert [type(m) for m in media] == [InputMediaPhoto, InputMediaVideo, InputMediaPhoto]
+        bot.send_message.assert_not_called()  # no sound button for X
+
+    @pytest.mark.asyncio
+    async def test_send_single_remaining_video(self, downloader, tmp_path):
+        post = ImagePost(
+            platform="x",
+            media=[MediaItem("photo", "https://cdn/x")] + _make_items(tmp_path, ["video"]),
+        )
+        bot = MagicMock()
+        bot.send_video = AsyncMock()
+        assert await downloader.send_image_post(bot, 1, post, "cap")
+        assert "video" in bot.send_video.await_args.kwargs
 
     @pytest.mark.asyncio
     async def test_audio_callback_sends_audio_and_removes_button_message(
