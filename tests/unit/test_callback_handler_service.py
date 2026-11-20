@@ -443,6 +443,7 @@ class TestCallbackHandlerService:
             r"^cfg:",
             r"^wx:",
             r"^song_select:[a-zA-Z0-9_-]+$",
+            r"^ttaudio:[0-9a-f]{8}$",
             r"^speechrec_",
             r"^lang_", 
             r"^test_callback$",

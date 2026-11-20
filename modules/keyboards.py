@@ -128,7 +128,7 @@ BUTTONS_CONFIG: List[Dict[str, Any]] = [
     },
     {
         "action": "download_video",
-        "text": "⬇️ Download Video",
+        "text": "⬇️ Download",
         "check": lambda link: (
             link.lower().startswith(
                 (
@@ -242,7 +242,7 @@ async def button_callback(
 
             try:
                 if hasattr(query.message, "edit_text"):
-                    await query.message.edit_text("🔄 Downloading video...")
+                    await query.message.edit_text("🔄 Downloading...")
                 cached = video_downloader.video_cache.get(original_link)
                 if cached:
                     try:
@@ -263,6 +263,34 @@ async def button_callback(
                         return
                     except BadRequest:
                         video_downloader.video_cache.evict(original_link)
+                # Tweets with photos (alone or mixed with videos) go out as one album;
+                # video-only tweets fall through to the yt-dlp download below.
+                post = await video_downloader.fetch_image_post(original_link)
+                if post:
+                    try:
+                        caption = (post.title or "")[:1000]
+                        icon = "📷" if len(post.image_urls) == len(post.media) else "📎"
+                        sent_ok = await video_downloader.send_image_post(
+                            context.bot,
+                            chat_id,
+                            post,
+                            f"{icon} {caption}" if caption else icon,
+                            source_url=original_link,
+                        )
+                    finally:
+                        for path in post.paths:
+                            try:
+                                os.remove(path)
+                            except OSError:
+                                pass
+                    if hasattr(query.message, "edit_text"):
+                        await query.message.edit_text(
+                            "✅ Download complete!"
+                            if sent_ok
+                            else "❌ Could not send the media."
+                        )
+                    return
+
                 filename, title = await video_downloader.download_video(original_link)
 
                 if filename and os.path.exists(filename):

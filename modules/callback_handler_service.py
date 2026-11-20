@@ -75,6 +75,7 @@ class CallbackHandlerService(ServiceInterface):
             r"^lang_": self._handle_language_selection_callback,
             r"^test_callback$": self._handle_test_callback,
             r"^song_select:[a-zA-Z0-9_-]+$": self._handle_song_selection_callback,
+            r"^ttaudio:[0-9a-f]{8}$": self._handle_post_audio_callback,
             r"^[a-zA-Z_]+:[0-9a-f]+$": self._handle_link_modification_callback,
         }
         
@@ -195,6 +196,16 @@ class CallbackHandlerService(ServiceInterface):
         """Delegate /config menu buttons to the config commands handler."""
         from modules.handlers.config_commands import handle_config_callback
         await handle_config_callback(update, context)
+
+    async def _handle_post_audio_callback(
+        self,
+        update: Update,
+        context: CallbackContext[Any, Any, Any, Any],
+    ) -> None:
+        """Send the background sound of a TikTok photo post."""
+        video_downloader = context.bot_data.get("video_downloader")
+        if video_downloader:
+            await video_downloader.handle_post_audio_callback(update, context)
 
     async def _handle_weather_callback(
         self,
