@@ -15,6 +15,7 @@ import os
 import re
 import unicodedata
 from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -26,6 +27,7 @@ from telegram.ext import ContextTypes
 from modules.chat_action import chat_action as _chat_action
 from modules.utils import extract_urls
 from modules.const import MusicPlatforms
+from modules.telegram_files import max_upload_bytes, max_upload_label, upload_timeouts
 
 logger = logging.getLogger(__name__)
 
@@ -160,10 +162,10 @@ async def _send_audio_reply(
 ) -> None:
     """Send audio as a reply, then delete the command message."""
     file_size = os.path.getsize(filename)
-    if file_size > 50 * 1024 * 1024:
+    if file_size > max_upload_bytes():
         if update.message:
             await update.message.reply_text(
-                "❌ Audio file is too large to send (>50MB)."
+                f"❌ Audio file is too large to send (>{max_upload_label()})."
             )
         return
 
@@ -205,21 +207,21 @@ async def _send_audio_reply(
     )
 
     sent_msg = None
-    with open(filename, "rb") as audio_file:
-        send_kwargs = dict(
-            audio=audio_file,
-            title=tg_title,
-            performer=tg_performer,
-            caption=caption,
-            parse_mode="MarkdownV2",
-            reply_markup=reply_markup,
+    audio_file = Path(filename)
+    send_kwargs = dict(
+        audio=audio_file,
+        title=tg_title,
+        performer=tg_performer,
+        caption=caption,
+        parse_mode="MarkdownV2",
+        reply_markup=reply_markup,
+    )
+    if reply_target:
+        sent_msg = await reply_target.reply_audio(**send_kwargs)
+    elif update.effective_chat:
+        sent_msg = await context.bot.send_audio(
+            chat_id=update.effective_chat.id, **send_kwargs
         )
-        if reply_target:
-            sent_msg = await reply_target.reply_audio(**send_kwargs)
-        elif update.effective_chat:
-            sent_msg = await context.bot.send_audio(
-                chat_id=update.effective_chat.id, **send_kwargs
-            )
 
     # Populate song cache if we have a file_id and video_id
     if sent_msg and sent_msg.audio and video_id:
@@ -333,8 +335,8 @@ async def _send_audio_from_callback(
 ) -> None:
     """Send downloaded audio in response to a song-selection inline button press."""
     file_size = os.path.getsize(filename)
-    if file_size > 50 * 1024 * 1024:
-        await query.edit_message_text("❌ Audio file is too large to send (>50MB).")
+    if file_size > max_upload_bytes():
+        await query.edit_message_text(f"❌ Audio file is too large to send (>{max_upload_label()}).")
         return
 
     tg_title, tg_performer = normalize_telegram_audio_metadata(title, performer)
@@ -365,16 +367,16 @@ async def _send_audio_from_callback(
         pass
 
     sent_msg = None
-    with open(filename, "rb") as audio_file:
-        sent_msg = await context.bot.send_audio(
-            chat_id=chat_id,
-            audio=audio_file,
-            title=tg_title,
-            performer=tg_performer,
-            caption=caption,
-            parse_mode="MarkdownV2",
-            reply_markup=reply_markup,
-        )
+    audio_file = Path(filename)
+    sent_msg = await context.bot.send_audio(
+        chat_id=chat_id,
+        audio=audio_file,
+        title=tg_title,
+        performer=tg_performer,
+        caption=caption,
+        parse_mode="MarkdownV2",
+        reply_markup=reply_markup,
+    )
 
     if sent_msg and sent_msg.audio and video_id:
         vd = context.bot_data.get("video_downloader")
@@ -822,8 +824,8 @@ async def short_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             return
 
         file_size = os.path.getsize(filename)
-        if file_size > 50 * 1024 * 1024:
-            await processing_msg.edit_text("Video file is too large to send (>50MB).")
+        if file_size > max_upload_bytes():
+            await processing_msg.edit_text(f"Video file is too large to send (>{max_upload_label()}).")
             try:
                 os.remove(filename)
             except Exception:
@@ -837,10 +839,13 @@ async def short_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         caption = build_shorts_caption(title, username, watch_url)
 
-        with open(filename, "rb") as video_file:
-            sent = await reply_message.reply_video(
-                video=video_file, caption=caption, parse_mode="MarkdownV2"
-            )
+        video_file = Path(filename)
+        sent = await reply_message.reply_video(
+            video=video_file,
+            caption=caption,
+            parse_mode="MarkdownV2",
+            **upload_timeouts(file_size),
+        )
         if sent.video:
             video_downloader.video_cache.set(
                 watch_url, sent.video.file_id, title, "video"

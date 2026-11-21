@@ -50,11 +50,23 @@ is_stable() {
   done
 }
 
+# Every deploy pulls a ~1.9 GB tag, and `image prune` never removes tagged images,
+# so delete every bot tag except the one just deployed and the rollback target.
+prune_old_images() {
+  local repo="ghcr.io/vo1dee/psychochauffeurbot" tag
+  docker images "$repo" --format '{{.Tag}}' | while read -r tag; do
+    [[ "$tag" == "$IMAGE_TAG" || "$tag" == "$previous_tag" ]] && continue
+    docker rmi "$repo:$tag" >/dev/null 2>&1 || true
+  done
+  docker image prune -f >/dev/null || true
+  docker builder prune -f --filter "until=168h" >/dev/null || true
+}
+
 start_tag "$IMAGE_TAG"
 if is_stable; then
   echo "$IMAGE_TAG" > .last_good_tag
   echo "==> Deployed $IMAGE_TAG"
-  docker image prune -f --filter "until=168h" >/dev/null || true
+  prune_old_images
   exit 0
 fi
 

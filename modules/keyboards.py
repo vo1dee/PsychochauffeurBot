@@ -1,11 +1,13 @@
 import hashlib
 import os
 import re
+from pathlib import Path
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Message
 from telegram.ext import CallbackContext
 from telegram.error import BadRequest
 from typing import Any, Optional, List, Union, Dict
 from modules.logger import general_logger, error_logger
+from modules.telegram_files import upload_timeouts
 from urllib.parse import urlparse, urlunparse
 
 
@@ -298,12 +300,13 @@ async def button_callback(
                 filename, title = await video_downloader.download_video(original_link)
 
                 if filename and os.path.exists(filename):
-                    with open(filename, "rb") as video_file:
-                        sent = await context.bot.send_video(
-                            chat_id=chat_id,
-                            video=video_file,
-                            caption=f"📹 {title or 'Downloaded Video'}",
-                        )
+                    video_file = Path(filename)
+                    sent = await context.bot.send_video(
+                        chat_id=chat_id,
+                        video=video_file,
+                        caption=f"📹 {title or 'Downloaded Video'}",
+                        **upload_timeouts(os.path.getsize(filename)),
+                    )
                     if sent.video:
                         video_downloader.video_cache.set(
                             original_link, sent.video.file_id, title, "video"
@@ -359,19 +362,20 @@ async def button_callback(
                         video_downloader.video_cache.evict(original_link)
                 filename, title = await video_downloader.download_video(original_link)
                 if filename and os.path.exists(filename):
-                    with open(filename, "rb") as media_file:
-                        if video_downloader._file_is_image(filename):
-                            sent = await context.bot.send_photo(
-                                chat_id=chat_id,
-                                photo=media_file,
-                                caption=f"📷 {title or 'Instagram Photo'}",
-                            )
-                        else:
-                            sent = await context.bot.send_video(
-                                chat_id=chat_id,
-                                video=media_file,
-                                caption=f"📹 {title or 'Instagram Video'}",
-                            )
+                    media_file = Path(filename)
+                    if video_downloader._file_is_image(filename):
+                        sent = await context.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=media_file,
+                            caption=f"📷 {title or 'Instagram Photo'}",
+                        )
+                    else:
+                        sent = await context.bot.send_video(
+                            chat_id=chat_id,
+                            video=media_file,
+                            caption=f"📹 {title or 'Instagram Video'}",
+                            **upload_timeouts(os.path.getsize(filename)),
+                        )
                     media_kind = (
                         "photo"
                         if video_downloader._file_is_image(filename)

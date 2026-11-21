@@ -27,12 +27,13 @@ from urllib.parse import urlparse
 import aiohttp
 
 from modules.logger import error_logger
+from modules.telegram_files import max_upload_bytes
 
 # Telegram allows at most 10 items per media group.
 MEDIA_GROUP_LIMIT = 10
-# Telegram rejects photo uploads above 10 MB and bot video uploads above 50 MB.
+# Telegram rejects photo uploads above 10 MB; the video limit depends on the Bot API
+# server (50 MB cloud, 2000 MB local), see modules/telegram_files.py.
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
-MAX_VIDEO_BYTES = 50 * 1024 * 1024
 
 _X_HOSTS = (
     "x.com",
@@ -276,7 +277,7 @@ async def download_media(
     semaphore = asyncio.Semaphore(4)
 
     async def fetch_one(session: aiohttp.ClientSession, index: int, item: MediaItem) -> None:
-        limit = MAX_VIDEO_BYTES if item.kind == "video" else MAX_PHOTO_BYTES
+        limit = max_upload_bytes() if item.kind == "video" else MAX_PHOTO_BYTES
         async with semaphore:
             try:
                 async with session.get(

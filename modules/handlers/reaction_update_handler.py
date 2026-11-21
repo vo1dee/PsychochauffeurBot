@@ -7,6 +7,7 @@ Requires python-telegram-bot >= 21.0.
 
 import asyncio
 import os
+from pathlib import Path
 
 from telegram import Update, ReactionTypeEmoji
 from telegram.constants import ChatAction
@@ -15,6 +16,7 @@ from telegram.ext import ContextTypes
 
 from modules.chat_action import chat_action_for as _chat_action_for
 from modules.logger import general_logger, error_logger
+from modules.telegram_files import max_upload_bytes, max_upload_label, upload_timeouts
 
 
 async def handle_reaction_update(
@@ -122,9 +124,9 @@ async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user
                 return
 
             file_size = os.path.getsize(filename)
-            if file_size > 50 * 1024 * 1024:
+            if file_size > max_upload_bytes():
                 await processing_msg.edit_text(
-                    "Video file is too large to send (>50MB)."
+                    f"Video file is too large to send (>{max_upload_label()})."
                 )
                 return
 
@@ -140,14 +142,14 @@ async def _handle_shorts_download(context, chat_id, message_id, shorts_url, user
                 username = user.username or user.first_name or "Unknown"
             caption = build_shorts_caption(title, username, watch_url)
 
-            with open(filename, "rb") as video_file:
-                sent = await context.bot.send_video(
-                    chat_id=chat_id,
-                    video=video_file,
-                    caption=caption,
-                    parse_mode="MarkdownV2",
-                    reply_to_message_id=message_id,
-                )
+            sent = await context.bot.send_video(
+                chat_id=chat_id,
+                video=Path(filename),
+                caption=caption,
+                parse_mode="MarkdownV2",
+                reply_to_message_id=message_id,
+                **upload_timeouts(file_size),
+            )
             if sent.video:
                 video_downloader.video_cache.set(
                     watch_url, sent.video.file_id, title, "video"

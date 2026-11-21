@@ -11,6 +11,7 @@ import uuid
 import shutil
 import subprocess
 import time
+from pathlib import Path
 from urllib.parse import urljoin, urlparse, parse_qs, unquote
 from typing import Optional, Tuple, List, Dict, Any, Callable, TypedDict, cast
 from asyncio import Semaphore
@@ -38,6 +39,13 @@ from modules.song_cache import SongCache
 from modules import social_images
 from modules.social_images import ImagePost
 from modules.video_cache import VideoCache
+from modules.telegram_files import (
+    close_media_input,
+    max_upload_bytes,
+    max_upload_label,
+    media_input,
+    upload_timeouts,
+)
 from modules.utils import extract_urls
 from modules.logger import (
     TelegramErrorHandler,
@@ -3040,9 +3048,9 @@ class VideoDownloader:
                     await processing_msg.edit_text(msg)
                     return
 
-                if os.path.getsize(filename) > 50 * 1024 * 1024:
+                if os.path.getsize(filename) > max_upload_bytes():
                     await processing_msg.edit_text(
-                        "❌ Audio file is too large to send (>50MB)."
+                        f"❌ Audio file is too large to send (>{max_upload_label()})."
                     )
                     return
 
@@ -3094,7 +3102,7 @@ class VideoDownloader:
         """Send downloaded audio file to chat."""
         try:
             file_size = os.path.getsize(filename)
-            max_size = 50 * 1024 * 1024
+            max_size = max_upload_bytes()
 
             if file_size > max_size:
                 error_logger.warning(f"Audio file too large: {file_size} bytes")
@@ -3174,21 +3182,21 @@ class VideoDownloader:
             if buttons:
                 reply_markup = InlineKeyboardMarkup([buttons])
 
-            with open(filename, "rb") as audio_file:
-                send_kwargs = dict(
-                    audio=audio_file,
-                    title=tg_title,
-                    performer=tg_performer,
-                    caption=caption,
-                    parse_mode="MarkdownV2",
-                    reply_markup=reply_markup,
+            audio_file = Path(filename)
+            send_kwargs = dict(
+                audio=audio_file,
+                title=tg_title,
+                performer=tg_performer,
+                caption=caption,
+                parse_mode="MarkdownV2",
+                reply_markup=reply_markup,
+            )
+            if update.message and update.message.reply_to_message:
+                await update.message.reply_to_message.reply_audio(**send_kwargs)
+            elif update.effective_chat:
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id, **send_kwargs
                 )
-                if update.message and update.message.reply_to_message:
-                    await update.message.reply_to_message.reply_audio(**send_kwargs)
-                elif update.effective_chat:
-                    await context.bot.send_audio(
-                        chat_id=update.effective_chat.id, **send_kwargs
-                    )
 
             try:
                 if update.message:
@@ -3334,18 +3342,19 @@ class VideoDownloader:
             if filename and os.path.exists(filename):
                 file_size = os.path.getsize(filename)
 
-                if file_size > 50 * 1024 * 1024:
+                if file_size > max_upload_bytes():
                     error_logger.warning(f"Inline: Video file too large: {file_size}")
                     await self._send_inline_error(query, "Video file too large")
                     return
 
                 # Send video to user privately to get file_id (will be deleted immediately)
-                with open(filename, "rb") as video_file:
-                    message = await context.bot.send_video(
-                        chat_id=query.from_user.id,
-                        video=video_file,
-                        disable_notification=True,
-                    )
+                video_file = Path(filename)
+                message = await context.bot.send_video(
+                    chat_id=query.from_user.id,
+                    video=video_file,
+                    **upload_timeouts(file_size),
+                    disable_notification=True,
+                )
 
                 if message and message.video:
                     # Delete the temporary message from private chat
@@ -3406,19 +3415,20 @@ class VideoDownloader:
             if filename and os.path.exists(filename):
                 file_size = os.path.getsize(filename)
 
-                if file_size > 50 * 1024 * 1024:
+                if file_size > max_upload_bytes():
                     error_logger.warning(f"Inline: Video file too large: {file_size}")
                     await self._send_inline_error(query, "Video file too large")
                     return
 
                 # Send video to user privately to get file_id
-                with open(filename, "rb") as video_file:
-                    message = await context.bot.send_video(
-                        chat_id=query.from_user.id,
-                        video=video_file,
-                        caption=f"🎬 {title or 'YouTube Shorts'}\n\n🔗 {url}",
-                        disable_notification=True,
-                    )
+                video_file = Path(filename)
+                message = await context.bot.send_video(
+                    chat_id=query.from_user.id,
+                    video=video_file,
+                    **upload_timeouts(file_size),
+                    caption=f"🎬 {title or 'YouTube Shorts'}\n\n🔗 {url}",
+                    disable_notification=True,
+                )
 
                 if message and message.video:
                     from telegram import InlineQueryResultCachedVideo
@@ -4049,40 +4059,38 @@ class VideoDownloader:
             )
 
             file_size = os.path.getsize(filename)
-            max_size = 50 * 1024 * 1024  # 50MB limit for Telegram
 
-            if file_size > max_size:
+            if file_size > max_upload_bytes():
                 error_logger.warning(f"File too large: {file_size} bytes")
                 if update.message:
-                    await update.message.reply_text("❌ Video file too large to send.")
+                    await update.message.reply_text(
+                        f"❌ Video file too large to send (>{max_upload_label()})."
+                    )
                 return
 
             caption, caption_entities = self._build_media_caption(
                 update, title, source_url
             )
 
-            _upload_timeouts = dict(
-                write_timeout=120,
-                read_timeout=60,
-                connect_timeout=30,
-                pool_timeout=10,
-            )
+            _upload_timeouts = dict(upload_timeouts(file_size), pool_timeout=10)
 
-            with open(filename, "rb") as video_file:
-                send_kwargs = dict(caption=caption, caption_entities=caption_entities)
-                # Check if the original message was a reply to another message
-                if update.message and update.message.reply_to_message:
-                    sent_message = await update.message.reply_to_message.reply_video(
-                        video=video_file, **send_kwargs, **_upload_timeouts
+            # Pass a path, not a file handle: in local Bot API mode it becomes a
+            # file:// URI instead of loading the whole file into memory.
+            video_file = Path(filename)
+            send_kwargs = dict(caption=caption, caption_entities=caption_entities)
+            # Check if the original message was a reply to another message
+            if update.message and update.message.reply_to_message:
+                sent_message = await update.message.reply_to_message.reply_video(
+                    video=video_file, **send_kwargs, **_upload_timeouts
+                )
+            else:
+                if update.effective_chat:
+                    sent_message = await context.bot.send_video(
+                        chat_id=update.effective_chat.id,
+                        video=video_file,
+                        **send_kwargs,
+                        **_upload_timeouts,
                     )
-                else:
-                    if update.effective_chat:
-                        sent_message = await context.bot.send_video(
-                            chat_id=update.effective_chat.id,
-                            video=video_file,
-                            **send_kwargs,
-                            **_upload_timeouts,
-                        )
 
             if source_url and sent_message and sent_message.video:
                 self.video_cache.set(
@@ -4602,10 +4610,11 @@ class VideoDownloader:
         from telegram.error import TimedOut
 
         # Albums of several photos/videos take Telegram a while to process.
-        timeouts = dict(write_timeout=180, read_timeout=120, connect_timeout=30, pool_timeout=30)
         items = post.downloaded
         if not items:
             return None
+        total_size = sum(os.path.getsize(m.path) for m in items if m.path and os.path.exists(m.path))
+        timeouts = dict(upload_timeouts(total_size, write=180, read=120), pool_timeout=30)
         timed_out = False
         started = time.monotonic()
         audio_key = self._register_post_audio(post, source_url) if source_url else None
@@ -4624,24 +4633,23 @@ class VideoDownloader:
 
         if len(items) == 1:
             item = items[0]
-            with open(item.path, "rb") as handle:  # type: ignore[arg-type]
-                send = bot.send_video if item.kind == "video" else bot.send_photo
-                try:
-                    await send(
-                        chat_id=chat_id,
-                        **{item.kind: handle},
-                        caption=caption,
-                        caption_entities=caption_entities,
-                        reply_markup=audio_markup,
-                        **reply_kwargs,
-                        **timeouts,
-                    )
-                except TimedOut:
-                    error_logger.warning(
-                        f"Telegram timed out sending {item.kind} after "
-                        f"{time.monotonic() - started:.0f}s; likely delivered"
-                    )
-                    return "timed_out"
+            send = bot.send_video if item.kind == "video" else bot.send_photo
+            try:
+                await send(
+                    chat_id=chat_id,
+                    **{item.kind: Path(item.path)},  # type: ignore[arg-type]
+                    caption=caption,
+                    caption_entities=caption_entities,
+                    reply_markup=audio_markup,
+                    **reply_kwargs,
+                    **timeouts,
+                )
+            except TimedOut:
+                error_logger.warning(
+                    f"Telegram timed out sending {item.kind} after "
+                    f"{time.monotonic() - started:.0f}s; likely delivered"
+                )
+                return "timed_out"
             general_logger.info(f"📤 {item.kind} sent in {time.monotonic() - started:.1f}s")
             return "sent"
 
@@ -4649,7 +4657,7 @@ class VideoDownloader:
         limit = social_images.MEDIA_GROUP_LIMIT
         for start in range(0, len(items), limit):
             chunk = items[start : start + limit]
-            handles = [open(m.path, "rb") for m in chunk]  # type: ignore[arg-type]
+            handles = [media_input(m.path, bot) for m in chunk]  # type: ignore[arg-type]
             try:
                 media = []
                 for i, (item, h) in enumerate(zip(chunk, handles)):
@@ -4682,7 +4690,7 @@ class VideoDownloader:
                     first_message_id = sent[0].message_id
             finally:
                 for h in handles:
-                    h.close()
+                    close_media_input(h)
 
         if audio_markup:
             # Albums cannot carry buttons, so the sound gets its own small message.
@@ -4750,17 +4758,17 @@ class VideoDownloader:
                     allow_sending_without_reply=True,
                 )
                 return
-            with open(path, "rb") as audio:
-                await context.bot.send_audio(
-                    chat_id=chat_id,
-                    audio=audio,
-                    title=info.get("title") or "TikTok sound",
-                    performer=info.get("performer"),
-                    reply_to_message_id=reply_to,
-                    allow_sending_without_reply=True,
-                    write_timeout=120,
-                    read_timeout=60,
-                )
+            audio = Path(path)
+            await context.bot.send_audio(
+                chat_id=chat_id,
+                audio=audio,
+                title=info.get("title") or "TikTok sound",
+                performer=info.get("performer"),
+                reply_to_message_id=reply_to,
+                allow_sending_without_reply=True,
+                write_timeout=120,
+                read_timeout=60,
+            )
             try:
                 if is_button_message:
                     await message.delete()
