@@ -21,6 +21,7 @@ from modules.service_registry import ServiceRegistry, ServiceInterface
 from modules.const import Config, KYIV_TZ
 from modules.logger import general_logger, error_logger
 from modules.application_models import ServiceHealth
+from modules.telegram_files import local_bot_api_url
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +262,18 @@ class BotApplication(ServiceInterface):
             # Build application with configured timeouts
             builder = ApplicationBuilder().token(Config.TELEGRAM_BOT_TOKEN)
             builder = builder.concurrent_updates(concurrent_updates)
-            
+
+            # Optional local Bot API server (docs/LOCAL_BOT_API.md): 2000 MB uploads,
+            # files passed as paths are sent as file:// URIs instead of being uploaded.
+            local_api_url = local_bot_api_url()
+            if local_api_url:
+                builder = (
+                    builder.base_url(f"{local_api_url}/bot")
+                    .base_file_url(f"{local_api_url}/file/bot")
+                    .local_mode(True)
+                )
+                logger.info(f"Using local Telegram Bot API server at {local_api_url}")
+
             # Configure timeouts via custom HTTPXRequest if available
             # When using a custom request, we must configure timeouts on the request object,
             # not on the builder (python-telegram-bot doesn't allow both)

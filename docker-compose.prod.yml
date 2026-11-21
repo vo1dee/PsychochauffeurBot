@@ -31,6 +31,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # Only present when the local-bot-api profile is enabled (see below).
+      telegram-bot-api:
+        condition: service_started
+        required: false
     # Config web UI (config_v2/web.py). Requires CONFIG_WEB_PASSWORD in .env for non-localhost access.
     ports:
       - "8080:8080"
@@ -44,6 +48,8 @@ services:
       - ./config/backups:/app/config/backups
       - ./config/archive:/app/config/archive
       - ./cookies.txt:/app/cookies.txt
+      # Files the local Bot API server fetched for getFile; read-only, same path as in that container.
+      - bot_api_data:/var/lib/telegram-bot-api:ro
     restart: unless-stopped
     logging:
       driver: json-file
@@ -51,5 +57,50 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  # Local Telegram Bot API server (docs/LOCAL_BOT_API.md). Opt-in: add
+  # COMPOSE_PROFILES=local-bot-api plus TELEGRAM_API_ID/TELEGRAM_API_HASH to .env,
+  # then point the bot at it with TELEGRAM_API_BASE_URL. Lifts the upload limit to 2000 MB.
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:10.3
+    profiles: ["local-bot-api"]
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_LOCAL: "1"
+    # No published port: the bot reaches it as http://telegram-bot-api:8081 on the compose network.
+    volumes:
+      - bot_api_data:/var/lib/telegram-bot-api
+      # Uploads are sent as file:// paths, so the server must see /app/downloads at the same path.
+      - ./downloads:/app/downloads:ro
+    mem_limit: 384m
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Mandatory cleanup of downloaded media. Large files go fast; everything goes eventually.
+  # Bot API: only files inside per-bot subfolders (depth >= 3), never its binlog/db at depth 2.
+  media-cleanup:
+    image: busybox:1.36.1
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          find /app/downloads -type f -size +50M -mmin +30 -delete
+          find /app/downloads -type f -mmin +360 -delete
+          find /var/lib/telegram-bot-api -mindepth 3 -type f -size +50M -mmin +30 -delete
+          find /var/lib/telegram-bot-api -mindepth 3 -type f -mmin +120 -delete
+          sleep 600
+        done
+    volumes:
+      - ./downloads:/app/downloads
+      - bot_api_data:/var/lib/telegram-bot-api
+    mem_limit: 32m
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  bot_api_data:
