@@ -50,6 +50,10 @@ services:
       - ./cookies.txt:/app/cookies.txt
       # Files the local Bot API server fetched for getFile; read-only, same path as in that container.
       - bot_api_data:/var/lib/telegram-bot-api:ro
+    # The server writes those files as 0640 / dirs 0750 owned by its group (gid 101 in
+    # aiogram/telegram-bot-api); joining that group lets the bot read them.
+    group_add:
+      - "101"
     restart: unless-stopped
     logging:
       driver: json-file
