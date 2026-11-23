@@ -194,6 +194,40 @@ class TestVideoDownloaderPhotoPosts:
         assert post is not None and len(post.paths) == 2 and post.audio
 
     @pytest.mark.asyncio
+    async def test_fetch_image_post_tiktok_refetches_bad_signed_urls(
+        self, downloader, tmp_path
+    ):
+        """A photo whose signed CDN URL 403s is re-downloaded from a fresh tikwm URL."""
+        fresh = {
+            **TIKWM_PHOTO,
+            "data": {
+                **TIKWM_PHOTO["data"],
+                "images": ["https://cdn.example/1b.jpeg", "https://cdn.example/2b.jpeg"],
+            },
+        }
+        downloaded_urls = []
+
+        async def fake_download(items, *args, **kwargs):
+            for item in items:
+                downloaded_urls.append(item.url)
+                if item.url == "https://cdn.example/2.jpeg":  # bad signature -> 403
+                    continue
+                path = tmp_path / item.url.rsplit("/", 1)[-1]
+                path.write_bytes(b"\xff\xd8\xff")
+                item.path = str(path)
+
+        tikwm = AsyncMock(side_effect=[TIKWM_PHOTO, fresh])
+        with patch.object(downloader, "_fetch_tikwm_data", tikwm), patch.object(
+            social_images, "download_media", side_effect=fake_download
+        ), patch("modules.video_downloader.asyncio.sleep", AsyncMock()):
+            post = await downloader.fetch_image_post("https://vt.tiktok.com/ZSpErXFbh/")
+
+        assert post is not None
+        assert [os.path.basename(p) for p in post.paths] == ["1.jpeg", "2b.jpeg"]
+        assert downloaded_urls[2:] == ["https://cdn.example/2b.jpeg"]
+        assert tikwm.await_args_list[1].kwargs == {"force": True}
+
+    @pytest.mark.asyncio
     async def test_fetch_image_post_tiktok_video_returns_none(self, downloader):
         with patch.object(
             downloader, "_fetch_tikwm_data", AsyncMock(return_value=TIKWM_VIDEO)
