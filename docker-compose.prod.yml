@@ -74,8 +74,10 @@ services:
     # No published port: the bot reaches it as http://telegram-bot-api:8081 on the compose network.
     volumes:
       - bot_api_data:/var/lib/telegram-bot-api
-      # Uploads are sent as file:// paths, so the server must see /app/downloads at the same path.
+      # Uploads are sent as file:// paths, so the server must see every directory the bot
+      # sends from at the same path: downloads/ (videos, photos) and data/music/ (/song audio).
       - ./downloads:/app/downloads:ro
+      - ./data/music:/app/data/music:ro
     mem_limit: 384m
     restart: unless-stopped
     logging:
