@@ -1412,18 +1412,15 @@ class VideoDownloader:
         if os.path.exists(deno_path):
             env["PATH"] = f"{deno_path}:{env.get('PATH', '')}"
 
-        # Check for YouTube cookies file
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        yt_cookies_path = os.path.join(project_root, "youtube_cookies.txt")
-        has_yt_cookies = os.path.exists(yt_cookies_path)
-        if has_yt_cookies:
+        yt_cookies_path = self._youtube_cookies_path()
+        if yt_cookies_path:
             error_logger.info(f"🍪 Using YouTube cookies from {yt_cookies_path}")
         else:
             error_logger.info(
-                "⚠️ No youtube_cookies.txt found. Some formats may be restricted."
+                "⚠️ No YouTube cookies file found. Age-restricted videos will fail."
             )
 
-        cookies_args = ["--cookies", yt_cookies_path] if has_yt_cookies else []
+        cookies_args = ["--cookies", yt_cookies_path] if yt_cookies_path else []
 
         # Strategies ordered by reliability:
         # yt-dlp's default client selection tracks YouTube changes and gets
@@ -1539,9 +1536,12 @@ class VideoDownloader:
                 error_logger.error(f"   ❌ Strategy '{strategy['name']}' error: {e}")
                 last_error = str(e)
 
+        hint = ""
+        if last_error and "confirm your age" in last_error and not yt_cookies_path:
+            hint = " [age-restricted: add data/youtube_cookies.txt or YOUTUBE_COOKIES_FILE]"
         error_logger.error(
             f"❌ All YouTube Music strategies failed for {url}"
-            f" (last error: {last_error or 'unknown'})"
+            f" (last error: {last_error or 'unknown'}){hint}"
         )
         return None, None, None, None, None
 
@@ -2762,11 +2762,8 @@ class VideoDownloader:
         if os.path.exists(deno_path):
             env["PATH"] = f"{deno_path}:{env.get('PATH', '')}"
 
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        yt_cookies_path = os.path.join(project_root, "youtube_cookies.txt")
-        cookies_args = (
-            ["--cookies", yt_cookies_path] if os.path.exists(yt_cookies_path) else []
-        )
+        yt_cookies_path = self._youtube_cookies_path()
+        cookies_args = ["--cookies", yt_cookies_path] if yt_cookies_path else []
 
         cmd = [
             self.yt_dlp_path,
@@ -3306,9 +3303,8 @@ class VideoDownloader:
             "%(.{id,title,artist,track,uploader,duration,webpage_url})j",
         ]
 
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        yt_cookies_path = os.path.join(project_root, "youtube_cookies.txt")
-        if os.path.exists(yt_cookies_path):
+        yt_cookies_path = self._youtube_cookies_path()
+        if yt_cookies_path:
             cmd.extend(["--cookies", yt_cookies_path])
 
         try:
@@ -4490,6 +4486,22 @@ class VideoDownloader:
             result = (result[0], full_title or result[1] or "TikTok Video")
 
         return result
+
+    def _youtube_cookies_path(self) -> Optional[str]:
+        """Return a Netscape cookies file for YouTube if one is configured.
+
+        YOUTUBE_COOKIES_FILE wins; then data/youtube_cookies.txt (data/ is a
+        mounted volume in production, so the file survives redeploys); then
+        youtube_cookies.txt in the project root, for local runs. Logged-in
+        cookies unlock age-restricted videos ("Sign in to confirm your age").
+        """
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env_path = os.getenv("YOUTUBE_COOKIES_FILE")
+        candidates = [env_path] if env_path else [
+            os.path.join(project_root, "data", "youtube_cookies.txt"),
+            os.path.join(project_root, "youtube_cookies.txt"),
+        ]
+        return next((c for c in candidates if os.path.isfile(c)), None)
 
     def _tiktok_cookies_path(self) -> Optional[str]:
         """Return a Netscape cookies file for TikTok if one is configured.
