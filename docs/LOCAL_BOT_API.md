@@ -20,8 +20,10 @@ What it gives us:
 | `telegram-bot-api` | The server, profile `local-bot-api`, 384 MB memory cap, no published port. |
 | `media-cleanup` | Always on. Every 10 min deletes files > 50 MB older than 30 min and everything older than 6 h in `downloads/`; in the Bot API volume, files > 50 MB after 30 min and the rest after 2 h (only per-bot subfolders, never its database). |
 
-Both the bot and the server mount `./downloads` at `/app/downloads`, so a path the bot
-sends means the same file inside the server. The bot mounts the server's work dir
+Both the bot and the server mount `./downloads` at `/app/downloads` and `./data/music`
+at `/app/data/music` (where `/song` saves audio), so a path the bot sends means the same
+file inside the server. Any new directory the bot sends files from needs the same mount,
+or the server answers `Can't find real file path`. The bot mounts the server's work dir
 `bot_api_data` read-only at the same path, for `getFile` results.
 
 The bot switches to local mode when `TELEGRAM_API_BASE_URL` is set
