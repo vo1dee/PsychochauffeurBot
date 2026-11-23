@@ -4574,6 +4574,8 @@ class VideoDownloader:
         await social_images.download_media(
             post.media, self.download_path, f"{post.platform}_media", referer
         )
+        if post.platform == "tiktok":
+            await self._retry_missing_tiktok_media(url, post, referer)
         if not post.paths:
             error_logger.warning(f"No media could be downloaded for {url}")
             return None
@@ -4583,6 +4585,41 @@ class VideoDownloader:
             f"downloaded ({videos} video), {total / 1024 / 1024:.1f} MB total: {url}"
         )
         return post
+
+    async def _retry_missing_tiktok_media(
+        self, url: str, post: ImagePost, referer: Optional[str], attempts: int = 3
+    ) -> None:
+        """Re-download photos that failed, using freshly signed URLs.
+
+        tikwm sometimes hands out CDN URLs with a bad signature that answer 403
+        no matter how often they are retried; a new tikwm response carries new
+        signatures, so only a refetch recovers those photos.
+        """
+        for attempt in range(attempts):
+            missing = [i for i, m in enumerate(post.media) if not m.path]
+            if not missing:
+                return
+            error_logger.info(
+                f"TikTok post: {len(missing)}/{len(post.media)} photo(s) failed, "
+                f"refetching signed URLs (attempt {attempt + 1}/{attempts}): {url}"
+            )
+            await asyncio.sleep(1 + attempt)
+            data = await self._fetch_tikwm_data(url, force=True)
+            fresh = social_images.parse_tikwm_images(data) if data else None
+            if not fresh or len(fresh.media) != len(post.media):
+                continue
+            retry = [fresh.media[i] for i in missing]
+            await social_images.download_media(
+                retry, self.download_path, f"{post.platform}_media", referer
+            )
+            for i, item in zip(missing, retry):
+                if item.path:
+                    post.media[i].path = item.path
+        missing = sum(1 for m in post.media if not m.path)
+        if missing:
+            error_logger.warning(
+                f"TikTok post: {missing}/{len(post.media)} photo(s) still missing: {url}"
+            )
 
     def _register_post_audio(self, post: ImagePost, source_url: str) -> Optional[str]:
         """Remember a post's sound so a button can fetch it later. Returns the key."""
