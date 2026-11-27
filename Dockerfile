@@ -29,6 +29,13 @@ COPY --from=denoland/deno:bin-2.9.7 /deno /usr/local/bin/deno
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# Headless Chromium for /flares (Playwright widget capture). Installed to a
+# shared path so the unprivileged runtime user can launch it.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN playwright install --with-deps --only-shell chromium \
+    && chmod -R a+rX /ms-playwright \
+    && rm -rf /var/lib/apt/lists/*
+
 # Run as an unprivileged user whose UID matches the host owner of mounted volumes
 ARG APP_UID=1000
 RUN useradd --uid ${APP_UID} --create-home --shell /usr/sbin/nologin bot
