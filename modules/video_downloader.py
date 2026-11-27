@@ -69,6 +69,11 @@ _SERVICE_AUDIO_ATTEMPTS = 2
 _FORMAT_UNAVAILABLE = "Requested format is not available"
 # /health normally answers in ~3s; a slower answer means a busy service, not a dead one.
 _SERVICE_HEALTH_TIMEOUT = 10
+# Total time the download service gets before falling back to direct yt-dlp
+# strategies. Must stay well below _VIDEO_DOWNLOAD_TIMEOUT so the fallback runs.
+_SERVICE_DOWNLOAD_BUDGET = float(os.getenv("SERVICE_DOWNLOAD_BUDGET", "45"))
+# Overall wall-clock limit for one video request (service + direct fallbacks).
+_VIDEO_DOWNLOAD_TIMEOUT = float(os.getenv("VIDEO_DOWNLOAD_TIMEOUT", "240"))
 
 
 class DownloadStrategy(TypedDict):
@@ -720,7 +725,16 @@ class VideoDownloader:
                     # Try service first
                     error_logger.info(f"🔧 Checking service availability...")
                     if await self._check_service_health():
-                        result = await self._download_from_service(url)
+                        try:
+                            result = await asyncio.wait_for(
+                                self._download_from_service(url),
+                                timeout=_SERVICE_DOWNLOAD_BUDGET,
+                            )
+                        except asyncio.TimeoutError:
+                            error_logger.warning(
+                                f"⏱️ Service download exceeded {_SERVICE_DOWNLOAD_BUDGET:.0f}s for: {url}"
+                            )
+                            result = None
                         if result and result[0]:
                             error_logger.info(
                                 f"✅ Service download successful for: {url}"
@@ -3829,7 +3843,7 @@ class VideoDownloader:
                             # Handle regular video platforms
                             filename, title = await asyncio.wait_for(
                                 self.download_video(url, chat_id, chat_type),
-                                timeout=60,
+                                timeout=_VIDEO_DOWNLOAD_TIMEOUT,
                             )
                     # chat_action exited — keepalive cancelled, indicator stops refreshing
                     if is_youtube_music:
