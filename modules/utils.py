@@ -686,7 +686,10 @@ class ScreenshotManager:
                 
                 try:
                     # Navigate to the widget URL
-                    await page.goto('https://api.meteoagent.com/widgets/v1/kindex', wait_until='networkidle')
+                    # 'networkidle' never fires on pages that keep polling, so wait
+                    # for 'load' and give the widget's scripts time to render.
+                    await page.goto(WEATHER_API_URL, wait_until='load')
+                    await page.wait_for_timeout(3000)
                     
                     # Wait for the widget to load (use a more general selector if needed)
                     try:
@@ -1282,7 +1285,12 @@ async def screenshot_command(update: Update, context: CallbackContext[Any, Any, 
 
         # Try to capture the widget
         screenshot_path = await manager.capture_meteoagent_widget()
-        
+
+        # Fall back to wkhtmltoimage if the Playwright capture is unavailable or failed
+        if not screenshot_path or not os.path.exists(screenshot_path):
+            general_logger.warning("Playwright capture failed, falling back to wkhtmltoimage")
+            screenshot_path = await manager.take_screenshot(WEATHER_API_URL, manager.get_screenshot_path())
+
         if not screenshot_path or not os.path.exists(screenshot_path):
             raise Exception("Не вдалося зробити знімок віджета")
         
