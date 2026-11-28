@@ -110,7 +110,7 @@ async def test_help_command_sends_help_text():
     # Verify that reply_text was called with help content
     update.message.reply_text.assert_awaited_once()
     call_args = update.message.reply_text.call_args[0][0]
-    assert "PsychoChauffeur Bot - Довідка" in call_args
+    assert "PsychoChauffeur — усі команди" in call_args
     assert "analyze" in call_args
 
 @pytest.mark.asyncio
