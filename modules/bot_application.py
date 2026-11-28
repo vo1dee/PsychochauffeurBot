@@ -451,6 +451,10 @@ class BotApplication(ServiceInterface):
             await self.telegram_app.initialize()
             await self.telegram_app.start()
 
+            # Publish the "/" command menu so it matches the registered handlers
+            from modules.bot_commands_menu import publish_command_menu
+            await publish_command_menu(self.telegram_app.bot)
+
             # Schedule weekly report job (Saturday 23:00 Kyiv time)
             try:
                 from modules.report_command import weekly_report_callback
