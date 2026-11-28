@@ -96,7 +96,11 @@ async def test_start_command_replies_and_logs():
     context = MagicMock()
     with patch("modules.handlers.basic_commands.general_logger.info") as mock_log:
         await basic_commands.start_command(update, context)
-        assert update.message.reply_text.await_count >= 2  # Welcome and button
+        update.message.reply_text.assert_awaited_once()
+        text = update.message.reply_text.await_args.args[0]
+        assert "PsychoChauffeur" in text
+        assert "/help" in text
+        assert update.message.reply_text.await_args.kwargs["parse_mode"] == "Markdown"
         mock_log.assert_called_with("Handled /start command for user 123")
 
 @pytest.mark.asyncio
