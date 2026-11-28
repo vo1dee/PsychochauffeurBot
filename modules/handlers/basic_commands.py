@@ -19,37 +19,27 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     welcome_text = (
-        "🤖 **PsychoChauffeur Bot**\n\n"
+        "👋 *Привіт! Я PsychoChauffeur* — бот, який живе у вашому чаті.\n\n"
 
-        "🤖 **AI / GPT:**\n"
-        "• `/ask <питання>` — запитати GPT\n"
-        "• `/analyze` — аналіз повідомлень чату\n\n"
+        "🎥 *Кидайте посилання — я скачаю.*\n"
+        "TikTok, Instagram, YouTube Shorts, X, Vimeo, Twitch: відео й фото "
+        "прийдуть прямо в чат.\n\n"
 
-        "📊 **Статистика:**\n"
-        "• `/stats` — статистика чату\n"
-        "• `/mystats` — особиста статистика\n"
-        "• `/count` — кількість повідомлень\n\n"
+        "🎵 *Музика.*\n"
+        "Посилання Spotify, Deezer, Apple Music чи Shazam → готовий трек. "
+        "Або `/song <назва>`.\n\n"
 
-        "🌤 **Погода та космос:**\n"
-        "• `/weather <місто>` — погода\n"
-        "• `/flares` — сонячні спалахи\n"
-        "• `/gm` — геомагнітна активність\n\n"
+        "🧠 *Розумний співрозмовник.*\n"
+        "• `/ask <питання>` — відповім, за потреби пошукаю в інтернеті\n"
+        "• Тегніть мене або відповідайте на мої повідомлення — підтримаю розмову\n"
+        "• `/tldr` — коротко про повідомлення чи статтю\n"
+        "• `/analyze` — що сьогодні було в чаті\n\n"
 
-        "🎥 **Медіа:**\n"
-        "• Відео: TikTok, YouTube Shorts, Twitter, Vimeo, Twitch\n"
-        "• 🐱 `/cat` — випадкове фото кота\n\n"
+        "🌤 *Погода й космос:* `/weather <місто>`, `/gm`, `/flares`, `/nasa`\n\n"
 
-        "🔗 **Посилання:**\n"
-        "• Оптимізація AliExpress та обмежених доменів\n\n"
+        "📜 *Для адмінів:* щоденний рекап `/recap on`, налаштування `/config`\n\n"
 
-        "📜 **Рекап:**\n"
-        "• `/recap on|off` — щоденний рекап чату (для адмінів)\n\n"
-
-        "🔧 **Адмін:**\n"
-        "• `/mute`, `/unmute`, `/speech`, `/random`, `/reaction`\n\n"
-
-        "❓ Детальна довідка: /help\n"
-        "Питання: @vo1dee"
+        "Усі команди: /help · Питання: @vo1dee"
     )
     await update.message.reply_text(welcome_text, parse_mode='Markdown')
 
